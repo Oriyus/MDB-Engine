@@ -1,0 +1,40 @@
+# ---------------------------------------------------------------
+# Dear ImGui (core + GLFW and OpenGL3 backends), its own library
+# ---------------------------------------------------------------
+add_library(imgui STATIC
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/imgui_demo.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+    ${CMAKE_SOURCE_DIR}/vendor/imguizmo/ImGuizmo.cpp
+)
+target_include_directories(imgui PUBLIC
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
+    ${CMAKE_SOURCE_DIR}/vendor/imguizmo
+)
+target_link_libraries(imgui PUBLIC glfw)
+
+# ---------------------------------------------------------------
+# Engine
+# ---------------------------------------------------------------
+file(GLOB_RECURSE ENGINE_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/*.h
+)
+
+add_library(Engine STATIC ${ENGINE_SOURCES})
+target_include_directories(Engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(Engine PRIVATE ${CMAKE_SOURCE_DIR}/vendor/stb)
+target_compile_definitions(Engine PUBLIC GLFW_INCLUDE_NONE)
+
+if(MSVC)
+    target_compile_options(Engine PUBLIC /utf-8)
+endif()
+
+target_link_libraries(Engine PUBLIC
+    glfw glm::glm spdlog::spdlog EnTT::EnTT assimp glad imgui nlohmann_json::nlohmann_json
+)
