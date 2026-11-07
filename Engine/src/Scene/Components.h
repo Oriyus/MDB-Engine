@@ -42,7 +42,9 @@ namespace Engine {
     };
 
     enum class BodyType { Static, Dynamic, Kinematic };
-    enum class ColliderShape { Box, Sphere };
+    // ConvexHull and Mesh use the entity's MeshRenderer geometry (with its LocalOffset), scaled by the
+    // entity: Size and Center are ignored for them. Mesh is exact but static/kinematic only.
+    enum class ColliderShape { Box, Sphere, ConvexHull, Mesh };
 
     struct RigidBodyComponent {
         BodyType Type = BodyType::Dynamic;

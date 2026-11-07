@@ -21,6 +21,10 @@ namespace Engine {
         m_VAO->AddVertexBuffer(vb);
         m_VAO->SetIndexBuffer(std::make_shared<IndexBuffer>(indices.data(), (uint32_t)indices.size()));
 
+        m_Positions.reserve(vertices.size());
+        for (const auto& v : vertices) m_Positions.push_back(v.Position);
+        m_Indices = indices;
+
         if (!vertices.empty()) {
             m_Min = m_Max = vertices[0].Position;
             for (const auto& v : vertices) {
@@ -28,6 +32,12 @@ namespace Engine {
                 m_Max = glm::max(m_Max, v.Position);
             }
         }
+    }
+
+    void Mesh::GetCollisionGeometry(std::vector<glm::vec3>& positions, std::vector<uint32_t>& indices) const {
+        const uint32_t base = (uint32_t)positions.size();
+        positions.insert(positions.end(), m_Positions.begin(), m_Positions.end());
+        for (uint32_t i : m_Indices) indices.push_back(base + i);
     }
 
     void Mesh::Draw() const {

@@ -366,7 +366,9 @@ namespace Engine {
                     rb.Type = ParseBodyType(opts->get_or<std::string>("type", "dynamic"));
                     const std::string shape = opts->get_or<std::string>("shape", "box");
                     if (shape == "sphere") rb.Shape = ColliderShape::Sphere;
-                    else if (shape != "box") throw std::runtime_error("unknown shape '" + shape + "' (box, sphere)");
+                    else if (shape == "convex") rb.Shape = ColliderShape::ConvexHull;   // from the entity's mesh
+                    else if (shape == "mesh") rb.Shape = ColliderShape::Mesh;           // exact, static/kinematic only
+                    else if (shape != "box") throw std::runtime_error("unknown shape '" + shape + "' (box, sphere, convex, mesh)");
                     sol::object size = (*opts)["size"];
                     if (size.is<glm::vec3>())  rb.Size = size.as<glm::vec3>();
                     else if (size.is<float>()) rb.Size = glm::vec3(size.as<float>());

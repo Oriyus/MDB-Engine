@@ -22,6 +22,14 @@ namespace Engine {
 
         bool HasTexturedMaterials() const;
         void GetLocalBounds(glm::vec3& mn, glm::vec3& mx) const override { mn = m_Min; mx = m_Max; }
+        void GetCollisionGeometry(std::vector<glm::vec3>& positions, std::vector<uint32_t>& indices) const override {
+            for (const auto& s : m_Submeshes) s.Geometry->GetCollisionGeometry(positions, indices);
+        }
+        uint32_t TriangleCount() const override {
+            uint32_t n = 0;
+            for (const auto& s : m_Submeshes) n += s.Geometry->TriangleCount();
+            return n;
+        }
 
         // Matrix that centers the model on the origin and scales its largest side to targetSize
         glm::mat4 GetNormalizeMatrix(float targetSize) const;

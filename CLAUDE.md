@@ -107,7 +107,7 @@ Color spaces: lighting is done in linear space. Color pickers and albedo colors 
 - **Hierarchy panel** is a tree. Drag an entity onto another to parent it, or onto the empty space below to make it a root (the world placement is kept). The Inspector's Transform shows local values, with "Relative to <parent>" and an Unparent button.
 - **Prefabs in the editor:** Hierarchy "+ Prefab" places an instance. Instances are listed in blue. The Inspector shows the link ("Prefab" or "Part of prefab") with its overrides (each with a Revert button), Apply to prefab (the whole instance), Revert all and Unpack, or "Save as prefab..." for a plain entity. Scripts use `scene.spawn_prefab("name", pos)`.
 - **Example levels** (Tools > Scene): **Script demo** (`demo.json`) and **Coin Rush** (`coin_rush.json`), a small game. In Coin Rush you collect 8 coins in 2 minutes and then reach the goal. It has lava, a sweeper and a bounce pad, and R retries. Its scripts are `game.lua` (rules and HUD, state in `shared`), `follow.lua`, `player.lua`, `coin.lua`, `goal.lua`, `hazard.lua` and `bouncer.lua`.
-- Physics runs only during Play, at a fixed 60 Hz with interpolated transforms. Body types are Static, Dynamic and Kinematic, shapes are Box and Sphere, and any body can be a Trigger (drawn in magenta). **T** throws a ball during Play. Collider outlines are drawn with ImGui.
+- Physics runs only during Play, at a fixed 60 Hz with interpolated transforms. Body types are Static, Dynamic and Kinematic. Shapes are Box, Sphere, Convex hull and Mesh: hull and mesh use the entity's mesh with its LocalOffset and world scale, are cached per geometry and scale for each Play, and fall back to a box (with a warning) without a Mesh Renderer. Any body can be a Trigger (drawn in magenta). The overlay draws hull and mesh colliders as a faint wireframe (at most 2000 triangles, sampled). **T** throws a ball during Play. Collider outlines are drawn with ImGui.
 
 ## Conventions
 
@@ -119,11 +119,11 @@ Color spaces: lighting is done in linear space. Color pickers and albedo colors 
 
 ## Known limitations and ideas
 
-- Physics colliders are boxes and spheres only. Convex-hull and mesh colliders are not done. Triggers detect dynamic bodies only (not kinematic or static ones).
+- Collider shapes: Box, Sphere, Convex hull and Mesh. Hull and Mesh are built from the entity's Mesh Renderer geometry (`Renderable::GetCollisionGeometry`; `Mesh` keeps a CPU copy). Mesh is static/kinematic only, since a dynamic one gets a hull. No capsules or compound shapes yet. Triggers detect dynamic bodies only (not kinematic or static ones).
 - Changing a RigidBody in the Inspector during Play applies on the next Play. Scripts rebuild a body with `add_body`.
 - Only the first sun and up to 4 point lights are used (`MaxLights`, `MAX_POINT_LIGHTS`).
 - SSAO is a post-multiply (darkens direct light too), and its blur is not depth-aware.
 - Models are imported with `PreTransformVertices`, so there is no node hierarchy or skeletal animation.
 - No transparency or blending pass. Materials with alpha render opaque.
 - The sun shadow area is fixed around the origin (no cascades).
-- Candidate next steps: more UI for scripts (images, buttons), mesh/convex colliders, skeletal animation, transparency, batching/instancing, a Vulkan backend.
+- Candidate next steps: more UI for scripts (images, buttons), capsule/compound colliders, skeletal animation, transparency, batching/instancing, a Vulkan backend.

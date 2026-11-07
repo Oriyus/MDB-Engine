@@ -8,6 +8,8 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
+#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/CastResult.h>
@@ -23,7 +25,10 @@
 #include <algorithm>
 #include <mutex>
 #include <thread>
+#include <cfloat>
+#include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace Engine {
 
@@ -197,6 +202,8 @@ namespace Engine {
             Queued.clear();
             Events.clear();
             Contacts.Take();
+            ShapeCache.clear();          // geometry may have changed (or been freed) since the last Play
+            Warned.clear();
             Accumulator = 0.0f;
         }
 
@@ -219,6 +226,78 @@ namespace Engine {
             Bindings.erase(it);
         }
 
+        // ---- convex hull and mesh shapes, built from the entity's MeshRenderer geometry
+        std::unordered_map<std::string, JPH::ShapeRefC> ShapeCache;   // same geometry + scale -> one shape
+        std::unordered_set<entt::entity> Warned;
+
+        void WarnOnce(entt::entity e, const char* what) {
+            if (!Warned.insert(e).second) return;
+            const auto* tag = Reg ? Reg->try_get<TagComponent>(e) : nullptr;
+            ENGINE_WARN("Physics: '{}': {}", tag ? tag->Tag : std::string("?"), what);
+        }
+
+        JPH::ShapeRefC GeometryShape(entt::entity e, bool exactMesh, const glm::vec3& worldScale) {
+            const auto* mr = Reg->try_get<MeshRendererComponent>(e);
+            if (!mr || !mr->Geometry) { WarnOnce(e, "a convex hull or mesh collider needs a Mesh Renderer: using a box"); return nullptr; }
+
+            // The shape lives in body space: the geometry through its LocalOffset, then the entity's scale
+            std::string key((const char*)&mr->Geometry, sizeof(void*));
+            key.append((const char*)&mr->LocalOffset, sizeof(glm::mat4));
+            key.append((const char*)&worldScale, sizeof(glm::vec3));
+            key.push_back(exactMesh ? 'm' : 'h');
+            if (auto it = ShapeCache.find(key); it != ShapeCache.end()) return it->second;
+
+            std::vector<glm::vec3> pos;
+            std::vector<uint32_t> idx;
+            mr->Geometry->GetCollisionGeometry(pos, idx);
+            if (pos.empty()) { WarnOnce(e, "its geometry has no triangles for a collider: using a box"); return nullptr; }
+            glm::vec3 mn(FLT_MAX), mx(-FLT_MAX);
+            for (auto& p : pos) {
+                p = glm::vec3(mr->LocalOffset * glm::vec4(p, 1.0f)) * worldScale;
+                mn = glm::min(mn, p);
+                mx = glm::max(mx, p);
+            }
+
+            JPH::ShapeSettings::ShapeResult result;
+            if (exactMesh) {
+                JPH::VertexList verts;
+                verts.reserve(pos.size());
+                for (const auto& p : pos) verts.push_back(JPH::Float3(p.x, p.y, p.z));
+                JPH::IndexedTriangleList tris;
+                tris.reserve(idx.size() / 3);
+                for (size_t i = 0; i + 2 < idx.size(); i += 3) tris.push_back(JPH::IndexedTriangle(idx[i], idx[i + 1], idx[i + 2], 0));
+                result = JPH::MeshShapeSettings(std::move(verts), std::move(tris)).Create();
+            }
+            else {
+                // Merge points closer than 1/1000 of the size, and keep at most a few thousand:
+                // the hull of a big model is just as good from a sample
+                const glm::vec3 extent = mx - mn;
+                const float cell = std::max({ extent.x, extent.y, extent.z }) / 1000.0f + 1e-6f;
+                std::unordered_set<uint64_t> seen;
+                JPH::Array<JPH::Vec3> points;
+                for (const auto& p : pos) {
+                    const glm::ivec3 c = glm::ivec3(glm::floor((p - mn) / cell));
+                    const uint64_t k = (uint64_t(c.x & 0x1FFFFF) << 42) | (uint64_t(c.y & 0x1FFFFF) << 21) | uint64_t(c.z & 0x1FFFFF);
+                    if (seen.insert(k).second) points.push_back(ToJolt(p));
+                }
+                constexpr size_t kMaxPoints = 4000;
+                if (points.size() > kMaxPoints) {
+                    JPH::Array<JPH::Vec3> sample;
+                    const double stride = double(points.size()) / kMaxPoints;
+                    for (size_t i = 0; i < kMaxPoints; i++) sample.push_back(points[(size_t)(i * stride)]);
+                    points = std::move(sample);
+                }
+                const float radius = std::min(0.05f, 0.1f * std::min({ extent.x, extent.y, extent.z }));
+                result = JPH::ConvexHullShapeSettings(points, std::max(radius, 0.0f)).Create();
+            }
+            if (result.HasError()) {
+                ENGINE_WARN("Physics: can't build a {} for '{}' ({}): using a box", exactMesh ? "mesh collider" : "convex hull",
+                    Reg->get<TagComponent>(e).Tag, result.GetError().c_str());
+                return nullptr;
+            }
+            return ShapeCache[key] = result.Get();
+        }
+
         // Where the entity is in the world (transforms are local to their parent)
         void WorldPose(entt::entity e, glm::vec3& pos, glm::quat& rot, glm::vec3& scale) const {
             Scene::Decompose(Sc->GetWorldMatrix(e), pos, rot, scale);
@@ -230,24 +309,34 @@ namespace Engine {
             WorldPose(e, worldPos, q, worldScale);
             const glm::vec3 scale = glm::abs(worldScale);
 
-            JPH::ShapeRefC shape;
-            if (rb.Shape == ColliderShape::Sphere) {
-                float r = std::max(0.01f, 0.5f * rb.Size.x * std::max({ scale.x, scale.y, scale.z }));
-                shape = new JPH::SphereShape(r);
-            }
-            else {
-                glm::vec3 half = glm::max(0.5f * rb.Size * scale, glm::vec3(0.01f));
-                float convexRadius = std::min(0.05f, std::min({ half.x, half.y, half.z }));
-                shape = new JPH::BoxShape(ToJolt(half), convexRadius);
-            }
-
-            const glm::vec3 offset = rb.Center * worldScale;
-            if (glm::dot(offset, offset) > 1e-10f)
-                shape = new JPH::RotatedTranslatedShape(ToJolt(offset), JPH::Quat::sIdentity(), shape.GetPtr());
-
             // Triggers are kinematic sensors: a static sensor loses its contacts when the body
             // inside falls asleep (a false "exit"), an active kinematic one never does
             const BodyType type = rb.IsTrigger ? BodyType::Kinematic : rb.Type;
+
+            JPH::ShapeRefC shape;
+            if (rb.Shape == ColliderShape::ConvexHull || rb.Shape == ColliderShape::Mesh) {
+                // Jolt can't simulate a triangle mesh as a dynamic body: those get a convex hull
+                bool exact = rb.Shape == ColliderShape::Mesh;
+                if (exact && type == BodyType::Dynamic) {
+                    WarnOnce(e, "a Mesh collider can't be dynamic: using a convex hull");
+                    exact = false;
+                }
+                shape = GeometryShape(e, exact, worldScale);   // null if it can't be built: falls back to a box
+            }
+            if (!shape) {
+                if (rb.Shape == ColliderShape::Sphere) {
+                    float r = std::max(0.01f, 0.5f * rb.Size.x * std::max({ scale.x, scale.y, scale.z }));
+                    shape = new JPH::SphereShape(r);
+                }
+                else {
+                    glm::vec3 half = glm::max(0.5f * rb.Size * scale, glm::vec3(0.01f));
+                    float convexRadius = std::min(0.05f, std::min({ half.x, half.y, half.z }));
+                    shape = new JPH::BoxShape(ToJolt(half), convexRadius);
+                }
+                const glm::vec3 offset = rb.Center * worldScale;
+                if (glm::dot(offset, offset) > 1e-10f)
+                    shape = new JPH::RotatedTranslatedShape(ToJolt(offset), JPH::Quat::sIdentity(), shape.GetPtr());
+            }
 
             JPH::EMotionType motion = type == BodyType::Static ? JPH::EMotionType::Static
                 : type == BodyType::Kinematic ? JPH::EMotionType::Kinematic

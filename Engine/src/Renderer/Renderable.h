@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <glm/glm.hpp>
+#include <vector>
 
 namespace Engine {
 
@@ -22,6 +23,11 @@ namespace Engine {
         virtual uint32_t SubmeshCount() const { return 1; }
         virtual void DrawSubmesh(uint32_t) const { Draw(); }
         virtual const Material* GetSubmeshMaterial(uint32_t) const { return nullptr; }
+
+        // Triangles in the renderable's own space, for physics (convex hull and mesh colliders).
+        // Appends to the vectors; indices count from the positions already there.
+        virtual void GetCollisionGeometry(std::vector<glm::vec3>& positions, std::vector<uint32_t>& indices) const {}
+        virtual uint32_t TriangleCount() const { return 0; }
     };
 
 } // namespace Engine

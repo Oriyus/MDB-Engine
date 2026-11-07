@@ -107,7 +107,7 @@ public:
 
                 auto& rb = e.Add<RigidBodyComponent>();
                 rb.Type = BodyType::Kinematic;
-                FitCollider(mr, rb);
+                rb.Shape = ColliderShape::ConvexHull;   // wraps the model's real shape
             }
         }
 
@@ -653,7 +653,27 @@ public:
                 : IM_COL32(255, 200, 60, 220);
             const glm::mat4 M = m_Scene.GetWorldMatrix(entity);   // parents included
 
-            if (rb.Shape == ColliderShape::Box) {
+            if (rb.Shape == ColliderShape::ConvexHull || rb.Shape == ColliderShape::Mesh) {
+                // The geometry the collider is built from, as a wireframe. Big meshes show an even
+                // sample of their triangles (at most 2000), which still reads as the shape.
+                const auto* mr = m_Scene.Registry().try_get<MeshRendererComponent>(entity);
+                if (!mr || !mr->Geometry) continue;
+                const glm::mat4 G = M * mr->LocalOffset;
+                std::vector<glm::vec3> pos;
+                std::vector<uint32_t> idx;
+                mr->Geometry->GetCollisionGeometry(pos, idx);
+                const size_t tris = idx.size() / 3;
+                const size_t step = std::max<size_t>(1, tris / 2000);
+                const ImU32 faint = (col & 0x00FFFFFFu) | (110u << 24);   // a wireframe this dense must not hide the model
+                for (auto& p : pos) p = glm::vec3(G * glm::vec4(p, 1.0f));
+                for (size_t t = 0; t < tris; t += step) {
+                    const size_t i = t * 3;
+                    line(pos[idx[i]], pos[idx[i + 1]], faint);
+                    line(pos[idx[i + 1]], pos[idx[i + 2]], faint);
+                    line(pos[idx[i + 2]], pos[idx[i]], faint);
+                }
+            }
+            else if (rb.Shape == ColliderShape::Box) {
                 const glm::vec3 h = rb.Size * 0.5f;
                 glm::vec3 c[8];
                 for (int i = 0; i < 8; i++)
@@ -1317,11 +1337,24 @@ private:
             int type = (int)rb.Type;
             if (ImGui::Combo("Type", &type, "Static\0Dynamic\0Kinematic\0")) rb.Type = (BodyType)type;
             int shape = (int)rb.Shape;
-            if (ImGui::Combo("Shape", &shape, "Box\0Sphere\0")) rb.Shape = (ColliderShape)shape;
+            if (ImGui::Combo("Shape", &shape, "Box\0Sphere\0Convex hull\0Mesh\0")) rb.Shape = (ColliderShape)shape;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Convex hull: the mesh's outer shape, any body type.\n"
+                    "Mesh: its exact triangles, for static and kinematic bodies (level geometry).");
 
-            if (rb.Shape == ColliderShape::Sphere) ImGui::DragFloat("Diameter", &rb.Size.x, 0.02f, 0.01f, 100.0f);
-            else                                   ImGui::DragFloat3("Size", &rb.Size.x, 0.02f, 0.01f, 100.0f);
-            ImGui::DragFloat3("Center", &rb.Center.x, 0.02f);
+            if (rb.Shape == ColliderShape::ConvexHull || rb.Shape == ColliderShape::Mesh) {
+                const bool hasMesh = e.Has<MeshRendererComponent>() && e.Get<MeshRendererComponent>().Geometry;
+                if (!hasMesh) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "Needs a Mesh Renderer (a box is used)");
+                else ImGui::TextDisabled("Built from the Mesh Renderer (%u triangles), scaled with the entity",
+                    e.Get<MeshRendererComponent>().Geometry->TriangleCount());
+                if (rb.Shape == ColliderShape::Mesh && rb.Type == BodyType::Dynamic && !rb.IsTrigger)
+                    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "Dynamic bodies can't use a mesh: a convex hull is used");
+            }
+            else {
+                if (rb.Shape == ColliderShape::Sphere) ImGui::DragFloat("Diameter", &rb.Size.x, 0.02f, 0.01f, 100.0f);
+                else                                   ImGui::DragFloat3("Size", &rb.Size.x, 0.02f, 0.01f, 100.0f);
+                ImGui::DragFloat3("Center", &rb.Center.x, 0.02f);
+            }
 
             if (rb.Type == BodyType::Dynamic) ImGui::DragFloat("Mass", &rb.Mass, 0.05f, 0.01f, 1000.0f);
             ImGui::SliderFloat("Friction", &rb.Friction, 0.0f, 1.0f);

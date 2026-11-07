@@ -50,7 +50,7 @@ namespace Engine {
     //   e.body   -> nil or { velocity, angular_velocity, type, trigger, mass,
     //                         add_force(v) (newtons, lasts this frame: call each frame), add_impulse(v) }
     //   e:add_mesh{ geometry="cube", texture="checker", color=vec3, metallic, roughness, emissive, unlit }
-    //   e:add_body{ type="dynamic"|"static"|"kinematic", shape="box"|"sphere", size=number|vec3,
+    //   e:add_body{ type="dynamic"|"static"|"kinematic", shape="box"|"sphere"|"convex"|"mesh", size=number|vec3,
     //               center=vec3, mass, friction, bounciness, trigger=bool, velocity=vec3 }
     //   e:add_light{ color=vec3, intensity, shadows }
     //   e:add_script("Scripts/x.lua")        starts on the next frame
