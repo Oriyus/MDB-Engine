@@ -7,8 +7,15 @@ namespace Engine {
 
     struct PostSettings {
         float Exposure = 1.0f;
-        int   ToneMap = 2;       // 0 = clamp, 1 = Reinhard, 2 = ACES
+        int   ToneMap = 2;           // 0 = clamp, 1 = Reinhard, 2 = ACES
         bool  Gamma = true;
+
+        bool  AOEnabled = true;
+        float AOStrength = 1.0f;
+        bool  AODebug = false;       // show the AO buffer alone
+
+        bool  BloomEnabled = true;
+        float BloomIntensity = 0.12f;
     };
 
     // Turns an HDR texture into a displayable 8-bit one
@@ -21,7 +28,8 @@ namespace Engine {
         PostProcess& operator=(const PostProcess&) = delete;
 
         void Resize(uint32_t width, uint32_t height);
-        void Apply(uint32_t hdrTexture, Shader& shader, const PostSettings& settings);
+        void Apply(uint32_t hdrTexture, uint32_t aoTexture, uint32_t bloomTexture,
+            Shader& shader, const PostSettings& settings);
 
         uint32_t GetOutput() const { return m_Tex; }
 

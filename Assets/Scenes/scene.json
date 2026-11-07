@@ -3,9 +3,1423 @@
     {
       "meshRenderer": {
         "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 1.0,
+        "roughness": 1.0,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          2.5999999046325684,
+          -0.5999999046325684,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 1.0,
+        "roughness": 0.762499988079071,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          1.2999999523162842,
+          -0.5999999046325684,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 1.0,
+        "roughness": 0.5249999761581421,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          0.0,
+          -0.5999999046325684,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 1.0,
+        "roughness": 0.2874999940395355,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          -1.2999999523162842,
+          -0.5999999046325684,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 1.0,
+        "roughness": 0.05000000074505806,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          -2.5999999046325684,
+          -0.5999999046325684,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.75,
+        "roughness": 1.0,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          2.5999999046325684,
+          0.7000000476837158,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.75,
+        "roughness": 0.762499988079071,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          1.2999999523162842,
+          0.7000000476837158,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.75,
+        "roughness": 0.5249999761581421,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          0.0,
+          0.7000000476837158,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.75,
+        "roughness": 0.2874999940395355,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          -1.2999999523162842,
+          0.7000000476837158,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.75,
+        "roughness": 0.05000000074505806,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          -2.5999999046325684,
+          0.7000000476837158,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.5,
+        "roughness": 1.0,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          2.5999999046325684,
+          2.0,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.5,
+        "roughness": 0.762499988079071,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          1.2999999523162842,
+          2.0,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.5,
+        "roughness": 0.5249999761581421,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          0.0,
+          2.0,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.5,
+        "roughness": 0.2874999940395355,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          -1.2999999523162842,
+          2.0,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.5,
+        "roughness": 0.05000000074505806,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          -2.5999999046325684,
+          2.0,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.25,
+        "roughness": 1.0,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          2.5999999046325684,
+          3.299999952316284,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.25,
+        "roughness": 0.762499988079071,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          1.2999999523162842,
+          3.299999952316284,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.25,
+        "roughness": 0.5249999761581421,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          0.0,
+          3.299999952316284,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.25,
+        "roughness": 0.2874999940395355,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          -1.2999999523162842,
+          3.299999952316284,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.25,
+        "roughness": 0.05000000074505806,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          -2.5999999046325684,
+          3.299999952316284,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "roughness": 1.0,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          2.5999999046325684,
+          4.599999904632568,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "roughness": 0.762499988079071,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          1.2999999523162842,
+          4.599999904632568,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "roughness": 0.5249999761581421,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          0.0,
+          4.599999904632568,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "roughness": 0.2874999940395355,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          -1.2999999523162842,
+          4.599999904632568,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "roughness": 0.05000000074505806,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          -2.5999999046325684,
+          4.599999904632568,
+          -3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "directionalLight": {
+        "castShadows": true,
+        "color": [
           1.0,
           0.949999988079071,
-          0.8500000238418579
+          0.8999999761581421
+        ],
+        "intensity": 0.4000000059604645
+      },
+      "meshRenderer": {
+        "color": [
+          1.0,
+          0.8999999761581421,
+          0.4000000059604645
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
         ],
         "geometry": "cube",
         "localOffset": [
@@ -26,29 +1440,98 @@
           0.0,
           1.0
         ],
-        "shininess": 64.0,
-        "specularStrength": 0.6000000238418579,
+        "metallic": 0.0,
+        "roughness": 0.5,
         "texture": "",
-        "unlit": true
+        "unlit": true,
+        "useModelMaterials": false
       },
-      "name": "Light",
-      "pointLight": {
-        "color": [
-          1.0,
-          0.949999988079071,
-          0.8500000238418579
+      "name": "Sun",
+      "transform": {
+        "position": [
+          0.0,
+          6.0,
+          0.0
         ],
-        "intensity": 1.0
+        "rotation": [
+          -0.8999999761581421,
+          0.5,
+          0.0
+        ],
+        "scale": [
+          0.11999999731779099,
+          0.11999999731779099,
+          0.6000000238418579
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.4000000059604645,
+          0.6000000238418579,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "roughness": 0.5,
+        "texture": "",
+        "unlit": true,
+        "useModelMaterials": false
+      },
+      "name": "Light 2",
+      "orbit": {
+        "angle": -699.1529541015625,
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "height": 2.5,
+        "radius": 4.5,
+        "speed": -0.6000000238418579
+      },
+      "pointLight": {
+        "castShadows": true,
+        "color": [
+          0.4000000059604645,
+          0.6000000238418579,
+          1.0
+        ],
+        "intensity": 0.9800000190734863
       },
       "transform": {
         "position": [
-          -1.8202464580535889,
-          3.541618585586548,
-          -0.30992186069488525
+          -0.6661913394927979,
+          2.5,
+          -4.450414657592773
         ],
         "rotation": [
           0.0,
-          -0.0,
+          0.0,
           0.0
         ],
         "scale": [
@@ -61,59 +1544,14 @@
     {
       "meshRenderer": {
         "color": [
-          0.8500000238418579,
-          0.6000000238418579,
-          0.3499999940395355
-        ],
-        "geometry": "model",
-        "localOffset": [
-          0.731428325176239,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.731428325176239,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          0.731428325176239,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0
-        ],
-        "shininess": 64.0,
-        "specularStrength": 0.6000000238418579,
-        "texture": "",
-        "unlit": false
-      },
-      "name": "Model",
-      "transform": {
-        "position": [
-          3.6127991676330566,
-          0.0,
-          3.452759265899658
-        ],
-        "rotation": [
-          2.4741294384002686,
-          -0.33829039335250854,
-          -2.8857574462890625
-        ],
-        "scale": [
-          1.1199980974197388,
-          1.1199973821640015,
-          1.1616848707199097
-        ]
-      }
-    },
-    {
-      "meshRenderer": {
-        "color": [
           1.0,
-          1.0,
-          1.0
+          0.949999988079071,
+          0.8500000238418579
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
         ],
         "geometry": "cube",
         "localOffset": [
@@ -134,10 +1572,150 @@
           0.0,
           1.0
         ],
-        "shininess": 64.0,
-        "specularStrength": 0.6000000238418579,
+        "metallic": 0.0,
+        "roughness": 0.5,
+        "texture": "",
+        "unlit": true,
+        "useModelMaterials": false
+      },
+      "name": "Light",
+      "orbit": {
+        "angle": 1170.8099365234375,
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "height": 1.5,
+        "radius": 3.0,
+        "speed": 1.0
+      },
+      "pointLight": {
+        "castShadows": true,
+        "color": [
+          1.0,
+          0.949999988079071,
+          0.8500000238418579
+        ],
+        "intensity": 1.0
+      },
+      "transform": {
+        "position": [
+          -1.6104843616485596,
+          1.5,
+          2.5310750007629395
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          0.15000000596046448,
+          0.15000000596046448,
+          0.15000000596046448
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model",
+        "localOffset": [
+          99.24331665039063,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          99.24331665039063,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          99.24331665039063,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "roughness": 0.5,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Model",
+      "spin": {
+        "speed": [
+          0.0,
+          0.30000001192092896,
+          0.0
+        ]
+      },
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          5.630947113037109,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "roughness": 0.5,
         "texture": "checker",
-        "unlit": false
+        "unlit": false,
+        "useModelMaterials": false
       },
       "name": "Cube",
       "spin": {
@@ -149,19 +1727,19 @@
       },
       "transform": {
         "position": [
-          -4.118664741516113,
-          -0.5000004768371582,
-          -4.968336582183838
+          -2.5,
+          -0.5,
+          0.0
         ],
         "rotation": [
-          3.1416425704956055,
-          2.4276256561279297,
-          3.1416425704956055
+          0.0,
+          4.978790760040283,
+          0.0
         ],
         "scale": [
-          0.9999988675117493,
           1.0,
-          0.9999988675117493
+          1.0,
+          1.0
         ]
       }
     },
@@ -171,6 +1749,11 @@
           0.800000011920929,
           0.800000011920929,
           0.800000011920929
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
         ],
         "geometry": "plane",
         "localOffset": [
@@ -191,10 +1774,11 @@
           0.0,
           1.0
         ],
-        "shininess": 64.0,
-        "specularStrength": 0.6000000238418579,
+        "metallic": 0.0,
+        "roughness": 0.8500000238418579,
         "texture": "checker",
-        "unlit": false
+        "unlit": false,
+        "useModelMaterials": false
       },
       "name": "Floor",
       "transform": {

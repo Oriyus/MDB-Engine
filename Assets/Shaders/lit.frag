@@ -9,6 +9,7 @@ layout(location = 1) out int  EntityID;
 
 #define MAX_POINT_LIGHTS 4
 const float PI = 3.14159265359;
+const float kUnlitGlow = 4.0;   // unlit objects (light markers) are drawn as hot, glowing emitters
 
 uniform sampler2D        u_Texture;          // unit 0: albedo
 uniform samplerCubeArray u_PointShadowMaps;  // unit 1
@@ -187,7 +188,7 @@ void main() {
     if (u_UseTexture == 1) albedo *= texture(u_Texture, v_TexCoord).rgb;
 
     if (u_Unlit == 1) {
-        FragColor = vec4(albedo, 1.0);
+        FragColor = vec4(albedo * kUnlitGlow, 1.0);
         return;
     }
 

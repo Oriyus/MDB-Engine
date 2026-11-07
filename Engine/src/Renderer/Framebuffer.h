@@ -22,6 +22,7 @@ namespace Engine {
         uint32_t GetColorAttachment() const { return m_ColorTex; }
         uint32_t GetWidth()  const { return m_Width; }
         uint32_t GetHeight() const { return m_Height; }
+        uint32_t GetDepthAttachment() const { return m_Depth; }
 
     private:
         void Invalidate();   // (re)create all GL objects at the current size

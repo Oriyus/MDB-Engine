@@ -48,21 +48,30 @@ namespace Engine {
         Invalidate();
     }
 
-    void PostProcess::Apply(uint32_t hdrTexture, Shader& shader, const PostSettings& s) {
+    void PostProcess::Apply(uint32_t hdr, uint32_t ao, uint32_t bloom, Shader& shader, const PostSettings& s) {
         glBindFramebuffer(GL_FRAMEBUFFER, m_FBO);
         glViewport(0, 0, (GLsizei)m_Width, (GLsizei)m_Height);
 
-        // A fullscreen triangle needs neither depth testing nor culling
         glDisable(GL_DEPTH_TEST);
         glDisable(GL_CULL_FACE);
 
         shader.Bind();
         shader.SetInt("u_Scene", 0);
+        shader.SetInt("u_AO", 1);
+        shader.SetInt("u_Bloom", 2);
         shader.SetFloat("u_Exposure", s.Exposure);
         shader.SetInt("u_ToneMap", s.ToneMap);
         shader.SetInt("u_Gamma", s.Gamma ? 1 : 0);
 
-        glBindTextureUnit(0, hdrTexture);
+        shader.SetInt("u_UseAO", (s.AOEnabled && ao) ? 1 : 0);
+        shader.SetFloat("u_AOStrength", s.AOStrength);
+        shader.SetInt("u_AODebug", s.AODebug ? 1 : 0);
+        shader.SetInt("u_UseBloom", (s.BloomEnabled && bloom) ? 1 : 0);
+        shader.SetFloat("u_BloomIntensity", s.BloomIntensity);
+
+        glBindTextureUnit(0, hdr);
+        glBindTextureUnit(1, ao);       // 0 simply unbinds when the effect is off
+        glBindTextureUnit(2, bloom);
         glBindVertexArray(m_VAO);
         glDrawArrays(GL_TRIANGLES, 0, 3);
         glBindVertexArray(0);

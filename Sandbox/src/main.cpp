@@ -17,6 +17,8 @@
 #include "Renderer/PostProcess.h"
 #include "Renderer/Material.h"
 #include "Renderer/Environment.h"
+#include "Renderer/SSAO.h"
+#include "Renderer/Bloom.h"
 
 #include <cfloat>
 #include <glad/glad.h>
@@ -59,6 +61,12 @@ public:
         m_Env->UseProcedural();
         ScanEnvironments();
 
+        const std::string sd = std::string(ASSET_DIR) + "Shaders/";
+        m_SSAOShader = std::make_unique<Shader>(sd + "tonemap.vert", sd + "ssao.frag");
+        m_SSAOBlurShader = std::make_unique<Shader>(sd + "tonemap.vert", sd + "ssao_blur.frag");
+        m_BloomDown = std::make_unique<Shader>(sd + "tonemap.vert", sd + "bloom_down.frag");
+        m_BloomUp = std::make_unique<Shader>(sd + "tonemap.vert", sd + "bloom_up.frag");
+
         m_PointShadows = std::make_unique<PointShadowArray>(1024);
         m_SunShadowMap = std::make_unique<DirectionalShadowMap>(2048);
 
@@ -69,6 +77,9 @@ public:
 
         m_Cube = Mesh::CreateCube();
         m_Checker = CreateCheckerTexture();
+
+        m_SSAO = std::make_unique<SSAO>(1280, 720);
+        m_Bloom = std::make_unique<Bloom>(1280, 720);
 
         // --- Floor
         {
@@ -188,7 +199,10 @@ public:
         bool kdel = EdgePressed(Key::Delete, m_DelDown);
 
         if (!typing) {
-            if (f5) { m_Shader->Reload(); m_ShadowShader->Reload(); m_SunShader->Reload(); m_PostShader->Reload(); m_Env->ReloadSkyShader();}
+            if (f5) { m_Shader->Reload(); m_ShadowShader->Reload(); m_SunShader->Reload(); m_PostShader->Reload(); 
+                m_Env->ReloadSkyShader(); m_SSAOShader->Reload(); m_SSAOBlurShader->Reload(); m_BloomDown->Reload(); 
+                m_BloomUp->Reload();
+            }
             if (kn) SpawnCube();
             if (f && !ImGui::GetIO().KeyAlt) FrameSelected();
             if (kdel && m_Selected != entt::null && m_Scene.Registry().valid(m_Selected)) {
@@ -233,9 +247,25 @@ public:
         m_Env->DrawSkybox(*m_Camera, m_Scene.AmbientIntensity);
         Framebuffer::Unbind();
 
-        // 3) Exposure + tone map + gamma into the 8-bit texture the Viewport displays
-        m_Post->Resize(m_Framebuffer->GetWidth(), m_Framebuffer->GetHeight());
-        m_Post->Apply(m_Framebuffer->GetColorAttachment(), *m_PostShader, m_PostSettings);
+        // 3) Screen-space effects
+        const uint32_t fw = m_Framebuffer->GetWidth(), fh = m_Framebuffer->GetHeight();
+        uint32_t aoTex = 0, bloomTex = 0;
+
+        if (m_PostSettings.AOEnabled) {
+            m_SSAO->Resize(fw, fh);
+            m_SSAO->Compute(m_Framebuffer->GetDepthAttachment(), m_Camera->GetProjection(),
+                *m_SSAOShader, *m_SSAOBlurShader);
+            aoTex = m_SSAO->GetOutput();
+        }
+        if (m_PostSettings.BloomEnabled) {
+            m_Bloom->Resize(fw, fh);
+            m_Bloom->Compute(m_Framebuffer->GetColorAttachment(), *m_BloomDown, *m_BloomUp);
+            bloomTex = m_Bloom->GetOutput();
+        }
+
+        // 4) AO + bloom + exposure + tone map + gamma into the 8-bit texture the Viewport shows
+        m_Post->Resize(fw, fh);
+        m_Post->Apply(m_Framebuffer->GetColorAttachment(), aoTex, bloomTex, *m_PostShader, m_PostSettings);
 
         glViewport(0, 0, (int)GetWindow().GetWidth(), (int)GetWindow().GetHeight());
     }
@@ -380,6 +410,24 @@ private:
         const char* modes[] = { "None (clamp)", "Reinhard", "ACES" };
         ImGui::Combo("Tone map", &m_PostSettings.ToneMap, modes, 3);
         ImGui::Checkbox("Gamma correction", &m_PostSettings.Gamma);
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("Ambient occlusion");
+        ImGui::Checkbox("AO enabled", &m_PostSettings.AOEnabled);
+        ImGui::SliderFloat("AO strength", &m_PostSettings.AOStrength, 0.0f, 1.0f);
+        ImGui::SliderFloat("AO radius", &m_SSAO->Radius, 0.1f, 2.0f);
+        ImGui::SliderFloat("AO bias", &m_SSAO->Bias, 0.0f, 0.1f, "%.3f");
+        ImGui::SliderInt("AO samples", &m_SSAO->Samples, 4, 32);
+        ImGui::Checkbox("Show AO only", &m_PostSettings.AODebug);
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("Bloom");
+        ImGui::Checkbox("Bloom enabled", &m_PostSettings.BloomEnabled);
+        ImGui::SliderFloat("Bloom intensity", &m_PostSettings.BloomIntensity, 0.0f, 1.0f);
+        ImGui::SliderFloat("Bloom threshold", &m_Bloom->Threshold, 0.0f, 5.0f);
+        ImGui::SliderFloat("Bloom knee", &m_Bloom->Knee, 0.0f, 1.0f);
+        ImGui::SliderFloat("Bloom radius", &m_Bloom->Radius, 0.5f, 2.0f);
+        ImGui::SliderFloat("Bloom max brightness", &m_Bloom->MaxBrightness, 1.0f, 30.0f);
 
         ImGui::Separator();
         ImGui::TextUnformatted("Scene");
@@ -802,6 +850,9 @@ private:
     std::unique_ptr<Engine::Environment> m_Env;
     std::vector<std::string> m_EnvFiles;     // .hdr files found in Assets/Environments
     int m_PendingEnv = -1;                   // -1 none, 0 procedural, n = file n-1
+    std::unique_ptr<Engine::SSAO> m_SSAO;
+    std::unique_ptr<Engine::Bloom> m_Bloom;
+    std::unique_ptr<Engine::Shader> m_SSAOShader, m_SSAOBlurShader, m_BloomDown, m_BloomUp;
 
     ImGuizmo::OPERATION m_GizmoOp = ImGuizmo::TRANSLATE;
 

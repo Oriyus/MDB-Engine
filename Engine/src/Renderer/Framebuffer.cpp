@@ -20,6 +20,7 @@ namespace Engine {
         if (m_ColorTex) glDeleteTextures(1, &m_ColorTex);
         if (m_IdTex)    glDeleteTextures(1, &m_IdTex);
         if (m_Depth)    glDeleteRenderbuffers(1, &m_Depth);
+        if (m_Depth)    glDeleteTextures(1, &m_Depth);
         m_FBO = m_ColorTex = m_IdTex = m_Depth = 0;
     }
 
@@ -43,10 +44,14 @@ namespace Engine {
         glTextureParameteri(m_IdTex, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glNamedFramebufferTexture(m_FBO, GL_COLOR_ATTACHMENT1, m_IdTex, 0);
 
-        // Depth + stencil (never sampled, so a renderbuffer is enough)
-        glCreateRenderbuffers(1, &m_Depth);
-        glNamedRenderbufferStorage(m_Depth, GL_DEPTH24_STENCIL8, (GLsizei)m_Width, (GLsizei)m_Height);
-        glNamedFramebufferRenderbuffer(m_FBO, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_Depth);
+        // Depth + stencil as a texture, so the SSAO pass can read it
+        glCreateTextures(GL_TEXTURE_2D, 1, &m_Depth);
+        glTextureStorage2D(m_Depth, 1, GL_DEPTH24_STENCIL8, (GLsizei)m_Width, (GLsizei)m_Height);
+        glTextureParameteri(m_Depth, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTextureParameteri(m_Depth, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTextureParameteri(m_Depth, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTextureParameteri(m_Depth, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glNamedFramebufferTexture(m_FBO, GL_DEPTH_STENCIL_ATTACHMENT, m_Depth, 0);
 
         const GLenum buffers[2] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
         glNamedFramebufferDrawBuffers(m_FBO, 2, buffers);
