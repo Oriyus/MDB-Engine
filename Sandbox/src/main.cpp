@@ -635,7 +635,8 @@ public:
     }
 
     // ------------------------------------------------------------ example levels (DemoLevels.cpp)
-    LevelAssets MakeLevelAssets() { EnsureSphere(); return { m_Cube, m_Plane, m_Sphere, m_Checker, m_Resources->LoadModel("Models/Fox.glb") }; }
+    LevelAssets MakeLevelAssets() { EnsureSphere(); return { m_Cube, m_Plane, m_Sphere, m_Checker, m_Resources->LoadModel("Models/Fox.glb"),
+        m_Resources->LoadTexture("Textures/fence.png"), m_Resources->LoadTexture("Textures/window.png") }; }
     void BuildLevel(void (*build)(Engine::Scene&, const LevelAssets&, Engine::PrefabLibrary&)) {
         m_Selected = entt::null;
         m_Spawned.clear();
@@ -1409,6 +1410,19 @@ private:
                 ImGui::ColorEdit3("Emissive", &mr.Emissive.x, ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float);
             }
             ImGui::Checkbox("Unlit", &mr.Unlit);
+            ImGui::SameLine();
+            ImGui::Checkbox("Cast shadows", &mr.CastShadows);
+            {
+                // Transparency
+                static const char* modes[] = { "Opaque", "Cutout (alpha test)", "Blend (see-through)" };
+                int mode = (int)mr.Alpha;
+                if (ImGui::Combo("Alpha", &mode, modes, IM_ARRAYSIZE(modes))) mr.Alpha = (AlphaMode)mode;
+                if (ImGui::SliderFloat("Opacity", &mr.Opacity, 0.0f, 1.0f) && mr.Opacity < 1.0f && mr.Alpha == AlphaMode::Opaque)
+                    mr.Alpha = AlphaMode::Blend;                  // dragging opacity down means see-through
+                if (mr.Alpha == AlphaMode::Cutout) ImGui::SliderFloat("Alpha cutoff", &mr.AlphaCutoff, 0.0f, 1.0f);
+                if (mr.Alpha == AlphaMode::Opaque && mr.Opacity < 1.0f)
+                    ImGui::TextDisabled("Opacity is used by Cutout and Blend only");
+            }
             if (mr.Geometry && mr.Geometry->GetSubmeshMaterial(0)) {
                 ImGui::Checkbox("Use model materials", &mr.UseModelMaterials);
                 if (mr.UseModelMaterials) {
@@ -1416,16 +1430,40 @@ private:
                     if (ImGui::TreeNode("Materials")) {
                         for (uint32_t i = 0; i < mr.Geometry->SubmeshCount(); i++) {
                             const Material* mat = mr.Geometry->GetSubmeshMaterial(i);
-                            ImGui::BulletText("%s  M:%.2f R:%.2f%s%s", mat->Name.empty() ? "(unnamed)" : mat->Name.c_str(),
+                            ImGui::BulletText("%s  M:%.2f R:%.2f%s%s%s", mat->Name.empty() ? "(unnamed)" : mat->Name.c_str(),
                                 mat->Metallic, mat->Roughness,
-                                mat->Albedo ? " [tex]" : "", mat->Normal ? " [normal]" : "");
+                                mat->Albedo ? " [tex]" : "", mat->Normal ? " [normal]" : "",
+                                mat->Mode == AlphaMode::Blend ? " [blend]" : mat->Mode == AlphaMode::Cutout ? " [cutout]" : "");
                         }
                         ImGui::TreePop();
                     }
                 }
             }
-            bool hasTex = mr.Texture != nullptr;
-            if (ImGui::Checkbox("Checker texture", &hasTex)) mr.Texture = hasTex ? m_Checker : nullptr;
+            if (!mr.UseModelMaterials) {
+                // Texture: none, the built-in checker, or an image from Assets/Textures (its alpha is used
+                // by Cutout and Blend)
+                const auto registry = m_Resources->Registry();
+                std::string current = mr.Texture ? registry.TextureName(mr.Texture) : "(none)";
+                if (current.rfind("texture:", 0) == 0) current = current.substr(8);
+                if (ImGui::BeginCombo("Texture", current.empty() ? "(custom)" : current.c_str())) {
+                    if (ImGui::Selectable("(none)", !mr.Texture)) mr.Texture = nullptr;
+                    if (ImGui::Selectable("checker", current == "checker")) mr.Texture = m_Checker;
+                    ImGui::Separator();
+                    std::error_code ec;
+                    std::vector<std::string> files;
+                    for (const auto& f : std::filesystem::directory_iterator(std::filesystem::path(ASSET_DIR) / "Textures", ec)) {
+                        std::string ext = f.path().extension().string();
+                        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+                        if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp")
+                            files.push_back("Textures/" + f.path().filename().string());
+                    }
+                    std::sort(files.begin(), files.end());
+                    for (const auto& file : files)
+                        if (ImGui::Selectable(file.c_str(), current == file))
+                            if (auto tex = m_Resources->LoadTexture(file)) mr.Texture = tex;
+                    ImGui::EndCombo();
+                }
+            }
         }
 
         if (e.Has<PointLightComponent>() &&

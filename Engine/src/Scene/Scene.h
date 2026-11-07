@@ -67,7 +67,11 @@ namespace Engine {
         void Clear();
         void OnUpdate(float dt);
         void RenderShadows(ShadowContext& ctx);
-        void Render(const Camera& camera, Shader& shader, const ShadowContext* shadows = nullptr, const Environment* env = nullptr);
+        // Opaque: opaque and cutout surfaces. Transparent: see-through (Blend) ones, sorted back to front,
+        // drawn after the sky.
+        enum class RenderPass { Opaque, Transparent };
+        void Render(const Camera& camera, Shader& shader, const ShadowContext* shadows = nullptr, const Environment* env = nullptr,
+            RenderPass pass = RenderPass::Opaque);
 
         float AmbientIntensity = 0.6f;     // strength of the environment light
         entt::registry& Registry() { return m_Registry; }

@@ -7,6 +7,14 @@ using json = nlohmann::json;
 
 namespace Engine {
 
+    // Alpha modes are saved by name ("opaque", "cutout", "blend")
+    static const char* AlphaModeName(AlphaMode m) {
+        return m == AlphaMode::Cutout ? "cutout" : m == AlphaMode::Blend ? "blend" : "opaque";
+    }
+    static AlphaMode AlphaModeFromName(const std::string& s) {
+        return s == "cutout" ? AlphaMode::Cutout : s == "blend" ? AlphaMode::Blend : AlphaMode::Opaque;
+    }
+
     json ComponentsToJson(Entity e, const ResourceRegistry& res) {
         json j = json::object();
         if (e.Has<MeshRendererComponent>()) {
@@ -21,6 +29,10 @@ namespace Engine {
                 { "emissive", mr.Emissive },
                 { "unlit", mr.Unlit },
                 { "useModelMaterials", mr.UseModelMaterials },
+                { "alphaMode", AlphaModeName(mr.Alpha) },
+                { "opacity", mr.Opacity },
+                { "alphaCutoff", mr.AlphaCutoff },
+                { "castShadows", mr.CastShadows },
             };
         }
         if (e.Has<PointLightComponent>()) {
@@ -82,6 +94,10 @@ namespace Engine {
             mr.Emissive = jm.contains("emissive") ? jm["emissive"].get<glm::vec3>() : glm::vec3(0.0f);
             mr.Unlit = jm.at("unlit").get<bool>();
             mr.UseModelMaterials = jm.value("useModelMaterials", false);
+            mr.Alpha = AlphaModeFromName(jm.value("alphaMode", std::string("opaque")));
+            mr.Opacity = jm.value("opacity", 1.0f);
+            mr.AlphaCutoff = jm.value("alphaCutoff", 0.5f);
+            mr.CastShadows = jm.value("castShadows", true);
             e.Add<MeshRendererComponent>(mr);
         }
         if (j.contains("pointLight")) {

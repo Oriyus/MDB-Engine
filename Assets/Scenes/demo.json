@@ -1,6 +1,480 @@
 {
   "entities": [
     {
+      "id": 35481362186837795,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "blend",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.10000000149011612,
+        "texture": "texture:Textures/window.png",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Stained glass",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          1.600000023841858,
+          0.0,
+          -4.300000190734863
+        ],
+        "rotation": [
+          0.0,
+          -0.2617993950843811,
+          0.0
+        ],
+        "scale": [
+          2.0,
+          2.0,
+          0.05000000074505806
+        ]
+      }
+    },
+    {
+      "id": 5652116072840036271,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "cutout",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "texture": "texture:Textures/fence.png",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Fence",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          4.400000095367432,
+          -0.3499999940395355,
+          -5.599999904632568
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          2.200000047683716,
+          1.2999999523162842,
+          0.03999999910593033
+        ]
+      }
+    },
+    {
+      "id": 1151051393917703386,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "cutout",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "texture": "texture:Textures/fence.png",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Fence",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          2.200000286102295,
+          -0.3499999940395355,
+          -5.599999904632568
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          2.200000047683716,
+          1.2999999523162842,
+          0.03999999910593033
+        ]
+      }
+    },
+    {
+      "id": 14612852061361426084,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "cutout",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "texture": "texture:Textures/fence.png",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Fence",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          0.0,
+          -0.3499999940395355,
+          -5.599999904632568
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          2.200000047683716,
+          1.2999999523162842,
+          0.03999999910593033
+        ]
+      }
+    },
+    {
+      "id": 10236373061391030267,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "cutout",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "texture": "texture:Textures/fence.png",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Fence",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -2.200000047683716,
+          -0.3499999940395355,
+          -5.599999904632568
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          2.200000047683716,
+          1.2999999523162842,
+          0.03999999910593033
+        ]
+      }
+    },
+    {
+      "id": 320361112500212025,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "cutout",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "texture": "texture:Textures/fence.png",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Fence",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -4.400000095367432,
+          -0.3499999940395355,
+          -5.599999904632568
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          2.200000047683716,
+          1.2999999523162842,
+          0.03999999910593033
+        ]
+      }
+    },
+    {
       "animator": {
         "blendTime": 0.25,
         "clip": "Walk",
@@ -8,8 +482,11 @@
         "playing": true,
         "speed": 1.0
       },
-      "id": 5759491103807565298,
+      "id": 4197725490182956972,
       "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
         "color": [
           1.0,
           1.0,
@@ -40,6 +517,7 @@
           1.0
         ],
         "metallic": 0.0,
+        "opacity": 1.0,
         "roughness": 0.5,
         "texture": "",
         "unlit": false,
@@ -68,8 +546,11 @@
       }
     },
     {
-      "id": 3198902293509492461,
+      "id": 10846429129367989677,
       "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
         "color": [
           0.30000001192092896,
           0.550000011920929,
@@ -100,6 +581,7 @@
           1.0
         ],
         "metallic": 0.0,
+        "opacity": 1.0,
         "roughness": 0.3499999940395355,
         "texture": "checker",
         "unlit": false,
@@ -146,7 +628,7 @@
       }
     },
     {
-      "id": 5588778396589180823,
+      "id": 6600830685034855180,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -168,7 +650,7 @@
       }
     },
     {
-      "id": 4042662928452423066,
+      "id": 11764757742829581494,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -190,7 +672,7 @@
       }
     },
     {
-      "id": 17987102916949520446,
+      "id": 13412061889902241292,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -212,7 +694,7 @@
       }
     },
     {
-      "id": 17641831443456428327,
+      "id": 13488819806461190494,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -234,7 +716,7 @@
       }
     },
     {
-      "id": 7197889999700653450,
+      "id": 5918866337200507839,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -256,7 +738,7 @@
       }
     },
     {
-      "id": 684282150672933987,
+      "id": 8330148939711173997,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -278,7 +760,7 @@
       }
     },
     {
-      "id": 933215012055425338,
+      "id": 18220330145778622126,
       "name": "Spawner",
       "script": {
         "path": "Scripts/spawner.lua"
@@ -302,8 +784,11 @@
       }
     },
     {
-      "id": 1343045260260851581,
+      "id": 3486216839903715399,
       "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
         "color": [
           0.25,
           0.30000001192092896,
@@ -334,6 +819,7 @@
           1.0
         ],
         "metallic": 0.0,
+        "opacity": 1.0,
         "roughness": 0.5,
         "texture": "",
         "unlit": false,
@@ -389,7 +875,7 @@
         ],
         "intensity": 1.2000000476837158
       },
-      "id": 16622248117048420151,
+      "id": 477345528638960398,
       "name": "Sun",
       "transform": {
         "position": [
@@ -410,8 +896,11 @@
       }
     },
     {
-      "id": 12335834405589110139,
+      "id": 5700653114623965596,
       "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
         "color": [
           0.800000011920929,
           0.800000011920929,
@@ -442,6 +931,7 @@
           1.0
         ],
         "metallic": 0.0,
+        "opacity": 1.0,
         "roughness": 0.8500000238418579,
         "texture": "checker",
         "unlit": false,

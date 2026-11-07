@@ -5,6 +5,7 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 #include <assimp/material.h>
+#include <assimp/GltfMaterial.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <cctype>
@@ -85,6 +86,21 @@ namespace Engine {
                 am->Get(AI_MATKEY_COLOR_DIFFUSE, c) == AI_SUCCESS) {
                 m.Color = glm::vec3(c.r, c.g, c.b);
                 if (linearColors) m.Color = glm::pow(m.Color, glm::vec3(1.0f / 2.2f));
+                m.Alpha = std::clamp(c.a, 0.0f, 1.0f);
+            }
+
+            // Transparency: glTF says how alpha is meant (alphaMode); other formats only have an opacity
+            aiString alphaMode;
+            if (am->Get(AI_MATKEY_GLTF_ALPHAMODE, alphaMode) == AI_SUCCESS) {
+                const std::string mode = alphaMode.C_Str();
+                m.Mode = mode == "BLEND" ? AlphaMode::Blend : mode == "MASK" ? AlphaMode::Cutout : AlphaMode::Opaque;
+                float cutoff;
+                if (am->Get(AI_MATKEY_GLTF_ALPHACUTOFF, cutoff) == AI_SUCCESS) m.AlphaCutoff = cutoff;
+            }
+            else {
+                float opacity;
+                if (am->Get(AI_MATKEY_OPACITY, opacity) == AI_SUCCESS && opacity < 0.999f && opacity > 0.0f) m.Alpha = opacity;
+                if (m.Alpha < 0.999f) m.Mode = AlphaMode::Blend;
             }
 
             aiString tp;

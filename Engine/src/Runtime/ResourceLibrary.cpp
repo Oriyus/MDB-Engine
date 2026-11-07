@@ -45,6 +45,13 @@ namespace Engine {
         return m_Model;
     }
 
+    std::shared_ptr<Texture2D> ResourceLibrary::LoadTexture(const std::string& path) {
+        if (auto it = m_Textures.find(path); it != m_Textures.end()) return it->second;
+        auto tex = std::make_shared<Texture2D>(m_AssetDir + path);
+        if (tex->GetID() == 0) tex = nullptr;            // remembered too: don't retry every frame
+        return m_Textures[path] = tex;
+    }
+
     std::shared_ptr<Model> ResourceLibrary::LoadModel(const std::string& path) {
         if (auto it = m_Models.find(path); it != m_Models.end()) return it->second;
         auto model = std::make_shared<Model>(m_AssetDir + path);
@@ -72,10 +79,14 @@ namespace Engine {
             return nullptr;
         };
         r.TextureName = [this](const std::shared_ptr<Texture2D>& t) -> std::string {
-            return t && t == m_Checker ? "checker" : "";
+            if (t && t == m_Checker) return "checker";
+            for (const auto& [path, tex] : m_Textures) if (tex && t == tex) return "texture:" + path;
+            return "";
         };
         r.FindTexture = [this](const std::string& n) -> std::shared_ptr<Texture2D> {
-            return n == "checker" ? m_Checker : nullptr;
+            if (n == "checker") return m_Checker;
+            if (n.rfind("texture:", 0) == 0) return LoadTexture(n.substr(8));
+            return nullptr;
         };
         return r;
     }
