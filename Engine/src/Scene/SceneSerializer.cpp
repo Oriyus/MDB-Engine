@@ -64,6 +64,12 @@ namespace Engine {
                 j["orbit"] = { { "center", o.Center },{ "radius", o.Radius },{ "height", o.Height },
                                { "speed", o.Speed },{ "angle", o.Angle } };
             }
+            if (e.Has<RigidBodyComponent>()) {
+                auto& rb = e.Get<RigidBodyComponent>();
+                j["rigidBody"] = { { "type", (int)rb.Type },{ "shape", (int)rb.Shape },{ "size", rb.Size },
+                                   { "center", rb.Center },{ "mass", rb.Mass },
+                                   { "friction", rb.Friction },{ "restitution", rb.Restitution } };
+            }
             entities.push_back(std::move(j));
         }
 
@@ -140,6 +146,17 @@ namespace Engine {
                     o.Speed = jo.at("speed").get<float>();
                     o.Angle = jo.at("angle").get<float>();
                 }
+                if (j.contains("rigidBody")) {
+                    auto& rb = e.Add<RigidBodyComponent>();
+                    const auto& jr = j["rigidBody"];
+                    rb.Type = (BodyType)jr.value("type", 1);
+                    rb.Shape = (ColliderShape)jr.value("shape", 0);
+                    rb.Size = jr.at("size").get<glm::vec3>();
+                    rb.Center = jr.at("center").get<glm::vec3>();
+                    rb.Mass = jr.value("mass", 1.0f);
+                    rb.Friction = jr.value("friction", 0.5f);
+                    rb.Restitution = jr.value("restitution", 0.2f);
+                }
             }
         }
         catch (const std::exception& ex) {
@@ -159,6 +176,7 @@ namespace Engine {
             if (from.Has<SpinComponent>())          to.Add<SpinComponent>(from.Get<SpinComponent>());
             if (from.Has<OrbitComponent>())         to.Add<OrbitComponent>(from.Get<OrbitComponent>());
             if (from.Has<DirectionalLightComponent>()) to.Add<DirectionalLightComponent>(from.Get<DirectionalLightComponent>());
+            if (from.Has<RigidBodyComponent>()) to.Add<RigidBodyComponent>(from.Get<RigidBodyComponent>());
         }
 
         ENGINE_INFO("Loaded scene from {}", path);

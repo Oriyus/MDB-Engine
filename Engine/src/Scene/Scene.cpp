@@ -61,6 +61,7 @@ namespace Engine {
             if (auto* c = m_Registry.try_get<DirectionalLightComponent>(handle)) s.DirectionalLight = *c;
             if (auto* c = m_Registry.try_get<SpinComponent>(handle))             s.Spin = *c;
             if (auto* c = m_Registry.try_get<OrbitComponent>(handle))            s.Orbit = *c;
+            if (auto* c = m_Registry.try_get<RigidBodyComponent>(handle))        s.RigidBody = *c;
 
             if (handle == selected) selectedIndex = (int)snap.size();
             snap.push_back(std::move(s));

@@ -36,5 +36,5 @@ if(MSVC)
 endif()
 
 target_link_libraries(Engine PUBLIC
-    glfw glm::glm spdlog::spdlog EnTT::EnTT assimp glad imgui nlohmann_json::nlohmann_json
+    glfw glm::glm spdlog::spdlog EnTT::EnTT assimp glad imgui nlohmann_json::nlohmann_json Jolt
 )

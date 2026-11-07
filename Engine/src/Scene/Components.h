@@ -27,6 +27,20 @@ namespace Engine {
         }
     };
 
+    enum class BodyType { Static, Dynamic, Kinematic };
+    enum class ColliderShape { Box, Sphere };
+
+    struct RigidBodyComponent {
+        BodyType Type = BodyType::Dynamic;
+        ColliderShape Shape = ColliderShape::Box;
+        glm::vec3 Size{ 1.0f };          // box: full extents. sphere: diameter in x. Multiplied by the transform scale.
+        glm::vec3 Center{ 0.0f };        // collider offset in the entity's local space
+        float Mass = 1.0f;               // dynamic only
+        float Friction = 0.5f;
+        float Restitution = 0.2f;        // bounciness
+        glm::vec3 InitialVelocity{ 0.0f };   // used once when the body is created (e.g. thrown balls)
+    };
+
     // Geometry + material in one component for now. We'll split material out later.
     struct MeshRendererComponent {
         std::shared_ptr<Renderable> Geometry;

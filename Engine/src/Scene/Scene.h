@@ -15,13 +15,14 @@ namespace Engine {
 
     // A copy of one entity's component values, used to rewind after Play
     struct EntitySnapshot {
-        std::string Tag;
-        TransformComponent Transform;
-        std::optional<MeshRendererComponent>      MeshRenderer;
-        std::optional<PointLightComponent>        PointLight;
-        std::optional<DirectionalLightComponent>  DirectionalLight;
-        std::optional<SpinComponent>              Spin;
-        std::optional<OrbitComponent>             Orbit;
+        std::string                                 Tag;
+        TransformComponent                          Transform;
+        std::optional<MeshRendererComponent>        MeshRenderer;
+        std::optional<PointLightComponent>          PointLight;
+        std::optional<DirectionalLightComponent>    DirectionalLight;
+        std::optional<SpinComponent>                Spin;
+        std::optional<OrbitComponent>               Orbit;
+        std::optional<RigidBodyComponent>           RigidBody;
     };
     using SceneSnapshot = std::vector<EntitySnapshot>;
 

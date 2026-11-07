@@ -19,6 +19,7 @@
 #include "Renderer/Environment.h"
 #include "Renderer/SSAO.h"
 #include "Renderer/Bloom.h"
+#include "Physics/PhysicsWorld.h"
 
 #include <cfloat>
 #include <glad/glad.h>
@@ -40,6 +41,8 @@ public:
 
     void OnStart() override {
         using namespace Engine;
+
+        EnsureSphere();
 
         m_Shader = std::make_unique<Shader>(
             std::string(ASSET_DIR) + "Shaders/lit.vert",
@@ -82,6 +85,8 @@ public:
         m_SSAO = std::make_unique<SSAO>(1280, 720);
         m_Bloom = std::make_unique<Bloom>(1280, 720);
 
+        m_Physics = std::make_unique<PhysicsWorld>();
+
         // --- Floor
         {
             auto e = m_Scene.CreateEntity("Floor");
@@ -92,6 +97,11 @@ public:
             mr.Texture = m_Checker;
             mr.Color = glm::vec3(0.8f);
             mr.Roughness = 0.85f;
+
+            auto& rb = e.Add<RigidBodyComponent>();
+            rb.Type = BodyType::Static;
+            rb.Size = glm::vec3(12.0f, 1.0f, 12.0f);
+            rb.Center = glm::vec3(0.0f, -0.5f, 0.0f);
         }
 
         // --- Spinning cube
@@ -102,6 +112,9 @@ public:
             mr.Geometry = m_Cube;
             mr.Texture = m_Checker;
             e.Add<SpinComponent>().Speed = glm::vec3(0.0f, 0.6f, 0.0f);
+
+            auto& rb = e.Add<RigidBodyComponent>();
+            rb.Type = BodyType::Kinematic;
         }
 
         // --- Loaded model
@@ -116,6 +129,10 @@ public:
                 mr.UseModelMaterials = model->HasTexturedMaterials();
                 mr.Color = mr.UseModelMaterials ? glm::vec3(1.0f) : glm::vec3(0.85f, 0.6f, 0.35f);
                 e.Add<SpinComponent>().Speed = glm::vec3(0.0f, 0.3f, 0.0f);
+
+                auto& rb = e.Add<RigidBodyComponent>();
+                rb.Type = BodyType::Kinematic;
+                FitCollider(mr, rb);
             }
         }
 
@@ -187,8 +204,8 @@ public:
         dt = std::min(dt, 0.1f);   // a long hitch (like baking an environment) shouldn't fling the simulation
 
         switch (m_PlayCmd) {
-        case PlayCmd::Play: StartPlay(); break;
-        case PlayCmd::Stop: StopPlay();  break;
+        case PlayCmd::Play: m_Physics->Reset(); StartPlay(); break;
+        case PlayCmd::Stop: m_Physics->Reset(); StopPlay();  break;
         case PlayCmd::Pause:
             if (m_PlayState == PlayState::Play)        m_PlayState = PlayState::Paused;
             else if (m_PlayState == PlayState::Paused) m_PlayState = PlayState::Play;
@@ -219,6 +236,7 @@ public:
         bool kq = EdgePressed(Key::Q, m_QDown);
         bool kn = EdgePressed(Key::N, m_NDown);
         bool kdel = EdgePressed(Key::Delete, m_DelDown);
+        bool kt = EdgePressed(Key::T, m_TDown);
         if (kp && ImGui::GetIO().KeyCtrl)
             m_PlayCmd = (m_PlayState == PlayState::Edit) ? PlayCmd::Play : PlayCmd::Stop;
 
@@ -241,6 +259,8 @@ public:
                 if (ke) { m_SelectTool = false; m_GizmoOp = ImGuizmo::ROTATE; }
                 if (kr) { m_SelectTool = false; m_GizmoOp = ImGuizmo::SCALE; }
             }
+            if (kt && m_PlayState == PlayState::Play)
+                SpawnBody(true, m_Camera->Position + m_Camera->GetFront() * 1.5f, m_Camera->GetFront() * 14.0f, false);
         }
 
         // Make the framebuffer match the Viewport panel (panel size comes from last frame's UI)
@@ -260,8 +280,14 @@ public:
         m_Camera->Refresh();
 
         const bool simulate = m_PlayState == PlayState::Play || m_StepFrame;
-        if (simulate) m_Scene.OnUpdate(m_StepFrame ? 1.0f / 60.0f : dt);
-        else          m_Scene.UpdateOrbitPositions();   // keeps orbiting lights at their orbit position while editing
+        if (simulate) {
+            const float stepDt = m_StepFrame ? 1.0f / 60.0f : dt;
+            m_Scene.OnUpdate(stepDt);                          // Spin / Orbit
+            m_Physics->Step(m_Scene, stepDt, m_StepFrame);     // physics overrides dynamic transforms
+        }
+        else {
+            m_Scene.UpdateOrbitPositions();
+        }
         m_StepFrame = false;
 
         // 1) Depth passes (all point lights + sun)
@@ -382,6 +408,101 @@ public:
         m_PlayState = PlayState::Edit;
     }
 
+    // Size the collider to the mesh's bounds
+    static void FitCollider(const Engine::MeshRendererComponent& mr, Engine::RigidBodyComponent& rb) {
+        if (!mr.Geometry) return;
+        glm::vec3 lo, hi;
+        mr.Geometry->GetLocalBounds(lo, hi);
+        glm::vec3 mn(FLT_MAX), mx(-FLT_MAX);
+        for (int i = 0; i < 8; i++) {
+            glm::vec3 c((i & 1) ? hi.x : lo.x, (i & 2) ? hi.y : lo.y, (i & 4) ? hi.z : lo.z);
+            glm::vec3 w = glm::vec3(mr.LocalOffset * glm::vec4(c, 1.0f));
+            mn = glm::min(mn, w);
+            mx = glm::max(mx, w);
+        }
+        rb.Size = mx - mn;
+        rb.Center = (mn + mx) * 0.5f;
+        if (rb.Shape == Engine::ColliderShape::Sphere) rb.Size = glm::vec3(std::max({ rb.Size.x, rb.Size.y, rb.Size.z }));
+    }
+
+    void EnsureSphere() { if (!m_Sphere) m_Sphere = Engine::Mesh::CreateSphere(48); }
+
+    Engine::Entity SpawnBody(bool sphere, const glm::vec3& pos, const glm::vec3& velocity, bool select) {
+        using namespace Engine;
+        if (sphere) EnsureSphere();
+        auto e = m_Scene.CreateEntity(sphere ? "Ball" : "Box");
+        auto& t = e.Get<TransformComponent>();
+        t.Position = pos;
+        t.Scale = glm::vec3(0.5f);
+
+        auto& mr = e.Add<MeshRendererComponent>();
+        mr.Geometry = sphere ? std::shared_ptr<Renderable>(m_Sphere) : std::shared_ptr<Renderable>(m_Cube);
+        mr.Color = glm::vec3(Rand(0.3f, 1.0f), Rand(0.3f, 1.0f), Rand(0.3f, 1.0f));
+        mr.Roughness = 0.4f;
+
+        auto& rb = e.Add<RigidBodyComponent>();
+        rb.Shape = sphere ? ColliderShape::Sphere : ColliderShape::Box;
+        rb.Restitution = sphere ? 0.5f : 0.2f;
+        rb.InitialVelocity = velocity;
+
+        if (select) m_Selected = e.GetHandle();
+        return e;
+    }
+
+    void DrawColliders(const ImVec2& origin, const ImVec2& size) {
+        using namespace Engine;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const glm::mat4 vp = m_Camera->GetViewProjection();
+
+        auto project = [&](const glm::vec3& w, ImVec2& out) {
+            glm::vec4 c = vp * glm::vec4(w, 1.0f);
+            if (c.w <= 0.01f) return false;                    // behind the camera
+            out = ImVec2(origin.x + (c.x / c.w * 0.5f + 0.5f) * size.x,
+                origin.y + (1.0f - (c.y / c.w * 0.5f + 0.5f)) * size.y);
+            return true;
+            };
+        auto line = [&](const glm::vec3& a, const glm::vec3& b, ImU32 col) {
+            ImVec2 pa, pb;
+            if (project(a, pa) && project(b, pb)) dl->AddLine(pa, pb, col, 1.5f);
+            };
+
+        auto view = m_Scene.Registry().view<TransformComponent, RigidBodyComponent>();
+        for (auto entity : view) {
+            auto [t, rb] = view.get<TransformComponent, RigidBodyComponent>(entity);
+            const ImU32 col = rb.Type == BodyType::Static ? IM_COL32(80, 200, 255, 200)
+                : rb.Type == BodyType::Dynamic ? IM_COL32(90, 230, 110, 220)
+                : IM_COL32(255, 200, 60, 220);
+            const glm::mat4 M = t.GetMatrix();
+
+            if (rb.Shape == ColliderShape::Box) {
+                const glm::vec3 h = rb.Size * 0.5f;
+                glm::vec3 c[8];
+                for (int i = 0; i < 8; i++)
+                    c[i] = glm::vec3(M * glm::vec4(rb.Center + glm::vec3((i & 1) ? h.x : -h.x,
+                        (i & 2) ? h.y : -h.y,
+                        (i & 4) ? h.z : -h.z), 1.0f));
+                static const int edges[12][2] = { { 0,1 },{ 2,3 },{ 4,5 },{ 6,7 },{ 0,2 },{ 1,3 },{ 4,6 },{ 5,7 },{ 0,4 },{ 1,5 },{ 2,6 },{ 3,7 } };
+                for (auto& ed : edges) line(c[ed[0]], c[ed[1]], col);
+            }
+            else {
+                const glm::vec3 s = glm::abs(t.Scale);
+                const float r = 0.5f * rb.Size.x * std::max({ s.x, s.y, s.z });
+                const glm::vec3 centre = glm::vec3(M * glm::vec4(rb.Center, 1.0f));
+                const glm::mat3 R = glm::mat3_cast(glm::quat(t.Rotation));
+                for (int axis = 0; axis < 3; axis++) {              // three great circles
+                    const glm::vec3 u = R[(axis + 1) % 3], v = R[(axis + 2) % 3];
+                    glm::vec3 prev = centre + u * r;
+                    for (int k = 1; k <= 32; k++) {
+                        float a = k * 6.2831853f / 32.0f;
+                        glm::vec3 p = centre + (u * std::cos(a) + v * std::sin(a)) * r;
+                        line(prev, p, col);
+                        prev = p;
+                    }
+                }
+            }
+        }
+    }
+
 private:
     void DrawStatsPanel() {
         using namespace Engine;
@@ -491,6 +612,16 @@ private:
         ImGui::SliderFloat("Bloom max brightness", &m_Bloom->MaxBrightness, 1.0f, 30.0f);
 
         ImGui::Separator();
+        ImGui::TextUnformatted("Physics");
+        if (ImGui::SliderFloat("Gravity", &m_Gravity, 0.0f, 30.0f)) m_Physics->SetGravity(m_Gravity);
+        ImGui::Checkbox("Show colliders", &m_ShowColliders);
+        ImGui::Text("Bodies: %u", m_Physics->BodyCount());
+        if (ImGui::Button("Spawn box"))  SpawnBody(false, m_Camera->Position + m_Camera->GetFront() * 3.0f, glm::vec3(0.0f), true);
+        ImGui::SameLine();
+        if (ImGui::Button("Spawn ball")) SpawnBody(true, m_Camera->Position + m_Camera->GetFront() * 3.0f, glm::vec3(0.0f), true);
+        ImGui::TextDisabled("T throws a ball while playing");
+
+        ImGui::Separator();
         ImGui::TextUnformatted("Scene");
         ImGui::BeginDisabled(playing);
         if (ImGui::Button("Save")) {
@@ -597,6 +728,8 @@ private:
         if (imageHovered && !m_MouseLook) m_NavWheel += io.MouseWheel;
 
         const bool navigating = alt || m_NavMode != NavMode::None;
+
+        if (m_ShowColliders) DrawColliders(origin, size);
 
         // ---- Gizmo for the selected entity
         bool gizmoBusy = false;
@@ -764,6 +897,30 @@ private:
             if (ImGui::Button("Remove Orbit")) e.Remove<OrbitComponent>();
         }
 
+        if (e.Has<RigidBodyComponent>() && ImGui::CollapsingHeader("Rigid Body", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto& rb = e.Get<RigidBodyComponent>();
+            int type = (int)rb.Type;
+            if (ImGui::Combo("Type", &type, "Static\0Dynamic\0Kinematic\0")) rb.Type = (BodyType)type;
+            int shape = (int)rb.Shape;
+            if (ImGui::Combo("Shape", &shape, "Box\0Sphere\0")) rb.Shape = (ColliderShape)shape;
+
+            if (rb.Shape == ColliderShape::Sphere) ImGui::DragFloat("Diameter", &rb.Size.x, 0.02f, 0.01f, 100.0f);
+            else                                   ImGui::DragFloat3("Size", &rb.Size.x, 0.02f, 0.01f, 100.0f);
+            ImGui::DragFloat3("Center", &rb.Center.x, 0.02f);
+
+            if (rb.Type == BodyType::Dynamic) ImGui::DragFloat("Mass", &rb.Mass, 0.05f, 0.01f, 1000.0f);
+            ImGui::SliderFloat("Friction", &rb.Friction, 0.0f, 1.0f);
+            ImGui::SliderFloat("Bounciness", &rb.Restitution, 0.0f, 1.0f);
+
+            if (ImGui::Button("Fit to mesh") && e.Has<MeshRendererComponent>())
+                FitCollider(e.Get<MeshRendererComponent>(), rb);
+            ImGui::SameLine();
+            if (ImGui::Button("Remove##rb")) e.Remove<RigidBodyComponent>();
+            if (rb.Type != BodyType::Static && (e.Has<SpinComponent>() || e.Has<OrbitComponent>()) && rb.Type == BodyType::Dynamic)
+                ImGui::TextDisabled("Physics overrides Spin/Orbit on dynamic bodies");
+            if (m_PlayState != PlayState::Edit) ImGui::TextDisabled("Changes apply on the next Play");
+        }
+
         ImGui::Separator();
         if (ImGui::Button("Add Component")) ImGui::OpenPopup("AddComponent");
         if (ImGui::BeginPopup("AddComponent")) {
@@ -773,6 +930,10 @@ private:
             if (!e.Has<MeshRendererComponent>() && ImGui::MenuItem("Mesh Renderer (cube)"))
                 e.Add<MeshRendererComponent>().Geometry = m_Cube;
             if (!e.Has<DirectionalLightComponent>() && ImGui::MenuItem("Directional Light")) e.Add<DirectionalLightComponent>();
+            if (!e.Has<RigidBodyComponent>() && ImGui::MenuItem("Rigid Body")) {
+                auto& rb = e.Add<RigidBodyComponent>();
+                if (e.Has<MeshRendererComponent>()) FitCollider(e.Get<MeshRendererComponent>(), rb);
+            }
             ImGui::EndPopup();
         }
 
@@ -936,6 +1097,11 @@ private:
     int  m_SnapshotSelected = -1;
     bool m_StepFrame = false;
     bool m_PDown = false, m_EscDown = false;
+
+    std::unique_ptr<Engine::PhysicsWorld> m_Physics;
+    float m_Gravity = 9.81f;
+    bool  m_ShowColliders = true;
+    bool  m_TDown = false;
 
     ImGuizmo::OPERATION m_GizmoOp = ImGuizmo::TRANSLATE;
 
