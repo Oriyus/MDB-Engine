@@ -31,6 +31,7 @@ cmake --build build --config Debug
 - ImGuizmo's Scale gizmo is always local space. That is by design, not a bug.
 - `ScriptEngine.cpp` (sol2) needs `/bigobj`, set per file in `Engine/CMakeLists.txt`. Lua 5.4 has no CMake, so it is built there as the `lua` target.
 - In sol2, `table.get_or<T>(key, def)` is ambiguous when `def` is already a `T` rvalue. Use `get<sol::optional<T>>(key).value_or(def)`.
+- miniaudio is fetched with `SOURCE_SUBDIR header-only` (a folder that does not exist), so its own CMake project is not built. Only `miniaudio.h` is used.
 - GLFW key state is polled once per frame. Simulated key taps (down and up in one go, like WScript `SendKeys`) are never seen, so hold the key across frames.
 - Windows PowerShell 5.1 `Set-Content -Encoding utf8` writes a BOM. Edit source files with the Edit tool or sed instead.
 
@@ -45,23 +46,26 @@ Engine/src/
   Scene/      Scene, Entity, Components, SceneSerializer
   Physics/    PhysicsWorld (Jolt): bodies, contact events, raycasts
   Scripting/  ScriptEngine (Lua 5.4 + sol2). The full script API is documented in ScriptEngine.h
+  Audio/      AudioEngine (miniaudio): one-shots, entity sources, listener
 Sandbox/src/main.cpp         the editor app (SandboxApp)
 Sandbox/src/DemoLevels.cpp   code-built example levels (Script demo, Coin Rush)
-Assets/{Shaders,Models,Scenes,Environments,Scripts}
+Assets/{Shaders,Models,Scenes,Environments,Scripts,Sounds}
+Tools/generate_sounds.ps1    synthesizes the example sounds in Assets/Sounds (deterministic)
 vendor/{glad,stb,imguizmo}
 ```
 
-Dependencies: GLFW, glad, GLM, spdlog, EnTT, Dear ImGui (docking), ImGuizmo, assimp, nlohmann/json, stb_image, Jolt Physics, Lua 5.4, sol2.
+Dependencies: GLFW, glad, GLM, spdlog, EnTT, Dear ImGui (docking), ImGuizmo, assimp, nlohmann/json, stb_image, Jolt Physics, Lua 5.4, sol2, miniaudio (header only, implementation in `AudioEngine.cpp`).
 
 ## Architecture
 
 - **Application** runs the loop and calls the virtual hooks `OnStart`, `OnUpdate(dt)`, `OnImGui`, `OnShutdown`. The game defines `Engine::CreateApplication()`.
 - **ECS (EnTT).** `Entity` is a thin handle (`Add<T>`, `Get<T>`, `Has<T>`, `Remove<T>`). Every entity gets `TagComponent` and `TransformComponent`.
-  Components: `MeshRenderer`, `PointLight`, `DirectionalLight`, `Spin`, `Orbit`, `RigidBody`, `Script`, `Camera`.
+  Components: `MeshRenderer`, `PointLight`, `DirectionalLight`, `Spin`, `Orbit`, `RigidBody`, `Script`, `Camera`, `AudioSource`.
   Transforms store position, Euler rotation in radians, and scale.
 - **Scene** holds the systems. `OnUpdate` runs Spin and Orbit. `RenderShadows` and `Render` draw the scene.
 - **Adding a component type means updating four places:** `Components.h`, `EntitySnapshot` plus `CaptureEntity`/`CreateFromSnapshot` in `Scene` (play mode, `DuplicateEntity`, script clone), and `SceneSerializer` Save and Load (the live scene is filled through the snapshot functions). Add an Inspector section in `Sandbox/src/main.cpp` too.
 - **Scripting.** `ScriptComponent{ Path }` points at a Lua file in `Assets/Scripts`. Scripts run only during Play. Each entity gets its own Lua environment, and the `shared` table is common to all scripts. Each frame runs `Scene::OnUpdate`, then `ScriptEngine::Update` (`on_update`), then `PhysicsWorld::Step`, then `ScriptEngine::DispatchCollisions` (`on_collision_begin/end`, `on_trigger_enter/exit`). On Play, `PhysicsWorld::Sync` runs before `ScriptEngine::Start`, so `on_create` can already use `self.body`. Script destroys and script swaps are deferred until nothing is iterating. A script that errors is disabled and its error is shown in the Tools panel. `ui.text` draws over the viewport for one frame, with sizes given at 720p and scaled to the viewport. `scene.restart()` asks the app to Stop and Play again on the next frame (`PlayCmd::Restart`).
+- **Audio.** `AudioEngine` plays one-shots (`Play`, `PlayAt`) and keeps one voice per `AudioSourceComponent` in step with its entity in `Update`, which runs each simulated frame. The listener follows the camera being drawn. Pause pauses the audio device, and Stop calls `StopAll`. Decoded clips are cached per file, and a clip that fails to load warns once. Without a device, everything does nothing. Scripts use `audio.play` / `audio.play_at`, `e.audio` and `e:add_audio`.
 - **Physics events.** Jolt's contact listener only records contacts on worker threads. On the main thread they are counted per body pair, so each pair gets exactly one begin and one end. Removing a body closes its pairs, so scripts get an end or exit for destroyed entities too. Triggers are created as kinematic sensors, because a static sensor drops its contacts when the body inside falls asleep. `add_force` applies in every fixed step of the frame (like gravity), and `add_impulse` applies once. Changing a static or dynamic body's transform from outside teleports the body.
 - **Renderables** (`Mesh`, `Model`) share the `Renderable` interface. This includes `GetLocalBounds` and the submesh/material hooks.
 - **Scene files** (`Assets/Scenes/scene.json`) store resource **names** ("cube", "plane", "sphere", "model", "checker"), mapped back to live resources by `MakeResources()` in the Sandbox. A `settings` block (`SceneSettings`) holds the environment map name, sky, ambient, post, AO, bloom, shadows, gravity and the editor camera. Every section and field is optional, so older files load fine. The Sandbox fills it with `GatherSettings` and `ApplySettings`. Load is queued and applied at the start of `OnUpdate`. `demo.json` is the saved script demo.
@@ -107,4 +111,4 @@ Color spaces: lighting is done in linear space. Color pickers and albedo colors 
 - Models are imported with `PreTransformVertices`, so there is no node hierarchy or skeletal animation.
 - No transparency or blending pass. Materials with alpha render opaque.
 - The sun shadow area is fixed around the origin (no cascades).
-- Candidate next steps: prefabs, audio, more UI for scripts (images, buttons), a standalone game runtime without the editor, mesh/convex colliders, skeletal animation, transparency, batching/instancing, a Vulkan backend.
+- Candidate next steps: prefabs, more UI for scripts (images, buttons), a standalone game runtime without the editor, mesh/convex colliders, skeletal animation, transparency, batching/instancing, a Vulkan backend.

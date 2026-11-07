@@ -10,6 +10,7 @@ function on_trigger_enter(self, other)
         v.y = power
         body.velocity = v
         flash = 1
+        audio.play_at("Sounds/bounce.wav", self.position)
     end
 end
 

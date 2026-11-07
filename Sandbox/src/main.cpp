@@ -21,6 +21,7 @@
 #include "Renderer/Bloom.h"
 #include "Physics/PhysicsWorld.h"
 #include "Scripting/ScriptEngine.h"
+#include "Audio/AudioEngine.h"
 #include "DemoLevels.h"
 
 #include <cfloat>
@@ -88,7 +89,8 @@ public:
         m_Bloom = std::make_unique<Bloom>(1280, 720);
 
         m_Physics = std::make_unique<PhysicsWorld>();
-        m_Scripts = std::make_unique<ScriptEngine>(std::string(ASSET_DIR), m_Physics.get());
+        m_Audio = std::make_unique<AudioEngine>(std::string(ASSET_DIR));
+        m_Scripts = std::make_unique<ScriptEngine>(std::string(ASSET_DIR), m_Physics.get(), m_Audio.get());
         m_Scripts->SetResources(MakeResources());
 
         // --- Floor
@@ -248,7 +250,7 @@ public:
             }
             break;
         case PlayCmd::Stop:   // scripts first: Restore invalidates every entity handle
-            if (m_PlayState != PlayState::Edit) { m_Scripts->Stop(m_Scene); m_Physics->Reset(); StopPlay(); }
+            if (m_PlayState != PlayState::Edit) { m_Scripts->Stop(m_Scene); m_Audio->StopAll(); m_Physics->Reset(); StopPlay(); }
             break;
         case PlayCmd::Pause:
             if (m_PlayState == PlayState::Play)        m_PlayState = PlayState::Paused;
@@ -259,13 +261,14 @@ public:
             break;
         case PlayCmd::Restart:   // scene.restart() from a script: Stop, then Play again
             if (m_PlayState != PlayState::Edit) {
-                m_Scripts->Stop(m_Scene); m_Physics->Reset(); StopPlay();
+                m_Scripts->Stop(m_Scene); m_Audio->StopAll(); m_Physics->Reset(); StopPlay();
                 m_Physics->Reset(); StartPlay(); m_Physics->Sync(m_Scene); m_Scripts->Start(m_Scene);
             }
             break;
         default: break;
         }
         m_PlayCmd = PlayCmd::None;
+        m_Audio->SetPaused(m_PlayState == PlayState::Paused);
 
         if (m_ReloadScripts) {
             m_ReloadScripts = false;
@@ -346,6 +349,7 @@ public:
             m_Scripts->Update(m_Scene, stepDt);                // Lua on_update
             m_Physics->Step(m_Scene, stepDt, m_StepFrame);     // physics overrides dynamic transforms
             m_Scripts->DispatchCollisions(m_Scene);            // on_collision_* / on_trigger_*
+            m_Audio->Update(m_Scene);                          // entity sounds follow their transforms
             if (m_Scripts->ConsumeRestartRequest()) m_PlayCmd = PlayCmd::Restart;   // next frame
         }
         else {
@@ -356,6 +360,7 @@ public:
         // During Play, look through the scene's game camera (after scripts moved it this frame)
         m_ViewingGame = m_PlayState != PlayState::Edit && m_PlayThroughGameCamera && UpdateGameCamera();
         Camera& view = ViewCamera();
+        m_Audio->SetListener(view.Position, view.GetFront(), glm::vec3(0.0f, 1.0f, 0.0f));
 
         // 1) Depth passes (all point lights + sun)
         m_Scene.RenderShadows(m_Shadows);
@@ -514,6 +519,18 @@ public:
 
         if (select) m_Selected = e.GetHandle();
         return e;
+    }
+
+    // Sound files under Assets/Sounds, as clip paths ("Sounds/x.wav")
+    static std::vector<std::string> ListSoundFiles() {
+        std::vector<std::string> files;
+        std::error_code ec;
+        for (const auto& f : std::filesystem::directory_iterator(std::filesystem::path(ASSET_DIR) / "Sounds", ec)) {
+            const auto ext = f.path().extension().string();
+            if (ext == ".wav" || ext == ".mp3" || ext == ".flac") files.push_back("Sounds/" + f.path().filename().string());
+        }
+        std::sort(files.begin(), files.end());
+        return files;
     }
 
     // ------------------------------------------------------------ scene files
@@ -860,6 +877,17 @@ private:
         ImGui::SameLine();
         if (ImGui::Button("Spawn ball")) SpawnBody(true, m_Camera->Position + m_Camera->GetFront() * 3.0f, glm::vec3(0.0f), true);
         ImGui::TextDisabled("T throws a ball while playing");
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("Audio");
+        if (!m_Audio->IsReady()) {
+            ImGui::TextDisabled("No audio device: sound is off");
+        }
+        else {
+            float master = m_Audio->GetMasterVolume();
+            if (ImGui::SliderFloat("Master volume", &master, 0.0f, 1.0f)) m_Audio->SetMasterVolume(master);
+            ImGui::Text("Voices: %u", m_Audio->VoiceCount());
+        }
 
         ImGui::Separator();
         ImGui::TextUnformatted("Scripting");
@@ -1236,6 +1264,30 @@ private:
             if (ImGui::Button("Remove##camera")) e.Remove<CameraComponent>();
         }
 
+        if (e.Has<AudioSourceComponent>() && ImGui::CollapsingHeader("Audio Source", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto& a = e.Get<AudioSourceComponent>();
+            if (ImGui::BeginCombo("Clip", a.Clip.empty() ? "(none)" : a.Clip.c_str())) {
+                for (const auto& f : ListSoundFiles())
+                    if (ImGui::Selectable(f.c_str(), f == a.Clip)) a.Clip = f;
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Preview")) m_Audio->Play(a.Clip, a.Volume, a.Pitch);
+            ImGui::SliderFloat("Volume##audio", &a.Volume, 0.0f, 2.0f);
+            ImGui::SliderFloat("Pitch##audio", &a.Pitch, 0.25f, 3.0f);
+            ImGui::Checkbox("Loop", &a.Loop);
+            ImGui::SameLine();
+            ImGui::Checkbox("Play on start", &a.PlayOnStart);
+            ImGui::SameLine();
+            ImGui::Checkbox("3D", &a.Spatial);
+            if (a.Spatial) {
+                ImGui::DragFloat("Full volume within", &a.MinDistance, 0.1f, 0.01f, 100.0f, "%.1f m");
+                ImGui::DragFloat("Fades out to", &a.MaxDistance, 0.5f, 0.1f, 500.0f, "%.1f m");
+            }
+            ImGui::TextDisabled("Plays during Play. Assets/Sounds: .wav .mp3 .flac");
+            if (ImGui::Button("Remove##audio")) e.Remove<AudioSourceComponent>();
+        }
+
         ImGui::Separator();
         if (ImGui::Button("Add Component")) ImGui::OpenPopup("AddComponent");
         if (ImGui::BeginPopup("AddComponent")) {
@@ -1251,6 +1303,10 @@ private:
             }
             if (!e.Has<ScriptComponent>() && ImGui::MenuItem("Script")) e.Add<ScriptComponent>().Path = "Scripts/mover.lua";
             if (!e.Has<CameraComponent>() && ImGui::MenuItem("Camera")) e.Add<CameraComponent>();
+            if (!e.Has<AudioSourceComponent>() && ImGui::MenuItem("Audio Source")) {
+                auto files = ListSoundFiles();
+                e.Add<AudioSourceComponent>().Clip = files.empty() ? "" : files.front();
+            }
             ImGui::EndPopup();
         }
 
@@ -1422,6 +1478,7 @@ private:
     bool m_PDown = false, m_EscDown = false;
 
     std::unique_ptr<Engine::PhysicsWorld> m_Physics;
+    std::unique_ptr<Engine::AudioEngine> m_Audio;      // before m_Scripts: scripts hold a pointer to it
     std::unique_ptr<Engine::ScriptEngine> m_Scripts;
     bool  m_ReloadScripts = false;   // queued: applied at the start of the next OnUpdate
     float m_RunTime = 0.0f;

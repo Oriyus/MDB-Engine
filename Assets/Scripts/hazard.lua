@@ -3,6 +3,7 @@
 function on_trigger_enter(self, other)
     if other.name ~= "Player" or not shared.respawn then return end
     if shared.state and shared.state ~= "playing" then return end
+    audio.play_at("Sounds/lava_hit.wav", other.position)
     shared.respawn()
     if shared.say then shared.say("Ouch! Lava.", 1.5) end
     log("Player hit", self.name)

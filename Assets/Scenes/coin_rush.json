@@ -985,6 +985,16 @@
       }
     },
     {
+      "audio": {
+        "clip": "Sounds/lava_loop.wav",
+        "loop": true,
+        "maxDistance": 14.0,
+        "minDistance": 2.0,
+        "pitch": 1.0,
+        "playOnStart": true,
+        "spatial": true,
+        "volume": 0.6000000238418579
+      },
       "meshRenderer": {
         "color": [
           0.3499999940395355,
@@ -1062,6 +1072,16 @@
       }
     },
     {
+      "audio": {
+        "clip": "Sounds/lava_loop.wav",
+        "loop": true,
+        "maxDistance": 14.0,
+        "minDistance": 2.0,
+        "pitch": 1.0,
+        "playOnStart": true,
+        "spatial": true,
+        "volume": 0.6000000238418579
+      },
       "meshRenderer": {
         "color": [
           0.3499999940395355,

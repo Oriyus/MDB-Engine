@@ -9,6 +9,7 @@ namespace Engine {
 
     class Scene;
     class PhysicsWorld;
+    class AudioEngine;
     struct ResourceRegistry;
 
     // One ui.text call: drawn by the app over the viewport for the frame it was made in
@@ -38,7 +39,7 @@ namespace Engine {
     //   e.name, e.position, e.rotation (radians), e.scale     read/write; vec3 values are copies
     //   e.forward, e.right, e.up                              world-space directions (read-only)
     //   e.id, e:valid(), e:destroy(), e:clone()
-    //   e:has(kind), e:remove(kind)     kind = "mesh" "body" "light" "sun" "script" "spin" "orbit" "camera"
+    //   e:has(kind), e:remove(kind)     kind = "mesh" "body" "light" "sun" "script" "spin" "orbit" "camera" "audio"
     //   e.mesh   -> nil or { color, emissive, metallic, roughness, unlit, geometry ("cube" "sphere" ...) }
     //   e.light  -> nil or { color, intensity, shadows }
     //   e.body   -> nil or { velocity, angular_velocity, type, trigger, mass,
@@ -50,11 +51,15 @@ namespace Engine {
     //   e:add_script("Scripts/x.lua")        starts on the next frame
     //   e.camera -> nil or { fov, primary }       e:add_camera{ fov=60, near, far, primary=true }
     //   e:look_at(target [, up])               turn local -Z (forward) towards a point
+    //   e.audio -> nil or { clip, volume, pitch, loop, playing, play(), stop() }
+    //   e:add_audio(clip [, { volume, pitch, loop=true, spatial=true, play=true, min_distance, max_distance }])
     //
     // ---- Globals
     //   vec3(x, y, z): + - * / unary-, v:length(), v:normalize(), v:dot(w), v:cross(w)
     //   scene.find(name), scene.find_all(name), scene.spawn(name [, position]), scene.time()
     //   scene.restart()                      Stop + Play on the next frame (retry a level)
+    //   audio.play(clip [, { volume, pitch }])             2D one-shot, e.g. "Sounds/coin.wav"
+    //   audio.play_at(clip, position [, { volume, pitch }]) 3D one-shot, quieter with distance
     //   ui.text(text, x, y [, { size=24, color=vec3, align="left"|"center"|"right" }])   x, y in 0..1, this frame only
     //   scene.raycast(origin, dir, max_dist [, ignore_entity]) -> nil or { entity, point, normal, distance }
     //   input.key_down(k), input.key_pressed(k), input.key_released(k)    Key.A..Key.Z, Key.Num0..9, Key.F1..12,
@@ -63,7 +68,7 @@ namespace Engine {
     //   log(...), print(...)
     class ScriptEngine {
     public:
-        ScriptEngine(std::string assetDir, PhysicsWorld* physics);
+        ScriptEngine(std::string assetDir, PhysicsWorld* physics, AudioEngine* audio);
         ~ScriptEngine();
         ScriptEngine(const ScriptEngine&) = delete;
         ScriptEngine& operator=(const ScriptEngine&) = delete;

@@ -91,6 +91,19 @@ namespace Engine {
         bool  Primary = true;
     };
 
+    // A sound attached to an entity, played while the game runs (see Audio/AudioEngine.h).
+    // Clip is relative to the asset directory, e.g. "Sounds/lava_loop.wav".
+    struct AudioSourceComponent {
+        std::string Clip;
+        float Volume = 1.0f;
+        float Pitch = 1.0f;
+        bool  Loop = true;
+        bool  PlayOnStart = true;     // start when Play starts (or when the entity appears)
+        bool  Spatial = true;         // positioned at the entity, quieter with distance
+        float MinDistance = 1.0f;     // full volume inside this radius
+        float MaxDistance = 25.0f;    // stops getting quieter beyond this
+    };
+
     // A Lua script driving this entity while playing (see Scripting/ScriptEngine.h).
     // Path is relative to the asset directory, e.g. "Scripts/bob.lua".
     struct ScriptComponent {

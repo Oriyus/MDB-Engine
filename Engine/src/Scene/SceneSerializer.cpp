@@ -157,6 +157,12 @@ namespace Engine {
                 auto& c = e.Get<CameraComponent>();
                 j["camera"] = { { "fov", c.FOV },{ "near", c.Near },{ "far", c.Far },{ "primary", c.Primary } };
             }
+            if (e.Has<AudioSourceComponent>()) {
+                auto& a = e.Get<AudioSourceComponent>();
+                j["audio"] = { { "clip", a.Clip },{ "volume", a.Volume },{ "pitch", a.Pitch },{ "loop", a.Loop },
+                               { "playOnStart", a.PlayOnStart },{ "spatial", a.Spatial },
+                               { "minDistance", a.MinDistance },{ "maxDistance", a.MaxDistance } };
+            }
             entities.push_back(std::move(j));
         }
 
@@ -255,6 +261,18 @@ namespace Engine {
                     c.Near = jc.value("near", 0.1f);
                     c.Far = jc.value("far", 500.0f);
                     c.Primary = jc.value("primary", true);
+                }
+                if (j.contains("audio")) {
+                    auto& s = e.Add<AudioSourceComponent>();
+                    const auto& ja = j["audio"];
+                    s.Clip = ja.value("clip", std::string());
+                    s.Volume = ja.value("volume", 1.0f);
+                    s.Pitch = ja.value("pitch", 1.0f);
+                    s.Loop = ja.value("loop", true);
+                    s.PlayOnStart = ja.value("playOnStart", true);
+                    s.Spatial = ja.value("spatial", true);
+                    s.MinDistance = ja.value("minDistance", 1.0f);
+                    s.MaxDistance = ja.value("maxDistance", 25.0f);
                 }
             }
         }

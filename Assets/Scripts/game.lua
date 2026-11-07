@@ -6,6 +6,7 @@
 
 local time_limit = 120
 local total                      -- coins in the level (counted on the first frame)
+local last_state                 -- to play the win / lose sound once
 local message, message_time = nil, 0
 
 local white = vec3(1, 1, 1)
@@ -37,6 +38,11 @@ function on_update(self, dt)
         scene.restart()
     end
     message_time = message_time - dt
+    if shared.state ~= last_state then
+        if shared.state == "won" then audio.play("Sounds/win.wav") end
+        if shared.state == "lost" then audio.play("Sounds/lose.wav") end
+        last_state = shared.state
+    end
 
     -- ---- HUD
     ui.text(string.format("Coins  %d / %d", total - left, total), 0.03, 0.03, { size = 36, color = gold })

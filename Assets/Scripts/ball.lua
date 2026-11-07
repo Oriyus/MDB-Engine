@@ -16,6 +16,7 @@ end
 function on_collision_begin(self, other, hit)
     bounces = bounces + 1
     self.mesh.emissive = vec3(2.0, 1.2, 0.4)
+    audio.play_at("Sounds/thud.wav", hit.point, { volume = 0.5 * 0.6 ^ (bounces - 1), pitch = 1.4 })
     if bounces == 1 then
         log(self.name, "landed on", other.name, "- normal", hit.normal)
     end

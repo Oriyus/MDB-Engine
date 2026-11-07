@@ -4,6 +4,7 @@
 #include "Scene/Components.h"
 #include "Scene/SceneSerializer.h"
 #include "Physics/PhysicsWorld.h"
+#include "Audio/AudioEngine.h"
 #include "Core/Input.h"
 #include "Core/Log.h"
 
@@ -47,6 +48,7 @@ namespace Engine {
         struct LightRef { ScriptEntity E; };
         struct BodyRef  { ScriptEntity E; };
         struct CameraRef { ScriptEntity E; };
+        struct AudioRef  { ScriptEntity E; };
 
         constexpr int kKeyFirst = 32, kKeyCount = 349;   // GLFW_KEY_SPACE .. GLFW_KEY_LAST
         constexpr int kMouseCount = 8;
@@ -75,6 +77,7 @@ namespace Engine {
     struct ScriptEngine::Impl {
         std::string AssetDir;
         PhysicsWorld* Physics = nullptr;
+        AudioEngine* Audio = nullptr;
         ResourceRegistry Resources;
         Scene* ActiveScene = nullptr;
         float Time = 0.0f;
@@ -247,6 +250,27 @@ namespace Engine {
                 if (std::abs(glm::dot(dir, u)) > 0.999f) u = glm::vec3(0.0f, 0.0f, 1.0f);   // looking straight up/down
                 t.Rotation = glm::eulerAngles(glm::quatLookAt(dir, u));
             },
+            "audio", sol::readonly_property([](const ScriptEntity& e) -> sol::optional<AudioRef> {
+                if (e.Has<AudioSourceComponent>()) return AudioRef{ e };
+                return sol::nullopt;
+            }),
+            "add_audio", [this](const ScriptEntity& e, const std::string& clip, sol::optional<sol::table> opts) {
+                if (!e.Valid()) throw std::runtime_error("entity no longer exists");
+                AudioSourceComponent a;
+                a.Clip = clip;
+                if (opts) {
+                    a.Volume = opts->get_or<float>("volume", a.Volume);
+                    a.Pitch = opts->get_or<float>("pitch", a.Pitch);
+                    a.Loop = opts->get_or<bool>("loop", a.Loop);
+                    a.Spatial = opts->get_or<bool>("spatial", a.Spatial);
+                    a.PlayOnStart = opts->get_or<bool>("play", a.PlayOnStart);
+                    a.MinDistance = opts->get_or<float>("min_distance", a.MinDistance);
+                    a.MaxDistance = opts->get_or<float>("max_distance", a.MaxDistance);
+                }
+                e.Owner->Registry().emplace_or_replace<AudioSourceComponent>(e.Handle, a);
+                if (Audio && a.PlayOnStart) Audio->PlaySource(e.Handle);   // also restarts a replaced source
+                return AudioRef{ e };
+            },
 
             "has", [](const ScriptEntity& e, const std::string& kind) {
                 if (!e.Valid()) return false;
@@ -258,6 +282,7 @@ namespace Engine {
                 if (kind == "spin")   return e.Has<SpinComponent>();
                 if (kind == "orbit")  return e.Has<OrbitComponent>();
                 if (kind == "camera") return e.Has<CameraComponent>();
+                if (kind == "audio")  return e.Has<AudioSourceComponent>();
                 throw std::runtime_error("unknown component kind '" + kind + "'");
             },
             "remove", [](const ScriptEntity& e, const std::string& kind) {
@@ -271,6 +296,7 @@ namespace Engine {
                 else if (kind == "spin")   reg.remove<SpinComponent>(e.Handle);
                 else if (kind == "orbit")  reg.remove<OrbitComponent>(e.Handle);
                 else if (kind == "camera") reg.remove<CameraComponent>(e.Handle);
+                else if (kind == "audio")  reg.remove<AudioSourceComponent>(e.Handle);
                 else throw std::runtime_error("unknown component kind '" + kind + "'");
             },
 
@@ -392,6 +418,43 @@ namespace Engine {
             }
             if (Texts.size() < 256) Texts.push_back(std::move(t));
         });
+
+        // ---- audio: one-shots, and the AudioSource view handed out by e.audio
+        sol::table audio = lua.create_named_table("audio");
+        auto soundOpts = [](const sol::optional<sol::table>& o, float& volume, float& pitch) {
+            volume = o ? o->get<sol::optional<float>>("volume").value_or(1.0f) : 1.0f;
+            pitch = o ? o->get<sol::optional<float>>("pitch").value_or(1.0f) : 1.0f;
+        };
+        audio.set_function("play", [this, soundOpts](const std::string& clip, sol::optional<sol::table> opts) {
+            float v, p;
+            soundOpts(opts, v, p);
+            if (Audio) Audio->Play(clip, v, p);
+        });
+        audio.set_function("play_at", [this, soundOpts](const std::string& clip, const glm::vec3& pos, sol::optional<sol::table> opts) {
+            float v, p;
+            soundOpts(opts, v, p);
+            if (Audio) Audio->PlayAt(clip, pos, v, p);
+        });
+
+        lua.new_usertype<AudioRef>("AudioSource", sol::no_constructor,
+            "clip", sol::property(
+                [](const AudioRef& a) { return a.E.Get<AudioSourceComponent>().Clip; },
+                [](const AudioRef& a, const std::string& v) { a.E.Get<AudioSourceComponent>().Clip = v; }),
+            "volume", sol::property(
+                [](const AudioRef& a) { return a.E.Get<AudioSourceComponent>().Volume; },
+                [](const AudioRef& a, float v) { a.E.Get<AudioSourceComponent>().Volume = v; }),
+            "pitch", sol::property(
+                [](const AudioRef& a) { return a.E.Get<AudioSourceComponent>().Pitch; },
+                [](const AudioRef& a, float v) { a.E.Get<AudioSourceComponent>().Pitch = v; }),
+            "loop", sol::property(
+                [](const AudioRef& a) { return a.E.Get<AudioSourceComponent>().Loop; },
+                [](const AudioRef& a, bool v) { a.E.Get<AudioSourceComponent>().Loop = v; }),
+            "playing", sol::readonly_property([this](const AudioRef& a) {
+                a.E.Get<AudioSourceComponent>();
+                return Audio && Audio->IsSourcePlaying(a.E.Handle);
+            }),
+            "play", [this](const AudioRef& a) { a.E.Get<AudioSourceComponent>(); if (Audio) Audio->PlaySource(a.E.Handle); },
+            "stop", [this](const AudioRef& a) { a.E.Get<AudioSourceComponent>(); if (Audio) Audio->StopSource(a.E.Handle); });
 
         // ---- camera usertype
         lua.new_usertype<CameraRef>("Camera", sol::no_constructor,
@@ -532,9 +595,10 @@ namespace Engine {
     }
 
     // ---------------------------------------------------------------- ScriptEngine
-    ScriptEngine::ScriptEngine(std::string assetDir, PhysicsWorld* physics) : m_Impl(std::make_unique<Impl>()) {
+    ScriptEngine::ScriptEngine(std::string assetDir, PhysicsWorld* physics, AudioEngine* audio) : m_Impl(std::make_unique<Impl>()) {
         m_Impl->AssetDir = std::move(assetDir);
         m_Impl->Physics = physics;
+        m_Impl->Audio = audio;
     }
 
     ScriptEngine::~ScriptEngine() = default;

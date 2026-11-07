@@ -171,8 +171,14 @@ void BuildCoinRush(Scene& scene, const LevelAssets& a) {
 
     // ---- hazards and helpers
     const glm::vec3 lava(0.35f, 0.03f, 0.01f), lavaGlow(1.4f, 0.12f, 0.01f);
-    AddPad(scene, a, "Lava", glm::vec3(-4.5f, -0.97f, 2.0f), 3.0f, 6.0f, 0.4f, lava, lavaGlow, "Scripts/hazard.lua");
-    AddPad(scene, a, "Lava", glm::vec3(4.5f, -0.97f, 2.0f), 3.0f, 6.0f, 0.4f, lava, lavaGlow, "Scripts/hazard.lua");
+    for (float x : { -4.5f, 4.5f }) {
+        Entity e = AddPad(scene, a, "Lava", glm::vec3(x, -0.97f, 2.0f), 3.0f, 6.0f, 0.4f, lava, lavaGlow, "Scripts/hazard.lua");
+        auto& snd = e.Add<AudioSourceComponent>();     // a low bubbling you hear as you get close
+        snd.Clip = "Sounds/lava_loop.wav";
+        snd.Volume = 0.6f;
+        snd.MinDistance = 2.0f;
+        snd.MaxDistance = 14.0f;
+    }
     AddPad(scene, a, "Bouncer", glm::vec3(7.0f, -0.97f, -4.5f), 1.6f, 1.6f, 0.5f,
         glm::vec3(0.2f, 0.6f, 0.3f), glm::vec3(0.1f, 0.8f, 0.3f), "Scripts/bouncer.lua");
     AddPad(scene, a, "Goal", glm::vec3(0.0f, 0.53f, -7.5f), 2.0f, 1.0f, 1.0f,

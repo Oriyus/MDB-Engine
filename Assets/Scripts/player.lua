@@ -6,6 +6,7 @@
 local push = 14.0      -- newtons
 local jump = 7.0       -- impulse (N*s): mass 2 -> 3.5 m/s upwards
 local spawn
+local last_velocity = vec3(0, 0, 0)   -- before this frame's physics: how hard we hit things
 
 local function grounded(self)
     -- A short ray down from the centre: radius is half the scaled diameter
@@ -39,6 +40,7 @@ function on_create(self)
 end
 
 function on_update(self, dt)
+    last_velocity = self.body.velocity    -- read before this frame's physics step
     if shared.state and shared.state ~= "playing" then return end   -- game over: no control
 
     local forward, right = move_axes()
@@ -53,11 +55,17 @@ function on_update(self, dt)
 
     if input.key_pressed(Key.Space) and grounded(self) then
         self.body:add_impulse(vec3(0, jump, 0))
+        audio.play("Sounds/jump.wav", { volume = 0.5 })
     end
 
     if self.position.y < -10 then shared.respawn() end    -- fell off the world
 end
 
 function on_collision_begin(self, other, hit)
+    -- Impact speed: how fast we were moving into the surface (the normal points from it to us)
+    local impact = -last_velocity:dot(hit.normal)
+    if impact > 1.5 then
+        audio.play_at("Sounds/thud.wav", hit.point, { volume = math.min(1, impact / 8), pitch = 0.9 + 0.2 * math.random() })
+    end
     if other.name == "Sweeper" then log("Player got swept!") end
 end
