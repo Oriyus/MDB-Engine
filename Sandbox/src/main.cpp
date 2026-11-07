@@ -330,6 +330,7 @@ public:
         }
         else {
             m_Scene.UpdateOrbitPositions();
+            m_Scene.UpdateAnimations(0.0f);   // pose animated models at their current time (scrubbing works)
         }
         m_StepFrame = false;
 
@@ -634,7 +635,7 @@ public:
     }
 
     // ------------------------------------------------------------ example levels (DemoLevels.cpp)
-    LevelAssets MakeLevelAssets() { EnsureSphere(); return { m_Cube, m_Plane, m_Sphere, m_Checker }; }
+    LevelAssets MakeLevelAssets() { EnsureSphere(); return { m_Cube, m_Plane, m_Sphere, m_Checker, m_Resources->LoadModel("Models/Fox.glb") }; }
     void BuildLevel(void (*build)(Engine::Scene&, const LevelAssets&, Engine::PrefabLibrary&)) {
         m_Selected = entt::null;
         m_Spawned.clear();
@@ -1368,6 +1369,39 @@ private:
         if (e.Has<MeshRendererComponent>() &&
             ImGui::CollapsingHeader("Mesh Renderer", ImGuiTreeNodeFlags_DefaultOpen)) {
             auto& mr = e.Get<MeshRendererComponent>();
+            // Geometry: a built-in shape or any model file under Assets/Models (listed when opened)
+            {
+                const auto registry = m_Resources->Registry();
+                std::string current = registry.GeometryName(mr.Geometry);
+                if (current.rfind("model:", 0) == 0) current = current.substr(6);
+                if (ImGui::BeginCombo("Geometry", current.empty() ? "(custom)" : current.c_str())) {
+                    for (const char* builtin : { "cube", "sphere", "plane" })
+                        if (ImGui::Selectable(builtin, current == builtin)) {
+                            mr.Geometry = registry.FindGeometry(builtin);
+                            mr.LocalOffset = glm::mat4(1.0f);
+                            mr.UseModelMaterials = false;
+                        }
+                    ImGui::Separator();
+                    std::error_code ec;
+                    std::vector<std::string> files;
+                    for (const auto& f : std::filesystem::directory_iterator(std::filesystem::path(ASSET_DIR) / "Models", ec)) {
+                        std::string ext = f.path().extension().string();
+                        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+                        if (ext == ".glb" || ext == ".gltf" || ext == ".fbx" || ext == ".obj") files.push_back("Models/" + f.path().filename().string());
+                    }
+                    std::sort(files.begin(), files.end());
+                    for (const auto& file : files) {
+                        if (!ImGui::Selectable(file.c_str(), current == file)) continue;
+                        if (auto model = m_Resources->LoadModel(file)) {
+                            mr.Geometry = model;
+                            mr.LocalOffset = model->GetGroundedMatrix(2.0f);   // 2 m across, standing on the origin
+                            mr.UseModelMaterials = model->HasTexturedMaterials();
+                            if (mr.UseModelMaterials) mr.Color = glm::vec3(1.0f);
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+            }
             ImGui::ColorEdit3("Color", &mr.Color.x);
             if (!mr.UseModelMaterials) {
                 ImGui::SliderFloat("Metallic", &mr.Metallic, 0.0f, 1.0f);
@@ -1445,6 +1479,33 @@ private:
             if (rb.Type != BodyType::Static && (e.Has<SpinComponent>() || e.Has<OrbitComponent>()) && rb.Type == BodyType::Dynamic)
                 ImGui::TextDisabled("Physics overrides Spin/Orbit on dynamic bodies");
             if (m_PlayState != PlayState::Edit) ImGui::TextDisabled("Changes apply on the next Play");
+        }
+
+        if (e.Has<AnimatorComponent>() && ImGui::CollapsingHeader("Animator", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto& an = e.Get<AnimatorComponent>();
+            const auto* mr = e.Has<MeshRendererComponent>() ? &e.Get<MeshRendererComponent>() : nullptr;
+            const Model* model = mr ? dynamic_cast<const Model*>(mr->Geometry.get()) : nullptr;
+            if (!model || !model->IsSkinned()) {
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "Needs a Mesh Renderer with an animated model");
+            }
+            else {
+                if (ImGui::BeginCombo("Clip", an.Clip.empty() ? "(rest pose)" : an.Clip.c_str())) {
+                    if (ImGui::Selectable("(rest pose)", an.Clip.empty())) an.Clip.clear();
+                    for (const auto& name : model->AnimationNames())
+                        if (ImGui::Selectable(name.c_str(), an.Clip == name)) an.Clip = name;
+                    ImGui::EndCombo();
+                }
+                ImGui::SliderFloat("Speed##anim", &an.Speed, -2.0f, 3.0f);
+                ImGui::Checkbox("Loop##anim", &an.Loop);
+                ImGui::SameLine();
+                ImGui::Checkbox("Playing##anim", &an.Playing);
+                ImGui::DragFloat("Blend time", &an.BlendTime, 0.01f, 0.0f, 2.0f, "%.2f s");
+                const float duration = model->AnimationDuration(model->FindAnimation(an.ActiveClip));
+                if (duration > 0.0f) ImGui::SliderFloat("Time##anim", &an.Time, 0.0f, duration, "%.2f s");
+                ImGui::TextDisabled("%u bones, %d animations. Plays during Play; drag Time to preview.",
+                    model->BoneCount(), (int)model->AnimationNames().size());
+            }
+            if (ImGui::Button("Remove##animator")) e.Remove<AnimatorComponent>();
         }
 
         if (e.Has<ColliderComponent>() && ImGui::CollapsingHeader("Collider", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -1534,6 +1595,12 @@ private:
             if (!e.Has<RigidBodyComponent>() && ImGui::MenuItem("Rigid Body")) {
                 auto& rb = e.Add<RigidBodyComponent>();
                 if (e.Has<MeshRendererComponent>()) FitCollider(e.Get<MeshRendererComponent>(), rb);
+            }
+            if (!e.Has<AnimatorComponent>() && ImGui::MenuItem("Animator")) {
+                auto& an = e.Add<AnimatorComponent>();
+                const auto* mr = e.Has<MeshRendererComponent>() ? &e.Get<MeshRendererComponent>() : nullptr;
+                const Model* model = mr ? dynamic_cast<const Model*>(mr->Geometry.get()) : nullptr;
+                if (model && !model->AnimationNames().empty()) an.Clip = model->AnimationNames().front();
             }
             if (!e.Has<ColliderComponent>() && ImGui::MenuItem("Collider (part of the parent's body)")) {
                 auto& c = e.Add<ColliderComponent>();

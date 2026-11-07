@@ -34,6 +34,34 @@ namespace Engine {
         }
     }
 
+    Mesh::Mesh(const std::vector<SkinnedVertex>& vertices, const std::vector<uint32_t>& indices,
+        const std::vector<glm::vec3>& restPositions) {
+        auto vb = std::make_shared<VertexBuffer>(
+            reinterpret_cast<const float*>(vertices.data()),
+            (uint32_t)(vertices.size() * sizeof(SkinnedVertex)));
+        vb->SetLayout({
+            { ShaderDataType::Float3 },   // position
+            { ShaderDataType::Float3 },   // normal
+            { ShaderDataType::Float2 },   // uv
+            { ShaderDataType::Int4 },     // bone indices
+            { ShaderDataType::Float4 },   // bone weights
+            });
+
+        m_VAO = std::make_unique<VertexArray>();
+        m_VAO->AddVertexBuffer(vb);
+        m_VAO->SetIndexBuffer(std::make_shared<IndexBuffer>(indices.data(), (uint32_t)indices.size()));
+
+        m_Positions = restPositions;
+        m_Indices = indices;
+        if (!m_Positions.empty()) {
+            m_Min = m_Max = m_Positions[0];
+            for (const auto& p : m_Positions) {
+                m_Min = glm::min(m_Min, p);
+                m_Max = glm::max(m_Max, p);
+            }
+        }
+    }
+
     void Mesh::GetCollisionGeometry(std::vector<glm::vec3>& positions, std::vector<uint32_t>& indices) const {
         const uint32_t base = (uint32_t)positions.size();
         positions.insert(positions.end(), m_Positions.begin(), m_Positions.end());

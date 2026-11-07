@@ -31,6 +31,7 @@ namespace Engine {
         std::optional<ScriptComponent>              Script;
         std::optional<CameraComponent>              Camera;
         std::optional<AudioSourceComponent>         AudioSource;
+        std::optional<AnimatorComponent>            Animator;
         std::optional<PrefabComponent>              Prefab;
     };
     using SceneSnapshot = std::vector<EntitySnapshot>;
@@ -72,6 +73,8 @@ namespace Engine {
         entt::registry& Registry() { return m_Registry; }
 
         void UpdateOrbitPositions();   // place orbiting entities from their current angle, without advancing it
+        // Advance every Animator by dt and compute its bone matrices (dt 0: just pose it, e.g. in the editor)
+        void UpdateAnimations(float dt);
 
         // Copy one entity's components, and build a new entity from such a copy
         EntitySnapshot CaptureEntity(entt::entity handle) const;
@@ -87,6 +90,7 @@ namespace Engine {
 
     private:
         void OnIDChanged(entt::registry&, entt::entity) { m_IDMapDirty = true; }
+        void SetSkinning(Shader& shader, entt::entity e, const MeshRendererComponent& mr);   // u_Skinned / u_Bones
 
         entt::registry m_Registry;
         std::unordered_map<uint64_t, entt::entity> m_IDMap;   // rebuilt lazily when IDs change

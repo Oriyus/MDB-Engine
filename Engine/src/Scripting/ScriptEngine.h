@@ -53,12 +53,13 @@ namespace Engine {
     //   e.forward, e.right, e.up                              world-space directions (read-only)
     //   e:look_at(target [, up]) and e.forward... work in world space
     //   e.id, e:valid(), e:destroy(), e:clone()
-    //   e:has(kind), e:remove(kind)     kind = "mesh" "body" "collider" "light" "sun" "script" "spin" "orbit" "camera" "audio"
+    //   e:has(kind), e:remove(kind)     kind = "mesh" "body" "collider" "light" "sun" "script" "spin" "orbit" "camera" "audio" "animator"
     //   e.mesh   -> nil or { color, emissive, metallic, roughness, unlit, geometry ("cube" "sphere" ...) }
     //   e.light  -> nil or { color, intensity, shadows }
     //   e.body   -> nil or { velocity, angular_velocity, type, trigger, mass,
     //                         add_force(v) (newtons, lasts this frame: call each frame), add_impulse(v) }
-    //   e:add_mesh{ geometry="cube", texture="checker", color=vec3, metallic, roughness, emissive, unlit }
+    //   e:add_mesh{ geometry="cube"|"sphere"|"plane"|"model:Models/x.glb", texture="checker", color=vec3,
+    //               metallic, roughness, emissive, unlit, fit=metres (models: scaled to that size, standing on the origin) }
     //   e:add_body{ type="dynamic"|"static"|"kinematic", shape="box"|"sphere"|"capsule"|"convex"|"mesh"|"none", size=number|vec3,
     //               center=vec3, mass, friction, bounciness, trigger=bool, velocity=vec3 }
     //   e:add_collider{ shape="box"|"sphere"|"capsule"|"convex"|"mesh", size, center }   an extra shape for the
@@ -69,6 +70,9 @@ namespace Engine {
     //   e:look_at(target [, up])               turn local -Z (forward) towards a point
     //   e.audio -> nil or { clip, volume, pitch, loop, playing, play(), stop() }
     //   e:add_audio(clip [, { volume, pitch, loop=true, spatial=true, play=true, min_distance, max_distance }])
+    //   e.animator -> nil or { clip (set = cross-fade), speed, loop, playing, time, blend_time,
+    //                          play(name [, blend_seconds]), stop(), duration([name]), clips() }
+    //   e:add_animator{ clip, speed=1, loop=true, blend=0.25 }   needs a Mesh Renderer with an animated model
     //
     // ---- Globals
     //   vec3(x, y, z): + - * / unary-, v:length(), v:normalize(), v:dot(w), v:cross(w)

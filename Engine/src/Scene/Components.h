@@ -7,6 +7,7 @@
 #include <glm/gtc/quaternion.hpp>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace Engine {
 
@@ -141,6 +142,24 @@ namespace Engine {
     struct PrefabComponent {
         std::string Path;
         uint64_t Node = 0;
+    };
+
+    // Plays a skeletal animation on this entity's Mesh Renderer model (one with bones). Changing
+    // Clip cross-fades from the old clip over BlendTime seconds.
+    struct AnimatorComponent {
+        std::string Clip;                 // animation name ("" = the rest pose)
+        float Speed = 1.0f;
+        bool  Loop = true;
+        bool  Playing = true;
+        float BlendTime = 0.25f;          // seconds
+
+        // Runtime state (not saved)
+        float Time = 0.0f;                // seconds into ActiveClip
+        std::string ActiveClip;           // what Time belongs to; a different Clip starts a fade
+        std::string FadeFrom;             // the clip being faded out
+        float FadeFromTime = 0.0f;
+        float Fade = 1.0f;                // 0 = all FadeFrom, 1 = all ActiveClip
+        std::vector<glm::mat4> Palette;   // bone matrices for the renderer (empty: not posed yet)
     };
 
     // A Lua script driving this entity while playing (see Scripting/ScriptEngine.h).

@@ -1,6 +1,74 @@
 {
   "entities": [
     {
+      "animator": {
+        "blendTime": 0.25,
+        "clip": "Walk",
+        "loop": true,
+        "playing": true,
+        "speed": 1.0
+      },
+      "id": 5759491103807565298,
+      "meshRenderer": {
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Fox.glb",
+        "localOffset": [
+          0.010341271758079529,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.010341271758079529,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.010341271758079529,
+          0.0,
+          3.9448821098631015e-08,
+          0.0012589634861797094,
+          0.11101426929235458,
+          1.0
+        ],
+        "metallic": 0.0,
+        "roughness": 0.5,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Fox",
+      "script": {
+        "path": "Scripts/wander.lua"
+      },
+      "transform": {
+        "position": [
+          -3.0,
+          -1.0,
+          -3.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 3198902293509492461,
       "meshRenderer": {
         "color": [
           0.30000001192092896,
@@ -78,6 +146,7 @@
       }
     },
     {
+      "id": 5588778396589180823,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -99,6 +168,7 @@
       }
     },
     {
+      "id": 4042662928452423066,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -120,6 +190,7 @@
       }
     },
     {
+      "id": 17987102916949520446,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -141,6 +212,7 @@
       }
     },
     {
+      "id": 17641831443456428327,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -162,6 +234,7 @@
       }
     },
     {
+      "id": 7197889999700653450,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -183,6 +256,7 @@
       }
     },
     {
+      "id": 684282150672933987,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -204,6 +278,7 @@
       }
     },
     {
+      "id": 933215012055425338,
       "name": "Spawner",
       "script": {
         "path": "Scripts/spawner.lua"
@@ -227,6 +302,7 @@
       }
     },
     {
+      "id": 1343045260260851581,
       "meshRenderer": {
         "color": [
           0.25,
@@ -313,6 +389,7 @@
         ],
         "intensity": 1.2000000476837158
       },
+      "id": 16622248117048420151,
       "name": "Sun",
       "transform": {
         "position": [
@@ -333,6 +410,7 @@
       }
     },
     {
+      "id": 12335834405589110139,
       "meshRenderer": {
         "color": [
           0.800000011920929,

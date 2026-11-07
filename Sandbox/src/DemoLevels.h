@@ -5,6 +5,7 @@ namespace Engine {
     class Scene;
     class Renderable;
     class Texture2D;
+    class Model;
     class PrefabLibrary;
 }
 
@@ -17,6 +18,7 @@ struct LevelAssets {
     std::shared_ptr<Engine::Renderable> Plane;   // 12 x 12 floor
     std::shared_ptr<Engine::Renderable> Sphere;  // diameter 1
     std::shared_ptr<Engine::Texture2D>  Checker;
+    std::shared_ptr<Engine::Model>      Fox;     // Models/Fox.glb (animated); null if missing
 };
 
 // Scripting playground: a ball you roll (player.lua), coins (coin.lua), a pad that glows while

@@ -45,6 +45,13 @@ namespace Engine {
         return m_Model;
     }
 
+    std::shared_ptr<Model> ResourceLibrary::LoadModel(const std::string& path) {
+        if (auto it = m_Models.find(path); it != m_Models.end()) return it->second;
+        auto model = std::make_shared<Model>(m_AssetDir + path);
+        if (!model->IsValid()) model = nullptr;          // remembered too: don't retry every frame
+        return m_Models[path] = model;
+    }
+
     ResourceRegistry ResourceLibrary::Registry() {
         ResourceRegistry r;
         r.GeometryName = [this](const std::shared_ptr<Renderable>& g) -> std::string {
@@ -53,6 +60,7 @@ namespace Engine {
             if (g == m_Plane) return "plane";
             if (g == m_Sphere) return "sphere";
             if (g == m_Model) return "model";
+            for (const auto& [path, m] : m_Models) if (m && g == m) return "model:" + path;
             return "";
         };
         r.FindGeometry = [this](const std::string& n) -> std::shared_ptr<Renderable> {
@@ -60,6 +68,7 @@ namespace Engine {
             if (n == "plane") return m_Plane;
             if (n == "sphere") return Sphere();
             if (n == "model") return SampleModel();
+            if (n.rfind("model:", 0) == 0) return LoadModel(n.substr(6));
             return nullptr;
         };
         r.TextureName = [this](const std::shared_ptr<Texture2D>& t) -> std::string {

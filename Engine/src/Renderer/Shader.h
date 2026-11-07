@@ -25,6 +25,7 @@ namespace Engine {
         void SetVec3(const std::string& name, const glm::vec3& value);
         void SetVec4(const std::string& name, const glm::vec4& value);
         void SetMat4(const std::string& name, const glm::mat4& value);
+        void SetMat4Array(const std::string& name, const glm::mat4* values, uint32_t count);   // e.g. "u_Bones"
 
     private:
         uint32_t Compile(const std::string& vertexPath, const std::string& fragmentPath);

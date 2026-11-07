@@ -4,7 +4,7 @@
 
 namespace Engine {
 
-    enum class ShaderDataType { Float, Float2, Float3, Float4 };
+    enum class ShaderDataType { Float, Float2, Float3, Float4, Int4 };   // Int4: integer attribute (bone indices)
 
     inline uint32_t ShaderDataTypeCount(ShaderDataType t) {
         switch (t) {
@@ -12,6 +12,7 @@ namespace Engine {
         case ShaderDataType::Float2: return 2;
         case ShaderDataType::Float3: return 3;
         case ShaderDataType::Float4: return 4;
+        case ShaderDataType::Int4:   return 4;
         }
         return 0;
     }
@@ -20,7 +21,7 @@ namespace Engine {
         ShaderDataType Type;
         uint32_t Offset = 0;   // filled in by BufferLayout
         BufferElement(ShaderDataType type) : Type(type) {}
-        uint32_t Size() const { return ShaderDataTypeCount(Type) * sizeof(float); }
+        uint32_t Size() const { return ShaderDataTypeCount(Type) * 4; }   // floats and ints are both 4 bytes
     };
 
     // Describes how the floats in a vertex buffer are laid out, e.g. {Float3 position, Float4 color}
