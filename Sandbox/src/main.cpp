@@ -316,8 +316,17 @@ public:
 
         const bool simulate = m_PlayState == PlayState::Play || m_StepFrame;
         if (simulate) {
+            // ui.button / ui.mouse: the pointer over the viewport (last frame's layout), only while
+            // looking through the game camera (otherwise clicks belong to the editor)
+            {
+                const ImVec2 mp = ImGui::GetIO().MousePos;
+                const float px = (mp.x - m_ViewportOrigin.x) / std::max(m_ViewportSize.x, 1.0f);
+                const float py = (mp.y - m_ViewportOrigin.y) / std::max(m_ViewportSize.y, 1.0f);
+                m_Session->Scripts().SetPointer(px, py, m_ViewportHovered && m_ViewingGame, ImGui::IsMouseDown(ImGuiMouseButton_Left));
+            }
             m_Session->Update(dt, m_StepFrame);
             if (m_Session->ConsumeRestartRequest()) m_PlayCmd = PlayCmd::Restart;   // next frame
+            if (m_Session->Scripts().ConsumeQuitRequest()) m_PlayCmd = PlayCmd::Stop;   // scene.quit(): the editor stops Play
         }
         else {
             m_Scene.UpdateOrbitPositions();
@@ -1116,6 +1125,8 @@ private:
             avail, ImVec2(0, 1), ImVec2(1, 0));
 
         const bool imageHovered = ImGui::IsItemHovered();
+        m_ViewportHovered = imageHovered;
+        m_ViewportOrigin = ImGui::GetItemRectMin();
         const ImVec2 origin = ImGui::GetItemRectMin();
         const ImVec2 size = ImGui::GetItemRectSize();
         if (m_PlayState != PlayState::Edit) {
@@ -1156,7 +1167,7 @@ private:
         if (m_ShowColliders && !m_ViewingGame) DrawColliders(origin, size);
         if (!m_ViewingGame) DrawCameraFrustums(origin, size);
         if (m_PlayState != PlayState::Edit)   // kept while paused: the scripts did not run again
-            DrawScriptText(ImGui::GetWindowDrawList(), m_GameFont, m_Session->Scripts().Texts(), origin, size);
+            DrawScriptUI(ImGui::GetWindowDrawList(), m_GameFont, m_Session->Scripts().UIItems(), origin, size, &m_UITextures);
         if (m_ViewingGame) {
             ImGui::GetWindowDrawList()->AddText(ImVec2(origin.x + 8.0f, origin.y + size.y - 22.0f),
                 IM_COL32(255, 255, 255, 110), "Game camera (Tools > Play through game camera)");
@@ -1615,7 +1626,10 @@ private:
 
     ImGuizmo::OPERATION m_GizmoOp = ImGuizmo::TRANSLATE;
 
-    ImVec2 m_ViewportSize{ 0.0f, 0.0f };                  
+    ImVec2 m_ViewportSize{ 0.0f, 0.0f };
+    ImVec2 m_ViewportOrigin{ 0.0f, 0.0f };            // the viewport image's top left on screen
+    bool m_ViewportHovered = false;
+    Engine::UITextureCache m_UITextures{ std::string(ASSET_DIR) };   // images for ui.image                  
     bool m_LayoutChecked = false;      
     bool m_GizmoLocal = false;
     bool m_Snap = false;

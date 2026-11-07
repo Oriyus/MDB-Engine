@@ -6,7 +6,8 @@
 // The Assets folder is looked for next to the executable first (a packaged build, see the
 // package_game target), then at the source tree's Assets (ASSET_DIR, for running from the build).
 //
-// Keys: Esc pauses (then Esc resumes, R restarts, Q quits), F11 or Alt+Enter toggles full screen.
+// Keys: Esc pauses (a menu with Resume / Restart / Quit buttons; Esc, R and Q work too),
+// F11 or Alt+Enter toggles full screen.
 // Everything else belongs to the game's scripts.
 
 #include "Core/Application.h"
@@ -153,8 +154,16 @@ public:
 
         m_Session->SetPaused(m_Paused);
         if (!m_Paused) {
+            // ui.button / ui.mouse: the pointer over the window (ImGui puts it far outside when it's gone)
+            const ImGuiIO& io = ImGui::GetIO();
+            const ImVec2 d = io.DisplaySize;
+            const float px = io.MousePos.x / std::max(d.x, 1.0f), py = io.MousePos.y / std::max(d.y, 1.0f);
+            const bool inside = px >= 0.0f && px <= 1.0f && py >= 0.0f && py <= 1.0f;
+            m_Session->Scripts().SetPointer(px, py, inside, ImGui::IsMouseDown(ImGuiMouseButton_Left));
+
             m_Session->Update(dt);
             if (m_Session->ConsumeRestartRequest()) m_RestartPending = true;   // scene.restart(): next frame
+            if (m_Session->Scripts().ConsumeQuitRequest()) Close();            // scene.quit()
         }
 
         const uint32_t w = std::max(GetWindow().GetWidth(), 1u), h = std::max(GetWindow().GetHeight(), 1u);
@@ -176,7 +185,7 @@ public:
         const ImVec2 size = ImGui::GetIO().DisplaySize;
 
         if (!m_Error.empty()) {
-            std::vector<ScriptText> lines(2);
+            std::vector<ScriptUIItem> lines(2);
             lines[0].Text = m_Error;
             lines[0].X = 0.5f; lines[0].Y = 0.42f; lines[0].Size = 36.0f; lines[0].Align = 1;
             lines[0].Color = glm::vec3(1.0f, 0.45f, 0.35f);
@@ -190,18 +199,49 @@ public:
 
         // The rendered frame fills the window (GL textures are bottom-up, so flip V)
         dl->AddImage((ImTextureID)(intptr_t)m_Renderer->GetOutput(), ImVec2(0, 0), size, ImVec2(0, 1), ImVec2(1, 0));
-        DrawScriptText(dl, m_Font, m_Session->Scripts().Texts(), ImVec2(0, 0), size);
+        DrawScriptUI(dl, m_Font, m_Session->Scripts().UIItems(), ImVec2(0, 0), size, &m_UITextures);
 
-        if (m_Paused) {
-            dl->AddRectFilled(ImVec2(0, 0), size, IM_COL32(0, 0, 0, 150));
-            std::vector<ScriptText> menu(2);
-            menu[0].Text = "Paused";
-            menu[0].X = 0.5f; menu[0].Y = 0.36f; menu[0].Size = 72.0f; menu[0].Align = 1;
-            menu[1].Text = "Esc  resume     R  restart     Q  quit     F11  full screen";
-            menu[1].X = 0.5f; menu[1].Y = 0.52f; menu[1].Size = 28.0f; menu[1].Align = 1;
-            menu[1].Color = glm::vec3(0.85f);
-            DrawScriptText(dl, m_Font, menu, ImVec2(0, 0), size);
+        if (m_Paused) DrawPauseMenu(dl, size);
+    }
+
+    // Built from the same UI items scripts use; the clicks are handled right here
+    void DrawPauseMenu(ImDrawList* dl, const ImVec2& size) {
+        using namespace Engine;
+        dl->AddRectFilled(ImVec2(0, 0), size, IM_COL32(0, 0, 0, 150));
+        std::vector<ScriptUIItem> menu;
+        ScriptUIItem title;
+        title.Text = "Paused";
+        title.X = 0.5f; title.Y = 0.26f; title.Size = 72.0f; title.Align = 1;
+        menu.push_back(title);
+
+        const char* labels[] = { "Resume", "Restart", "Quit" };
+        const ImVec2 mouse = ImGui::GetIO().MousePos;
+        int clicked = -1;
+        for (int i = 0; i < 3; i++) {
+            ScriptUIItem b;
+            b.Kind = ScriptUIItem::Type::Button;
+            b.Text = labels[i];
+            b.X = 0.4f; b.Y = 0.42f + 0.1f * i; b.W = 0.2f; b.H = 0.075f;
+            b.Color = glm::vec3(0.16f, 0.2f, 0.3f);
+            b.Alpha = 0.95f;
+            b.Rounding = 10.0f;
+            b.Size = 30.0f;
+            b.Hovered = UIButtonHovered(b, ImVec2(0, 0), size, mouse);
+            b.Pressed = b.Hovered && ImGui::IsMouseDown(ImGuiMouseButton_Left);
+            if (b.Hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) clicked = i;
+            menu.push_back(b);
         }
+        ScriptUIItem keys;
+        keys.Text = "Esc  resume     R  restart     Q  quit     F11  full screen";
+        keys.X = 0.5f; keys.Y = 0.75f; keys.Size = 22.0f; keys.Align = 1;
+        keys.Color = glm::vec3(0.75f);
+        menu.push_back(keys);
+        DrawScriptUI(dl, m_Font, menu, ImVec2(0, 0), size, nullptr);
+
+        // Acted on next frame by OnUpdate (or right away for quitting)
+        if (clicked == 0) m_Paused = false;
+        if (clicked == 1) { m_RestartPending = true; m_Paused = false; }
+        if (clicked == 2) Close();
     }
 
 private:
@@ -221,6 +261,7 @@ private:
     Engine::SceneSnapshot m_Snapshot;
     Engine::Camera m_GameCamera, m_FallbackCamera;
     ImFont* m_Font = nullptr;
+    Engine::UITextureCache m_UITextures{ m_Cfg.AssetDir };   // images for ui.image (declared after m_Cfg)
     std::string m_Error;
 
     bool m_Running = false, m_Paused = false, m_RestartPending = false;

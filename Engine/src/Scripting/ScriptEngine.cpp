@@ -15,6 +15,7 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <algorithm>
 #include <array>
 #include <stdexcept>
 #include <typeinfo>
@@ -91,7 +92,10 @@ namespace Engine {
         std::vector<entt::entity> PendingDestroy;         // e:destroy() requests, handled when nothing iterates
         std::vector<entt::entity> PendingRestart;         // e:add_script() on an entity that may already run one
         std::vector<std::string> Errors;
-        std::vector<ScriptText> Texts;                    // ui.text calls of the current frame
+        std::vector<ScriptUIItem> UI;                     // ui.* calls of the current frame
+        float PtrX = 0.0f, PtrY = 0.0f;                   // pointer over the game view, 0..1
+        bool PtrInside = false, PtrDown = false, PtrClicked = false;
+        bool QuitRequested = false;
         bool RestartRequested = false;
 
         std::array<bool, kKeyCount> KeyNow{}, KeyPrev{};
@@ -442,6 +446,7 @@ namespace Engine {
         });
         scene.set_function("time", [this]() { return Time; });
         scene.set_function("restart", [this]() { RestartRequested = true; });   // the app does Stop + Play next frame
+        scene.set_function("quit", [this]() { QuitRequested = true; });         // the app closes (editor: stops Play)
         scene.set_function("raycast", [this](const glm::vec3& origin, const glm::vec3& dir, float maxDist,
             sol::optional<ScriptEntity> ignore) -> sol::object {
             RayHit hit;
@@ -451,21 +456,86 @@ namespace Engine {
                 "normal", hit.Normal, "distance", hit.Distance);
         });
 
-        // ---- ui: text drawn over the viewport this frame. x, y are 0..1 across the viewport
+        // ---- ui: drawn over the game view this frame, in call order. x, y, w, h are 0..1 of the view
         sol::table ui = lua.create_named_table("ui");
-        ui.set_function("text", [this](const std::string& text, float x, float y, sol::optional<sol::table> opts) {
-            ScriptText t;
+        auto push = [this](ScriptUIItem item) { if (UI.size() < 1024) UI.push_back(std::move(item)); };
+        auto style = [](const sol::optional<sol::table>& opts, ScriptUIItem& it) {
+            if (!opts) return;
+            it.Color = opts->get_or<glm::vec3>("color", it.Color);
+            it.Alpha = opts->get_or<float>("alpha", it.Alpha);
+            it.Rounding = opts->get_or<float>("rounding", it.Rounding);
+            it.Size = opts->get_or<float>("size", it.Size);
+            it.TextColor = opts->get_or<glm::vec3>("text_color", it.TextColor);
+        };
+
+        ui.set_function("text", [push, style](const std::string& text, float x, float y, sol::optional<sol::table> opts) {
+            ScriptUIItem t;
             t.Text = text;
             t.X = x;
             t.Y = y;
+            style(opts, t);
             if (opts) {
-                t.Size = opts->get_or<float>("size", t.Size);
-                t.Color = opts->get_or<glm::vec3>("color", t.Color);
                 const std::string align = opts->get_or<std::string>("align", "left");
                 t.Align = align == "center" ? 1 : align == "right" ? 2 : 0;
             }
-            if (Texts.size() < 256) Texts.push_back(std::move(t));
+            push(std::move(t));
         });
+        ui.set_function("rect", [push, style](float x, float y, float w, float h, sol::optional<sol::table> opts) {
+            ScriptUIItem r;
+            r.Kind = ScriptUIItem::Type::Rect;
+            r.X = x; r.Y = y; r.W = w; r.H = h;
+            style(opts, r);
+            push(std::move(r));
+        });
+        // A filled bar: the back over the whole rect, the colour over `fraction` of it (from the left)
+        ui.set_function("bar", [push, style](float x, float y, float w, float h, float fraction, sol::optional<sol::table> opts) {
+            ScriptUIItem back;
+            back.Kind = ScriptUIItem::Type::Rect;
+            back.X = x; back.Y = y; back.W = w; back.H = h;
+            back.Color = glm::vec3(0.1f);
+            back.Alpha = 0.6f;
+            if (opts) {
+                back.Color = opts->get_or<glm::vec3>("back", back.Color);
+                back.Rounding = opts->get_or<float>("rounding", back.Rounding);
+            }
+            ScriptUIItem fill = back;
+            fill.Color = glm::vec3(0.3f, 0.85f, 0.4f);
+            fill.Alpha = 1.0f;
+            style(opts, fill);
+            fill.W = w * std::clamp(fraction, 0.0f, 1.0f);
+            push(std::move(back));
+            if (fill.W > 0.0f) push(std::move(fill));
+        });
+        ui.set_function("image", [push, style](const std::string& path, float x, float y, float w,
+            sol::object hOrOpts, sol::optional<sol::table> opts) {
+            ScriptUIItem img;
+            img.Kind = ScriptUIItem::Type::Image;
+            img.Text = path;
+            img.X = x; img.Y = y; img.W = w;
+            if (hOrOpts.is<float>()) img.H = hOrOpts.as<float>();
+            else if (hOrOpts.is<sol::table>()) opts = hOrOpts.as<sol::table>();   // ui.image(path, x, y, w, { ... })
+            style(opts, img);
+            push(std::move(img));
+        });
+        // Immediate mode: draws the button and says whether it was clicked this frame
+        ui.set_function("button", [this, push, style](const std::string& label, float x, float y, float w, float h,
+            sol::optional<sol::table> opts) {
+            ScriptUIItem b;
+            b.Kind = ScriptUIItem::Type::Button;
+            b.Text = label;
+            b.X = x; b.Y = y; b.W = w; b.H = h;
+            b.Color = glm::vec3(0.16f, 0.2f, 0.3f);
+            b.Alpha = 0.92f;
+            b.Rounding = 10.0f;
+            b.Size = 28.0f;
+            style(opts, b);
+            b.Hovered = PtrInside && PtrX >= x && PtrX <= x + w && PtrY >= y && PtrY <= y + h;
+            b.Pressed = b.Hovered && PtrDown;
+            const bool clicked = b.Hovered && PtrClicked;
+            push(std::move(b));
+            return clicked;
+        });
+        ui.set_function("mouse", [this]() { return std::make_tuple(PtrX, PtrY, PtrInside); });
 
         // ---- audio: one-shots, and the AudioSource view handed out by e.audio
         sol::table audio = lua.create_named_table("audio");
@@ -657,7 +727,22 @@ namespace Engine {
     bool ScriptEngine::IsRunning() const { return m_Impl->Lua != nullptr; }
     uint32_t ScriptEngine::InstanceCount() const { return (uint32_t)m_Impl->Instances.size(); }
     const std::vector<std::string>& ScriptEngine::RecentErrors() const { return m_Impl->Errors; }
-    const std::vector<ScriptText>& ScriptEngine::Texts() const { return m_Impl->Texts; }
+    const std::vector<ScriptUIItem>& ScriptEngine::UIItems() const { return m_Impl->UI; }
+
+    void ScriptEngine::SetPointer(float x, float y, bool inside, bool down) {
+        Impl& m = *m_Impl;
+        m.PtrClicked = down && !m.PtrDown && inside;      // pressed this frame, over the view
+        m.PtrX = x;
+        m.PtrY = y;
+        m.PtrInside = inside;
+        m.PtrDown = down;
+    }
+
+    bool ScriptEngine::ConsumeQuitRequest() {
+        const bool q = m_Impl->QuitRequested;
+        m_Impl->QuitRequested = false;
+        return q;
+    }
 
     bool ScriptEngine::ConsumeRestartRequest() {
         const bool r = m_Impl->RestartRequested;
@@ -689,7 +774,7 @@ namespace Engine {
         if (!m.Lua) return;
         m.ActiveScene = &scene;
         m.Time += dt;
-        m.Texts.clear();            // a paused game keeps showing the last frame's text
+        m.UI.clear();               // a paused game keeps showing the last frame's UI
         m.SampleInput();
         auto& reg = scene.Registry();
 
@@ -767,7 +852,8 @@ namespace Engine {
         m.Failed.clear();
         m.PendingDestroy.clear();   // the scene is about to be restored anyway
         m.PendingRestart.clear();
-        m.Texts.clear();
+        m.UI.clear();
+        m.QuitRequested = false;
         m.RestartRequested = false;
         m.Lua.reset();
         m.ActiveScene = nullptr;

@@ -13,14 +13,23 @@ namespace Engine {
     class PrefabLibrary;
     struct ResourceRegistry;
 
-    // One ui.text call: drawn by the app over the viewport for the frame it was made in
-    struct ScriptText {
-        std::string Text;
-        float X = 0.0f, Y = 0.0f;           // 0..1 across the viewport, from the top left
-        float Size = 24.0f;                 // pixels at a 720 px tall viewport (scales with it)
-        glm::vec3 Color{ 1.0f };
-        int Align = 0;                      // 0 left, 1 center, 2 right (of X)
+    // One ui.* call: drawn by the app over the game view for the frame it was made in, in call
+    // order (later items on top). Positions and sizes are 0..1 of the view's width / height.
+    struct ScriptUIItem {
+        enum class Type { Text, Rect, Image, Button };
+        Type Kind = Type::Text;
+        std::string Text;                   // the text, a button's label, or an image path ("Textures/x.png")
+        float X = 0.0f, Y = 0.0f;           // text: anchor (see Align); others: top left
+        float W = 0.0f, H = 0.0f;           // rect / image / button size (an image with H = 0 keeps its aspect)
+        float Size = 24.0f;                 // text size in pixels at a 720 px tall view (scales with it)
+        glm::vec3 Color{ 1.0f };            // text colour, fill, image tint, button face
+        glm::vec3 TextColor{ 1.0f };        // a button's label
+        float Alpha = 1.0f;
+        float Rounding = 0.0f;              // corner radius in pixels at 720p
+        int Align = 0;                      // text: 0 left, 1 center, 2 right (of X)
+        bool Hovered = false, Pressed = false;   // buttons, for drawing
     };
+    using ScriptText = ScriptUIItem;        // the older name
 
     // Runs the Lua scripts of every entity with a ScriptComponent while the scene plays.
     // Each entity gets its own copy of the script's globals, so two entities running the same
@@ -66,7 +75,14 @@ namespace Engine {
     //   scene.restart()                      Stop + Play on the next frame (retry a level)
     //   audio.play(clip [, { volume, pitch }])             2D one-shot, e.g. "Sounds/coin.wav"
     //   audio.play_at(clip, position [, { volume, pitch }]) 3D one-shot, quieter with distance
-    //   ui.text(text, x, y [, { size=24, color=vec3, align="left"|"center"|"right" }])   x, y in 0..1, this frame only
+    //   scene.quit()                         the game closes (in the editor: Play stops)
+    //   ---- ui: drawn this frame only, in call order. x, y, w, h are 0..1 of the view (top left origin).
+    //   ui.text(text, x, y [, { size=24, color=vec3, alpha=1, align="left"|"center"|"right" }])
+    //   ui.rect(x, y, w, h [, { color, alpha, rounding }])                 rounding in px at 720p
+    //   ui.bar(x, y, w, h, fraction [, { color, back=vec3, alpha, rounding }])   e.g. health or time
+    //   ui.image(path, x, y, w [, h] [, { color (tint), alpha }])          "Textures/x.png"; no h: keep aspect
+    //   ui.button(label, x, y, w, h [, { color, text_color, size, alpha, rounding }]) -> true on the frame it's clicked
+    //   ui.mouse() -> x, y, inside                                         pointer over the view, 0..1
     //   scene.raycast(origin, dir, max_dist [, ignore_entity]) -> nil or { entity, point, normal, distance }
     //   input.key_down(k), input.key_pressed(k), input.key_released(k)    Key.A..Key.Z, Key.Num0..9, Key.F1..12,
     //   input.mouse_down(b), input.mouse_pressed(b), input.mouse_position()  Key.Space, Key.Left ... Mouse.Left ...
@@ -92,7 +108,11 @@ namespace Engine {
         bool IsRunning() const;
         uint32_t InstanceCount() const;        // scripts currently running
         const std::vector<std::string>& RecentErrors() const;   // newest last, cleared on Start
-        const std::vector<ScriptText>& Texts() const;            // this frame's ui.text calls
+        const std::vector<ScriptUIItem>& UIItems() const;        // this frame's ui.* calls, in order
+        // Where the pointer is over the game view (0..1, top left origin) and whether the left button
+        // is down. Call every frame before Update: ui.button and ui.mouse read it.
+        void SetPointer(float x, float y, bool inside, bool down);
+        bool ConsumeQuitRequest();                              // true once after scene.quit()
         bool ConsumeRestartRequest();                           // true once after scene.restart()
 
     private:

@@ -23,6 +23,7 @@ namespace Engine {
 
         uint32_t GetWidth()  const { return m_Width; }
         uint32_t GetHeight() const { return m_Height; }
+        uint32_t GetID() const { return m_ID; }        // the GL texture (0 if loading failed)
 
     private:
         Texture2D() = default;
