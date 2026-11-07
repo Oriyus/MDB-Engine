@@ -82,6 +82,15 @@ namespace Engine {
         float Angle = 0.0f;
     };
 
+    // A game camera. Like the sun, it looks along the entity's local -Z (scale is ignored).
+    // During Play the viewport shows the primary camera (or the first one if none is primary).
+    struct CameraComponent {
+        float FOV = 60.0f;            // vertical, degrees
+        float Near = 0.1f;
+        float Far = 500.0f;
+        bool  Primary = true;
+    };
+
     // A Lua script driving this entity while playing (see Scripting/ScriptEngine.h).
     // Path is relative to the asset directory, e.g. "Scripts/bob.lua".
     struct ScriptComponent {

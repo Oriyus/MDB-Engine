@@ -21,6 +21,7 @@
 #include "Renderer/Bloom.h"
 #include "Physics/PhysicsWorld.h"
 #include "Scripting/ScriptEngine.h"
+#include "DemoLevels.h"
 
 #include <cfloat>
 #include <glad/glad.h>
@@ -190,14 +191,26 @@ public:
         m_Framebuffer = std::make_unique<Framebuffer>(1280, 720);
         m_Post = std::make_unique<PostProcess>(1280, 720);
         m_Camera = std::make_unique<Camera>(60.0f, AspectRatio());
+        m_GameCamera = std::make_unique<Camera>(60.0f, AspectRatio());
+
+        // A big TTF for ui.text, so game text stays crisp. Added before the first ImGui frame
+        // builds the font atlas; the default font stays first so the editor looks the same.
+        {
+            ImGuiIO& io = ImGui::GetIO();
+            if (io.Fonts->Fonts.empty()) io.Fonts->AddFontDefault();
+            for (const char* f : { "C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf" }) {
+                if (std::filesystem::exists(f)) { m_GameFont = io.Fonts->AddFontFromFileTTF(f, 64.0f); break; }
+            }
+        }
         m_Camera->Position = glm::vec3(0.0f, 1.0f, 6.0f);
 
         // Test hooks, for running the app unattended:
-        //   MDB_DEMO=1 builds the script demo, MDB_AUTOPLAY=1 presses Play, MDB_QUIT_AFTER=<s> closes
+        //   MDB_DEMO=script|coinrush builds that example level, MDB_AUTOPLAY=1 presses Play, MDB_QUIT_AFTER=<s> closes
         //   MDB_TEST_SCRIPT=Scripts/x.lua adds an entity "Test" running that script
         //   MDB_SCENE=<file> loads Assets/Scenes/<file> first, MDB_SAVE_SCENE=<file> saves after the rest
         if (auto sc = EnvVar("MDB_SCENE"); !sc.empty()) LoadScene(sc);
-        if (EnvVar("MDB_DEMO") == "1") BuildScriptDemo();
+        if (auto demo = EnvVar("MDB_DEMO"); demo == "1" || demo == "script") BuildLevel(BuildScriptDemo);
+        else if (demo == "coinrush") BuildLevel(BuildCoinRush);
         if (auto ts = EnvVar("MDB_TEST_SCRIPT"); !ts.empty())
             m_Scene.CreateEntity("Test").Add<ScriptComponent>().Path = ts;
         if (auto sv = EnvVar("MDB_SAVE_SCENE"); !sv.empty()) SaveScene(sv);
@@ -244,6 +257,12 @@ public:
         case PlayCmd::Step:
             if (m_PlayState == PlayState::Paused) m_StepFrame = true;
             break;
+        case PlayCmd::Restart:   // scene.restart() from a script: Stop, then Play again
+            if (m_PlayState != PlayState::Edit) {
+                m_Scripts->Stop(m_Scene); m_Physics->Reset(); StopPlay();
+                m_Physics->Reset(); StartPlay(); m_Physics->Sync(m_Scene); m_Scripts->Start(m_Scene);
+            }
+            break;
         default: break;
         }
         m_PlayCmd = PlayCmd::None;
@@ -275,6 +294,10 @@ public:
         bool kt = EdgePressed(Key::T, m_TDown);
         if (kp && ImGui::GetIO().KeyCtrl)
             m_PlayCmd = (m_PlayState == PlayState::Edit) ? PlayCmd::Play : PlayCmd::Stop;
+
+        // Looking through a game camera, the game owns the keyboard: only Esc, Ctrl+P, F1 and F5 stay
+        const bool editorKeys = !typing && !m_ViewingGame;
+        if (!editorKeys) kn = f = g = kw = ke = kr = kq = kdel = kt = false;
 
         if (!typing) {
             if (f5) { m_Shader->Reload(); m_ShadowShader->Reload(); m_SunShader->Reload(); m_PostShader->Reload(); 
@@ -323,11 +346,16 @@ public:
             m_Scripts->Update(m_Scene, stepDt);                // Lua on_update
             m_Physics->Step(m_Scene, stepDt, m_StepFrame);     // physics overrides dynamic transforms
             m_Scripts->DispatchCollisions(m_Scene);            // on_collision_* / on_trigger_*
+            if (m_Scripts->ConsumeRestartRequest()) m_PlayCmd = PlayCmd::Restart;   // next frame
         }
         else {
             m_Scene.UpdateOrbitPositions();
         }
         m_StepFrame = false;
+
+        // During Play, look through the scene's game camera (after scripts moved it this frame)
+        m_ViewingGame = m_PlayState != PlayState::Edit && m_PlayThroughGameCamera && UpdateGameCamera();
+        Camera& view = ViewCamera();
 
         // 1) Depth passes (all point lights + sun)
         m_Scene.RenderShadows(m_Shadows);
@@ -335,8 +363,8 @@ public:
         // 2) Scene into the HDR framebuffer
         m_Framebuffer->Bind();
         m_Framebuffer->Clear(0.005f, 0.005f, 0.01f, 1.0f);
-        m_Scene.Render(*m_Camera, *m_Shader, &m_Shadows, m_Env.get());
-        m_Env->DrawSkybox(*m_Camera, m_Scene.AmbientIntensity);
+        m_Scene.Render(view, *m_Shader, &m_Shadows, m_Env.get());
+        m_Env->DrawSkybox(view, m_Scene.AmbientIntensity);
         Framebuffer::Unbind();
 
         // 3) Screen-space effects
@@ -345,7 +373,7 @@ public:
 
         if (m_PostSettings.AOEnabled) {
             m_SSAO->Resize(fw, fh);
-            m_SSAO->Compute(m_Framebuffer->GetDepthAttachment(), m_Camera->GetProjection(),
+            m_SSAO->Compute(m_Framebuffer->GetDepthAttachment(), view.GetProjection(),
                 *m_SSAOShader, *m_SSAOBlurShader);
             aoTex = m_SSAO->GetOutput();
         }
@@ -582,98 +610,88 @@ public:
         return out;
     }
 
-    // A small level that exercises scripting + physics events: a ball you roll around (player.lua),
-    // coins to collect (coin.lua, triggers), a pad that glows while something is on it (pad.lua),
-    // and a spawner dropping balls onto the pad (spawner.lua + ball.lua).
-    void BuildScriptDemo() {
-        using namespace Engine;
-        EnsureSphere();
-        m_Scene.Clear();
+    // ------------------------------------------------------------ example levels (DemoLevels.cpp)
+    LevelAssets MakeLevelAssets() { EnsureSphere(); return { m_Cube, m_Plane, m_Sphere, m_Checker }; }
+    void BuildLevel(void (*build)(Engine::Scene&, const LevelAssets&)) {
         m_Selected = entt::null;
         m_Spawned.clear();
+        build(m_Scene, MakeLevelAssets());
+    }
 
-        {
-            auto e = m_Scene.CreateEntity("Floor");
-            e.Get<TransformComponent>().Position = glm::vec3(0.0f, -1.0f, 0.0f);
-            auto& mr = e.Add<MeshRendererComponent>();
-            mr.Geometry = m_Plane;
-            mr.Texture = m_Checker;
-            mr.Color = glm::vec3(0.8f);
-            mr.Roughness = 0.85f;
-            auto& rb = e.Add<RigidBodyComponent>();
-            rb.Type = BodyType::Static;
-            rb.Size = glm::vec3(12.0f, 1.0f, 12.0f);
-            rb.Center = glm::vec3(0.0f, -0.5f, 0.0f);
+    // ------------------------------------------------------------ game camera
+    Engine::Camera& ViewCamera() { return m_ViewingGame ? *m_GameCamera : *m_Camera; }
+
+    // Point m_GameCamera at the primary CameraComponent (or the first camera). False if there is none.
+    bool UpdateGameCamera() {
+        using namespace Engine;
+        auto& reg = m_Scene.Registry();
+        entt::entity chosen = entt::null;
+        for (auto [e, c] : reg.view<CameraComponent>().each()) {
+            if (chosen == entt::null) chosen = e;
+            if (c.Primary) { chosen = e; break; }
         }
-        {
-            auto e = m_Scene.CreateEntity("Sun");
-            auto& t = e.Get<TransformComponent>();
-            t.Position = glm::vec3(0.0f, 6.0f, 0.0f);
-            t.Rotation = glm::vec3(-0.9f, 0.5f, 0.0f);
-            t.Scale = glm::vec3(0.12f, 0.12f, 0.6f);
-            e.Add<DirectionalLightComponent>().Intensity = 1.2f;
+        if (chosen == entt::null) return false;
+
+        const auto& t = reg.get<TransformComponent>(chosen);
+        const auto& c = reg.get<CameraComponent>(chosen);
+        m_GameCamera->SetAspect((float)m_Framebuffer->GetWidth() / (float)m_Framebuffer->GetHeight());
+        m_GameCamera->SetLens(c.FOV, c.Near, c.Far);
+        m_GameCamera->SetPose(t.Position, glm::quat(t.Rotation));
+        return true;
+    }
+
+    // Small frustum outlines for camera entities, so they can be placed in the editor
+    void DrawCameraFrustums(const ImVec2& origin, const ImVec2& size) {
+        using namespace Engine;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const glm::mat4 vp = ViewCamera().GetViewProjection();
+        auto project = [&](const glm::vec3& w, ImVec2& out) {
+            glm::vec4 c = vp * glm::vec4(w, 1.0f);
+            if (c.w <= 0.01f) return false;
+            out = ImVec2(origin.x + (c.x / c.w * 0.5f + 0.5f) * size.x,
+                origin.y + (1.0f - (c.y / c.w * 0.5f + 0.5f)) * size.y);
+            return true;
+        };
+        auto line = [&](const glm::vec3& a, const glm::vec3& b, ImU32 col) {
+            ImVec2 pa, pb;
+            if (project(a, pa) && project(b, pb)) dl->AddLine(pa, pb, col, 1.5f);
+        };
+
+        const float aspect = size.y > 0.0f ? size.x / size.y : 16.0f / 9.0f;
+        for (auto [e, t, c] : m_Scene.Registry().view<TransformComponent, CameraComponent>().each()) {
+            const ImU32 col = e == m_Selected ? IM_COL32(255, 255, 255, 255) : IM_COL32(200, 200, 210, 150);
+            const glm::quat q(t.Rotation);
+            const glm::vec3 p = t.Position, f = q * glm::vec3(0, 0, -1), r = q * glm::vec3(1, 0, 0), u = q * glm::vec3(0, 1, 0);
+            const float d = 0.8f, h = std::tan(glm::radians(c.FOV) * 0.5f) * d, w = h * aspect;
+            const glm::vec3 k[4] = { p + f * d - r * w - u * h, p + f * d + r * w - u * h,
+                                     p + f * d + r * w + u * h, p + f * d - r * w + u * h };
+            for (int i = 0; i < 4; i++) { line(p, k[i], col); line(k[i], k[(i + 1) % 4], col); }
+            line(k[3] + u * 0.1f, p + f * d + u * (h + 0.3f), col);      // a little "up" roof
+            line(k[2] + u * 0.1f, p + f * d + u * (h + 0.3f), col);
+            line(k[3] + u * 0.1f, k[2] + u * 0.1f, col);
         }
-        {
-            auto e = m_Scene.CreateEntity("Pad");
-            auto& t = e.Get<TransformComponent>();
-            t.Position = glm::vec3(2.5f, -0.97f, -1.5f);
-            t.Scale = glm::vec3(2.0f, 0.06f, 2.0f);
-            auto& mr = e.Add<MeshRendererComponent>();
-            mr.Geometry = m_Cube;
-            mr.Color = glm::vec3(0.25f, 0.3f, 0.4f);
-            auto& rb = e.Add<RigidBodyComponent>();
-            rb.IsTrigger = true;
-            rb.Size = glm::vec3(1.0f, 16.0f, 1.0f);      // a 1 m tall volume above the pad
-            rb.Center = glm::vec3(0.0f, 8.0f, 0.0f);
-            e.Add<ScriptComponent>().Path = "Scripts/pad.lua";
+    }
+
+    // ui.text from scripts, over the viewport. Kept while paused (the scripts didn't run again).
+    void DrawScriptText(const ImVec2& origin, const ImVec2& size) {
+        if (m_PlayState == PlayState::Edit) return;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        ImFont* font = m_GameFont ? m_GameFont : ImGui::GetFont();
+        for (const auto& t : m_Scripts->Texts()) {
+            const float px = std::clamp(t.Size * size.y / 720.0f, 6.0f, 256.0f);   // sizes are given at 720p
+            const ImVec2 extent = font->CalcTextSizeA(px, FLT_MAX, 0.0f, t.Text.c_str());
+            ImVec2 pos(origin.x + t.X * size.x - extent.x * 0.5f * (float)t.Align, origin.y + t.Y * size.y);
+            const glm::vec3 c = glm::clamp(t.Color, glm::vec3(0.0f), glm::vec3(1.0f));
+            const float shadow = std::max(1.0f, px / 16.0f);
+            dl->AddText(font, px, ImVec2(pos.x + shadow, pos.y + shadow), IM_COL32(0, 0, 0, 170), t.Text.c_str());
+            dl->AddText(font, px, pos, ImGui::ColorConvertFloat4ToU32(ImVec4(c.r, c.g, c.b, 1.0f)), t.Text.c_str());
         }
-        {
-            auto e = m_Scene.CreateEntity("Spawner");
-            e.Get<TransformComponent>().Position = glm::vec3(2.5f, 4.0f, -1.5f);
-            e.Add<ScriptComponent>().Path = "Scripts/spawner.lua";
-        }
-        const int coins = 6;
-        for (int i = 0; i < coins; i++) {
-            const float a = i * 6.2831853f / coins;
-            auto e = m_Scene.CreateEntity("Coin");
-            auto& t = e.Get<TransformComponent>();
-            t.Position = glm::vec3(std::cos(a) * 4.0f - 1.0f, -0.5f, std::sin(a) * 3.0f + 1.0f);
-            t.Scale = glm::vec3(0.3f, 0.3f, 0.08f);
-            auto& mr = e.Add<MeshRendererComponent>();
-            mr.Geometry = m_Cube;
-            mr.Color = glm::vec3(1.0f, 0.8f, 0.2f);
-            mr.Metallic = 1.0f;
-            mr.Roughness = 0.3f;
-            mr.Emissive = glm::vec3(0.6f, 0.4f, 0.05f);
-            e.Add<SpinComponent>().Speed = glm::vec3(0.0f, 2.0f, 0.0f);
-            auto& rb = e.Add<RigidBodyComponent>();
-            rb.IsTrigger = true;
-            rb.Size = glm::vec3(2.0f, 2.0f, 6.0f);       // generous: ~0.6 m around the thin coin
-            e.Add<ScriptComponent>().Path = "Scripts/coin.lua";
-        }
-        {
-            auto e = m_Scene.CreateEntity("Player");
-            auto& t = e.Get<TransformComponent>();
-            t.Position = glm::vec3(-1.0f, -0.6f, 1.0f);
-            t.Scale = glm::vec3(0.8f);
-            auto& mr = e.Add<MeshRendererComponent>();
-            mr.Geometry = m_Sphere;
-            mr.Texture = m_Checker;
-            mr.Color = glm::vec3(0.3f, 0.55f, 1.0f);
-            mr.Roughness = 0.35f;
-            auto& rb = e.Add<RigidBodyComponent>();
-            rb.Shape = ColliderShape::Sphere;
-            rb.Mass = 2.0f;
-            rb.Friction = 0.8f;
-            e.Add<ScriptComponent>().Path = "Scripts/player.lua";
-        }
-        LOG_INFO("Script demo built. Press Play (Ctrl+P).");
     }
 
     void DrawColliders(const ImVec2& origin, const ImVec2& size) {
         using namespace Engine;
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        const glm::mat4 vp = m_Camera->GetViewProjection();
+        const glm::mat4 vp = ViewCamera().GetViewProjection();
 
         auto project = [&](const glm::vec3& w, ImVec2& out) {
             glm::vec4 c = vp * glm::vec4(w, 1.0f);
@@ -845,6 +863,10 @@ private:
 
         ImGui::Separator();
         ImGui::TextUnformatted("Scripting");
+        ImGui::Checkbox("Play through game camera", &m_PlayThroughGameCamera);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("During Play, show the scene's primary Camera entity.\n"
+                "Untick to fly the editor camera (and use editor shortcuts) while the game runs.");
         if (m_Scripts->IsRunning()) {
             ImGui::Text("Scripts running: %u", m_Scripts->InstanceCount());
             ImGui::SameLine();
@@ -882,9 +904,12 @@ private:
         }
         ImGui::EndDisabled();
         ImGui::TextDisabled("Assets/Scenes. Saves entities, environment, post, shadows, gravity, camera");
-        if (ImGui::Button("Build script demo")) BuildScriptDemo();
+        ImGui::TextUnformatted("Example levels (replace the scene)");
+        if (ImGui::Button("Script demo")) BuildLevel(BuildScriptDemo);
+        ImGui::SameLine();
+        if (ImGui::Button("Coin Rush")) BuildLevel(BuildCoinRush);
         ImGui::EndDisabled();
-        ImGui::TextDisabled("Replaces the scene: roll the ball with the arrows, Space jumps");
+        ImGui::TextDisabled("Arrows roll the ball, Space jumps, R retries");
         ImGui::End();
     }
 
@@ -976,11 +1001,17 @@ private:
 
         const bool navigating = alt || m_NavMode != NavMode::None;
 
-        if (m_ShowColliders) DrawColliders(origin, size);
+        if (m_ShowColliders && !m_ViewingGame) DrawColliders(origin, size);
+        if (!m_ViewingGame) DrawCameraFrustums(origin, size);
+        DrawScriptText(origin, size);
+        if (m_ViewingGame) {
+            ImGui::GetWindowDrawList()->AddText(ImVec2(origin.x + 8.0f, origin.y + size.y - 22.0f),
+                IM_COL32(255, 255, 255, 110), "Game camera (Tools > Play through game camera)");
+        }
 
-        // ---- Gizmo for the selected entity
+        // ---- Gizmo for the selected entity (not while looking through the game camera)
         bool gizmoBusy = false;
-        if (!m_SelectTool && m_Selected != entt::null && m_Scene.Registry().valid(m_Selected) && !m_MouseLook) {
+        if (!m_ViewingGame && !m_SelectTool && m_Selected != entt::null && m_Scene.Registry().valid(m_Selected) && !m_MouseLook) {
             Engine::Entity e(m_Selected, &m_Scene);
             auto& t = e.Get<Engine::TransformComponent>();
 
@@ -988,8 +1019,8 @@ private:
             ImGuizmo::SetDrawlist();
             ImGuizmo::SetRect(origin.x, origin.y, size.x, size.y);
 
-            glm::mat4 view = m_Camera->GetView();
-            glm::mat4 proj = m_Camera->GetProjection();
+            glm::mat4 view = ViewCamera().GetView();
+            glm::mat4 proj = ViewCamera().GetProjection();
             glm::mat4 model = t.GetMatrix();
 
             float snap = m_GizmoOp == ImGuizmo::ROTATE ? 15.0f : (m_GizmoOp == ImGuizmo::SCALE ? 0.1f : 0.5f);
@@ -1012,7 +1043,7 @@ private:
         }
 
         // ---- Click to select (not while interacting with the gizmo)
-        if (imageHovered && !gizmoBusy && !navigating && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !m_MouseLook) {
+        if (!m_ViewingGame && imageHovered && !gizmoBusy && !navigating && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !m_MouseLook) {
             ImVec2 mouse = ImGui::GetMousePos();
             int px = (int)(mouse.x - origin.x);
             int py = (int)m_Framebuffer->GetHeight() - 1 - (int)(mouse.y - origin.y);
@@ -1195,6 +1226,16 @@ private:
             if (ImGui::Button("Remove##script")) e.Remove<ScriptComponent>();
         }
 
+        if (e.Has<CameraComponent>() && ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto& c = e.Get<CameraComponent>();
+            ImGui::SliderFloat("Field of view", &c.FOV, 10.0f, 120.0f, "%.0f deg");
+            ImGui::DragFloat("Near", &c.Near, 0.01f, 0.01f, 10.0f);
+            ImGui::DragFloat("Far", &c.Far, 1.0f, 1.0f, 5000.0f);
+            ImGui::Checkbox("Primary", &c.Primary);
+            ImGui::TextDisabled("Looks along local -Z. Play shows the primary camera.");
+            if (ImGui::Button("Remove##camera")) e.Remove<CameraComponent>();
+        }
+
         ImGui::Separator();
         if (ImGui::Button("Add Component")) ImGui::OpenPopup("AddComponent");
         if (ImGui::BeginPopup("AddComponent")) {
@@ -1209,6 +1250,7 @@ private:
                 if (e.Has<MeshRendererComponent>()) FitCollider(e.Get<MeshRendererComponent>(), rb);
             }
             if (!e.Has<ScriptComponent>() && ImGui::MenuItem("Script")) e.Add<ScriptComponent>().Path = "Scripts/mover.lua";
+            if (!e.Has<CameraComponent>() && ImGui::MenuItem("Camera")) e.Add<CameraComponent>();
             ImGui::EndPopup();
         }
 
@@ -1336,7 +1378,11 @@ private:
 
     Engine::Scene m_Scene;
     std::unique_ptr<Engine::Shader> m_Shader;
-    std::unique_ptr<Engine::Camera> m_Camera;
+    std::unique_ptr<Engine::Camera> m_Camera;          // the editor camera (Maya-style navigation)
+    std::unique_ptr<Engine::Camera> m_GameCamera;      // follows the scene's primary CameraComponent
+    bool m_PlayThroughGameCamera = true;
+    bool m_ViewingGame = false;                        // this frame renders through m_GameCamera
+    ImFont* m_GameFont = nullptr;                      // large font for ui.text (null: default font)
     std::unique_ptr<Engine::Framebuffer> m_Framebuffer;
     std::shared_ptr<Engine::Mesh> m_Cube;
     std::shared_ptr<Engine::Texture2D> m_Checker;
@@ -1366,7 +1412,7 @@ private:
     std::unique_ptr<Engine::Shader> m_FXAAShader;
 
     enum class PlayState { Edit, Play, Paused };
-    enum class PlayCmd { None, Play, Stop, Pause, Step };
+    enum class PlayCmd { None, Play, Stop, Pause, Step, Restart };
 
     PlayState m_PlayState = PlayState::Edit;
     PlayCmd   m_PlayCmd = PlayCmd::None;     // set by the UI, applied at the start of the next frame

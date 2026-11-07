@@ -24,6 +24,7 @@ namespace Engine {
         std::optional<OrbitComponent>               Orbit;
         std::optional<RigidBodyComponent>           RigidBody;
         std::optional<ScriptComponent>              Script;
+        std::optional<CameraComponent>              Camera;
     };
     using SceneSnapshot = std::vector<EntitySnapshot>;
 

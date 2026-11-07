@@ -153,6 +153,10 @@ namespace Engine {
             }
             if (e.Has<ScriptComponent>())
                 j["script"] = { { "path", e.Get<ScriptComponent>().Path } };
+            if (e.Has<CameraComponent>()) {
+                auto& c = e.Get<CameraComponent>();
+                j["camera"] = { { "fov", c.FOV },{ "near", c.Near },{ "far", c.Far },{ "primary", c.Primary } };
+            }
             entities.push_back(std::move(j));
         }
 
@@ -244,6 +248,14 @@ namespace Engine {
                 }
                 if (j.contains("script"))
                     e.Add<ScriptComponent>().Path = j["script"].at("path").get<std::string>();
+                if (j.contains("camera")) {
+                    auto& c = e.Add<CameraComponent>();
+                    const auto& jc = j["camera"];
+                    c.FOV = jc.value("fov", 60.0f);
+                    c.Near = jc.value("near", 0.1f);
+                    c.Far = jc.value("far", 500.0f);
+                    c.Primary = jc.value("primary", true);
+                }
             }
         }
         catch (const std::exception& ex) {

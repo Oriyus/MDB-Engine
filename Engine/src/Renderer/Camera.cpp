@@ -47,6 +47,19 @@ namespace Engine {
         RecalcView();
     }
 
+    void Camera::SetPose(const glm::vec3& position, const glm::quat& rotation) {
+        Position = position;
+        m_Front = glm::normalize(rotation * glm::vec3(0.0f, 0.0f, -1.0f));
+        m_View = glm::inverse(glm::translate(glm::mat4(1.0f), position) * glm::mat4_cast(rotation));
+    }
+
+    void Camera::SetLens(float fovDegrees, float nearPlane, float farPlane) {
+        m_Fov = std::clamp(fovDegrees, 1.0f, 179.0f);
+        m_Near = std::max(nearPlane, 0.001f);
+        m_Far = std::max(farPlane, m_Near + 0.01f);
+        RecalcProjection();
+    }
+
     void Camera::Refresh() {
         UpdateFront();
         RecalcView();
