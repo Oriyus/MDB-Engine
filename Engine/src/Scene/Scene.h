@@ -27,6 +27,7 @@ namespace Engine {
         std::optional<SpinComponent>                Spin;
         std::optional<OrbitComponent>               Orbit;
         std::optional<RigidBodyComponent>           RigidBody;
+        std::optional<ColliderComponent>            Collider;
         std::optional<ScriptComponent>              Script;
         std::optional<CameraComponent>              Camera;
         std::optional<AudioSourceComponent>         AudioSource;

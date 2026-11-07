@@ -10,6 +10,8 @@
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
+#include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/CastResult.h>
@@ -298,6 +300,54 @@ namespace Engine {
             return ShapeCache[key] = result.Get();
         }
 
+        // One collider shape in its entity's space: the scale baked in, Center applied. Never null
+        // (anything that can't be built falls back to a box, with a warning).
+        JPH::ShapeRefC BuildShape(entt::entity e, ColliderShape kind, const glm::vec3& size, const glm::vec3& center,
+            const glm::vec3& worldScale, bool dynamic) {
+            const glm::vec3 scale = glm::abs(worldScale);
+            if (kind == ColliderShape::ConvexHull || kind == ColliderShape::Mesh) {
+                // Jolt can't simulate a triangle mesh as a dynamic body: those get a convex hull
+                bool exact = kind == ColliderShape::Mesh;
+                if (exact && dynamic) {
+                    WarnOnce(e, "a Mesh collider can't be dynamic: using a convex hull");
+                    exact = false;
+                }
+                if (JPH::ShapeRefC s = GeometryShape(e, exact, worldScale)) return s;
+            }
+
+            JPH::ShapeRefC shape;
+            if (kind == ColliderShape::Sphere) {
+                const float r = std::max(0.01f, 0.5f * size.x * std::max({ scale.x, scale.y, scale.z }));
+                shape = new JPH::SphereShape(r);
+            }
+            else if (kind == ColliderShape::Capsule) {
+                // Along local Y: the radius from x/z, the height (caps included) from y
+                const float r = std::max(0.01f, 0.5f * size.x * std::max(scale.x, scale.z));
+                const float halfCylinder = std::max(0.0f, 0.5f * size.y * scale.y - r);
+                if (halfCylinder > 1e-4f) shape = new JPH::CapsuleShape(halfCylinder, r);
+                else                      shape = new JPH::SphereShape(r);   // too short: just the caps
+            }
+            else {
+                const glm::vec3 half = glm::max(0.5f * size * scale, glm::vec3(0.01f));
+                const float convexRadius = std::min(0.05f, std::min({ half.x, half.y, half.z }));
+                shape = new JPH::BoxShape(ToJolt(half), convexRadius);
+            }
+            const glm::vec3 offset = center * worldScale;
+            if (glm::dot(offset, offset) > 1e-10f)
+                shape = new JPH::RotatedTranslatedShape(ToJolt(offset), JPH::Quat::sIdentity(), shape.GetPtr());
+            return shape;
+        }
+
+        // Colliders that belong to body `e`: descendants with a ColliderComponent, not looking inside
+        // descendants that have a RigidBody of their own (those are separate bodies)
+        void CollectColliders(entt::entity e, std::vector<entt::entity>& out) {
+            for (auto c : Sc->GetChildren(e)) {
+                if (Reg->all_of<RigidBodyComponent>(c)) continue;
+                if (Reg->all_of<ColliderComponent>(c)) out.push_back(c);
+                CollectColliders(c, out);
+            }
+        }
+
         // Where the entity is in the world (transforms are local to their parent)
         void WorldPose(entt::entity e, glm::vec3& pos, glm::quat& rot, glm::vec3& scale) const {
             Scene::Decompose(Sc->GetWorldMatrix(e), pos, rot, scale);
@@ -307,35 +357,45 @@ namespace Engine {
             glm::vec3 worldPos, worldScale;
             glm::quat q;
             WorldPose(e, worldPos, q, worldScale);
-            const glm::vec3 scale = glm::abs(worldScale);
 
             // Triggers are kinematic sensors: a static sensor loses its contacts when the body
             // inside falls asleep (a false "exit"), an active kinematic one never does
             const BodyType type = rb.IsTrigger ? BodyType::Kinematic : rb.Type;
 
+            // The body's own shape plus its descendants' colliders, as one compound if there are several
+            const bool dynamic = type == BodyType::Dynamic;
+            JPH::ShapeRefC own;
+            if (rb.Shape != ColliderShape::None) own = BuildShape(e, rb.Shape, rb.Size, rb.Center, worldScale, dynamic);
+
+            std::vector<entt::entity> parts;
+            CollectColliders(e, parts);
             JPH::ShapeRefC shape;
-            if (rb.Shape == ColliderShape::ConvexHull || rb.Shape == ColliderShape::Mesh) {
-                // Jolt can't simulate a triangle mesh as a dynamic body: those get a convex hull
-                bool exact = rb.Shape == ColliderShape::Mesh;
-                if (exact && type == BodyType::Dynamic) {
-                    WarnOnce(e, "a Mesh collider can't be dynamic: using a convex hull");
-                    exact = false;
+            if (parts.empty()) {
+                shape = own;
+            }
+            else {
+                // Each part goes where its entity is, relative to the body (in the body's unscaled
+                // space; the part's own world scale is baked into its shape)
+                JPH::StaticCompoundShapeSettings compound;
+                if (own) compound.AddShape(JPH::Vec3::sZero(), JPH::Quat::sIdentity(), own.GetPtr());
+                const glm::quat inv = glm::inverse(q);
+                for (auto p : parts) {
+                    glm::vec3 pp, ps;
+                    glm::quat pq;
+                    WorldPose(p, pp, pq, ps);
+                    const auto& c = Reg->get<ColliderComponent>(p);
+                    if (c.Shape == ColliderShape::None) continue;
+                    JPH::ShapeRefC part = BuildShape(p, c.Shape, c.Size, c.Center, ps, dynamic);
+                    compound.AddShape(ToJolt(inv * (pp - worldPos)), ToJolt(glm::normalize(inv * pq)), part.GetPtr());
                 }
-                shape = GeometryShape(e, exact, worldScale);   // null if it can't be built: falls back to a box
+                auto result = compound.Create();
+                if (result.HasError()) WarnOnce(e, "its child colliders can't be combined: using its own shape only");
+                else shape = result.Get();
+                if (!shape) shape = own;
             }
             if (!shape) {
-                if (rb.Shape == ColliderShape::Sphere) {
-                    float r = std::max(0.01f, 0.5f * rb.Size.x * std::max({ scale.x, scale.y, scale.z }));
-                    shape = new JPH::SphereShape(r);
-                }
-                else {
-                    glm::vec3 half = glm::max(0.5f * rb.Size * scale, glm::vec3(0.01f));
-                    float convexRadius = std::min(0.05f, std::min({ half.x, half.y, half.z }));
-                    shape = new JPH::BoxShape(ToJolt(half), convexRadius);
-                }
-                const glm::vec3 offset = rb.Center * worldScale;
-                if (glm::dot(offset, offset) > 1e-10f)
-                    shape = new JPH::RotatedTranslatedShape(ToJolt(offset), JPH::Quat::sIdentity(), shape.GetPtr());
+                WarnOnce(e, "a rigid body with shape None needs child colliders: using a small box");
+                shape = new JPH::BoxShape(JPH::Vec3::sReplicate(0.05f));
             }
 
             JPH::EMotionType motion = type == BodyType::Static ? JPH::EMotionType::Static

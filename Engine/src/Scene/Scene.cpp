@@ -177,6 +177,7 @@ namespace Engine {
         if (auto* c = m_Registry.try_get<SpinComponent>(handle))             s.Spin = *c;
         if (auto* c = m_Registry.try_get<OrbitComponent>(handle))            s.Orbit = *c;
         if (auto* c = m_Registry.try_get<RigidBodyComponent>(handle))        s.RigidBody = *c;
+        if (auto* c = m_Registry.try_get<ColliderComponent>(handle))         s.Collider = *c;
         if (auto* c = m_Registry.try_get<ScriptComponent>(handle))           s.Script = *c;
         if (auto* c = m_Registry.try_get<CameraComponent>(handle))           s.Camera = *c;
         if (auto* c = m_Registry.try_get<AudioSourceComponent>(handle))      s.AudioSource = *c;
@@ -196,6 +197,7 @@ namespace Engine {
         if (s.Spin)             m_Registry.emplace<SpinComponent>(e, *s.Spin);
         if (s.Orbit)            m_Registry.emplace<OrbitComponent>(e, *s.Orbit);
         if (s.RigidBody)        m_Registry.emplace<RigidBodyComponent>(e, *s.RigidBody);
+        if (s.Collider)         m_Registry.emplace<ColliderComponent>(e, *s.Collider);
         if (s.Script)           m_Registry.emplace<ScriptComponent>(e, *s.Script);
         if (s.Camera)           m_Registry.emplace<CameraComponent>(e, *s.Camera);
         if (s.AudioSource)      m_Registry.emplace<AudioSourceComponent>(e, *s.AudioSource);

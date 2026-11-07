@@ -53,14 +53,16 @@ namespace Engine {
     //   e.forward, e.right, e.up                              world-space directions (read-only)
     //   e:look_at(target [, up]) and e.forward... work in world space
     //   e.id, e:valid(), e:destroy(), e:clone()
-    //   e:has(kind), e:remove(kind)     kind = "mesh" "body" "light" "sun" "script" "spin" "orbit" "camera" "audio"
+    //   e:has(kind), e:remove(kind)     kind = "mesh" "body" "collider" "light" "sun" "script" "spin" "orbit" "camera" "audio"
     //   e.mesh   -> nil or { color, emissive, metallic, roughness, unlit, geometry ("cube" "sphere" ...) }
     //   e.light  -> nil or { color, intensity, shadows }
     //   e.body   -> nil or { velocity, angular_velocity, type, trigger, mass,
     //                         add_force(v) (newtons, lasts this frame: call each frame), add_impulse(v) }
     //   e:add_mesh{ geometry="cube", texture="checker", color=vec3, metallic, roughness, emissive, unlit }
-    //   e:add_body{ type="dynamic"|"static"|"kinematic", shape="box"|"sphere"|"convex"|"mesh", size=number|vec3,
+    //   e:add_body{ type="dynamic"|"static"|"kinematic", shape="box"|"sphere"|"capsule"|"convex"|"mesh"|"none", size=number|vec3,
     //               center=vec3, mass, friction, bounciness, trigger=bool, velocity=vec3 }
+    //   e:add_collider{ shape="box"|"sphere"|"capsule"|"convex"|"mesh", size, center }   an extra shape for the
+    //               rigid body above this entity (compound collider). Capsule size = vec3(diameter, height, 0)
     //   e:add_light{ color=vec3, intensity, shadows }
     //   e:add_script("Scripts/x.lua")        starts on the next frame
     //   e.camera -> nil or { fov, primary }       e:add_camera{ fov=60, near, far, primary=true }

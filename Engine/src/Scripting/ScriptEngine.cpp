@@ -325,6 +325,7 @@ namespace Engine {
                 if (kind == "orbit")  return e.Has<OrbitComponent>();
                 if (kind == "camera") return e.Has<CameraComponent>();
                 if (kind == "audio")  return e.Has<AudioSourceComponent>();
+                if (kind == "collider") return e.Has<ColliderComponent>();
                 throw std::runtime_error("unknown component kind '" + kind + "'");
             },
             "remove", [](const ScriptEntity& e, const std::string& kind) {
@@ -339,6 +340,7 @@ namespace Engine {
                 else if (kind == "orbit")  reg.remove<OrbitComponent>(e.Handle);
                 else if (kind == "camera") reg.remove<CameraComponent>(e.Handle);
                 else if (kind == "audio")  reg.remove<AudioSourceComponent>(e.Handle);
+                else if (kind == "collider") reg.remove<ColliderComponent>(e.Handle);
                 else throw std::runtime_error("unknown component kind '" + kind + "'");
             },
 
@@ -372,7 +374,9 @@ namespace Engine {
                     if (shape == "sphere") rb.Shape = ColliderShape::Sphere;
                     else if (shape == "convex") rb.Shape = ColliderShape::ConvexHull;   // from the entity's mesh
                     else if (shape == "mesh") rb.Shape = ColliderShape::Mesh;           // exact, static/kinematic only
-                    else if (shape != "box") throw std::runtime_error("unknown shape '" + shape + "' (box, sphere, convex, mesh)");
+                    else if (shape == "capsule") rb.Shape = ColliderShape::Capsule;     // size = vec3(diameter, height, _)
+                    else if (shape == "none") rb.Shape = ColliderShape::None;           // child colliders only
+                    else if (shape != "box") throw std::runtime_error("unknown shape '" + shape + "' (box, sphere, capsule, convex, mesh, none)");
                     sol::object size = (*opts)["size"];
                     if (size.is<glm::vec3>())  rb.Size = size.as<glm::vec3>();
                     else if (size.is<float>()) rb.Size = glm::vec3(size.as<float>());
@@ -386,6 +390,28 @@ namespace Engine {
                 e.Owner->Registry().emplace_or_replace<RigidBodyComponent>(e.Handle, rb);
                 if (Physics) Physics->Invalidate(e.Handle);   // rebuilt from the new settings on next use
                 return BodyRef{ e };
+            },
+            // An extra shape for the rigid body above this entity (a compound collider)
+            "add_collider", [this](const ScriptEntity& e, sol::optional<sol::table> opts) {
+                if (!e.Valid()) throw std::runtime_error("entity no longer exists");
+                ColliderComponent c;
+                if (opts) {
+                    const std::string shape = opts->get_or<std::string>("shape", "box");
+                    if (shape == "sphere") c.Shape = ColliderShape::Sphere;
+                    else if (shape == "capsule") c.Shape = ColliderShape::Capsule;
+                    else if (shape == "convex") c.Shape = ColliderShape::ConvexHull;
+                    else if (shape == "mesh") c.Shape = ColliderShape::Mesh;
+                    else if (shape != "box") throw std::runtime_error("unknown collider shape '" + shape + "' (box, sphere, capsule, convex, mesh)");
+                    sol::object size = (*opts)["size"];
+                    if (size.is<glm::vec3>())  c.Size = size.as<glm::vec3>();
+                    else if (size.is<float>()) c.Size = glm::vec3(size.as<float>());
+                    c.Center = opts->get_or<glm::vec3>("center", c.Center);
+                }
+                e.Owner->Registry().emplace_or_replace<ColliderComponent>(e.Handle, c);
+                // Rebuild the body it belongs to (the nearest ancestor with a RigidBody)
+                int guard = 0;
+                for (entt::entity p = e.Owner->GetParent(e.Handle); p != entt::null && guard++ < 256; p = e.Owner->GetParent(p))
+                    if (e.Owner->Registry().all_of<RigidBodyComponent>(p)) { if (Physics) Physics->Invalidate(p); break; }
             },
             "add_light", [](const ScriptEntity& e, sol::optional<sol::table> opts) {
                 if (!e.Valid()) throw std::runtime_error("entity no longer exists");

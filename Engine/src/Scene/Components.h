@@ -42,20 +42,35 @@ namespace Engine {
     };
 
     enum class BodyType { Static, Dynamic, Kinematic };
+    // Box: Size = full extents. Sphere: Size.x = diameter. Capsule: Size.x = diameter, Size.y = total
+    // height (caps included), standing on the local Y axis. Sizes are multiplied by the entity's scale.
     // ConvexHull and Mesh use the entity's MeshRenderer geometry (with its LocalOffset), scaled by the
     // entity: Size and Center are ignored for them. Mesh is exact but static/kinematic only.
-    enum class ColliderShape { Box, Sphere, ConvexHull, Mesh };
+    // None: the body has no shape of its own, only its children's ColliderComponents.
+    // (The numbers are stored in scene files: only add at the end.)
+    enum class ColliderShape { Box, Sphere, ConvexHull, Mesh, Capsule, None };
 
+    // A rigid body's shape is its own (Shape/Size/Center) plus the ColliderComponent of every
+    // descendant that has no RigidBody itself: together they make one compound collider.
     struct RigidBodyComponent {
         BodyType Type = BodyType::Dynamic;
         ColliderShape Shape = ColliderShape::Box;
-        glm::vec3 Size{ 1.0f };          // box: full extents. sphere: diameter in x. Multiplied by the transform scale.
+        glm::vec3 Size{ 1.0f };          // see ColliderShape
         glm::vec3 Center{ 0.0f };        // collider offset in the entity's local space
         float Mass = 1.0f;               // dynamic only
         float Friction = 0.5f;
         float Restitution = 0.2f;        // bounciness
         glm::vec3 InitialVelocity{ 0.0f };   // used once when the body is created (e.g. thrown balls)
         bool IsTrigger = false;          // sensor: reports overlaps (on_trigger_enter/exit) but doesn't collide
+    };
+
+    // An extra shape for the rigid body of the nearest ancestor that has one (a compound collider):
+    // a table is a body with a top and four legs as child colliders. It has no body of its own and
+    // sits where its entity is. Shape None is not used here.
+    struct ColliderComponent {
+        ColliderShape Shape = ColliderShape::Box;
+        glm::vec3 Size{ 1.0f };
+        glm::vec3 Center{ 0.0f };
     };
 
     // Geometry + material in one component for now. We'll split material out later.

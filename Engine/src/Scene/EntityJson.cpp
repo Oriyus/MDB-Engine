@@ -45,6 +45,10 @@ namespace Engine {
                                { "friction", rb.Friction },{ "restitution", rb.Restitution },
                                { "trigger", rb.IsTrigger } };
         }
+        if (e.Has<ColliderComponent>()) {
+            auto& c = e.Get<ColliderComponent>();
+            j["collider"] = { { "shape", (int)c.Shape },{ "size", c.Size },{ "center", c.Center } };
+        }
         if (e.Has<ScriptComponent>())
             j["script"] = { { "path", e.Get<ScriptComponent>().Path } };
         if (e.Has<CameraComponent>()) {
@@ -115,6 +119,14 @@ namespace Engine {
             rb.IsTrigger = jr.value("trigger", false);
             e.Add<RigidBodyComponent>(rb);
         }
+        if (j.contains("collider")) {
+            const auto& jc = j["collider"];
+            ColliderComponent c;
+            c.Shape = (ColliderShape)jc.value("shape", 0);
+            c.Size = jc.at("size").get<glm::vec3>();
+            c.Center = jc.at("center").get<glm::vec3>();
+            e.Add<ColliderComponent>(c);
+        }
         if (j.contains("script"))
             e.Add<ScriptComponent>().Path = j["script"].at("path").get<std::string>();
         if (j.contains("camera")) {
@@ -148,6 +160,7 @@ namespace Engine {
         if (e.Has<SpinComponent>())             e.Remove<SpinComponent>();
         if (e.Has<OrbitComponent>())            e.Remove<OrbitComponent>();
         if (e.Has<RigidBodyComponent>())        e.Remove<RigidBodyComponent>();
+        if (e.Has<ColliderComponent>())         e.Remove<ColliderComponent>();
         if (e.Has<ScriptComponent>())           e.Remove<ScriptComponent>();
         if (e.Has<CameraComponent>())           e.Remove<CameraComponent>();
         if (e.Has<AudioSourceComponent>())      e.Remove<AudioSourceComponent>();

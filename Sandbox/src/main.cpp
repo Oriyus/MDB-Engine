@@ -471,8 +471,8 @@ public:
         m_PlayState = PlayState::Edit;
     }
 
-    // Size the collider to the mesh's bounds
-    static void FitCollider(const Engine::MeshRendererComponent& mr, Engine::RigidBodyComponent& rb) {
+    // Size a collider to the mesh's bounds
+    static void FitCollider(const Engine::MeshRendererComponent& mr, Engine::ColliderShape shape, glm::vec3& size, glm::vec3& center) {
         if (!mr.Geometry) return;
         glm::vec3 lo, hi;
         mr.Geometry->GetLocalBounds(lo, hi);
@@ -483,9 +483,53 @@ public:
             mn = glm::min(mn, w);
             mx = glm::max(mx, w);
         }
-        rb.Size = mx - mn;
-        rb.Center = (mn + mx) * 0.5f;
-        if (rb.Shape == Engine::ColliderShape::Sphere) rb.Size = glm::vec3(std::max({ rb.Size.x, rb.Size.y, rb.Size.z }));
+        size = mx - mn;
+        center = (mn + mx) * 0.5f;
+        if (shape == Engine::ColliderShape::Sphere) size = glm::vec3(std::max({ size.x, size.y, size.z }));
+        if (shape == Engine::ColliderShape::Capsule) size = glm::vec3(std::max(size.x, size.z), size.y, std::max(size.x, size.z));
+    }
+    static void FitCollider(const Engine::MeshRendererComponent& mr, Engine::RigidBodyComponent& rb) {
+        FitCollider(mr, rb.Shape, rb.Size, rb.Center);
+    }
+
+    // Shape, size and centre fields, shared by the Rigid Body and Collider sections
+    void ShapeFields(Engine::Entity e, Engine::ColliderShape& shape, glm::vec3& size, glm::vec3& center,
+        bool allowNone, bool dynamic) {
+        using namespace Engine;
+        int s = (int)shape;
+        // Same order as the enum (the numbers are stored in scene files)
+        const char* items = allowNone ? "Box\0Sphere\0Convex hull\0Mesh\0Capsule\0None (child colliders only)\0"
+                                      : "Box\0Sphere\0Convex hull\0Mesh\0Capsule\0";
+        if (ImGui::Combo("Shape", &s, items)) shape = (ColliderShape)s;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Capsule: a pill along local Y, for characters.\n"
+                "Convex hull: the mesh's outer shape, any body type.\n"
+                "Mesh: its exact triangles, for static and kinematic bodies (level geometry).\n"
+                "Child entities with a Collider component add more shapes to this body.");
+
+        if (shape == ColliderShape::ConvexHull || shape == ColliderShape::Mesh) {
+            const bool hasMesh = e.Has<MeshRendererComponent>() && e.Get<MeshRendererComponent>().Geometry;
+            if (!hasMesh) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "Needs a Mesh Renderer (a box is used)");
+            else ImGui::TextDisabled("Built from the Mesh Renderer (%u triangles), scaled with the entity",
+                e.Get<MeshRendererComponent>().Geometry->TriangleCount());
+            if (shape == ColliderShape::Mesh && dynamic)
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "Dynamic bodies can't use a mesh: a convex hull is used");
+        }
+        else if (shape == ColliderShape::None) {
+            ImGui::TextDisabled("Only the Collider components of child entities");
+        }
+        else {
+            if (shape == ColliderShape::Sphere) ImGui::DragFloat("Diameter", &size.x, 0.02f, 0.01f, 100.0f);
+            else if (shape == ColliderShape::Capsule) {
+                ImGui::DragFloat("Diameter", &size.x, 0.02f, 0.01f, 100.0f);
+                ImGui::DragFloat("Height", &size.y, 0.02f, 0.01f, 100.0f);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Total height, caps included");
+            }
+            else ImGui::DragFloat3("Size", &size.x, 0.02f, 0.01f, 100.0f);
+            ImGui::DragFloat3("Center", &center.x, 0.02f);
+            if (ImGui::Button("Fit to mesh") && e.Has<MeshRendererComponent>())
+                FitCollider(e.Get<MeshRendererComponent>(), shape, size, center);
+        }
     }
 
     void EnsureSphere() { if (!m_Sphere) m_Sphere = m_Resources->Sphere(); }
@@ -652,21 +696,28 @@ public:
             ImVec2 pa, pb;
             if (project(a, pa) && project(b, pb)) dl->AddLine(pa, pb, col, 1.5f);
             };
+        // A circle of radius r around c in the plane of u, v (from angle a0 to a1)
+        auto arc = [&](const glm::vec3& c, const glm::vec3& u, const glm::vec3& v, float r, float a0, float a1, ImU32 col) {
+            const int n = 24;
+            glm::vec3 prev = c + (u * std::cos(a0) + v * std::sin(a0)) * r;
+            for (int k = 1; k <= n; k++) {
+                const float a = a0 + (a1 - a0) * k / n;
+                const glm::vec3 p = c + (u * std::cos(a) + v * std::sin(a)) * r;
+                line(prev, p, col);
+                prev = p;
+            }
+            };
 
-        auto view = m_Scene.Registry().view<TransformComponent, RigidBodyComponent>();
-        for (auto entity : view) {
-            auto [t, rb] = view.get<TransformComponent, RigidBodyComponent>(entity);
-            const ImU32 col = rb.IsTrigger ? IM_COL32(230, 90, 255, 220)
-                : rb.Type == BodyType::Static ? IM_COL32(80, 200, 255, 200)
-                : rb.Type == BodyType::Dynamic ? IM_COL32(90, 230, 110, 220)
-                : IM_COL32(255, 200, 60, 220);
+        // One collider of any shape, placed by its entity's world matrix (the same rules as PhysicsWorld)
+        auto drawShape = [&](entt::entity entity, ColliderShape shape, const glm::vec3& sz, const glm::vec3& center, ImU32 col) {
             const glm::mat4 M = m_Scene.GetWorldMatrix(entity);   // parents included
+            if (shape == ColliderShape::None) return;
 
-            if (rb.Shape == ColliderShape::ConvexHull || rb.Shape == ColliderShape::Mesh) {
+            if (shape == ColliderShape::ConvexHull || shape == ColliderShape::Mesh) {
                 // The geometry the collider is built from, as a wireframe. Big meshes show an even
                 // sample of their triangles (at most 2000), which still reads as the shape.
                 const auto* mr = m_Scene.Registry().try_get<MeshRendererComponent>(entity);
-                if (!mr || !mr->Geometry) continue;
+                if (!mr || !mr->Geometry) return;
                 const glm::mat4 G = M * mr->LocalOffset;
                 std::vector<glm::vec3> pos;
                 std::vector<uint32_t> idx;
@@ -681,36 +732,69 @@ public:
                     line(pos[idx[i + 1]], pos[idx[i + 2]], faint);
                     line(pos[idx[i + 2]], pos[idx[i]], faint);
                 }
+                return;
             }
-            else if (rb.Shape == ColliderShape::Box) {
-                const glm::vec3 h = rb.Size * 0.5f;
+            if (shape == ColliderShape::Box) {
+                const glm::vec3 h = sz * 0.5f;
                 glm::vec3 c[8];
                 for (int i = 0; i < 8; i++)
-                    c[i] = glm::vec3(M * glm::vec4(rb.Center + glm::vec3((i & 1) ? h.x : -h.x,
+                    c[i] = glm::vec3(M * glm::vec4(center + glm::vec3((i & 1) ? h.x : -h.x,
                         (i & 2) ? h.y : -h.y,
                         (i & 4) ? h.z : -h.z), 1.0f));
                 static const int edges[12][2] = { { 0,1 },{ 2,3 },{ 4,5 },{ 6,7 },{ 0,2 },{ 1,3 },{ 4,6 },{ 5,7 },{ 0,4 },{ 1,5 },{ 2,6 },{ 3,7 } };
                 for (auto& ed : edges) line(c[ed[0]], c[ed[1]], col);
+                return;
             }
-            else {
-                glm::vec3 wp, ws;
-                glm::quat wq;
-                Scene::Decompose(M, wp, wq, ws);
-                const glm::vec3 s = glm::abs(ws);
-                const float r = 0.5f * rb.Size.x * std::max({ s.x, s.y, s.z });
-                const glm::vec3 centre = glm::vec3(M * glm::vec4(rb.Center, 1.0f));
-                const glm::mat3 R = glm::mat3_cast(wq);
-                for (int axis = 0; axis < 3; axis++) {              // three great circles
-                    const glm::vec3 u = R[(axis + 1) % 3], v = R[(axis + 2) % 3];
-                    glm::vec3 prev = centre + u * r;
-                    for (int k = 1; k <= 32; k++) {
-                        float a = k * 6.2831853f / 32.0f;
-                        glm::vec3 p = centre + (u * std::cos(a) + v * std::sin(a)) * r;
-                        line(prev, p, col);
-                        prev = p;
-                    }
+
+            glm::vec3 wp, ws;
+            glm::quat wq;
+            Scene::Decompose(M, wp, wq, ws);
+            const glm::vec3 s = glm::abs(ws);
+            const glm::vec3 centre = glm::vec3(M * glm::vec4(center, 1.0f));
+            const glm::mat3 R = glm::mat3_cast(wq);
+            const float pi = 3.14159265f;
+            if (shape == ColliderShape::Capsule) {
+                // Two cap centres on local Y, rings around them, side lines and half circles
+                const float r = 0.5f * sz.x * std::max(s.x, s.z);
+                const float half = std::max(0.0f, 0.5f * sz.y * s.y - r);
+                const glm::vec3 x = R[0], y = R[1], z = R[2];
+                const glm::vec3 top = centre + y * half, bottom = centre - y * half;
+                arc(top, x, z, r, 0.0f, 2.0f * pi, col);
+                arc(bottom, x, z, r, 0.0f, 2.0f * pi, col);
+                for (const glm::vec3& side : { x, -x, z, -z }) line(top + side * r, bottom + side * r, col);
+                arc(top, x, y, r, 0.0f, pi, col);
+                arc(top, z, y, r, 0.0f, pi, col);
+                arc(bottom, x, y, r, pi, 2.0f * pi, col);
+                arc(bottom, z, y, r, pi, 2.0f * pi, col);
+                return;
+            }
+            // Sphere: three great circles
+            const float r = 0.5f * sz.x * std::max({ s.x, s.y, s.z });
+            for (int axis = 0; axis < 3; axis++)
+                arc(centre, R[(axis + 1) % 3], R[(axis + 2) % 3], r, 0.0f, 2.0f * pi, col);
+            };
+
+        auto& reg = m_Scene.Registry();
+        for (auto [entity, rb] : reg.view<RigidBodyComponent>().each()) {
+            const ImU32 col = rb.IsTrigger ? IM_COL32(230, 90, 255, 220)
+                : rb.Type == BodyType::Static ? IM_COL32(80, 200, 255, 200)
+                : rb.Type == BodyType::Dynamic ? IM_COL32(90, 230, 110, 220)
+                : IM_COL32(255, 200, 60, 220);
+            drawShape(entity, rb.Shape, rb.Size, rb.Center, col);
+        }
+        // Child colliders: in their body's colour (white if no body above them: they do nothing)
+        for (auto [entity, c] : reg.view<ColliderComponent>().each()) {
+            if (reg.all_of<RigidBodyComponent>(entity)) continue;   // not a part: an entity's own body wins
+            ImU32 col = IM_COL32(255, 255, 255, 120);
+            int guard = 0;
+            for (entt::entity p = m_Scene.GetParent(entity); p != entt::null && guard++ < 256; p = m_Scene.GetParent(p)) {
+                if (const auto* rb = reg.try_get<RigidBodyComponent>(p)) {
+                    col = rb->IsTrigger ? IM_COL32(230, 90, 255, 220) : rb->Type == BodyType::Static ? IM_COL32(80, 200, 255, 200)
+                        : rb->Type == BodyType::Dynamic ? IM_COL32(90, 230, 110, 220) : IM_COL32(255, 200, 60, 220);
+                    break;
                 }
             }
+            drawShape(entity, c.Shape, c.Size, c.Center, col);
         }
     }
 
@@ -1347,25 +1431,7 @@ private:
             auto& rb = e.Get<RigidBodyComponent>();
             int type = (int)rb.Type;
             if (ImGui::Combo("Type", &type, "Static\0Dynamic\0Kinematic\0")) rb.Type = (BodyType)type;
-            int shape = (int)rb.Shape;
-            if (ImGui::Combo("Shape", &shape, "Box\0Sphere\0Convex hull\0Mesh\0")) rb.Shape = (ColliderShape)shape;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Convex hull: the mesh's outer shape, any body type.\n"
-                    "Mesh: its exact triangles, for static and kinematic bodies (level geometry).");
-
-            if (rb.Shape == ColliderShape::ConvexHull || rb.Shape == ColliderShape::Mesh) {
-                const bool hasMesh = e.Has<MeshRendererComponent>() && e.Get<MeshRendererComponent>().Geometry;
-                if (!hasMesh) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "Needs a Mesh Renderer (a box is used)");
-                else ImGui::TextDisabled("Built from the Mesh Renderer (%u triangles), scaled with the entity",
-                    e.Get<MeshRendererComponent>().Geometry->TriangleCount());
-                if (rb.Shape == ColliderShape::Mesh && rb.Type == BodyType::Dynamic && !rb.IsTrigger)
-                    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "Dynamic bodies can't use a mesh: a convex hull is used");
-            }
-            else {
-                if (rb.Shape == ColliderShape::Sphere) ImGui::DragFloat("Diameter", &rb.Size.x, 0.02f, 0.01f, 100.0f);
-                else                                   ImGui::DragFloat3("Size", &rb.Size.x, 0.02f, 0.01f, 100.0f);
-                ImGui::DragFloat3("Center", &rb.Center.x, 0.02f);
-            }
+            ShapeFields(e, rb.Shape, rb.Size, rb.Center, true, rb.Type == BodyType::Dynamic && !rb.IsTrigger);
 
             if (rb.Type == BodyType::Dynamic) ImGui::DragFloat("Mass", &rb.Mass, 0.05f, 0.01f, 1000.0f);
             ImGui::SliderFloat("Friction", &rb.Friction, 0.0f, 1.0f);
@@ -1375,13 +1441,28 @@ private:
                 ImGui::SetTooltip("Reports overlaps to scripts (on_trigger_enter / exit) instead of colliding.\n"
                     "Triggers follow their transform like kinematic bodies and detect dynamic bodies.");
 
-            if (ImGui::Button("Fit to mesh") && e.Has<MeshRendererComponent>())
-                FitCollider(e.Get<MeshRendererComponent>(), rb);
-            ImGui::SameLine();
             if (ImGui::Button("Remove##rb")) e.Remove<RigidBodyComponent>();
             if (rb.Type != BodyType::Static && (e.Has<SpinComponent>() || e.Has<OrbitComponent>()) && rb.Type == BodyType::Dynamic)
                 ImGui::TextDisabled("Physics overrides Spin/Orbit on dynamic bodies");
             if (m_PlayState != PlayState::Edit) ImGui::TextDisabled("Changes apply on the next Play");
+        }
+
+        if (e.Has<ColliderComponent>() && ImGui::CollapsingHeader("Collider", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto& c = e.Get<ColliderComponent>();
+            // The body this shape joins: the nearest ancestor with a Rigid Body
+            entt::entity body = entt::null;
+            int guard = 0;
+            for (entt::entity p = m_Scene.GetParent(e.GetHandle()); p != entt::null && guard++ < 256; p = m_Scene.GetParent(p))
+                if (m_Scene.Registry().all_of<RigidBodyComponent>(p)) { body = p; break; }
+            if (e.Has<RigidBodyComponent>())
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "This entity has its own Rigid Body: this collider is not used");
+            else if (body == entt::null)
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "No Rigid Body above it: this collider does nothing");
+            else
+                ImGui::TextDisabled("Part of %s's body", m_Scene.Registry().get<TagComponent>(body).Tag.c_str());
+            const bool dynamicBody = body != entt::null && m_Scene.Registry().get<RigidBodyComponent>(body).Type == BodyType::Dynamic;
+            ShapeFields(e, c.Shape, c.Size, c.Center, false, dynamicBody);
+            if (ImGui::Button("Remove##collider")) e.Remove<ColliderComponent>();
         }
 
         if (e.Has<ScriptComponent>() && ImGui::CollapsingHeader("Script", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -1453,6 +1534,10 @@ private:
             if (!e.Has<RigidBodyComponent>() && ImGui::MenuItem("Rigid Body")) {
                 auto& rb = e.Add<RigidBodyComponent>();
                 if (e.Has<MeshRendererComponent>()) FitCollider(e.Get<MeshRendererComponent>(), rb);
+            }
+            if (!e.Has<ColliderComponent>() && ImGui::MenuItem("Collider (part of the parent's body)")) {
+                auto& c = e.Add<ColliderComponent>();
+                if (e.Has<MeshRendererComponent>()) FitCollider(e.Get<MeshRendererComponent>(), c.Shape, c.Size, c.Center);
             }
             if (!e.Has<ScriptComponent>() && ImGui::MenuItem("Script")) e.Add<ScriptComponent>().Path = "Scripts/mover.lua";
             if (!e.Has<CameraComponent>() && ImGui::MenuItem("Camera")) e.Add<CameraComponent>();
