@@ -16,6 +16,7 @@
 #include "Renderer/Shadowmap.h"
 #include "Renderer/PostProcess.h"
 #include "Renderer/Material.h"
+#include "Renderer/Environment.h"
 
 #include <cfloat>
 #include <glad/glad.h>
@@ -29,6 +30,7 @@
 #include <memory>
 #include <random>
 #include <vector>
+#include <algorithm>
 
 class SandboxApp : public Engine::Application {
 public:
@@ -52,6 +54,10 @@ public:
         m_PostShader = std::make_unique<Shader>(
             std::string(ASSET_DIR) + "Shaders/tonemap.vert",
             std::string(ASSET_DIR) + "Shaders/tonemap.frag");
+
+        m_Env = std::make_unique<Environment>(std::string(ASSET_DIR) + "Shaders/");
+        m_Env->UseProcedural();
+        ScanEnvironments();
 
         m_PointShadows = std::make_unique<PointShadowArray>(1024);
         m_SunShadowMap = std::make_unique<DirectionalShadowMap>(2048);
@@ -160,6 +166,12 @@ public:
     void OnUpdate(float dt) override {
         using namespace Engine;
 
+        if (m_PendingEnv >= 0) {
+            if (m_PendingEnv == 0) m_Env->UseProcedural();
+            else m_Env->LoadHDR(std::string(ASSET_DIR) + "Environments/" + m_EnvFiles[m_PendingEnv - 1]);
+            m_PendingEnv = -1;
+        }
+
         const bool typing = ImGui::GetIO().WantTextInput;
 
         if (!typing && Input::IsKeyDown(Key::Escape)) Close();
@@ -176,7 +188,7 @@ public:
         bool kdel = EdgePressed(Key::Delete, m_DelDown);
 
         if (!typing) {
-            if (f5) { m_Shader->Reload(); m_ShadowShader->Reload(); m_SunShader->Reload(); m_PostShader->Reload(); }
+            if (f5) { m_Shader->Reload(); m_ShadowShader->Reload(); m_SunShader->Reload(); m_PostShader->Reload(); m_Env->ReloadSkyShader();}
             if (kn) SpawnCube();
             if (f && !ImGui::GetIO().KeyAlt) FrameSelected();
             if (kdel && m_Selected != entt::null && m_Scene.Registry().valid(m_Selected)) {
@@ -217,7 +229,8 @@ public:
         // 2) Scene into the HDR framebuffer
         m_Framebuffer->Bind();
         m_Framebuffer->Clear(0.005f, 0.005f, 0.01f, 1.0f);
-        m_Scene.Render(*m_Camera, *m_Shader, &m_Shadows);
+        m_Scene.Render(*m_Camera, *m_Shader, &m_Shadows, m_Env.get());
+        m_Env->DrawSkybox(*m_Camera, m_Scene.AmbientIntensity);
         Framebuffer::Unbind();
 
         // 3) Exposure + tone map + gamma into the 8-bit texture the Viewport displays
@@ -286,6 +299,17 @@ public:
         }
     }
 
+    void ScanEnvironments() {
+        m_EnvFiles.clear();
+        std::error_code ec;
+        const std::filesystem::path dir = std::filesystem::path(ASSET_DIR) / "Environments";
+        if (std::filesystem::exists(dir, ec)) {
+            for (const auto& f : std::filesystem::directory_iterator(dir, ec))
+                if (f.path().extension() == ".hdr") m_EnvFiles.push_back(f.path().filename().string());
+        }
+        std::sort(m_EnvFiles.begin(), m_EnvFiles.end());
+    }
+
 private:
     void DrawStatsPanel() {
         using namespace Engine;
@@ -335,6 +359,20 @@ private:
         ImGui::SliderFloat("Sun bias", &s.SunBias, 0.0002f, 0.01f, "%.4f");
         ImGui::SliderFloat("Sun area", &s.SunExtent, 4.0f, 40.0f);
         ImGui::SliderFloat("Ambient (sky)", &m_Scene.AmbientIntensity, 0.0f, 4.0f);
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("Environment");
+        if (ImGui::BeginCombo("Map", m_Env->Name.c_str())) {
+            if (ImGui::Selectable("Procedural sky", m_Env->Name == "Procedural sky")) m_PendingEnv = 0;
+            for (size_t i = 0; i < m_EnvFiles.size(); i++)
+                if (ImGui::Selectable(m_EnvFiles[i].c_str(), m_Env->Name == m_EnvFiles[i])) m_PendingEnv = (int)i + 1;
+            ImGui::EndCombo();
+        }
+        if (ImGui::Button("Rescan folder")) ScanEnvironments();
+        ImGui::Checkbox("Show sky", &m_Env->Show);
+        ImGui::SliderFloat("Sky blur", &m_Env->Blur, 0.0f, 6.0f);
+        ImGui::SliderFloat("Rotation", &m_Env->RotationDegrees, -180.0f, 180.0f);
+        ImGui::SliderFloat("Intensity", &m_Scene.AmbientIntensity, 0.0f, 4.0f);
 
         ImGui::Separator();
         ImGui::TextUnformatted("Display");
@@ -761,6 +799,9 @@ private:
     std::unique_ptr<Engine::Shader> m_PostShader;
     Engine::PostSettings m_PostSettings;
     std::shared_ptr<Engine::Mesh> m_Sphere;
+    std::unique_ptr<Engine::Environment> m_Env;
+    std::vector<std::string> m_EnvFiles;     // .hdr files found in Assets/Environments
+    int m_PendingEnv = -1;                   // -1 none, 0 procedural, n = file n-1
 
     ImGuizmo::OPERATION m_GizmoOp = ImGuizmo::TRANSLATE;
 

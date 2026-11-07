@@ -5,6 +5,7 @@
 #include "Renderer/Shader.h"
 #include "Renderer/Shadowmap.h"
 #include "Renderer/Material.h"
+#include "Renderer/Environment.h"
 
 #include <cmath>
 #include <glm/gtc/constants.hpp>
@@ -138,7 +139,7 @@ namespace Engine {
     }
 
     // ---------------------------------------------------------------- render system
-    void Scene::Render(const Camera& camera, Shader& shader, const ShadowContext* ctx) {
+    void Scene::Render(const Camera& camera, Shader& shader, const ShadowContext* ctx, const Environment* env) {
         const auto lights = GatherPointLights(m_Registry);
 
         glm::vec3 sunDir(0.0f, -1.0f, 0.0f), sunColor(0.0f);
@@ -159,6 +160,16 @@ namespace Engine {
         shader.SetInt("u_MetalRoughMap", 4);
         shader.SetInt("u_EmissiveMap", 5);
         shader.SetFloat("u_Ambient", AmbientIntensity);
+        // Environment maps (units 6 and 7). The samplers always point at their own unit.
+        shader.SetInt("u_IrradianceMap", 6);
+        shader.SetInt("u_PrefilterMap", 7);
+        const bool ibl = env && env->IsReady();
+        shader.SetInt("u_UseIBL", ibl ? 1 : 0);
+        if (ibl) {
+            env->BindLighting(6, 7);
+            shader.SetFloat("u_PrefilterMaxLod", env->PrefilterMaxLod());
+            shader.SetFloat("u_EnvRot", glm::radians(env->RotationDegrees));
+        }
 
         // Point lights
         const bool pointShadows = shadowsOn && ctx->Points;

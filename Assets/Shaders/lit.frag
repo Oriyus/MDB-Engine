@@ -167,6 +167,18 @@ vec3 EnvBRDFApprox(vec3 F0, float rough, float NdotV) {
     return F0 * AB.x + AB.y;
 }
 
+uniform samplerCube u_IrradianceMap;   // unit 6
+uniform samplerCube u_PrefilterMap;    // unit 7
+uniform int   u_UseIBL;
+uniform float u_PrefilterMaxLod;
+uniform float u_EnvRot;
+
+// Spin the environment lookup around Y (same function as sky.frag)
+vec3 EnvDir(vec3 d) {
+    float c = cos(u_EnvRot), s = sin(u_EnvRot);
+    return vec3(c * d.x + s * d.z, d.y, -s * d.x + c * d.z);
+}
+
 void main() {
     EntityID = u_EntityID;
 
@@ -217,11 +229,20 @@ void main() {
         color += Shade(N, V, L, albedo, metallic, roughness, F0, u_SunColor, shadow);
     }
 
-    // Ambient: sky light for diffuse, sky reflection for specular (blurrier when rough)
+        // Ambient: diffuse from the irradiance map, reflections from the prefiltered map
     float NdotV = max(dot(N, V), 1e-4);
-    vec3 R = normalize(mix(reflect(-V, N), N, roughness * roughness));
     vec3 specAmb = EnvBRDFApprox(F0, roughness, NdotV);
-    color += ((1.0 - metallic) * albedo * (1.0 - specAmb) * Env(N) + specAmb * Env(R)) * u_Ambient;
+    vec3 R = reflect(-V, N);
+
+    vec3 diffuseLight, specularLight;
+    if (u_UseIBL == 1) {
+        diffuseLight  = texture(u_IrradianceMap, EnvDir(N)).rgb;
+        specularLight = textureLod(u_PrefilterMap, EnvDir(R), roughness * u_PrefilterMaxLod).rgb;
+    } else {
+        diffuseLight  = Env(N);
+        specularLight = Env(normalize(mix(R, N, roughness * roughness)));
+    }
+    color += ((1.0 - metallic) * albedo * (1.0 - specAmb) * diffuseLight + specAmb * specularLight) * u_Ambient;
 
     vec3 emissive = u_Emissive;
     if (u_UseEmissive == 1) emissive *= texture(u_EmissiveMap, v_TexCoord).rgb;
