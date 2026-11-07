@@ -813,6 +813,7 @@ private:
         ImGui::Text("Instances:  %u  (%.1f per draw)", RenderStats::Instances,
             RenderStats::DrawCalls ? (float)RenderStats::Instances / RenderStats::DrawCalls : 0.0f);
         ImGui::Text("Culled:     %u  (outside the view)", RenderStats::Culled);
+        ImGui::Text("Shadow skipped: %u  (caster x light views)", RenderStats::ShadowSkipped);
         ImGui::Text("Entities:   %zu", m_Scene.Registry().view<TagComponent>().size());
         ImGui::TextDisabled("%s", (const char*)glGetString(GL_RENDERER));
 

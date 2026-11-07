@@ -84,7 +84,7 @@ namespace Engine {
         I.HDR->Resize(width, height);
 
         // 1) Depth passes (all point lights + sun)
-        scene.BuildDrawList(*I.Draws, camera, I.Shadows.Settings.Enabled);
+        scene.BuildDrawList(*I.Draws, camera, I.Shadows.Settings.Enabled ? &I.Shadows.Settings : nullptr);
         scene.RenderShadows(I.Shadows, *I.Draws);
 
         // 2) Scene into the HDR framebuffer, then the sky behind it

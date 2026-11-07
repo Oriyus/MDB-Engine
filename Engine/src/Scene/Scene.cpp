@@ -379,7 +379,6 @@ namespace Engine {
         return proj * view;
     }
 
-    // ---------------------------------------------------------------- shadow pass
     // ---------------------------------------------------------------- draw list (batching + instancing)
     namespace {
         // The six planes of a view-projection matrix (Gribb/Hartmann); a point p is inside when
@@ -430,11 +429,53 @@ namespace Engine {
         return (an && !an->Palette.empty()) ? &an->Palette : &model->RestPalette();
     }
 
-    void Scene::BuildDrawList(DrawList& list, const Camera& camera, bool shadows) {
+    // The shadow views of this frame, in the order BuildDrawList fills DrawList::ShadowViews and
+    // RenderShadows draws them: the 6 cube faces of each shadowed point light, then the sun
+    struct ShadowView {
+        glm::mat4 ViewProj{ 1.0f };
+        int Light = -1;                     // index into GatherPointLights, -1 = the sun
+        int Face = 0;
+    };
+
+    static std::vector<ShadowView> GatherShadowViews(Scene& scene, const ShadowSettings& s,
+        const std::vector<PointLightData>& lights) {
+        std::vector<ShadowView> views;
+        if (!s.Enabled) return views;
+        static const glm::vec3 dirs[6] = {
+            { 1, 0, 0 },{ -1, 0, 0 },{ 0, 1, 0 },{ 0, -1, 0 },{ 0, 0, 1 },{ 0, 0, -1 } };
+        static const glm::vec3 ups[6] = {
+            { 0, -1, 0 },{ 0, -1, 0 },{ 0, 0, 1 },{ 0, 0, -1 },{ 0, -1, 0 },{ 0, -1, 0 } };
+        const glm::mat4 proj = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, s.PointFar);
+        for (int i = 0; i < (int)lights.size(); i++) {
+            if (!lights[i].Shadows) continue;
+            for (int f = 0; f < 6; f++)
+                views.push_back({ proj * glm::lookAt(lights[i].Pos, lights[i].Pos + dirs[f], ups[f]), i, f });
+        }
+        glm::vec3 sunDir, sunColor;
+        bool sunShadows = false;
+        if (FindSun(scene, sunDir, sunColor, sunShadows) && sunShadows)
+            views.push_back({ SunViewProjection(sunDir, s), -1, 0 });
+        return views;
+    }
+
+    void Scene::BuildDrawList(DrawList& list, const Camera& camera, const ShadowSettings* shadowSettings) {
         list.Clear();
-        static thread_local std::vector<DrawList::Item> opaque, transparent, shadow;   // reused each frame
-        opaque.clear(); transparent.clear(); shadow.clear();
         const Frustum frustum(camera.GetViewProjection());
+
+        // Shadow views: a frustum each, plus the light's reach as a sphere for a quick first test
+        const auto lights = GatherPointLights(*this);
+        const auto views = shadowSettings ? GatherShadowViews(*this, *shadowSettings, lights) : std::vector<ShadowView>{};
+        std::vector<Frustum> viewFrusta;
+        viewFrusta.reserve(views.size());
+        for (const auto& v : views) viewFrusta.emplace_back(v.ViewProj);
+        list.ShadowViews.resize(views.size());
+
+        static thread_local std::vector<DrawList::Item> opaque, transparent;       // reused each frame
+        static thread_local std::vector<std::vector<DrawList::Item>> shadow;
+        opaque.clear(); transparent.clear();
+        shadow.resize(views.size());
+        for (auto& v : shadow) v.clear();
+        std::vector<uint8_t> inView(views.size());
 
         auto drawables = m_Registry.view<TransformComponent, MeshRendererComponent>();
         for (auto entity : drawables) {
@@ -450,14 +491,32 @@ namespace Engine {
                 mn = c - h; mx = c + h;
             }
             const bool visible = frustum.Visible(world, mn, mx);
-            const bool caster = shadows && mr.CastShadows && !mr.Unlit;   // light markers must not block light
             if (!visible) list.Culled++;
-            if (!visible && !caster) continue;
 
-            InstanceData inst;
-            inst.Model = world;
-            inst.Normal = glm::mat4(glm::transpose(glm::inverse(glm::mat3(world))));
-            inst.Info = glm::ivec4((int)entt::to_integral(entity), mr.Unlit ? 1 : 0, 0, 0);
+            // Which shadow views this caster can show up in (light markers must not block light)
+            bool anyShadow = false;
+            if (!views.empty() && mr.CastShadows && !mr.Unlit) {
+                const glm::vec3 center = glm::vec3(world * glm::vec4((mn + mx) * 0.5f, 1.0f));
+                const float radius = glm::length(glm::vec3(world * glm::vec4((mx - mn) * 0.5f, 0.0f)));
+                int lastLight = -2;
+                bool lightReaches = true;
+                for (size_t v = 0; v < views.size(); v++) {
+                    if (views[v].Light != lastLight) {   // new light: is the caster within its range at all?
+                        lastLight = views[v].Light;
+                        lightReaches = lastLight < 0 ||
+                            glm::length(center - lights[lastLight].Pos) - radius < shadowSettings->PointFar;
+                    }
+                    inView[v] = lightReaches && viewFrusta[v].Visible(world, mn, mx);
+                    if (!inView[v]) list.ShadowSkipped++;
+                    anyShadow = anyShadow || inView[v];
+                }
+            }
+            if (!visible && !anyShadow) continue;
+
+            InstanceData base;
+            base.Model = world;
+            base.Normal = glm::mat4(glm::transpose(glm::inverse(glm::mat3(world))));
+            base.Info = glm::ivec4((int)entt::to_integral(entity), mr.Unlit ? 1 : 0, 0, 0);
             float distance = -1.0f;
 
             const uint32_t parts = mr.UseModelMaterials ? mr.Geometry->SubmeshCount() : 1;
@@ -465,7 +524,14 @@ namespace Engine {
                 const Material* mat = mr.UseModelMaterials ? mr.Geometry->GetSubmeshMaterial(i) : nullptr;
                 const SurfaceAlpha s = GetSurfaceAlpha(mr, i);
 
+                // With a model material the component Color tints it; metallic/roughness/emissive come from the file
+                InstanceData inst = base;
+                inst.Color = glm::vec4(mat ? mat->Color * mr.Color : mr.Color, s.Alpha);
+                inst.Surface = glm::vec4(mat ? mat->Metallic : mr.Metallic, mat ? mat->Roughness : mr.Roughness, 0.0f, 0.0f);
+                inst.Emissive = glm::vec4(mat ? mat->EmissiveColor : mr.Emissive, 0.0f);
+
                 DrawList::Item item;
+                item.Instance = list.AddInstance(inst);
                 DrawBatch& b = item.State;
                 b.Geometry = mr.Geometry.get();
                 b.Part = mat ? (int32_t)i : -1;
@@ -477,18 +543,12 @@ namespace Engine {
                 b.Cutoff = s.Cutoff;
                 b.Bones = bones;
 
-                // With a model material the component Color tints it; metallic/roughness/emissive come from the file
-                item.Instance = inst;
-                item.Instance.Color = glm::vec4(mat ? mat->Color * mr.Color : mr.Color, s.Alpha);
-                item.Instance.Surface = glm::vec4(mat ? mat->Metallic : mr.Metallic, mat ? mat->Roughness : mr.Roughness, 0.0f, 0.0f);
-                item.Instance.Emissive = glm::vec4(mat ? mat->EmissiveColor : mr.Emissive, 0.0f);
-
-                if (caster) {
+                if (anyShadow) {
                     // Shadows only need the albedo, and only to alpha-test: opaque casters share batches
                     DrawList::Item sh = item;
                     sh.State.Normal = sh.State.MetalRough = sh.State.Emissive = nullptr;
                     if (s.Mode == AlphaMode::Opaque) { sh.State.Albedo = nullptr; sh.State.Cutoff = 0.5f; }
-                    shadow.push_back(sh);
+                    for (size_t v = 0; v < views.size(); v++) if (inView[v]) shadow[v].push_back(sh);
                 }
                 if (!visible) continue;
                 if (s.Mode == AlphaMode::Blend) {
@@ -500,20 +560,26 @@ namespace Engine {
                 else opaque.push_back(item);
             }
         }
-        list.Finish(opaque, transparent, shadow);
+        list.AddBatches(opaque, list.Opaque, DrawList::Order::ByState);
+        list.AddBatches(transparent, list.Transparent, DrawList::Order::BackToFront);
+        for (size_t v = 0; v < views.size(); v++) list.AddBatches(shadow[v], list.ShadowViews[v], DrawList::Order::ByState);
         list.Upload();
         RenderStats::Culled += list.Culled;
+        RenderStats::ShadowSkipped += list.ShadowSkipped;
     }
 
     // ---------------------------------------------------------------- shadows
     void Scene::RenderShadows(ShadowContext& ctx, const DrawList& list) {
         const ShadowSettings& s = ctx.Settings;
-        if (!s.Enabled || list.Shadow.empty()) return;
+        if (!s.Enabled) return;
+        const auto lights = GatherPointLights(*this);
+        const auto views = GatherShadowViews(*this, s, lights);
+        if (views.size() != list.ShadowViews.size()) return;   // the list was built without shadows
         list.Bind();
 
-        auto drawCasters = [&](Shader& sh) {
+        auto drawCasters = [&](Shader& sh, const std::vector<DrawBatch>& batches) {
             sh.SetInt("u_Texture", 0);
-            for (const DrawBatch& b : list.Shadow) {
+            for (const DrawBatch& b : batches) {
                 // Cutout casts its cut shape; see-through (Blend) casts only where alpha >= 0.5
                 const bool test = b.Mode != AlphaMode::Opaque;
                 sh.SetInt("u_AlphaTest", test ? 1 : 0);
@@ -528,39 +594,27 @@ namespace Engine {
             }
         };
 
-        // ---- point lights: 6 cube faces each
-        auto lights = GatherPointLights(*this);
-        if (ctx.Points && ctx.PointDepth && !lights.empty()) {
-            static const glm::vec3 dirs[6] = {
-                { 1, 0, 0 },{ -1, 0, 0 },{ 0, 1, 0 },{ 0, -1, 0 },{ 0, 0, 1 },{ 0, 0, -1 } };
-            static const glm::vec3 ups[6] = {
-                { 0, -1, 0 },{ 0, -1, 0 },{ 0, 0, 1 },{ 0, 0, -1 },{ 0, -1, 0 },{ 0, -1, 0 } };
-            const glm::mat4 proj = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, s.PointFar);
-
-            Shader& sh = *ctx.PointDepth;
-            sh.Bind();
-            sh.SetFloat("u_FarPlane", s.PointFar);
-
-            for (uint32_t i = 0; i < lights.size(); i++) {
-                if (!lights[i].Shadows) continue;
-                sh.SetVec3("u_LightPos", lights[i].Pos);
-                for (uint32_t face = 0; face < 6; face++) {
-                    ctx.Points->BindFace(i, face);
-                    sh.SetMat4("u_LightVP", proj * glm::lookAt(lights[i].Pos, lights[i].Pos + dirs[face], ups[face]));
-                    drawCasters(sh);
-                }
+        for (size_t v = 0; v < views.size(); v++) {
+            const ShadowView& view = views[v];
+            if (view.Light >= 0) {
+                // A point light cube face. Every face is bound and cleared, even with no casters in it.
+                if (!ctx.Points || !ctx.PointDepth) continue;
+                Shader& sh = *ctx.PointDepth;
+                sh.Bind();
+                sh.SetFloat("u_FarPlane", s.PointFar);
+                sh.SetVec3("u_LightPos", lights[view.Light].Pos);
+                ctx.Points->BindFace((uint32_t)view.Light, (uint32_t)view.Face);
+                sh.SetMat4("u_LightVP", view.ViewProj);
+                drawCasters(sh, list.ShadowViews[v]);
             }
-        }
-
-        // ---- sun: one orthographic depth pass
-        glm::vec3 sunDir, sunColor;
-        bool sunShadows = false;
-        if (ctx.Sun && ctx.SunDepth && FindSun(*this, sunDir, sunColor, sunShadows) && sunShadows) {
-            Shader& sh = *ctx.SunDepth;
-            sh.Bind();
-            ctx.Sun->Bind();
-            sh.SetMat4("u_LightVP", SunViewProjection(sunDir, s));
-            drawCasters(sh);
+            else {
+                if (!ctx.Sun || !ctx.SunDepth) continue;
+                Shader& sh = *ctx.SunDepth;
+                sh.Bind();
+                ctx.Sun->Bind();
+                sh.SetMat4("u_LightVP", view.ViewProj);
+                drawCasters(sh, list.ShadowViews[v]);
+            }
         }
     }
 

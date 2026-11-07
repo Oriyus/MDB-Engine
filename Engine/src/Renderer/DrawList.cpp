@@ -10,51 +10,52 @@ namespace Engine {
             std::tie(o.Geometry, o.Part, o.Albedo, o.Normal, o.MetalRough, o.Emissive, o.Mode, o.Cutoff, o.Bones);
     }
 
-    DrawList::DrawList() { glCreateBuffers(1, &m_Buffer); }
-    DrawList::~DrawList() { glDeleteBuffers(1, &m_Buffer); }
+    DrawList::DrawList() { glCreateBuffers(2, m_Buffers); }
+    DrawList::~DrawList() { glDeleteBuffers(2, m_Buffers); }
 
     void DrawList::Clear() {
         Instances.clear();
+        Indices.clear();
         Opaque.clear();
         Transparent.clear();
-        Shadow.clear();
+        for (auto& v : ShadowViews) v.clear();
         Culled = 0;
+        ShadowSkipped = 0;
     }
 
-    void DrawList::Finish(std::vector<Item>& opaque, std::vector<Item>& transparent, std::vector<Item>& shadow) {
-        // Equal states next to each other; stable, so the order inside a batch doesn't flicker
-        auto byState = [](const Item& a, const Item& b) { return a.State < b.State; };
-        std::stable_sort(opaque.begin(), opaque.end(), byState);
-        std::stable_sort(shadow.begin(), shadow.end(), byState);
-        std::stable_sort(transparent.begin(), transparent.end(),
-            [](const Item& a, const Item& b) { return a.Distance > b.Distance; });   // farthest first
+    void DrawList::AddBatches(std::vector<Item>& items, std::vector<DrawBatch>& out, Order order) {
+        // Stable, so the order inside a batch doesn't flicker from frame to frame
+        if (order == Order::ByState)
+            std::stable_sort(items.begin(), items.end(), [](const Item& a, const Item& b) { return a.State < b.State; });
+        else
+            std::stable_sort(items.begin(), items.end(), [](const Item& a, const Item& b) { return a.Distance > b.Distance; });
 
-        Instances.reserve(opaque.size() + transparent.size() + shadow.size());
-        auto emit = [this](std::vector<Item>& items, std::vector<DrawBatch>& out) {
-            for (const Item& it : items) {
-                if (out.empty() || !out.back().SameState(it.State)) {
-                    out.push_back(it.State);
-                    out.back().First = (uint32_t)Instances.size();
-                    out.back().Count = 0;
-                }
-                Instances.push_back(it.Instance);
-                out.back().Count++;
+        for (const Item& it : items) {
+            if (out.empty() || !out.back().SameState(it.State)) {
+                out.push_back(it.State);
+                out.back().First = (uint32_t)Indices.size();
+                out.back().Count = 0;
             }
-        };
-        emit(opaque, Opaque);
-        emit(transparent, Transparent);
-        emit(shadow, Shadow);
+            Indices.push_back(it.Instance);
+            out.back().Count++;
+        }
     }
 
     void DrawList::Upload() {
-        const size_t bytes = std::max<size_t>(Instances.size(), 1) * sizeof(InstanceData);
-        if (bytes > m_Capacity) m_Capacity = std::max(bytes, m_Capacity * 2);
-        // A fresh store every frame (orphaning): the GPU may still be reading last frame's
-        glNamedBufferData(m_Buffer, (GLsizeiptr)m_Capacity, nullptr, GL_DYNAMIC_DRAW);
-        if (!Instances.empty())
-            glNamedBufferSubData(m_Buffer, 0, (GLsizeiptr)(Instances.size() * sizeof(InstanceData)), Instances.data());
+        auto upload = [this](int i, const void* data, size_t bytes) {
+            if (bytes > m_Capacity[i]) m_Capacity[i] = std::max(bytes, m_Capacity[i] * 2);
+            if (m_Capacity[i] == 0) m_Capacity[i] = 256;
+            // A fresh store every frame (orphaning): the GPU may still be reading last frame's
+            glNamedBufferData(m_Buffers[i], (GLsizeiptr)m_Capacity[i], nullptr, GL_DYNAMIC_DRAW);
+            if (bytes) glNamedBufferSubData(m_Buffers[i], 0, (GLsizeiptr)bytes, data);
+        };
+        upload(0, Instances.data(), Instances.size() * sizeof(InstanceData));
+        upload(1, Indices.data(), Indices.size() * sizeof(uint32_t));
     }
 
-    void DrawList::Bind() const { glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_Buffer); }
+    void DrawList::Bind() const {
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_Buffers[0]);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, m_Buffers[1]);
+    }
 
 } // namespace Engine

@@ -540,7 +540,7 @@ namespace Engine {
         scene.set_function("render_stats", [this]() {
             const auto& c = RenderStats::LastFrame;
             return Lua->create_table_with("draw_calls", c.DrawCalls, "triangles", c.Triangles,
-                "instances", c.Instances, "culled", c.Culled);
+                "instances", c.Instances, "culled", c.Culled, "shadow_skipped", c.ShadowSkipped);
         });
         scene.set_function("raycast", [this](const glm::vec3& origin, const glm::vec3& dir, float maxDist,
             sol::optional<ScriptEntity> ignore) -> sol::object {

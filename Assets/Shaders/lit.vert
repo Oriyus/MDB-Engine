@@ -16,7 +16,8 @@ struct Instance {
     ivec4 Info;        // x entity ID, y unlit
 };
 layout(std430, binding = 0) readonly buffer Instances { Instance u_Instances[]; };
-uniform int u_InstanceBase;          // the batch's first instance
+layout(std430, binding = 1) readonly buffer InstanceIndices { uint u_Indices[]; };   // per view: which instances
+uniform int u_InstanceBase;          // the batch's first entry in u_Indices
 
 uniform mat4 u_ViewProjection;
 
@@ -35,7 +36,7 @@ flat out int   v_EntityID;
 flat out int   v_Unlit;
 
 void main() {
-    Instance inst = u_Instances[u_InstanceBase + gl_InstanceID];
+    Instance inst = u_Instances[u_Indices[u_InstanceBase + gl_InstanceID]];
 
     vec4 pos = vec4(a_Position, 1.0);
     vec3 nrm = a_Normal;

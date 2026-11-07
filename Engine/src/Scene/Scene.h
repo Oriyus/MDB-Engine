@@ -13,6 +13,7 @@ namespace Engine {
     class Camera;
     class Shader;
     struct ShadowContext;
+    struct ShadowSettings;
     class Environment;
     class DrawList;
 
@@ -68,8 +69,8 @@ namespace Engine {
         void Clear();
         void OnUpdate(float dt);
         // Collect everything to draw this frame (camera-culled, batched for instancing) and upload it.
-        // shadows: also gather shadow casters. The render calls below draw from the list.
-        void BuildDrawList(DrawList& list, const Camera& camera, bool shadows);
+        // shadows: also sort the casters into each shadow view (null: no shadows). The render calls below draw from it.
+        void BuildDrawList(DrawList& list, const Camera& camera, const ShadowSettings* shadows);
         void RenderShadows(ShadowContext& ctx, const DrawList& list);
         // Opaque: opaque and cutout surfaces. Transparent: see-through (Blend) ones, sorted back to front,
         // drawn after the sky.

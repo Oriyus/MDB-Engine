@@ -2,7 +2,7 @@
 //
 // Settings come from Assets/game.json, and the command line can override them:
 //   Game.exe [--scene <file in Assets/Scenes>] [--fullscreen | --windowed] [--width N] [--height N]
-//            [--quit-after <seconds>]
+//            [--no-vsync] [--quit-after <seconds>]
 // The Assets folder is looked for next to the executable first (a packaged build, see the
 // package_game target), then at the source tree's Assets (ASSET_DIR, for running from the build).
 //
@@ -79,6 +79,7 @@ namespace {
             if (a == "--scene" && hasValue) c.Scene = args[++i];
             else if (a == "--fullscreen") c.Window.Fullscreen = true;
             else if (a == "--windowed") c.Window.Fullscreen = false;
+            else if (a == "--no-vsync") c.Window.VSync = false;      // uncapped frame rate (benchmarks)
             else if (a == "--width" && hasValue) c.Window.Width = (uint32_t)std::stoul(args[++i]);
             else if (a == "--height" && hasValue) c.Window.Height = (uint32_t)std::stoul(args[++i]);
             else if (a == "--quit-after" && hasValue) c.QuitAfter = std::stof(args[++i]);

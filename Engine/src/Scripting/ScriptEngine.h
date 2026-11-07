@@ -85,7 +85,7 @@ namespace Engine {
     //   audio.play(clip [, { volume, pitch }])             2D one-shot, e.g. "Sounds/coin.wav"
     //   audio.play_at(clip, position [, { volume, pitch }]) 3D one-shot, quieter with distance
     //   scene.quit()                         the game closes (in the editor: Play stops)
-    //   scene.render_stats() -> { draw_calls, triangles, instances, culled }   (the last frame; a debug HUD)
+    //   scene.render_stats() -> { draw_calls, triangles, instances, culled, shadow_skipped }   (the last frame; a debug HUD)
     //   ---- ui: drawn this frame only, in call order. x, y, w, h are 0..1 of the view (top left origin).
     //   ui.text(text, x, y [, { size=24, color=vec3, alpha=1, align="left"|"center"|"right" }])
     //   ui.rect(x, y, w, h [, { color, alpha, rounding }])                 rounding in px at 720p

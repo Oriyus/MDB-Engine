@@ -15,6 +15,7 @@ struct Instance {
     ivec4 Info;
 };
 layout(std430, binding = 0) readonly buffer Instances { Instance u_Instances[]; };
+layout(std430, binding = 1) readonly buffer InstanceIndices { uint u_Indices[]; };   // per view: which instances
 uniform int u_InstanceBase;
 
 uniform mat4 u_LightVP;
@@ -28,7 +29,7 @@ out vec2 v_TexCoord;
 flat out float v_Alpha;
 
 void main() {
-    Instance inst = u_Instances[u_InstanceBase + gl_InstanceID];
+    Instance inst = u_Instances[u_Indices[u_InstanceBase + gl_InstanceID]];
     vec4 pos = vec4(a_Position, 1.0);
     if (u_Skinned == 1) {
         mat4 skin = a_Weights.x * u_Bones[a_Bones.x] + a_Weights.y * u_Bones[a_Bones.y]
