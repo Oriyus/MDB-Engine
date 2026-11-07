@@ -66,6 +66,7 @@ public:
         m_SSAOBlurShader = std::make_unique<Shader>(sd + "tonemap.vert", sd + "ssao_blur.frag");
         m_BloomDown = std::make_unique<Shader>(sd + "tonemap.vert", sd + "bloom_down.frag");
         m_BloomUp = std::make_unique<Shader>(sd + "tonemap.vert", sd + "bloom_up.frag");
+        m_FXAAShader = std::make_unique<Shader>(sd + "tonemap.vert", sd + "fxaa.frag");
 
         m_PointShadows = std::make_unique<PointShadowArray>(1024);
         m_SunShadowMap = std::make_unique<DirectionalShadowMap>(2048);
@@ -201,7 +202,7 @@ public:
         if (!typing) {
             if (f5) { m_Shader->Reload(); m_ShadowShader->Reload(); m_SunShader->Reload(); m_PostShader->Reload(); 
                 m_Env->ReloadSkyShader(); m_SSAOShader->Reload(); m_SSAOBlurShader->Reload(); m_BloomDown->Reload(); 
-                m_BloomUp->Reload();
+                m_BloomUp->Reload(); m_FXAAShader->Reload();
             }
             if (kn) SpawnCube();
             if (f && !ImGui::GetIO().KeyAlt) FrameSelected();
@@ -266,6 +267,7 @@ public:
         // 4) AO + bloom + exposure + tone map + gamma into the 8-bit texture the Viewport shows
         m_Post->Resize(fw, fh);
         m_Post->Apply(m_Framebuffer->GetColorAttachment(), aoTex, bloomTex, *m_PostShader, m_PostSettings);
+        m_Post->ApplyFXAA(*m_FXAAShader, m_PostSettings.FXAA);
 
         glViewport(0, 0, (int)GetWindow().GetWidth(), (int)GetWindow().GetHeight());
     }
@@ -410,6 +412,7 @@ private:
         const char* modes[] = { "None (clamp)", "Reinhard", "ACES" };
         ImGui::Combo("Tone map", &m_PostSettings.ToneMap, modes, 3);
         ImGui::Checkbox("Gamma correction", &m_PostSettings.Gamma);
+        ImGui::Checkbox("FXAA", &m_PostSettings.FXAA);
 
         ImGui::Separator();
         ImGui::TextUnformatted("Ambient occlusion");
@@ -853,6 +856,7 @@ private:
     std::unique_ptr<Engine::SSAO> m_SSAO;
     std::unique_ptr<Engine::Bloom> m_Bloom;
     std::unique_ptr<Engine::Shader> m_SSAOShader, m_SSAOBlurShader, m_BloomDown, m_BloomUp;
+    std::unique_ptr<Engine::Shader> m_FXAAShader;
 
     ImGuizmo::OPERATION m_GizmoOp = ImGuizmo::TRANSLATE;
 
