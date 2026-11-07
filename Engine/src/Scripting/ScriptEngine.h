@@ -54,12 +54,15 @@ namespace Engine {
     //   e:look_at(target [, up]) and e.forward... work in world space
     //   e.id, e:valid(), e:destroy(), e:clone()
     //   e:has(kind), e:remove(kind)     kind = "mesh" "body" "collider" "light" "sun" "script" "spin" "orbit" "camera" "audio" "animator"
-    //   e.mesh   -> nil or { color, emissive, metallic, roughness, unlit, geometry ("cube" "sphere" ...) }
+    //   e.mesh   -> nil or { color, emissive, metallic, roughness, unlit, geometry ("cube" "sphere" ...),
+    //               opacity (0..1; below 1 makes an opaque mesh "blend"), alpha_mode ("opaque" "cutout" "blend"),
+    //               alpha_cutoff, cast_shadows }
     //   e.light  -> nil or { color, intensity, shadows }
     //   e.body   -> nil or { velocity, angular_velocity, type, trigger, mass,
     //                         add_force(v) (newtons, lasts this frame: call each frame), add_impulse(v) }
     //   e:add_mesh{ geometry="cube"|"sphere"|"plane"|"model:Models/x.glb", texture="checker", color=vec3,
-    //               metallic, roughness, emissive, unlit, fit=metres (models: scaled to that size, standing on the origin) }
+    //               metallic, roughness, emissive, unlit, fit=metres (models: scaled to that size, standing on the origin),
+    //               opacity, alpha_mode, alpha_cutoff, cast_shadows }
     //   e:add_body{ type="dynamic"|"static"|"kinematic", shape="box"|"sphere"|"capsule"|"convex"|"mesh"|"none", size=number|vec3,
     //               center=vec3, mass, friction, bounciness, trigger=bool, velocity=vec3 }
     //   e:add_collider{ shape="box"|"sphere"|"capsule"|"convex"|"mesh", size, center }   an extra shape for the

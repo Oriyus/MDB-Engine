@@ -48,6 +48,16 @@ namespace Engine {
 
         // Component views handed out by e.mesh / e.light / e.body
         struct MeshRef  { ScriptEntity E; };
+
+        const char* AlphaModeToString(AlphaMode m) {
+            return m == AlphaMode::Cutout ? "cutout" : m == AlphaMode::Blend ? "blend" : "opaque";
+        }
+        AlphaMode AlphaModeFromString(const std::string& s) {
+            if (s == "cutout") return AlphaMode::Cutout;
+            if (s == "blend") return AlphaMode::Blend;
+            if (s != "opaque") throw std::runtime_error("alpha_mode must be \"opaque\", \"cutout\" or \"blend\"");
+            return AlphaMode::Opaque;
+        }
         struct LightRef { ScriptEntity E; };
         struct BodyRef  { ScriptEntity E; };
         struct CameraRef { ScriptEntity E; };
@@ -158,6 +168,23 @@ namespace Engine {
             "roughness", sol::property(
                 [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().Roughness; },
                 [](const MeshRef& m, float v) { m.E.Get<MeshRendererComponent>().Roughness = v; }),
+            // opacity below 1 on an opaque mesh makes it see-through (alpha_mode "blend")
+            "opacity", sol::property(
+                [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().Opacity; },
+                [](const MeshRef& m, float v) {
+                    auto& mr = m.E.Get<MeshRendererComponent>();
+                    mr.Opacity = std::clamp(v, 0.0f, 1.0f);
+                    if (mr.Opacity < 1.0f && mr.Alpha == AlphaMode::Opaque) mr.Alpha = AlphaMode::Blend;
+                }),
+            "alpha_mode", sol::property(
+                [](const MeshRef& m) { return std::string(AlphaModeToString(m.E.Get<MeshRendererComponent>().Alpha)); },
+                [](const MeshRef& m, const std::string& v) { m.E.Get<MeshRendererComponent>().Alpha = AlphaModeFromString(v); }),
+            "alpha_cutoff", sol::property(
+                [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().AlphaCutoff; },
+                [](const MeshRef& m, float v) { m.E.Get<MeshRendererComponent>().AlphaCutoff = v; }),
+            "cast_shadows", sol::property(
+                [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().CastShadows; },
+                [](const MeshRef& m, bool v) { m.E.Get<MeshRendererComponent>().CastShadows = v; }),
             "unlit", sol::property(
                 [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().Unlit; },
                 [](const MeshRef& m, bool v) { m.E.Get<MeshRendererComponent>().Unlit = v; }),
@@ -381,6 +408,13 @@ namespace Engine {
                     mr.Metallic = opts->get_or<float>("metallic", mr.Metallic);
                     mr.Roughness = opts->get_or<float>("roughness", mr.Roughness);
                     mr.Unlit = opts->get_or<bool>("unlit", mr.Unlit);
+                    if (const auto am = opts->get<sol::optional<std::string>>("alpha_mode")) mr.Alpha = AlphaModeFromString(*am);
+                    if (const auto op = opts->get<sol::optional<float>>("opacity")) {
+                        mr.Opacity = std::clamp(*op, 0.0f, 1.0f);
+                        if (mr.Opacity < 1.0f && mr.Alpha == AlphaMode::Opaque) mr.Alpha = AlphaMode::Blend;
+                    }
+                    mr.AlphaCutoff = opts->get<sol::optional<float>>("alpha_cutoff").value_or(mr.AlphaCutoff);
+                    mr.CastShadows = opts->get<sol::optional<bool>>("cast_shadows").value_or(mr.CastShadows);
                     // fit = metres: a model file is scaled and centred to that size (models come in any units)
                     if (const auto fit = opts->get<sol::optional<float>>("fit")) {
                         if (const auto* model = dynamic_cast<const Model*>(mr.Geometry.get())) {

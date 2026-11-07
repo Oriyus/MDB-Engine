@@ -188,6 +188,23 @@ void BuildScriptDemo(Scene& scene, const LevelAssets& a, PrefabLibrary& prefabs)
         e.Add<AnimatorComponent>().Clip = "Walk";
         e.Add<ScriptComponent>().Path = "Scripts/wander.lua";
     }
+    // See-through pieces: a cutout fence along the back edge and a stained-glass panel (both solid)
+    if (a.Fence) {
+        for (int i = 0; i < 5; i++) {
+            Entity e = AddBox(scene, a, "Fence", glm::vec3(-4.4f + i * 2.2f, -0.35f, -5.6f), glm::vec3(2.2f, 1.3f, 0.04f), glm::vec3(1.0f));
+            auto& mr = e.Get<MeshRendererComponent>();
+            mr.Texture = a.Fence;
+            mr.Alpha = AlphaMode::Cutout;
+        }
+    }
+    if (a.Window) {
+        Entity e = AddBox(scene, a, "Stained glass", glm::vec3(1.6f, 0.0f, -4.3f), glm::vec3(2.0f, 2.0f, 0.05f),
+            glm::vec3(1.0f), BodyType::Static, glm::vec3(0.0f, glm::radians(-15.0f), 0.0f));
+        auto& mr = e.Get<MeshRendererComponent>();
+        mr.Texture = a.Window;
+        mr.Alpha = AlphaMode::Blend;
+        mr.Roughness = 0.1f;
+    }
     LOG_INFO("Script demo built. Press Play (Ctrl+P).");
 }
 

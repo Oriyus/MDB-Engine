@@ -30,6 +30,11 @@ uniform float u_Metallic;
 uniform float u_Roughness;
 uniform vec3  u_Emissive;
 
+// Transparency: 0 opaque, 1 cutout (discard below u_AlphaCutoff), 2 blend (premultiplied output)
+uniform int   u_AlphaMode;
+uniform float u_Alpha;          // material alpha x opacity; the albedo texture's alpha multiplies it
+uniform float u_AlphaCutoff;
+
 uniform vec3  u_ViewPos;
 uniform float u_Ambient;        // strength of the procedural sky light
 
@@ -184,11 +189,15 @@ void main() {
     EntityID = u_EntityID;
 
     // Picker colors are sRGB, albedo textures are decoded to linear by the GPU
-    vec3 albedo = pow(u_Color, vec3(2.2));
-    if (u_UseTexture == 1) albedo *= texture(u_Texture, v_TexCoord).rgb;
+    vec4 base = (u_UseTexture == 1) ? texture(u_Texture, v_TexCoord) : vec4(1.0);
+    vec3 albedo = pow(u_Color, vec3(2.2)) * base.rgb;
+    float alpha = clamp(u_Alpha * base.a, 0.0, 1.0);
+    if (u_AlphaMode == 1 && alpha < u_AlphaCutoff) discard;
+    bool blend = u_AlphaMode == 2;
+    if (!blend) alpha = 1.0;
 
     if (u_Unlit == 1) {
-        FragColor = vec4(albedo * kUnlitGlow, 1.0);
+        FragColor = vec4(albedo * kUnlitGlow * alpha, alpha);
         return;
     }
 
@@ -211,6 +220,8 @@ void main() {
 
     vec3 V = normalize(u_ViewPos - v_WorldPos);
     vec3 F0 = mix(vec3(0.04), albedo, metallic);             // 4% reflectance for non-metals
+    // See-through: the diffuse part is scaled by alpha (premultiplied), reflections stay, like glass
+    vec3 diffuse = albedo * alpha;
 
     vec3 color = vec3(0.0);
 
@@ -221,13 +232,13 @@ void main() {
         float att = 1.0 / (1.0 + 0.02 * dist * dist);
 
         float shadow = (u_PointShadow[i] == 1 && dot(Ng, L) > 0.0) ? PointShadow(i, Ng, L) : 0.0;
-        color += Shade(N, V, L, albedo, metallic, roughness, F0, u_PointColor[i] * att, shadow);
+        color += Shade(N, V, L, diffuse, metallic, roughness, F0, u_PointColor[i] * att, shadow);
     }
 
     if (u_HasSun == 1) {
         vec3 L = normalize(-u_SunDir);
         float shadow = (u_SunShadow == 1 && dot(Ng, L) > 0.0) ? SunShadow(Ng, L) : 0.0;
-        color += Shade(N, V, L, albedo, metallic, roughness, F0, u_SunColor, shadow);
+        color += Shade(N, V, L, diffuse, metallic, roughness, F0, u_SunColor, shadow);
     }
 
         // Ambient: diffuse from the irradiance map, reflections from the prefiltered map
@@ -243,11 +254,13 @@ void main() {
         diffuseLight  = Env(N);
         specularLight = Env(normalize(mix(R, N, roughness * roughness)));
     }
-    color += ((1.0 - metallic) * albedo * (1.0 - specAmb) * diffuseLight + specAmb * specularLight) * u_Ambient;
+    color += ((1.0 - metallic) * diffuse * (1.0 - specAmb) * diffuseLight + specAmb * specularLight) * u_Ambient;
 
     vec3 emissive = u_Emissive;
     if (u_UseEmissive == 1) emissive *= texture(u_EmissiveMap, v_TexCoord).rgb;
-    color += emissive;
+    color += emissive * alpha;
+    // Fade the reflections out too near alpha 0, so a fully faded object disappears
+    if (blend) color *= min(1.0, alpha * 8.0);
 
-    FragColor = vec4(color, 1.0);
+    FragColor = vec4(color, alpha);
 }

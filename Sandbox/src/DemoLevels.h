@@ -19,6 +19,8 @@ struct LevelAssets {
     std::shared_ptr<Engine::Renderable> Sphere;  // diameter 1
     std::shared_ptr<Engine::Texture2D>  Checker;
     std::shared_ptr<Engine::Model>      Fox;     // Models/Fox.glb (animated); null if missing
+    std::shared_ptr<Engine::Texture2D>  Fence;   // Textures/fence.png (cutout); null if missing
+    std::shared_ptr<Engine::Texture2D>  Window;  // Textures/window.png (stained glass)
 };
 
 // Scripting playground: a ball you roll (player.lua), coins (coin.lua), a pad that glows while

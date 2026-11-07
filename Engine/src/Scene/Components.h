@@ -1,6 +1,7 @@
 #pragma once
 #include "Renderer/Renderable.h"
 #include "Renderer/Texture.h"
+#include "Renderer/Material.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -85,6 +86,12 @@ namespace Engine {
         glm::vec3 Emissive{ 0.0f };               // linear, can exceed 1
         bool  Unlit = false;
         bool  UseModelMaterials = false;   // use the model file's materials; Color becomes a tint
+        // Transparency. With model materials the stronger of this and the material's mode is used
+        // (Opaque < Cutout < Blend), and Opacity multiplies the material's alpha.
+        AlphaMode Alpha = AlphaMode::Opaque;
+        float Opacity = 1.0f;                     // 0..1, multiplies the texture's alpha
+        float AlphaCutoff = 0.5f;                 // Cutout: drop pixels below this alpha
+        bool  CastShadows = true;                 // see-through parts cast where alpha >= 0.5
     };
 
     struct PointLightComponent {

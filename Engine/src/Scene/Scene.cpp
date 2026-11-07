@@ -8,6 +8,7 @@
 #include "Renderer/Environment.h"
 #include "Renderer/Model.h"
 #include "Core/Log.h"
+#include <glad/glad.h>
 
 #include <algorithm>
 #include <cmath>
@@ -345,6 +346,30 @@ namespace Engine {
         return out;
     }
 
+    // How one part of a Mesh Renderer uses alpha: the component's settings combined with the
+    // model material's (the stronger mode wins, alphas multiply)
+    struct SurfaceAlpha {
+        AlphaMode Mode = AlphaMode::Opaque;
+        float Alpha = 1.0f;
+        float Cutoff = 0.5f;
+        const Texture2D* Albedo = nullptr;
+    };
+
+    static SurfaceAlpha GetSurfaceAlpha(const MeshRendererComponent& mr, uint32_t part) {
+        const Material* mat = mr.UseModelMaterials ? mr.Geometry->GetSubmeshMaterial(part) : nullptr;
+        SurfaceAlpha s;
+        s.Mode = mr.Alpha;
+        s.Alpha = std::clamp(mr.Opacity, 0.0f, 1.0f);
+        s.Cutoff = mr.AlphaCutoff;
+        s.Albedo = mat ? mat->Albedo.get() : mr.Texture.get();
+        if (mat) {
+            if ((int)mat->Mode > (int)s.Mode) s.Mode = mat->Mode;
+            if (mr.Alpha != AlphaMode::Cutout) s.Cutoff = mat->AlphaCutoff;
+            s.Alpha *= mat->Alpha;
+        }
+        return s;
+    }
+
     // First directional light, if any. dir = the direction the light travels.
     static bool FindSun(Scene& scene, glm::vec3& dir, glm::vec3& color, bool& shadows) {
         auto& reg = scene.Registry();
@@ -374,12 +399,27 @@ namespace Engine {
 
         auto drawables = m_Registry.view<TransformComponent, MeshRendererComponent>();
         auto drawScene = [&](Shader& sh) {
+            sh.SetInt("u_Texture", 0);
             for (auto entity : drawables) {
                 auto [t, mr] = drawables.get<TransformComponent, MeshRendererComponent>(entity);
-                if (!mr.Geometry || mr.Unlit) continue;   // light markers must not block light
+                if (!mr.Geometry || mr.Unlit || !mr.CastShadows) continue;   // light markers must not block light
                 SetSkinning(sh, entity, mr);
                 sh.SetMat4("u_Model", GetWorldMatrix(entity) * mr.LocalOffset);
-                mr.Geometry->Draw();
+                const uint32_t parts = mr.UseModelMaterials ? mr.Geometry->SubmeshCount() : 1;
+                for (uint32_t i = 0; i < parts; i++) {
+                    const SurfaceAlpha s = GetSurfaceAlpha(mr, i);
+                    // Cutout casts its cut shape; see-through (Blend) casts only where alpha >= 0.5
+                    const bool test = s.Mode != AlphaMode::Opaque;
+                    sh.SetInt("u_AlphaTest", test ? 1 : 0);
+                    if (test) {
+                        sh.SetFloat("u_Alpha", s.Alpha);
+                        sh.SetFloat("u_AlphaCutoff", s.Mode == AlphaMode::Cutout ? s.Cutoff : 0.5f);
+                        sh.SetInt("u_UseTexture", s.Albedo ? 1 : 0);
+                        if (s.Albedo) s.Albedo->Bind(0);
+                    }
+                    if (mr.UseModelMaterials) mr.Geometry->DrawSubmesh(i);
+                    else                      mr.Geometry->Draw();
+                }
             }
             };
 
@@ -420,7 +460,7 @@ namespace Engine {
     }
 
     // ---------------------------------------------------------------- render system
-    void Scene::Render(const Camera& camera, Shader& shader, const ShadowContext* ctx, const Environment* env) {
+    void Scene::Render(const Camera& camera, Shader& shader, const ShadowContext* ctx, const Environment* env, RenderPass pass) {
         const auto lights = GatherPointLights(*this);
 
         glm::vec3 sunDir(0.0f, -1.0f, 0.0f), sunColor(0.0f);
@@ -483,45 +523,95 @@ namespace Engine {
             }
         }
 
-        auto drawables = m_Registry.view<TransformComponent, MeshRendererComponent>();
-        for (auto entity : drawables) {
-            auto [t, mr] = drawables.get<TransformComponent, MeshRendererComponent>(entity);
-            if (!mr.Geometry) continue;
+        // One part (submesh) of one entity. The transform and bones are set by the caller.
+        auto drawPart = [&](const MeshRendererComponent& mr, uint32_t i, const SurfaceAlpha& s) {
+            const Material* mat = mr.UseModelMaterials ? mr.Geometry->GetSubmeshMaterial(i) : nullptr;
 
+            // With a model material the component Color tints it; metallic/roughness/emissive come from the file
+            const glm::vec3 color = mat ? mat->Color * mr.Color : mr.Color;
+            const Texture2D* normal = mat ? mat->Normal.get() : nullptr;
+            const Texture2D* metalRough = mat ? mat->MetalRough.get() : nullptr;
+            const Texture2D* emissiveTex = mat ? mat->Emissive.get() : nullptr;
+
+            if (s.Albedo)     s.Albedo->Bind(0);
+            if (normal)       normal->Bind(3);
+            if (metalRough)   metalRough->Bind(4);
+            if (emissiveTex)  emissiveTex->Bind(5);
+
+            shader.SetVec3("u_Color", color);
+            shader.SetInt("u_UseTexture", s.Albedo ? 1 : 0);
+            shader.SetInt("u_UseNormalMap", normal ? 1 : 0);
+            shader.SetInt("u_UseMetalRough", metalRough ? 1 : 0);
+            shader.SetInt("u_UseEmissive", emissiveTex ? 1 : 0);
+            shader.SetFloat("u_Metallic", mat ? mat->Metallic : mr.Metallic);
+            shader.SetFloat("u_Roughness", mat ? mat->Roughness : mr.Roughness);
+            shader.SetVec3("u_Emissive", mat ? mat->EmissiveColor : mr.Emissive);
+            shader.SetInt("u_AlphaMode", (int)s.Mode);
+            shader.SetFloat("u_Alpha", s.Alpha);
+            shader.SetFloat("u_AlphaCutoff", s.Cutoff);
+
+            if (mat) mr.Geometry->DrawSubmesh(i);
+            else     mr.Geometry->Draw();
+        };
+        auto setEntity = [&](entt::entity entity, const MeshRendererComponent& mr) {
             shader.SetInt("u_Unlit", mr.Unlit ? 1 : 0);
             shader.SetInt("u_EntityID", (int)entt::to_integral(entity));
             SetSkinning(shader, entity, mr);
             shader.SetMat4("u_Model", GetWorldMatrix(entity) * mr.LocalOffset);
+        };
 
+        auto drawables = m_Registry.view<TransformComponent, MeshRendererComponent>();
+        if (pass == RenderPass::Opaque) {
+            // Opaque and cutout parts, in any order (the depth buffer sorts them)
+            for (auto entity : drawables) {
+                auto& mr = drawables.get<MeshRendererComponent>(entity);
+                if (!mr.Geometry) continue;
+                bool entitySet = false;
+                const uint32_t parts = mr.UseModelMaterials ? mr.Geometry->SubmeshCount() : 1;
+                for (uint32_t i = 0; i < parts; i++) {
+                    const SurfaceAlpha s = GetSurfaceAlpha(mr, i);
+                    if (s.Mode == AlphaMode::Blend) continue;
+                    if (!entitySet) { setEntity(entity, mr); entitySet = true; }
+                    drawPart(mr, i, s);
+                }
+            }
+            return;
+        }
+
+        // See-through parts: farthest first, blended over what is already drawn. They test depth
+        // but don't write it, so they never hide each other or what's behind them.
+        struct Item { entt::entity Entity; uint32_t Part; float Distance; };
+        std::vector<Item> items;
+        for (auto entity : drawables) {
+            auto& mr = drawables.get<MeshRendererComponent>(entity);
+            if (!mr.Geometry) continue;
             const uint32_t parts = mr.UseModelMaterials ? mr.Geometry->SubmeshCount() : 1;
+            float distance = -1.0f;
             for (uint32_t i = 0; i < parts; i++) {
-                const Material* mat = mr.UseModelMaterials ? mr.Geometry->GetSubmeshMaterial(i) : nullptr;
-
-                // With a model material the component Color tints it; metallic/roughness/emissive come from the file
-                const glm::vec3 color = mat ? mat->Color * mr.Color : mr.Color;
-                const Texture2D* albedo = mat ? mat->Albedo.get() : mr.Texture.get();
-                const Texture2D* normal = mat ? mat->Normal.get() : nullptr;
-                const Texture2D* metalRough = mat ? mat->MetalRough.get() : nullptr;
-                const Texture2D* emissiveTex = mat ? mat->Emissive.get() : nullptr;
-
-                if (albedo)       albedo->Bind(0);
-                if (normal)       normal->Bind(3);
-                if (metalRough)   metalRough->Bind(4);
-                if (emissiveTex)  emissiveTex->Bind(5);
-
-                shader.SetVec3("u_Color", color);
-                shader.SetInt("u_UseTexture", albedo ? 1 : 0);
-                shader.SetInt("u_UseNormalMap", normal ? 1 : 0);
-                shader.SetInt("u_UseMetalRough", metalRough ? 1 : 0);
-                shader.SetInt("u_UseEmissive", emissiveTex ? 1 : 0);
-                shader.SetFloat("u_Metallic", mat ? mat->Metallic : mr.Metallic);
-                shader.SetFloat("u_Roughness", mat ? mat->Roughness : mr.Roughness);
-                shader.SetVec3("u_Emissive", mat ? mat->EmissiveColor : mr.Emissive);
-
-                if (mat) mr.Geometry->DrawSubmesh(i);
-                else     mr.Geometry->Draw();
+                if (GetSurfaceAlpha(mr, i).Mode != AlphaMode::Blend) continue;
+                if (distance < 0.0f) {              // the entity's bounds centre, in world space
+                    glm::vec3 mn, mx;
+                    mr.Geometry->GetLocalBounds(mn, mx);
+                    const glm::vec3 c = glm::vec3(GetWorldMatrix(entity) * mr.LocalOffset * glm::vec4((mn + mx) * 0.5f, 1.0f));
+                    distance = glm::length(c - camera.Position);
+                }
+                items.push_back({ entity, i, distance });
             }
         }
+        if (items.empty()) return;
+        std::stable_sort(items.begin(), items.end(), [](const Item& a, const Item& b) { return a.Distance > b.Distance; });
+
+        glEnable(GL_BLEND);
+        glBlendFunci(0, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);   // premultiplied (the entity-ID target is integer: never blended)
+        glDepthMask(GL_FALSE);
+        entt::entity current = entt::null;
+        for (const Item& it : items) {
+            const auto& mr = m_Registry.get<MeshRendererComponent>(it.Entity);
+            if (it.Entity != current) { setEntity(it.Entity, mr); current = it.Entity; }
+            drawPart(mr, it.Part, GetSurfaceAlpha(mr, it.Part));
+        }
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
     }
 
 } // namespace Engine

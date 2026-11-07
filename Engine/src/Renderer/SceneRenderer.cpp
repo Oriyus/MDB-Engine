@@ -89,6 +89,7 @@ namespace Engine {
         I.HDR->Clear(0.005f, 0.005f, 0.01f, 1.0f);
         scene.Render(camera, *I.Lit, &I.Shadows, I.Env.get());
         I.Env->DrawSkybox(camera, scene.AmbientIntensity);
+        scene.Render(camera, *I.Lit, &I.Shadows, I.Env.get(), Scene::RenderPass::Transparent);   // glass etc. over the sky
         Framebuffer::Unbind();
 
         // 3) Screen-space effects
