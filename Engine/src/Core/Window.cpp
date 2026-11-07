@@ -98,6 +98,8 @@ namespace Engine {
         return glfwWindowShouldClose(m_Window);
     }
 
+    void Window::SetShouldClose(bool close) { glfwSetWindowShouldClose(m_Window, close ? GLFW_TRUE : GLFW_FALSE); }
+
     void Window::SetTitle(const std::string& title) {
         glfwSetWindowTitle(m_Window, title.c_str());
     }

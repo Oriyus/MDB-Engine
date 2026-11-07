@@ -24,6 +24,7 @@ namespace Engine {
 
         void OnUpdate();                       // poll events + swap buffers
         bool ShouldClose() const;
+        void SetShouldClose(bool close);
 
         void SetTitle(const std::string& title);
         void SetVSync(bool enabled);

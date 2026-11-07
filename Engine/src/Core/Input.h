@@ -16,7 +16,8 @@ namespace Engine {
         constexpr int Tab = 258;
         constexpr int F = 70, G = 71;
         constexpr int F1 = 290;
-        constexpr int Z = 90, X = 88, C = 67;
+        constexpr int Z = 90, X = 88, C = 67, Y = 89;
+        constexpr int LeftControl = 341, RightControl = 345;
         constexpr int Delete = 261;
         constexpr int Num1 = 49, Num2 = 50, Num3 = 51;
         constexpr int R = 82;

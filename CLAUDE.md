@@ -55,6 +55,7 @@ Engine/src/
   Audio/      AudioEngine (miniaudio): one-shots, entity sources, listener
 Sandbox/src/main.cpp         the editor app (SandboxApp)
 Sandbox/src/DemoLevels.cpp   code-built example levels (Script demo, Coin Rush)
+Sandbox/src/EditorHistory.cpp  undo/redo as a list of whole-scene states
 Game/src/main.cpp            the standalone game (GameApp): config, pause menu, full screen, restart
 Assets/game.json             the game's title, start scene, window size, fullscreen, vsync
 Assets/{Shaders,Models,Scenes,Environments,Scripts,Sounds,Prefabs}
@@ -97,7 +98,8 @@ Color spaces: lighting is done in linear space. Color pickers and albedo colors 
 ## Editor
 
 - Dockable panels: Viewport, Hierarchy, Inspector, Stats, Tools.
-- **Maya-style controls.** Alt+LMB orbit, Alt+MMB pan, Alt+RMB or wheel dolly. **Q** select, **W/E/R** move/rotate/scale gizmo. **F** frame selected. **N** spawn a cube. **Delete** deletes the selection. **F5** reloads shaders, and scripts too while playing. **F1** hides the side panels. There is no WASD fly camera (it was removed on purpose).
+- **Maya-style controls.** Alt+LMB orbit, Alt+MMB pan, Alt+RMB or wheel dolly. **Q** select, **W/E/R** move/rotate/scale gizmo. **F** frame selected. **N** spawn a cube. **Delete** deletes the selection. **F5** reloads shaders, and scripts too while playing. **Ctrl+Z** / **Ctrl+Y** (or Ctrl+Shift+Z) undo and redo, **Ctrl+D** duplicates the selection, **Ctrl+S** saves. **F1** hides the side panels. There is no WASD fly camera (it was removed on purpose).
+- **Undo/redo** (`EditorHistory`, Edit mode only). The editor never records individual edits. After any interaction (mouse released, a widget active, a key pressed, the gizmo used) it sets `m_MaybeChanged`. At the start of the next `OnUpdate` with nothing held, `Track()` compares the scene to the current state as text (names, transforms, prefab links, components via `EntityJson`). If they differ, it stores a new state, a whole-scene `SceneSnapshot` (limit 100). So every scene edit is undoable with no per-feature code, and a drag or typed name is one step. Labels such as "Move Player", "Delete Lava" or "Build Coin Rush" come from the difference, or are passed in. Scene settings (environment, post) and the editor camera are not tracked. The title shows `*` for unsaved changes. Quit (Esc or the close button, via `Application::OnCloseRequested`) and Load ask first.
 - **Play mode** (Ctrl+P, or the Tools panel buttons). Play snapshots the scene and runs Spin, Orbit and physics. Pause and Step are available. Stop restores the snapshot, and Escape stops Play first and quits only in Edit mode.
   Edit mode is frozen except that orbiting lights sit at their orbit position.
 - **Game camera.** During Play the viewport renders from the primary `CameraComponent` entity, which looks along local -Z like the sun. Turn this off with Tools > "Play through game camera". While looking through it, the colliders, gizmo and click-picking are hidden, and editor shortcuts are off except Esc, Ctrl+P, F1 and F5, so games can use those keys. In the editor, camera entities are drawn as frustum outlines.
@@ -122,4 +124,4 @@ Color spaces: lighting is done in linear space. Color pickers and albedo colors 
 - Models are imported with `PreTransformVertices`, so there is no node hierarchy or skeletal animation.
 - No transparency or blending pass. Materials with alpha render opaque.
 - The sun shadow area is fixed around the origin (no cascades).
-- Candidate next steps: undo/redo, Ctrl+D duplicate, entity parenting, per-field prefab overrides, more UI for scripts (images, buttons), mesh/convex colliders, skeletal animation, transparency, batching/instancing, a Vulkan backend.
+- Candidate next steps: entity parenting, per-field prefab overrides, more UI for scripts (images, buttons), mesh/convex colliders, skeletal animation, transparency, batching/instancing, a Vulkan backend.

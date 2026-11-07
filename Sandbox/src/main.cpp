@@ -28,6 +28,7 @@
 #include "Runtime/GameSession.h"
 #include "Runtime/GameUI.h"
 #include "DemoLevels.h"
+#include "EditorHistory.h"
 
 #include <cfloat>
 #include <glad/glad.h>
@@ -175,8 +176,10 @@ public:
         if (EnvVar("MDB_AUTOPLAY") == "1") m_PlayCmd = PlayCmd::Play;
         if (auto q = EnvVar("MDB_QUIT_AFTER"); !q.empty()) m_QuitAfter = std::strtof(q.c_str(), nullptr);
 
+        m_History.Reset(m_Scene, m_Selected, m_Resources->Registry());   // the starting point for undo
+
         glClearColor(0.05f, 0.05f, 0.08f, 1.0f);
-        LOG_INFO("Alt+LMB/MMB/RMB orbit/pan/zoom | W/E/R tools | N spawn | F frame | G delete last | F1 toggle UI | F5 reload shaders | ESC quits");
+        LOG_INFO("Alt+LMB/MMB/RMB orbit/pan/zoom | W/E/R tools | N spawn | F frame | Ctrl+Z/Y undo/redo | Ctrl+D duplicate | Ctrl+S save | F5 reload shaders | ESC quits");
     }
 
     void OnUpdate(float dt) override {
@@ -186,6 +189,17 @@ public:
             LoadScene(m_PendingSceneLoad);
             m_PendingSceneLoad.clear();
         }
+
+        // Undo history: once an interaction is over (nothing held or being edited), record the
+        // scene if it changed. A whole drag or typed name becomes one step this way.
+        const bool interacting = ImGui::IsAnyItemActive() || m_GizmoBusy
+            || ImGui::IsMouseDown(ImGuiMouseButton_Left) || ImGui::IsMouseDown(ImGuiMouseButton_Right)
+            || ImGui::IsMouseDown(ImGuiMouseButton_Middle);
+        if (m_PlayState == PlayState::Edit && m_MaybeChanged && !interacting) {
+            m_History.Track(m_Scene, m_Selected, m_Resources->Registry());
+            m_MaybeChanged = false;
+        }
+        UpdateTitle();
 
         dt = std::min(dt, 0.1f);   // a long hitch (like baking an environment) shouldn't fling the simulation
 
@@ -229,7 +243,18 @@ public:
         bool kp = EdgePressed(Key::P, m_PDown);
         if (!typing && kesc) {
             if (m_PlayState != PlayState::Edit) m_PlayCmd = PlayCmd::Stop;
-            else Close();
+            else RequestQuit();
+        }
+
+        // Ctrl shortcuts (Edit mode, not while typing or in the middle of a drag)
+        const bool ctrl = ImGui::GetIO().KeyCtrl, shift = ImGui::GetIO().KeyShift;
+        const bool kz = EdgePressed(Key::Z, m_ZDown), ky = EdgePressed(Key::Y, m_YDown);
+        const bool kd = EdgePressed(Key::D, m_DDown), ks = EdgePressed(Key::S, m_SDown);
+        if (ctrl && !typing && !interacting && m_PlayState == PlayState::Edit) {
+            if (kz && !shift) UndoStep();
+            if (ky || (kz && shift)) RedoStep();
+            if (kd) DuplicateSelected();
+            if (ks) SaveScene(m_SceneFile);
         }
 
         bool f5 = EdgePressed(Key::F5, m_F5Down);
@@ -322,6 +347,86 @@ public:
             DrawHierarchyPanel();
             DrawInspectorPanel();
         }
+        DrawUnsavedChangesModal();
+
+        // Anything that may have changed the scene: check it once the interaction is over
+        if (ImGui::IsAnyItemActive() || m_GizmoBusy) m_MaybeChanged = true;
+        for (int b = 0; b < 3; b++) if (ImGui::IsMouseReleased(b)) m_MaybeChanged = true;
+        for (int k = ImGuiKey_NamedKey_BEGIN; k < ImGuiKey_NamedKey_END; k++)
+            if (ImGui::IsKeyPressed((ImGuiKey)k, false)) { m_MaybeChanged = true; break; }
+    }
+
+    // ------------------------------------------------------------------ undo / redo, unsaved changes
+    void UndoStep() {
+        if (!m_History.CanUndo()) return;
+        LOG_INFO("Undo: {}", m_History.UndoLabel());
+        m_Selected = m_History.Undo(m_Scene);
+        m_Spawned.clear();          // those handles died with the restore
+        m_MaybeChanged = false;
+    }
+
+    void RedoStep() {
+        if (!m_History.CanRedo()) return;
+        LOG_INFO("Redo: {}", m_History.RedoLabel());
+        m_Selected = m_History.Redo(m_Scene);
+        m_Spawned.clear();
+        m_MaybeChanged = false;
+    }
+
+    void DuplicateSelected() {
+        if (m_Selected == entt::null || !m_Scene.Registry().valid(m_Selected)) return;
+        Engine::Entity copy = m_Scene.DuplicateEntity(Engine::Entity(m_Selected, &m_Scene));
+        m_Selected = copy.GetHandle();
+        m_History.Track(m_Scene, m_Selected, m_Resources->Registry(), "Duplicate " + copy.Get<Engine::TagComponent>().Tag);
+    }
+
+    // "Sandbox - coin_rush.json *": the star means unsaved changes
+    void UpdateTitle() {
+        std::string title = "Sandbox - " + m_SceneFile + (m_History.IsDirty() ? " *" : "");
+        if (title != m_Title) { m_Title = title; SetTitle(title); }
+    }
+
+    // Quit (Esc in Edit mode or the window's close button): ask first if there are unsaved changes
+    void RequestQuit() {
+        if (m_History.IsDirty()) m_Confirm = ConfirmAction::Quit;
+        else Close();
+    }
+
+    bool OnCloseRequested() override {
+        if (m_QuitConfirmed || !m_History.IsDirty()) return true;
+        m_Confirm = ConfirmAction::Quit;
+        return false;
+    }
+
+    void RequestLoad(const std::string& file) {
+        if (m_History.IsDirty()) { m_Confirm = ConfirmAction::Load; m_ConfirmFile = file; }
+        else m_PendingSceneLoad = file;
+    }
+
+    void DrawUnsavedChangesModal() {
+        if (m_Confirm != ConfirmAction::None && !ImGui::IsPopupOpen("Unsaved changes")) ImGui::OpenPopup("Unsaved changes");
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        if (!ImGui::BeginPopupModal("Unsaved changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+        ImGui::Text("%s has unsaved changes.", m_SceneFile.c_str());
+        ImGui::TextDisabled(m_Confirm == ConfirmAction::Quit ? "Save them before quitting?" : "Save them before loading %s?",
+            m_ConfirmFile.c_str());
+        ImGui::Spacing();
+        auto proceed = [this] {
+            if (m_Confirm == ConfirmAction::Quit) { m_QuitConfirmed = true; Close(); }
+            else if (m_Confirm == ConfirmAction::Load) m_PendingSceneLoad = m_ConfirmFile;
+            m_Confirm = ConfirmAction::None;
+            ImGui::CloseCurrentPopup();
+        };
+        if (ImGui::Button("Save", ImVec2(110, 0))) { if (SaveScene(m_SceneFile)) proceed(); }
+        ImGui::SameLine();
+        if (ImGui::Button("Don't save", ImVec2(110, 0))) proceed();
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(110, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            m_Confirm = ConfirmAction::None;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
 
     void SpawnMaterialGrid() {
@@ -443,8 +548,14 @@ public:
     }
 
     bool SaveScene(const std::string& file) {
+        if (m_PlayState != PlayState::Edit) { LOG_WARN("Stop Play before saving the scene"); return false; }
         const Engine::SceneSettings s = GatherSettings();
-        return Engine::SceneSerializer(m_Scene, m_Resources->Registry(), &m_Session->Prefabs()).Save(ScenePath(file), &s);
+        if (!Engine::SceneSerializer(m_Scene, m_Resources->Registry(), &m_Session->Prefabs()).Save(ScenePath(file), &s))
+            return false;
+        m_History.Track(m_Scene, m_Selected, m_Resources->Registry());   // an edit not recorded yet is part of what was saved
+        m_History.MarkSaved();
+        m_SceneFile = file;
+        return true;
     }
 
     bool LoadScene(const std::string& file) {
@@ -455,6 +566,8 @@ public:
         m_Spawned.clear();
         ApplySettings(s);
         m_SceneFile = file;
+        m_History.Reset(m_Scene, m_Selected, m_Resources->Registry());   // a fresh history, counts as saved
+        m_MaybeChanged = false;
         return true;
     }
 
@@ -473,6 +586,8 @@ public:
         m_Selected = entt::null;
         m_Spawned.clear();
         build(m_Scene, MakeLevelAssets(), m_Session->Prefabs());
+        m_History.Track(m_Scene, m_Selected, m_Resources->Registry(),
+            build == BuildCoinRush ? "Build Coin Rush" : "Build script demo");   // undoable like any edit
     }
 
     // ------------------------------------------------------------ game camera
@@ -610,6 +725,21 @@ private:
         if (m_PlayState == PlayState::Edit)        ImGui::TextDisabled("Edit mode  (Ctrl+P to play)");
         else if (m_PlayState == PlayState::Play)   ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.1f, 1.0f), "PLAYING - changes are discarded on Stop");
         else                                       ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.2f, 1.0f), "PAUSED - changes are discarded on Stop");
+
+        // Undo / redo: the buttons name the step they would take back or redo
+        ImGui::BeginDisabled(playing || !m_History.CanUndo());
+        if (ImGui::Button("Undo")) UndoStep();
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(m_History.CanUndo() ? "Ctrl+Z: undo \"%s\"" : "Ctrl+Z: nothing to undo", m_History.UndoLabel().c_str());
+        ImGui::SameLine();
+        ImGui::BeginDisabled(playing || !m_History.CanRedo());
+        if (ImGui::Button("Redo")) RedoStep();
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(m_History.CanRedo() ? "Ctrl+Y: redo \"%s\"" : "Ctrl+Y: nothing to redo", m_History.RedoLabel().c_str());
+        ImGui::SameLine();
+        if (m_History.CanUndo()) ImGui::TextDisabled("%s", m_History.UndoLabel().c_str());
         ImGui::Separator();
 
         ImGui::TextUnformatted("Gizmo");
@@ -728,7 +858,7 @@ private:
         }
         if (ImGui::Button("Save")) SaveScene(m_SceneFile);
         ImGui::SameLine();
-        if (ImGui::Button("Load")) m_PendingSceneLoad = m_SceneFile;   // applied at the start of the next frame
+        if (ImGui::Button("Load")) RequestLoad(m_SceneFile);   // asks about unsaved changes; loads next frame
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.6f);
         ImGui::InputTextWithHint("##saveas", "new_level", m_SaveAsName, sizeof(m_SaveAsName));
         ImGui::SameLine();
@@ -939,6 +1069,7 @@ private:
 
         // ---- Gizmo for the selected entity (not while looking through the game camera)
         bool gizmoBusy = false;
+        m_GizmoBusy = false;
         if (!m_ViewingGame && !m_SelectTool && m_Selected != entt::null && m_Scene.Registry().valid(m_Selected) && !m_MouseLook) {
             Engine::Entity e(m_Selected, &m_Scene);
             auto& t = e.Get<Engine::TransformComponent>();
@@ -968,6 +1099,7 @@ private:
                 t.Scale = scale;
             }
             gizmoBusy = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
+            m_GizmoBusy = ImGuizmo::IsUsing();
         }
 
         // ---- Click to select (not while interacting with the gizmo)
@@ -1360,6 +1492,16 @@ private:
     float m_Gravity = 9.81f;
     bool  m_ShowColliders = true;
     bool  m_TDown = false;
+
+    EditorHistory m_History;              // undo / redo (Edit mode only)
+    bool m_MaybeChanged = false;          // an interaction happened: compare the scene once it is over
+    bool m_GizmoBusy = false;             // the gizmo is being dragged
+    bool m_ZDown = false, m_YDown = false, m_DDown = false, m_SDown = false;
+    std::string m_Title;
+    enum class ConfirmAction { None, Quit, Load };
+    ConfirmAction m_Confirm = ConfirmAction::None;   // the "unsaved changes" dialog is open for this
+    std::string m_ConfirmFile;            // the scene to load after the dialog
+    bool m_QuitConfirmed = false;
 
     ImGuizmo::OPERATION m_GizmoOp = ImGuizmo::TRANSLATE;
 

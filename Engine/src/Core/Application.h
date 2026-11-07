@@ -21,6 +21,9 @@ namespace Engine {
         virtual void OnUpdate(float deltaTime) {}
         virtual void OnImGui() {}
         virtual void OnShutdown() {}
+        // The window's close button (or Alt+F4) was pressed. Return false to keep running, e.g. to
+        // ask about unsaved changes first; call Close() later to quit for real.
+        virtual bool OnCloseRequested() { return true; }
 
         Window& GetWindow() { return *m_Window; }
         static Application& Get() { return *s_Instance; }
@@ -31,6 +34,7 @@ namespace Engine {
 
     protected:
         bool m_ShowFpsInTitle = true;   // "Title | 60 FPS" once a second
+        void SetTitle(const std::string& title);   // the window title (the FPS counter is appended)
 
     private:
         std::unique_ptr<Window> m_Window;

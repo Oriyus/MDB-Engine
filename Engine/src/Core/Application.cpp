@@ -24,6 +24,11 @@ namespace Engine {
     void Application::SetCommandLineArgs(int argc, char** argv) { s_Args.assign(argv, argv + argc); }
     const std::vector<std::string>& Application::GetCommandLineArgs() { return s_Args; }
 
+    void Application::SetTitle(const std::string& title) {
+        m_Name = title;
+        m_Window->SetTitle(title);
+    }
+
     void Application::Run() {
         OnStart();
 
@@ -31,7 +36,11 @@ namespace Engine {
         double fpsTimer = 0.0;
         int frameCount = 0;
 
-        while (m_Running && !m_Window->ShouldClose()) {
+        while (m_Running) {
+            if (m_Window->ShouldClose()) {
+                if (OnCloseRequested()) break;
+                m_Window->SetShouldClose(false);   // the app said no (it may ask the user first)
+            }
             double now = glfwGetTime();
             float dt = (float)(now - lastTime);
             lastTime = now;
