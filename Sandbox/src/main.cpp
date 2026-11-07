@@ -195,9 +195,12 @@ public:
         // Test hooks, for running the app unattended:
         //   MDB_DEMO=1 builds the script demo, MDB_AUTOPLAY=1 presses Play, MDB_QUIT_AFTER=<s> closes
         //   MDB_TEST_SCRIPT=Scripts/x.lua adds an entity "Test" running that script
+        //   MDB_SCENE=<file> loads Assets/Scenes/<file> first, MDB_SAVE_SCENE=<file> saves after the rest
+        if (auto sc = EnvVar("MDB_SCENE"); !sc.empty()) LoadScene(sc);
         if (EnvVar("MDB_DEMO") == "1") BuildScriptDemo();
         if (auto ts = EnvVar("MDB_TEST_SCRIPT"); !ts.empty())
             m_Scene.CreateEntity("Test").Add<ScriptComponent>().Path = ts;
+        if (auto sv = EnvVar("MDB_SAVE_SCENE"); !sv.empty()) SaveScene(sv);
         if (EnvVar("MDB_AUTOPLAY") == "1") m_PlayCmd = PlayCmd::Play;
         if (auto q = EnvVar("MDB_QUIT_AFTER"); !q.empty()) m_QuitAfter = std::strtof(q.c_str(), nullptr);
 
@@ -207,6 +210,11 @@ public:
 
     void OnUpdate(float dt) override {
         using namespace Engine;
+
+        if (!m_PendingSceneLoad.empty()) {   // before the environment: Load may queue a new one
+            LoadScene(m_PendingSceneLoad);
+            m_PendingSceneLoad.clear();
+        }
 
         if (m_PendingEnv >= 0) {
             if (m_PendingEnv == 0) m_Env->UseProcedural();
@@ -478,6 +486,91 @@ public:
 
         if (select) m_Selected = e.GetHandle();
         return e;
+    }
+
+    // ------------------------------------------------------------ scene files
+    static std::string ScenePath(const std::string& file) { return std::string(ASSET_DIR) + "Scenes/" + file; }
+
+    std::vector<std::string> ListSceneFiles() const {
+        std::vector<std::string> files;
+        std::error_code ec;
+        for (const auto& f : std::filesystem::directory_iterator(std::filesystem::path(ASSET_DIR) / "Scenes", ec))
+            if (f.path().extension() == ".json") files.push_back(f.path().filename().string());
+        std::sort(files.begin(), files.end());
+        return files;
+    }
+
+    Engine::SceneSettings GatherSettings() const {
+        Engine::SceneSettings s;
+        // A queued environment change counts as current: it bakes at the start of the next frame
+        if (m_PendingEnv == 0)     s.EnvironmentMap = "";
+        else if (m_PendingEnv > 0) s.EnvironmentMap = m_EnvFiles[m_PendingEnv - 1];
+        else                       s.EnvironmentMap = m_Env->Name == "Procedural sky" ? "" : m_Env->Name;
+        s.ShowSky = m_Env->Show;
+        s.SkyBlur = m_Env->Blur;
+        s.SkyRotation = m_Env->RotationDegrees;
+        s.Post = m_PostSettings;
+        s.Post.AODebug = false;                  // a debug view, not part of the level
+        s.Shadows = m_Shadows.Settings;
+        s.AORadius = m_SSAO->Radius;
+        s.AOBias = m_SSAO->Bias;
+        s.AOSamples = m_SSAO->Samples;
+        s.BloomThreshold = m_Bloom->Threshold;
+        s.BloomKnee = m_Bloom->Knee;
+        s.BloomRadius = m_Bloom->Radius;
+        s.BloomMaxBrightness = m_Bloom->MaxBrightness;
+        s.Gravity = m_Gravity;
+        s.CameraPosition = m_Camera->Position;
+        s.CameraYaw = m_Camera->GetYaw();
+        s.CameraPitch = m_Camera->GetPitch();
+        s.CameraFocusDistance = m_Camera->FocusDistance;
+        return s;
+    }
+
+    void ApplySettings(const Engine::SceneSettings& s) {
+        // The environment bakes through the queued m_PendingEnv path
+        if (s.EnvironmentMap.empty()) {
+            if (m_Env->Name != "Procedural sky") m_PendingEnv = 0;
+        }
+        else if (s.EnvironmentMap != m_Env->Name) {
+            ScanEnvironments();
+            auto it = std::find(m_EnvFiles.begin(), m_EnvFiles.end(), s.EnvironmentMap);
+            if (it != m_EnvFiles.end()) m_PendingEnv = (int)(it - m_EnvFiles.begin()) + 1;
+            else LOG_WARN("Scene uses environment '{}', which is not in Assets/Environments", s.EnvironmentMap);
+        }
+        m_Env->Show = s.ShowSky;
+        m_Env->Blur = s.SkyBlur;
+        m_Env->RotationDegrees = s.SkyRotation;
+        m_PostSettings = s.Post;
+        m_Shadows.Settings = s.Shadows;
+        m_SSAO->Radius = s.AORadius;
+        m_SSAO->Bias = s.AOBias;
+        m_SSAO->Samples = s.AOSamples;
+        m_Bloom->Threshold = s.BloomThreshold;
+        m_Bloom->Knee = s.BloomKnee;
+        m_Bloom->Radius = s.BloomRadius;
+        m_Bloom->MaxBrightness = s.BloomMaxBrightness;
+        m_Gravity = s.Gravity;
+        m_Physics->SetGravity(m_Gravity);
+        m_Camera->Position = s.CameraPosition;
+        m_Camera->FocusDistance = s.CameraFocusDistance;
+        m_Camera->SetOrientation(s.CameraYaw, s.CameraPitch);
+    }
+
+    bool SaveScene(const std::string& file) {
+        const Engine::SceneSettings s = GatherSettings();
+        return Engine::SceneSerializer(m_Scene, MakeResources()).Save(ScenePath(file), &s);
+    }
+
+    bool LoadScene(const std::string& file) {
+        if (m_PlayState != PlayState::Edit) { LOG_WARN("Stop Play before loading a scene"); return false; }
+        Engine::SceneSettings s = GatherSettings();   // older files without a section keep these
+        if (!Engine::SceneSerializer(m_Scene, MakeResources()).Load(ScenePath(file), &s)) return false;
+        m_Selected = entt::null;
+        m_Spawned.clear();
+        ApplySettings(s);
+        m_SceneFile = file;
+        return true;
     }
 
     static std::string EnvVar(const char* name) {
@@ -769,21 +862,26 @@ private:
         ImGui::Separator();
         ImGui::TextUnformatted("Scene");
         ImGui::BeginDisabled(playing);
-        if (ImGui::Button("Save")) {
-            SceneSerializer(m_Scene, MakeResources()).Save(m_ScenePath);
+        if (ImGui::BeginCombo("File", m_SceneFile.c_str())) {
+            // Rescanned while the list is open, so new files show up without a restart
+            for (const auto& f : ListSceneFiles())
+                if (ImGui::Selectable(f.c_str(), f == m_SceneFile)) m_SceneFile = f;
+            ImGui::EndCombo();
         }
-        ImGui::EndDisabled();
-
+        if (ImGui::Button("Save")) SaveScene(m_SceneFile);
         ImGui::SameLine();
-        ImGui::BeginDisabled(playing);
-        if (ImGui::Button("Load")) {
-            m_Selected = entt::null;
-            m_Spawned.clear();
-            SceneSerializer(m_Scene, MakeResources()).Load(m_ScenePath);
+        if (ImGui::Button("Load")) m_PendingSceneLoad = m_SceneFile;   // applied at the start of the next frame
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.6f);
+        ImGui::InputTextWithHint("##saveas", "new_level", m_SaveAsName, sizeof(m_SaveAsName));
+        ImGui::SameLine();
+        ImGui::BeginDisabled(m_SaveAsName[0] == '\0');
+        if (ImGui::Button("Save as")) {
+            std::string name = m_SaveAsName;
+            if (std::filesystem::path(name).extension() != ".json") name += ".json";
+            if (SaveScene(name)) { m_SceneFile = name; m_SaveAsName[0] = '\0'; }
         }
         ImGui::EndDisabled();
-        ImGui::TextDisabled("%s", m_ScenePath.c_str());
-        ImGui::BeginDisabled(playing);
+        ImGui::TextDisabled("Assets/Scenes. Saves entities, environment, post, shadows, gravity, camera");
         if (ImGui::Button("Build script demo")) BuildScriptDemo();
         ImGui::EndDisabled();
         ImGui::TextDisabled("Replaces the scene: roll the ball with the arrows, Space jumps");
@@ -1247,7 +1345,9 @@ private:
     std::vector<Engine::Entity> m_Spawned;
     entt::entity m_Selected = entt::null;
     std::mt19937 m_Rng{ std::random_device{}() };
-    std::string m_ScenePath = std::string(ASSET_DIR) + "Scenes/scene.json";
+    std::string m_SceneFile = "scene.json";      // in Assets/Scenes
+    std::string m_PendingSceneLoad;              // queued Load: applied at the start of OnUpdate
+    char m_SaveAsName[64] = {};
     std::unique_ptr<Engine::PointShadowArray> m_PointShadows;
     std::unique_ptr<Engine::DirectionalShadowMap> m_SunShadowMap;
     std::unique_ptr<Engine::Shader> m_SunShader;

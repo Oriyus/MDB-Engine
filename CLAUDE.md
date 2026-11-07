@@ -17,7 +17,7 @@ cmake --build build --config Debug
 - Edits to existing files only need the build line.
 - Shaders are read from disk at runtime. **F5** in the app reloads them, so no rebuild is needed.
 - The absolute asset path is the `ASSET_DIR` compile definition, set in `Sandbox/CMakeLists.txt`.
-- Unattended test runs: the environment variables `MDB_DEMO=1` (build the script demo), `MDB_AUTOPLAY=1` (press Play), `MDB_TEST_SCRIPT=Scripts/x.lua` (add a "Test" entity running it) and `MDB_QUIT_AFTER=<seconds>`. Redirect stdout to read the log.
+- Unattended test runs: the environment variables `MDB_DEMO=1` (build the script demo), `MDB_AUTOPLAY=1` (press Play), `MDB_TEST_SCRIPT=Scripts/x.lua` (add a "Test" entity running it), `MDB_SCENE=<file>` / `MDB_SAVE_SCENE=<file>` (load first / save last, in `Assets/Scenes`) and `MDB_QUIT_AFTER=<seconds>`. Redirect stdout to read the log.
 
 ## Pitfalls (these cost time before)
 
@@ -58,11 +58,11 @@ Dependencies: GLFW, glad, GLM, spdlog, EnTT, Dear ImGui (docking), ImGuizmo, ass
   Components: `MeshRenderer`, `PointLight`, `DirectionalLight`, `Spin`, `Orbit`, `RigidBody`, `Script`.
   Transforms store position, Euler rotation in radians, and scale.
 - **Scene** holds the systems. `OnUpdate` runs Spin and Orbit. `RenderShadows` and `Render` draw the scene.
-- **Adding a component type means updating four places:** `Components.h`, `EntitySnapshot` plus `CaptureEntity`/`CreateFromSnapshot` in `Scene` (play mode, `DuplicateEntity`, script clone), and `SceneSerializer` Save and Load (both the parse and the copy-into-live-scene step). Add an Inspector section in `Sandbox/src/main.cpp` too.
+- **Adding a component type means updating four places:** `Components.h`, `EntitySnapshot` plus `CaptureEntity`/`CreateFromSnapshot` in `Scene` (play mode, `DuplicateEntity`, script clone), and `SceneSerializer` Save and Load (the live scene is filled through the snapshot functions). Add an Inspector section in `Sandbox/src/main.cpp` too.
 - **Scripting.** `ScriptComponent{ Path }` points at a Lua file in `Assets/Scripts`. Scripts run only during Play. Each entity gets its own Lua environment, and the `shared` table is common to all scripts. Each frame runs `Scene::OnUpdate`, then `ScriptEngine::Update` (`on_update`), then `PhysicsWorld::Step`, then `ScriptEngine::DispatchCollisions` (`on_collision_begin/end`, `on_trigger_enter/exit`). On Play, `PhysicsWorld::Sync` runs before `ScriptEngine::Start`, so `on_create` can already use `self.body`. Script destroys and script swaps are deferred until nothing is iterating. A script that errors is disabled and its error is shown in the Tools panel.
 - **Physics events.** Jolt's contact listener only records contacts on worker threads. On the main thread they are counted per body pair, so each pair gets exactly one begin and one end. Removing a body closes its pairs, so scripts get an end or exit for destroyed entities too. Triggers are created as kinematic sensors, because a static sensor drops its contacts when the body inside falls asleep. `add_force` applies in every fixed step of the frame (like gravity), and `add_impulse` applies once. Changing a static or dynamic body's transform from outside teleports the body.
 - **Renderables** (`Mesh`, `Model`) share the `Renderable` interface. This includes `GetLocalBounds` and the submesh/material hooks.
-- **Scene files** (`Assets/Scenes/scene.json`) store resource **names** ("cube", "plane", "sphere", "model", "checker"), mapped back to live resources by `MakeResources()` in the Sandbox. Environment, post settings and camera are not saved yet.
+- **Scene files** (`Assets/Scenes/scene.json`) store resource **names** ("cube", "plane", "sphere", "model", "checker"), mapped back to live resources by `MakeResources()` in the Sandbox. A `settings` block (`SceneSettings`) holds the environment map name, sky, ambient, post, AO, bloom, shadows, gravity and the editor camera. Every section and field is optional, so older files load fine. The Sandbox fills it with `GatherSettings` and `ApplySettings`. Load is queued and applied at the start of `OnUpdate`. `demo.json` is the saved script demo.
 
 ## Render pipeline (per frame)
 
@@ -104,4 +104,4 @@ Color spaces: lighting is done in linear space. Color pickers and albedo colors 
 - Models are imported with `PreTransformVertices`, so there is no node hierarchy or skeletal animation.
 - No transparency or blending pass. Materials with alpha render opaque.
 - The sun shadow area is fixed around the origin (no cascades).
-- Candidate next steps: prefabs, a runtime game camera, audio, mesh/convex colliders, saving environment, post and camera settings in the scene file, skeletal animation, transparency, batching/instancing, a Vulkan backend.
+- Candidate next steps: a runtime game camera, prefabs, on-screen text for scripts, audio, mesh/convex colliders, skeletal animation, transparency, batching/instancing, a Vulkan backend.

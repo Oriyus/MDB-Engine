@@ -40,6 +40,13 @@ namespace Engine {
         return glm::normalize(glm::cross(m_Front, glm::vec3(0, 1, 0)));
     }
 
+    void Camera::SetOrientation(float yawDegrees, float pitchDegrees) {
+        m_Yaw = yawDegrees;
+        m_Pitch = std::clamp(pitchDegrees, -89.0f, 89.0f);
+        UpdateFront();
+        RecalcView();
+    }
+
     void Camera::Refresh() {
         UpdateFront();
         RecalcView();

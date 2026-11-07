@@ -1,0 +1,840 @@
+{
+  "entities": [
+    {
+      "meshRenderer": {
+        "color": [
+          0.30000001192092896,
+          0.550000011920929,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "roughness": 0.3499999940395355,
+        "texture": "checker",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Player",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.800000011920929,
+        "mass": 2.0,
+        "restitution": 0.20000000298023224,
+        "shape": 1,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 1
+      },
+      "script": {
+        "path": "Scripts/player.lua"
+      },
+      "transform": {
+        "position": [
+          -1.0,
+          -0.6000000238418579,
+          1.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          0.800000011920929,
+          0.800000011920929,
+          0.800000011920929
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          1.0,
+          0.800000011920929,
+          0.20000000298023224
+        ],
+        "emissive": [
+          0.6000000238418579,
+          0.4000000059604645,
+          0.05000000074505806
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 1.0,
+        "roughness": 0.30000001192092896,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Coin",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          2.0,
+          2.0,
+          6.0
+        ],
+        "trigger": true,
+        "type": 1
+      },
+      "script": {
+        "path": "Scripts/coin.lua"
+      },
+      "spin": {
+        "speed": [
+          0.0,
+          2.0,
+          0.0
+        ]
+      },
+      "transform": {
+        "position": [
+          1.0000014305114746,
+          -0.5,
+          -1.5980756282806396
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          0.30000001192092896,
+          0.30000001192092896,
+          0.07999999821186066
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          1.0,
+          0.800000011920929,
+          0.20000000298023224
+        ],
+        "emissive": [
+          0.6000000238418579,
+          0.4000000059604645,
+          0.05000000074505806
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 1.0,
+        "roughness": 0.30000001192092896,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Coin",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          2.0,
+          2.0,
+          6.0
+        ],
+        "trigger": true,
+        "type": 1
+      },
+      "script": {
+        "path": "Scripts/coin.lua"
+      },
+      "spin": {
+        "speed": [
+          0.0,
+          2.0,
+          0.0
+        ]
+      },
+      "transform": {
+        "position": [
+          -2.999999523162842,
+          -0.5,
+          -1.598076343536377
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          0.30000001192092896,
+          0.30000001192092896,
+          0.07999999821186066
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          1.0,
+          0.800000011920929,
+          0.20000000298023224
+        ],
+        "emissive": [
+          0.6000000238418579,
+          0.4000000059604645,
+          0.05000000074505806
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 1.0,
+        "roughness": 0.30000001192092896,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Coin",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          2.0,
+          2.0,
+          6.0
+        ],
+        "trigger": true,
+        "type": 1
+      },
+      "script": {
+        "path": "Scripts/coin.lua"
+      },
+      "spin": {
+        "speed": [
+          0.0,
+          2.0,
+          0.0
+        ]
+      },
+      "transform": {
+        "position": [
+          -5.0,
+          -0.5,
+          0.9999997615814209
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          0.30000001192092896,
+          0.30000001192092896,
+          0.07999999821186066
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          1.0,
+          0.800000011920929,
+          0.20000000298023224
+        ],
+        "emissive": [
+          0.6000000238418579,
+          0.4000000059604645,
+          0.05000000074505806
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 1.0,
+        "roughness": 0.30000001192092896,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Coin",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          2.0,
+          2.0,
+          6.0
+        ],
+        "trigger": true,
+        "type": 1
+      },
+      "script": {
+        "path": "Scripts/coin.lua"
+      },
+      "spin": {
+        "speed": [
+          0.0,
+          2.0,
+          0.0
+        ]
+      },
+      "transform": {
+        "position": [
+          -3.000000238418579,
+          -0.5,
+          3.598076105117798
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          0.30000001192092896,
+          0.30000001192092896,
+          0.07999999821186066
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          1.0,
+          0.800000011920929,
+          0.20000000298023224
+        ],
+        "emissive": [
+          0.6000000238418579,
+          0.4000000059604645,
+          0.05000000074505806
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 1.0,
+        "roughness": 0.30000001192092896,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Coin",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          2.0,
+          2.0,
+          6.0
+        ],
+        "trigger": true,
+        "type": 1
+      },
+      "script": {
+        "path": "Scripts/coin.lua"
+      },
+      "spin": {
+        "speed": [
+          0.0,
+          2.0,
+          0.0
+        ]
+      },
+      "transform": {
+        "position": [
+          0.9999998807907104,
+          -0.5,
+          3.598076343536377
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          0.30000001192092896,
+          0.30000001192092896,
+          0.07999999821186066
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          1.0,
+          0.800000011920929,
+          0.20000000298023224
+        ],
+        "emissive": [
+          0.6000000238418579,
+          0.4000000059604645,
+          0.05000000074505806
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 1.0,
+        "roughness": 0.30000001192092896,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Coin",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          2.0,
+          2.0,
+          6.0
+        ],
+        "trigger": true,
+        "type": 1
+      },
+      "script": {
+        "path": "Scripts/coin.lua"
+      },
+      "spin": {
+        "speed": [
+          0.0,
+          2.0,
+          0.0
+        ]
+      },
+      "transform": {
+        "position": [
+          3.0,
+          -0.5,
+          1.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          0.30000001192092896,
+          0.30000001192092896,
+          0.07999999821186066
+        ]
+      }
+    },
+    {
+      "name": "Spawner",
+      "script": {
+        "path": "Scripts/spawner.lua"
+      },
+      "transform": {
+        "position": [
+          2.5,
+          4.0,
+          -1.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.25,
+          0.30000001192092896,
+          0.4000000059604645
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "roughness": 0.5,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Pad",
+      "rigidBody": {
+        "center": [
+          0.0,
+          8.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          16.0,
+          1.0
+        ],
+        "trigger": true,
+        "type": 1
+      },
+      "script": {
+        "path": "Scripts/pad.lua"
+      },
+      "transform": {
+        "position": [
+          2.5,
+          -0.9700000286102295,
+          -1.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          2.0,
+          0.05999999865889549,
+          2.0
+        ]
+      }
+    },
+    {
+      "directionalLight": {
+        "castShadows": true,
+        "color": [
+          1.0,
+          0.949999988079071,
+          0.8999999761581421
+        ],
+        "intensity": 1.2000000476837158
+      },
+      "name": "Sun",
+      "transform": {
+        "position": [
+          0.0,
+          6.0,
+          0.0
+        ],
+        "rotation": [
+          -0.8999999761581421,
+          0.5,
+          0.0
+        ],
+        "scale": [
+          0.11999999731779099,
+          0.11999999731779099,
+          0.6000000238418579
+        ]
+      }
+    },
+    {
+      "meshRenderer": {
+        "color": [
+          0.800000011920929,
+          0.800000011920929,
+          0.800000011920929
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "plane",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "roughness": 0.8500000238418579,
+        "texture": "checker",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Floor",
+      "rigidBody": {
+        "center": [
+          0.0,
+          -0.5,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          12.0,
+          1.0,
+          12.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    }
+  ],
+  "settings": {
+    "ao": {
+      "bias": 0.02500000037252903,
+      "enabled": true,
+      "radius": 0.5,
+      "samples": 16,
+      "strength": 1.0
+    },
+    "bloom": {
+      "enabled": true,
+      "intensity": 0.11999999731779099,
+      "knee": 0.5,
+      "maxBrightness": 8.0,
+      "radius": 1.0,
+      "threshold": 1.0
+    },
+    "camera": {
+      "focusDistance": 6.0,
+      "pitch": 0.0,
+      "position": [
+        0.0,
+        1.0,
+        6.0
+      ],
+      "yaw": -90.0
+    },
+    "environment": {
+      "blur": 0.0,
+      "intensity": 0.6000000238418579,
+      "map": "",
+      "rotation": 0.0,
+      "showSky": true
+    },
+    "physics": {
+      "gravity": 9.8100004196167
+    },
+    "post": {
+      "exposure": 1.0,
+      "fxaa": true,
+      "gamma": true,
+      "toneMap": 2
+    },
+    "shadows": {
+      "enabled": true,
+      "pointBias": 0.05000000074505806,
+      "pointFar": 30.0,
+      "sunBias": 0.0020000000949949026,
+      "sunDistance": 30.0,
+      "sunExtent": 12.0
+    }
+  },
+  "version": 2
+}

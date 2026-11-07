@@ -26,6 +26,10 @@ namespace Engine {
         glm::vec3 GetFront() const { return m_Front; }
         glm::vec3 GetRight() const;
 
+        float GetYaw() const { return m_Yaw; }       // degrees
+        float GetPitch() const { return m_Pitch; }   // degrees, clamped to +-89
+        void SetOrientation(float yawDegrees, float pitchDegrees);
+
         glm::vec3 Position{ 0.0f, 0.0f, 4.0f };
         float OrbitSensitivity = 0.3f;   // degrees per pixel
         float FocusDistance = 6.0f;      // distance from the camera to the orbit pivot
