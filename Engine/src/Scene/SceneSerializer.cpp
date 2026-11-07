@@ -104,12 +104,18 @@ namespace Engine {
             j["id"] = m_Scene.GetID(handle);
             if (e.Has<ParentComponent>()) j["parent"] = e.Get<ParentComponent>().Parent;
 
-            // A prefab instance that matches its prefab is stored as a link only; a modified one
-            // (or any instance when no library is given) keeps a full copy of its components too
+            // A prefab instance is stored as its link plus only what it overrides. If the prefab
+            // can't be read right now (or there's no library), it keeps a full copy instead, so
+            // saving never loses data.
             const bool instance = e.Has<PrefabComponent>();
             if (instance) j["prefab"] = e.Get<PrefabComponent>().Path;
-            if (!instance || !m_Prefabs || m_Prefabs->IsModified(e))
+            if (instance && m_Prefabs && m_Prefabs->CanLoad(e.Get<PrefabComponent>().Path)) {
+                json overrides = m_Prefabs->GetOverrides(e);
+                if (!overrides.empty()) j["overrides"] = std::move(overrides);
+            }
+            else {
                 j.update(ComponentsToJson(e, m_Resources));
+            }
 
             entities.push_back(std::move(j));
         }
@@ -149,8 +155,9 @@ namespace Engine {
 
                 const std::string prefab = j.value("prefab", std::string());
                 if (!prefab.empty() && !HasComponentKeys(j)) {
-                    // A plain link: the components come from the prefab file as it is now
-                    if (!m_Prefabs || !m_Prefabs->ApplyPrefabTo(e, prefab)) {
+                    // A link: the prefab file as it is now, with this instance's overrides on top
+                    const json overrides = j.contains("overrides") ? j["overrides"] : json::object();
+                    if (!m_Prefabs || !m_Prefabs->ApplyPrefabTo(e, prefab, overrides)) {
                         ENGINE_WARN("'{}' links to prefab {}, which could not be loaded: kept as an empty entity",
                             e.Get<TagComponent>().Tag, prefab);
                         e.Add<PrefabComponent>(PrefabComponent{ prefab });
@@ -158,7 +165,7 @@ namespace Engine {
                 }
                 else {
                     ComponentsFromJson(j, e, m_Resources);
-                    if (!prefab.empty()) e.Add<PrefabComponent>(PrefabComponent{ prefab });   // modified instance
+                    if (!prefab.empty()) e.Add<PrefabComponent>(PrefabComponent{ prefab });   // an older full-copy instance (saved as overrides next time)
                 }
             }
         }

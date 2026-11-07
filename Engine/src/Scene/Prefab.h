@@ -1,6 +1,7 @@
 #pragma once
 #include "Scene/Entity.h"
 
+#include <nlohmann/json_fwd.hpp>
 #include <memory>
 #include <string>
 #include <vector>
@@ -13,14 +14,16 @@ namespace Engine {
     // Prefabs: an entity's components saved to their own file (Assets/Prefabs/<name>.json), placed
     // any number of times. An instance carries a PrefabComponent with the file's path.
     //
-    // An instance that matches its prefab is saved in the scene as just name + transform + link,
-    // and picks up the prefab's current components whenever the scene loads, so editing a prefab
-    // updates every level that uses it. An instance whose components were changed is "modified": it
-    // is saved with its own full copy (still linked) until it is applied to the prefab or reverted.
+    // An instance is the prefab plus its OVERRIDES: the fields it changed, components it added,
+    // components it removed. Scene files store only those, so a prefab edit reaches every field an
+    // instance didn't override, in every level, the next time it loads (or right away on Apply).
+    //   overrides = { "meshRenderer": { "color": [1,0,0] },   changed fields
+    //                 "audio": { ...whole component... },     a component the prefab doesn't have
+    //                 "spin": null }                          a prefab component removed
     //
     // A prefab file is { "version", "name", "transform", "components" }. Name and transform are
     // the defaults for new instances (rotation and scale; the position is the caller's).
-    // Files are cached and re-read when they change on disk.
+    // Files are cached, re-read when they change on disk, and normalised (see Prefab.cpp).
     class PrefabLibrary {
     public:
         PrefabLibrary(std::string assetDir, const ResourceRegistry& resources);
@@ -38,22 +41,34 @@ namespace Engine {
         // Returns an invalid Entity if the prefab can't be read.
         Entity Instantiate(Scene& scene, const std::string& path);
 
-        // Replace e's components with the prefab's (Tag, Transform kept) and link e to it
-        bool ApplyPrefabTo(Entity e, const std::string& path);
+        // Make e an instance: the prefab's components with `overrides` on top (Tag, Transform,
+        // ID and Parent kept)
+        bool ApplyPrefabTo(Entity e, const std::string& path, const nlohmann::json& overrides);
 
         // Write e as a prefab file and link e to it. Overwrites an existing file.
         bool Save(Entity e, const std::string& path);
 
-        // Write an instance back to its prefab, then update every other instance in the scene that
-        // still matched the old version. Returns how many instances were updated (-1 on failure).
+        // Write an instance (overrides and all) to its prefab. Every other instance in the scene
+        // keeps its own overrides on top of the new prefab. Returns how many were updated (-1 on failure).
         int Apply(Scene& scene, Entity instance);
 
-        bool Revert(Entity instance);           // back to the prefab's components
-        bool IsModified(Entity instance);       // components differ from the prefab's (or no file)
+        bool Revert(Entity instance);           // drop every override
+        bool IsModified(Entity instance);       // has overrides (or its prefab file is missing)
+        bool CanLoad(const std::string& path); // the prefab file exists and parses
+
+        // Overrides of a live instance ({} if none), and the same as a list of readable items:
+        // "meshRenderer.color" (changed field), "+audio" (added), "-spin" (removed)
+        nlohmann::json GetOverrides(Entity instance);
+        std::vector<std::string> ListOverrides(Entity instance);
+        bool RevertOverride(Entity instance, const std::string& item);   // one item from ListOverrides
 
     private:
-        struct Impl;                            // keeps nlohmann/json out of this header
+        struct Impl;
         std::unique_ptr<Impl> m_Impl;
     };
+
+    // The override format above: prefab components + overrides <-> instance components
+    nlohmann::json DiffComponents(const nlohmann::json& prefab, const nlohmann::json& instance);
+    nlohmann::json MergeOverrides(const nlohmann::json& prefab, const nlohmann::json& overrides);
 
 } // namespace Engine

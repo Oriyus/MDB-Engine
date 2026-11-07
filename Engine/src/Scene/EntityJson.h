@@ -35,7 +35,7 @@ namespace Engine {
     // Remove every component except Tag, Transform and Prefab
     void ClearComponents(Entity e);
 
-    // True if j has any component key (anything besides name / transform / prefab / id / parent)
+    // True if j has any component key (anything besides name / transform / prefab / id / parent / overrides)
     bool HasComponentKeys(const nlohmann::json& j);
 
     nlohmann::json TransformToJson(const TransformComponent& t);

@@ -997,31 +997,49 @@ private:
 
         if (e.Has<PrefabComponent>()) {
             const std::string path = e.Get<PrefabComponent>().Path;
-            const bool exists = m_Session->Prefabs().Exists(path);
-            const bool modified = m_Session->Prefabs().IsModified(e);
+            auto& prefabs = m_Session->Prefabs();
+            const bool loadable = prefabs.CanLoad(path);
+            const auto overrides = loadable ? prefabs.ListOverrides(e) : std::vector<std::string>{};
+            const bool modified = !overrides.empty();
             ImGui::TextColored(kPrefabColor, "Prefab  %s", std::filesystem::path(path).filename().string().c_str());
             ImGui::SameLine();
-            if (!exists)       ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "(file missing)");
-            else if (modified) ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "(modified)");
+            if (!loadable)     ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "(file missing or broken)");
+            else if (modified) ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "(%d override%s)", (int)overrides.size(), overrides.size() == 1 ? "" : "s");
 
             ImGui::BeginDisabled(playing || !modified);
-            if (ImGui::Button("Apply")) {
-                const int n = m_Session->Prefabs().Apply(m_Scene, e);
+            if (ImGui::Button("Apply all")) {
+                const int n = prefabs.Apply(m_Scene, e);
                 m_PrefabStatus = n < 0 ? "Could not write the prefab" : "Applied: " + std::to_string(n) + " other instance(s) updated";
                 m_PrefabStatusUntil = m_RunTime + 4.0f;
             }
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("Write this entity's components to %s.\nOther instances that weren't modified follow.", path.c_str());
+                ImGui::SetTooltip("Write this entity's components to %s.\nOther instances follow, keeping their own overrides.", path.c_str());
             ImGui::EndDisabled();
             ImGui::SameLine();
-            ImGui::BeginDisabled(!modified || !exists);
-            if (ImGui::Button("Revert")) m_Session->Prefabs().Revert(e);
+            ImGui::BeginDisabled(!modified);
+            if (ImGui::Button("Revert all")) prefabs.Revert(e);
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("Throw away this instance's changes: take the prefab's components again");
+                ImGui::SetTooltip("Drop every override: take the prefab's components again");
             ImGui::EndDisabled();
             ImGui::SameLine();
             if (ImGui::Button("Unpack")) e.Remove<PrefabComponent>();
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Keep the components, drop the link to the prefab");
+
+            // Each override, readable, with its own revert
+            if (modified && ImGui::TreeNodeEx("Overrides", ImGuiTreeNodeFlags_DefaultOpen)) {
+                std::string revert;
+                for (const auto& item : overrides) {
+                    ImGui::PushID(item.c_str());
+                    if (ImGui::SmallButton("Revert")) revert = item;
+                    ImGui::SameLine();
+                    if (item[0] == '+')      ImGui::Text("added %s", item.c_str() + 1);
+                    else if (item[0] == '-') ImGui::Text("removed %s", item.c_str() + 1);
+                    else                     ImGui::TextUnformatted(item.c_str());
+                    ImGui::PopID();
+                }
+                ImGui::TreePop();
+                if (!revert.empty()) prefabs.RevertOverride(e, revert);   // after the list: it rebuilds the components
+            }
         }
         else {
             ImGui::BeginDisabled(playing);
