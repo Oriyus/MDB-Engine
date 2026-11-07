@@ -77,6 +77,16 @@ namespace Engine {
         glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, nullptr);
     }
 
+    void Mesh::DrawInstanced(uint32_t instances) const {
+        if (instances == 0) return;
+        uint32_t count = m_VAO->GetIndexBuffer()->GetCount();
+        RenderStats::DrawCalls++;
+        RenderStats::Triangles += count / 3 * instances;
+        RenderStats::Instances += instances;
+        m_VAO->Bind();
+        glDrawElementsInstanced(GL_TRIANGLES, (GLsizei)count, GL_UNSIGNED_INT, nullptr, (GLsizei)instances);
+    }
+
     std::shared_ptr<Mesh> Mesh::CreateCube() {
         // Per face: normal (3 floats) then 4 corners (12 floats), counter-clockwise seen from outside
         const float faces[6][15] = {

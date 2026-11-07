@@ -7,6 +7,8 @@
 #include "Renderer/Material.h"
 #include "Renderer/Environment.h"
 #include "Renderer/Model.h"
+#include "Renderer/DrawList.h"
+#include "Renderer/RenderStats.h"
 #include "Core/Log.h"
 #include <glad/glad.h>
 
@@ -218,21 +220,6 @@ namespace Engine {
         }
     }
 
-    // Bone matrices for a skinned model: the Animator's pose, or the rest pose if nothing animates it
-    void Scene::SetSkinning(Shader& shader, entt::entity e, const MeshRendererComponent& mr) {
-        constexpr size_t kMaxBones = 128;                       // MAX_BONES in lit.vert / shadow.vert
-        const Model* model = dynamic_cast<const Model*>(mr.Geometry.get());
-        if (!model || !model->IsSkinned()) { shader.SetInt("u_Skinned", 0); return; }
-        const auto* an = m_Registry.try_get<AnimatorComponent>(e);
-        const auto& palette = (an && !an->Palette.empty()) ? an->Palette : model->RestPalette();
-        if (palette.size() > kMaxBones) {
-            static bool warned = false;
-            if (!warned) { ENGINE_WARN("A model has {} bones; only {} are supported", palette.size(), kMaxBones); warned = true; }
-        }
-        shader.SetInt("u_Skinned", 1);
-        shader.SetMat4Array("u_Bones", palette.data(), (uint32_t)std::min(palette.size(), kMaxBones));
-    }
-
     // The one list of component types that a copy carries (play-mode snapshot, Duplicate, script clone)
     EntitySnapshot Scene::CaptureEntity(entt::entity handle) const {
         EntitySnapshot s;
@@ -393,35 +380,153 @@ namespace Engine {
     }
 
     // ---------------------------------------------------------------- shadow pass
-    void Scene::RenderShadows(ShadowContext& ctx) {
-        const ShadowSettings& s = ctx.Settings;
-        if (!s.Enabled) return;
+    // ---------------------------------------------------------------- draw list (batching + instancing)
+    namespace {
+        // The six planes of a view-projection matrix (Gribb/Hartmann); a point p is inside when
+        // dot(plane.xyz, p) + plane.w >= 0 for all of them
+        struct Frustum {
+            glm::vec4 Planes[6];
+            explicit Frustum(const glm::mat4& vp) {
+                const glm::mat4 m = glm::transpose(vp);           // rows of vp
+                Planes[0] = m[3] + m[0]; Planes[1] = m[3] - m[0];
+                Planes[2] = m[3] + m[1]; Planes[3] = m[3] - m[1];
+                Planes[4] = m[3] + m[2]; Planes[5] = m[3] - m[2];
+                for (auto& p : Planes) p /= glm::length(glm::vec3(p));
+            }
+            // A local box under a transform, tested as its world-space bounding box
+            bool Visible(const glm::mat4& world, const glm::vec3& mn, const glm::vec3& mx) const {
+                const glm::vec3 c = glm::vec3(world * glm::vec4((mn + mx) * 0.5f, 1.0f));
+                const glm::vec3 h = (mx - mn) * 0.5f;
+                const glm::vec3 e = glm::abs(glm::vec3(world[0])) * h.x + glm::abs(glm::vec3(world[1])) * h.y +
+                    glm::abs(glm::vec3(world[2])) * h.z;
+                for (const auto& p : Planes)
+                    if (glm::dot(glm::vec3(p), c) + glm::dot(glm::abs(glm::vec3(p)), e) + p.w < 0.0f) return false;
+                return true;
+            }
+        };
+
+        void SetBones(Shader& shader, const std::vector<glm::mat4>* bones) {
+            constexpr size_t kMaxBones = 128;                   // MAX_BONES in lit.vert / shadow.vert
+            shader.SetInt("u_Skinned", bones ? 1 : 0);
+            if (!bones) return;
+            if (bones->size() > kMaxBones) {
+                static bool warned = false;
+                if (!warned) { ENGINE_WARN("A model has {} bones; only {} are supported", bones->size(), kMaxBones); warned = true; }
+            }
+            shader.SetMat4Array("u_Bones", bones->data(), (uint32_t)std::min(bones->size(), kMaxBones));
+        }
+
+        void DrawBatchGeometry(const DrawBatch& b) {
+            if (b.Part < 0) b.Geometry->DrawInstanced(b.Count);
+            else            b.Geometry->DrawSubmeshInstanced((uint32_t)b.Part, b.Count);
+        }
+    }
+
+    // Bone matrices for a skinned model: the Animator pose, or the rest pose. Null if not skinned.
+    const std::vector<glm::mat4>* Scene::GetBonePalette(entt::entity e, const MeshRendererComponent& mr) const {
+        const Model* model = dynamic_cast<const Model*>(mr.Geometry.get());
+        if (!model || !model->IsSkinned()) return nullptr;
+        const auto* an = m_Registry.try_get<AnimatorComponent>(e);
+        return (an && !an->Palette.empty()) ? &an->Palette : &model->RestPalette();
+    }
+
+    void Scene::BuildDrawList(DrawList& list, const Camera& camera, bool shadows) {
+        list.Clear();
+        static thread_local std::vector<DrawList::Item> opaque, transparent, shadow;   // reused each frame
+        opaque.clear(); transparent.clear(); shadow.clear();
+        const Frustum frustum(camera.GetViewProjection());
 
         auto drawables = m_Registry.view<TransformComponent, MeshRendererComponent>();
-        auto drawScene = [&](Shader& sh) {
-            sh.SetInt("u_Texture", 0);
-            for (auto entity : drawables) {
-                auto [t, mr] = drawables.get<TransformComponent, MeshRendererComponent>(entity);
-                if (!mr.Geometry || mr.Unlit || !mr.CastShadows) continue;   // light markers must not block light
-                SetSkinning(sh, entity, mr);
-                sh.SetMat4("u_Model", GetWorldMatrix(entity) * mr.LocalOffset);
-                const uint32_t parts = mr.UseModelMaterials ? mr.Geometry->SubmeshCount() : 1;
-                for (uint32_t i = 0; i < parts; i++) {
-                    const SurfaceAlpha s = GetSurfaceAlpha(mr, i);
-                    // Cutout casts its cut shape; see-through (Blend) casts only where alpha >= 0.5
-                    const bool test = s.Mode != AlphaMode::Opaque;
-                    sh.SetInt("u_AlphaTest", test ? 1 : 0);
-                    if (test) {
-                        sh.SetFloat("u_Alpha", s.Alpha);
-                        sh.SetFloat("u_AlphaCutoff", s.Mode == AlphaMode::Cutout ? s.Cutoff : 0.5f);
-                        sh.SetInt("u_UseTexture", s.Albedo ? 1 : 0);
-                        if (s.Albedo) s.Albedo->Bind(0);
-                    }
-                    if (mr.UseModelMaterials) mr.Geometry->DrawSubmesh(i);
-                    else                      mr.Geometry->Draw();
-                }
+        for (auto entity : drawables) {
+            const auto& mr = drawables.get<MeshRendererComponent>(entity);
+            if (!mr.Geometry) continue;
+
+            const glm::mat4 world = GetWorldMatrix(entity) * mr.LocalOffset;
+            const auto* bones = GetBonePalette(entity, mr);
+            glm::vec3 mn, mx;
+            mr.Geometry->GetLocalBounds(mn, mx);
+            if (bones) {                        // the bounds are the rest pose: leave room for animation
+                const glm::vec3 c = (mn + mx) * 0.5f, h = (mx - mn) * 0.75f;
+                mn = c - h; mx = c + h;
             }
-            };
+            const bool visible = frustum.Visible(world, mn, mx);
+            const bool caster = shadows && mr.CastShadows && !mr.Unlit;   // light markers must not block light
+            if (!visible) list.Culled++;
+            if (!visible && !caster) continue;
+
+            InstanceData inst;
+            inst.Model = world;
+            inst.Normal = glm::mat4(glm::transpose(glm::inverse(glm::mat3(world))));
+            inst.Info = glm::ivec4((int)entt::to_integral(entity), mr.Unlit ? 1 : 0, 0, 0);
+            float distance = -1.0f;
+
+            const uint32_t parts = mr.UseModelMaterials ? mr.Geometry->SubmeshCount() : 1;
+            for (uint32_t i = 0; i < parts; i++) {
+                const Material* mat = mr.UseModelMaterials ? mr.Geometry->GetSubmeshMaterial(i) : nullptr;
+                const SurfaceAlpha s = GetSurfaceAlpha(mr, i);
+
+                DrawList::Item item;
+                DrawBatch& b = item.State;
+                b.Geometry = mr.Geometry.get();
+                b.Part = mat ? (int32_t)i : -1;
+                b.Albedo = s.Albedo;
+                b.Normal = mat ? mat->Normal.get() : nullptr;
+                b.MetalRough = mat ? mat->MetalRough.get() : nullptr;
+                b.Emissive = mat ? mat->Emissive.get() : nullptr;
+                b.Mode = s.Mode;
+                b.Cutoff = s.Cutoff;
+                b.Bones = bones;
+
+                // With a model material the component Color tints it; metallic/roughness/emissive come from the file
+                item.Instance = inst;
+                item.Instance.Color = glm::vec4(mat ? mat->Color * mr.Color : mr.Color, s.Alpha);
+                item.Instance.Surface = glm::vec4(mat ? mat->Metallic : mr.Metallic, mat ? mat->Roughness : mr.Roughness, 0.0f, 0.0f);
+                item.Instance.Emissive = glm::vec4(mat ? mat->EmissiveColor : mr.Emissive, 0.0f);
+
+                if (caster) {
+                    // Shadows only need the albedo, and only to alpha-test: opaque casters share batches
+                    DrawList::Item sh = item;
+                    sh.State.Normal = sh.State.MetalRough = sh.State.Emissive = nullptr;
+                    if (s.Mode == AlphaMode::Opaque) { sh.State.Albedo = nullptr; sh.State.Cutoff = 0.5f; }
+                    shadow.push_back(sh);
+                }
+                if (!visible) continue;
+                if (s.Mode == AlphaMode::Blend) {
+                    if (distance < 0.0f)
+                        distance = glm::length(glm::vec3(world * glm::vec4((mn + mx) * 0.5f, 1.0f)) - camera.Position);
+                    item.Distance = distance;
+                    transparent.push_back(item);
+                }
+                else opaque.push_back(item);
+            }
+        }
+        list.Finish(opaque, transparent, shadow);
+        list.Upload();
+        RenderStats::Culled += list.Culled;
+    }
+
+    // ---------------------------------------------------------------- shadows
+    void Scene::RenderShadows(ShadowContext& ctx, const DrawList& list) {
+        const ShadowSettings& s = ctx.Settings;
+        if (!s.Enabled || list.Shadow.empty()) return;
+        list.Bind();
+
+        auto drawCasters = [&](Shader& sh) {
+            sh.SetInt("u_Texture", 0);
+            for (const DrawBatch& b : list.Shadow) {
+                // Cutout casts its cut shape; see-through (Blend) casts only where alpha >= 0.5
+                const bool test = b.Mode != AlphaMode::Opaque;
+                sh.SetInt("u_AlphaTest", test ? 1 : 0);
+                if (test) {
+                    sh.SetFloat("u_AlphaCutoff", b.Mode == AlphaMode::Cutout ? b.Cutoff : 0.5f);
+                    sh.SetInt("u_UseTexture", b.Albedo ? 1 : 0);
+                    if (b.Albedo) b.Albedo->Bind(0);
+                }
+                SetBones(sh, b.Bones);
+                sh.SetInt("u_InstanceBase", (int)b.First);
+                DrawBatchGeometry(b);
+            }
+        };
 
         // ---- point lights: 6 cube faces each
         auto lights = GatherPointLights(*this);
@@ -442,7 +547,7 @@ namespace Engine {
                 for (uint32_t face = 0; face < 6; face++) {
                     ctx.Points->BindFace(i, face);
                     sh.SetMat4("u_LightVP", proj * glm::lookAt(lights[i].Pos, lights[i].Pos + dirs[face], ups[face]));
-                    drawScene(sh);
+                    drawCasters(sh);
                 }
             }
         }
@@ -455,12 +560,13 @@ namespace Engine {
             sh.Bind();
             ctx.Sun->Bind();
             sh.SetMat4("u_LightVP", SunViewProjection(sunDir, s));
-            drawScene(sh);
+            drawCasters(sh);
         }
     }
 
     // ---------------------------------------------------------------- render system
-    void Scene::Render(const Camera& camera, Shader& shader, const ShadowContext* ctx, const Environment* env, RenderPass pass) {
+    void Scene::Render(const Camera& camera, Shader& shader, const DrawList& list, const ShadowContext* ctx,
+        const Environment* env, RenderPass pass) {
         const auto lights = GatherPointLights(*this);
 
         glm::vec3 sunDir(0.0f, -1.0f, 0.0f), sunColor(0.0f);
@@ -523,93 +629,39 @@ namespace Engine {
             }
         }
 
-        // One part (submesh) of one entity. The transform and bones are set by the caller.
-        auto drawPart = [&](const MeshRendererComponent& mr, uint32_t i, const SurfaceAlpha& s) {
-            const Material* mat = mr.UseModelMaterials ? mr.Geometry->GetSubmeshMaterial(i) : nullptr;
-
-            // With a model material the component Color tints it; metallic/roughness/emissive come from the file
-            const glm::vec3 color = mat ? mat->Color * mr.Color : mr.Color;
-            const Texture2D* normal = mat ? mat->Normal.get() : nullptr;
-            const Texture2D* metalRough = mat ? mat->MetalRough.get() : nullptr;
-            const Texture2D* emissiveTex = mat ? mat->Emissive.get() : nullptr;
-
-            if (s.Albedo)     s.Albedo->Bind(0);
-            if (normal)       normal->Bind(3);
-            if (metalRough)   metalRough->Bind(4);
-            if (emissiveTex)  emissiveTex->Bind(5);
-
-            shader.SetVec3("u_Color", color);
-            shader.SetInt("u_UseTexture", s.Albedo ? 1 : 0);
-            shader.SetInt("u_UseNormalMap", normal ? 1 : 0);
-            shader.SetInt("u_UseMetalRough", metalRough ? 1 : 0);
-            shader.SetInt("u_UseEmissive", emissiveTex ? 1 : 0);
-            shader.SetFloat("u_Metallic", mat ? mat->Metallic : mr.Metallic);
-            shader.SetFloat("u_Roughness", mat ? mat->Roughness : mr.Roughness);
-            shader.SetVec3("u_Emissive", mat ? mat->EmissiveColor : mr.Emissive);
-            shader.SetInt("u_AlphaMode", (int)s.Mode);
-            shader.SetFloat("u_Alpha", s.Alpha);
-            shader.SetFloat("u_AlphaCutoff", s.Cutoff);
-
-            if (mat) mr.Geometry->DrawSubmesh(i);
-            else     mr.Geometry->Draw();
-        };
-        auto setEntity = [&](entt::entity entity, const MeshRendererComponent& mr) {
-            shader.SetInt("u_Unlit", mr.Unlit ? 1 : 0);
-            shader.SetInt("u_EntityID", (int)entt::to_integral(entity));
-            SetSkinning(shader, entity, mr);
-            shader.SetMat4("u_Model", GetWorldMatrix(entity) * mr.LocalOffset);
+        // Each batch: its textures and alpha settings, then one instanced call for all its objects
+        list.Bind();
+        auto drawBatches = [&](const std::vector<DrawBatch>& batches) {
+            for (const DrawBatch& b : batches) {
+                if (b.Albedo)     b.Albedo->Bind(0);
+                if (b.Normal)     b.Normal->Bind(3);
+                if (b.MetalRough) b.MetalRough->Bind(4);
+                if (b.Emissive)   b.Emissive->Bind(5);
+                shader.SetInt("u_UseTexture", b.Albedo ? 1 : 0);
+                shader.SetInt("u_UseNormalMap", b.Normal ? 1 : 0);
+                shader.SetInt("u_UseMetalRough", b.MetalRough ? 1 : 0);
+                shader.SetInt("u_UseEmissive", b.Emissive ? 1 : 0);
+                shader.SetInt("u_AlphaMode", (int)b.Mode);
+                shader.SetFloat("u_AlphaCutoff", b.Cutoff);
+                SetBones(shader, b.Bones);
+                shader.SetInt("u_InstanceBase", (int)b.First);
+                DrawBatchGeometry(b);
+            }
         };
 
-        auto drawables = m_Registry.view<TransformComponent, MeshRendererComponent>();
         if (pass == RenderPass::Opaque) {
             // Opaque and cutout parts, in any order (the depth buffer sorts them)
-            for (auto entity : drawables) {
-                auto& mr = drawables.get<MeshRendererComponent>(entity);
-                if (!mr.Geometry) continue;
-                bool entitySet = false;
-                const uint32_t parts = mr.UseModelMaterials ? mr.Geometry->SubmeshCount() : 1;
-                for (uint32_t i = 0; i < parts; i++) {
-                    const SurfaceAlpha s = GetSurfaceAlpha(mr, i);
-                    if (s.Mode == AlphaMode::Blend) continue;
-                    if (!entitySet) { setEntity(entity, mr); entitySet = true; }
-                    drawPart(mr, i, s);
-                }
-            }
+            drawBatches(list.Opaque);
             return;
         }
 
         // See-through parts: farthest first, blended over what is already drawn. They test depth
         // but don't write it, so they never hide each other or what's behind them.
-        struct Item { entt::entity Entity; uint32_t Part; float Distance; };
-        std::vector<Item> items;
-        for (auto entity : drawables) {
-            auto& mr = drawables.get<MeshRendererComponent>(entity);
-            if (!mr.Geometry) continue;
-            const uint32_t parts = mr.UseModelMaterials ? mr.Geometry->SubmeshCount() : 1;
-            float distance = -1.0f;
-            for (uint32_t i = 0; i < parts; i++) {
-                if (GetSurfaceAlpha(mr, i).Mode != AlphaMode::Blend) continue;
-                if (distance < 0.0f) {              // the entity's bounds centre, in world space
-                    glm::vec3 mn, mx;
-                    mr.Geometry->GetLocalBounds(mn, mx);
-                    const glm::vec3 c = glm::vec3(GetWorldMatrix(entity) * mr.LocalOffset * glm::vec4((mn + mx) * 0.5f, 1.0f));
-                    distance = glm::length(c - camera.Position);
-                }
-                items.push_back({ entity, i, distance });
-            }
-        }
-        if (items.empty()) return;
-        std::stable_sort(items.begin(), items.end(), [](const Item& a, const Item& b) { return a.Distance > b.Distance; });
-
+        if (list.Transparent.empty()) return;
         glEnable(GL_BLEND);
         glBlendFunci(0, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);   // premultiplied (the entity-ID target is integer: never blended)
         glDepthMask(GL_FALSE);
-        entt::entity current = entt::null;
-        for (const Item& it : items) {
-            const auto& mr = m_Registry.get<MeshRendererComponent>(it.Entity);
-            if (it.Entity != current) { setEntity(it.Entity, mr); current = it.Entity; }
-            drawPart(mr, it.Part, GetSurfaceAlpha(mr, it.Part));
-        }
+        drawBatches(list.Transparent);
         glDepthMask(GL_TRUE);
         glDisable(GL_BLEND);
     }

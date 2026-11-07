@@ -14,6 +14,7 @@ namespace Engine {
     class Shader;
     struct ShadowContext;
     class Environment;
+    class DrawList;
 
     // A copy of one entity's component values, used to rewind after Play
     struct EntitySnapshot {
@@ -66,12 +67,15 @@ namespace Engine {
 
         void Clear();
         void OnUpdate(float dt);
-        void RenderShadows(ShadowContext& ctx);
+        // Collect everything to draw this frame (camera-culled, batched for instancing) and upload it.
+        // shadows: also gather shadow casters. The render calls below draw from the list.
+        void BuildDrawList(DrawList& list, const Camera& camera, bool shadows);
+        void RenderShadows(ShadowContext& ctx, const DrawList& list);
         // Opaque: opaque and cutout surfaces. Transparent: see-through (Blend) ones, sorted back to front,
         // drawn after the sky.
         enum class RenderPass { Opaque, Transparent };
-        void Render(const Camera& camera, Shader& shader, const ShadowContext* shadows = nullptr, const Environment* env = nullptr,
-            RenderPass pass = RenderPass::Opaque);
+        void Render(const Camera& camera, Shader& shader, const DrawList& list, const ShadowContext* shadows = nullptr,
+            const Environment* env = nullptr, RenderPass pass = RenderPass::Opaque);
 
         float AmbientIntensity = 0.6f;     // strength of the environment light
         entt::registry& Registry() { return m_Registry; }
@@ -94,7 +98,7 @@ namespace Engine {
 
     private:
         void OnIDChanged(entt::registry&, entt::entity) { m_IDMapDirty = true; }
-        void SetSkinning(Shader& shader, entt::entity e, const MeshRendererComponent& mr);   // u_Skinned / u_Bones
+        const std::vector<glm::mat4>* GetBonePalette(entt::entity e, const MeshRendererComponent& mr) const;   // null: not skinned
 
         entt::registry m_Registry;
         std::unordered_map<uint64_t, entt::entity> m_IDMap;   // rebuilt lazily when IDs change

@@ -1,5 +1,6 @@
 #include "Renderer/SceneRenderer.h"
 #include "Renderer/Shader.h"
+#include "Renderer/DrawList.h"
 #include "Renderer/Camera.h"
 #include "Renderer/Framebuffer.h"
 #include "Renderer/Environment.h"
@@ -17,6 +18,7 @@ namespace Engine {
     struct SceneRenderer::Impl {
         std::string AssetDir;
         std::unique_ptr<Shader> Lit, PointDepth, SunDepth, Post, SSAOShader, SSAOBlur, BloomDown, BloomUp, FXAA;
+        std::unique_ptr<DrawList> Draws = std::make_unique<DrawList>();   // this frame's batches and instances
         std::unique_ptr<Environment> Env;
         std::unique_ptr<PointShadowArray> PointShadows;
         std::unique_ptr<DirectionalShadowMap> SunShadow;
@@ -82,14 +84,15 @@ namespace Engine {
         I.HDR->Resize(width, height);
 
         // 1) Depth passes (all point lights + sun)
-        scene.RenderShadows(I.Shadows);
+        scene.BuildDrawList(*I.Draws, camera, I.Shadows.Settings.Enabled);
+        scene.RenderShadows(I.Shadows, *I.Draws);
 
         // 2) Scene into the HDR framebuffer, then the sky behind it
         I.HDR->Bind();
         I.HDR->Clear(0.005f, 0.005f, 0.01f, 1.0f);
-        scene.Render(camera, *I.Lit, &I.Shadows, I.Env.get());
+        scene.Render(camera, *I.Lit, *I.Draws, &I.Shadows, I.Env.get());
         I.Env->DrawSkybox(camera, scene.AmbientIntensity);
-        scene.Render(camera, *I.Lit, &I.Shadows, I.Env.get(), Scene::RenderPass::Transparent);   // glass etc. over the sky
+        scene.Render(camera, *I.Lit, *I.Draws, &I.Shadows, I.Env.get(), Scene::RenderPass::Transparent);   // glass etc. over the sky
         Framebuffer::Unbind();
 
         // 3) Screen-space effects
