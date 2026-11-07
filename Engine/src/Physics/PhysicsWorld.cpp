@@ -8,7 +8,11 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
+#include <Jolt/Physics/Collision/ContactListener.h>
+#include <Jolt/Physics/Collision/RayCast.h>
+#include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Body/BodyLock.h>
 
 #include "Physics/PhysicsWorld.h"
 #include "Scene/Scene.h"
@@ -17,6 +21,7 @@
 
 #include <glm/gtc/quaternion.hpp>
 #include <algorithm>
+#include <mutex>
 #include <thread>
 #include <unordered_map>
 
@@ -77,13 +82,83 @@ namespace Engine {
         inline glm::vec3 ToGlm(JPH::Vec3 v) { return glm::vec3(v.GetX(), v.GetY(), v.GetZ()); }
         inline glm::quat ToGlm(JPH::Quat q) { return glm::quat(q.GetW(), q.GetX(), q.GetY(), q.GetZ()); }
 
+        // Jolt calls these from its worker threads while every body is locked, so they only
+        // record what happened; PhysicsWorld turns the records into events on the main thread.
+        class ContactRecorder final : public JPH::ContactListener {
+        public:
+            struct Record {
+                JPH::BodyID A, B;
+                bool Added = true;
+                glm::vec3 Point{ 0.0f }, Normal{ 0.0f };
+            };
+
+            void OnContactAdded(const JPH::Body& b1, const JPH::Body& b2,
+                const JPH::ContactManifold& m, JPH::ContactSettings&) override {
+                Record r;
+                r.A = b1.GetID();
+                r.B = b2.GetID();
+                r.Point = ToGlm(JPH::Vec3(m.GetWorldSpaceContactPointOn1(0)));
+                r.Normal = ToGlm(m.mWorldSpaceNormal);   // moves body 2 out of body 1: points 1 -> 2
+                std::lock_guard lock(m_Mutex);
+                m_Records.push_back(r);
+            }
+
+            void OnContactRemoved(const JPH::SubShapeIDPair& pair) override {
+                Record r;
+                r.A = pair.GetBody1ID();
+                r.B = pair.GetBody2ID();
+                r.Added = false;
+                std::lock_guard lock(m_Mutex);
+                m_Records.push_back(r);
+            }
+
+            // Main thread, between PhysicsSystem::Update calls
+            std::vector<Record> Take() {
+                std::lock_guard lock(m_Mutex);
+                std::vector<Record> out;
+                out.swap(m_Records);
+                return out;
+            }
+
+        private:
+            std::mutex m_Mutex;
+            std::vector<Record> m_Records;
+        };
+
+        class RayFilter final : public JPH::BodyFilter {
+        public:
+            explicit RayFilter(JPH::BodyID ignore) : m_Ignore(ignore) {}
+            bool ShouldCollide(const JPH::BodyID& id) const override { return id != m_Ignore; }
+            bool ShouldCollideLocked(const JPH::Body& body) const override { return !body.IsSensor(); }
+        private:
+            JPH::BodyID m_Ignore;
+        };
+
+        inline uint64_t PairKey(JPH::BodyID a, JPH::BodyID b) {
+            uint32_t x = a.GetIndexAndSequenceNumber(), y = b.GetIndexAndSequenceNumber();
+            if (x > y) std::swap(x, y);
+            return (uint64_t(x) << 32) | y;
+        }
+
     } // namespace
 
     struct Binding {
         JPH::BodyID Id;
-        BodyType Type = BodyType::Dynamic;
+        BodyType Type = BodyType::Dynamic;    // as simulated (triggers run as kinematic)
+        bool Trigger = false;
+        bool FollowsTransform = true;         // teleport the body when the transform changes from outside
         glm::vec3 PrevPos{ 0.0f }, CurPos{ 0.0f };      // the last two physics states, for interpolation
         glm::quat PrevRot{ 1, 0, 0, 0 }, CurRot{ 1, 0, 0, 0 };
+        glm::vec3 WrittenPos{ 0.0f }, WrittenRot{ 0.0f };  // the transform as physics last left it
+        glm::vec3 Force{ 0.0f };              // AddForce this frame, applied in each of its fixed steps
+        glm::vec3 Impulse{ 0.0f };            // AddImpulse, applied once at the next fixed step
+    };
+
+    // A pair of bodies that touch, with how many sub-shape contacts they currently share
+    struct Touch {
+        entt::entity A = entt::null, B = entt::null;
+        int Count = 0;
+        bool Trigger = false;
     };
 
     struct PhysicsWorld::Impl {
@@ -98,9 +173,15 @@ namespace Engine {
         BPLayerInterfaceImpl BPInterface;
         ObjectVsBroadPhaseLayerFilterImpl ObjVsBP;
         ObjectLayerPairFilterImpl ObjPair;
+        ContactRecorder Contacts;
         JPH::PhysicsSystem System;
 
+        entt::registry* Reg = nullptr;        // the scene from the last Step/Sync, for on-demand bodies
         std::unordered_map<entt::entity, Binding> Bindings;
+        std::unordered_map<uint32_t, entt::entity> BodyToEntity;   // BodyID index+sequence -> entity
+        std::unordered_map<uint64_t, Touch> Touching;
+        std::vector<CollisionEvent> Queued;    // gathered since the last Step (contacts, removed bodies)
+        std::vector<CollisionEvent> Events;    // what the last Step published
         float Accumulator = 0.0f;
 
         void RemoveAll() {
@@ -110,10 +191,34 @@ namespace Engine {
                 bi.DestroyBody(b.Id);
             }
             Bindings.clear();
+            BodyToEntity.clear();
+            Touching.clear();
+            Queued.clear();
+            Events.clear();
+            Contacts.Take();
             Accumulator = 0.0f;
         }
 
-        void CreateBody(entt::entity e, const TransformComponent& t, const RigidBodyComponent& rb) {
+        void RemoveBinding(std::unordered_map<entt::entity, Binding>::iterator it) {
+            const uint32_t id = it->second.Id.GetIndexAndSequenceNumber();
+            // Close every contact this body had, so scripts see the matching end / exit
+            for (auto t = Touching.begin(); t != Touching.end();) {
+                if (uint32_t(t->first >> 32) == id || uint32_t(t->first) == id) {
+                    Queued.push_back({ t->second.A, t->second.B, false, t->second.Trigger });
+                    t = Touching.erase(t);
+                }
+                else {
+                    ++t;
+                }
+            }
+            auto& bi = System.GetBodyInterface();
+            bi.RemoveBody(it->second.Id);
+            bi.DestroyBody(it->second.Id);
+            BodyToEntity.erase(id);
+            Bindings.erase(it);
+        }
+
+        Binding* CreateBody(entt::entity e, const TransformComponent& t, const RigidBodyComponent& rb, bool followsTransform) {
             const glm::vec3 scale = glm::abs(t.Scale);
 
             JPH::ShapeRefC shape;
@@ -131,15 +236,20 @@ namespace Engine {
             if (glm::dot(offset, offset) > 1e-10f)
                 shape = new JPH::RotatedTranslatedShape(ToJolt(offset), JPH::Quat::sIdentity(), shape.GetPtr());
 
+            // Triggers are kinematic sensors: a static sensor loses its contacts when the body
+            // inside falls asleep (a false "exit"), an active kinematic one never does
+            const BodyType type = rb.IsTrigger ? BodyType::Kinematic : rb.Type;
+
             const glm::quat q(t.Rotation);
-            JPH::EMotionType motion = rb.Type == BodyType::Static ? JPH::EMotionType::Static
-                : rb.Type == BodyType::Kinematic ? JPH::EMotionType::Kinematic
+            JPH::EMotionType motion = type == BodyType::Static ? JPH::EMotionType::Static
+                : type == BodyType::Kinematic ? JPH::EMotionType::Kinematic
                 : JPH::EMotionType::Dynamic;
-            JPH::ObjectLayer layer = rb.Type == BodyType::Static ? Layers::Static : Layers::Moving;
+            JPH::ObjectLayer layer = type == BodyType::Static ? Layers::Static : Layers::Moving;
 
             JPH::BodyCreationSettings bs(shape, ToJolt(t.Position), ToJolt(q), motion, layer);
             bs.mFriction = rb.Friction;
             bs.mRestitution = rb.Restitution;
+            bs.mIsSensor = rb.IsTrigger;
             if (motion == JPH::EMotionType::Dynamic) {
                 bs.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
                 bs.mMassPropertiesOverride.mMass = std::max(rb.Mass, 0.001f);
@@ -149,7 +259,7 @@ namespace Engine {
             JPH::BodyID id = bi.CreateAndAddBody(bs, motion == JPH::EMotionType::Static
                 ? JPH::EActivation::DontActivate
                 : JPH::EActivation::Activate);
-            if (id.IsInvalid()) { ENGINE_ERROR("Physics: out of bodies"); return; }
+            if (id.IsInvalid()) { ENGINE_ERROR("Physics: out of bodies"); return nullptr; }
 
             if (motion == JPH::EMotionType::Dynamic &&
                 glm::dot(rb.InitialVelocity, rb.InitialVelocity) > 0.0f)
@@ -157,29 +267,73 @@ namespace Engine {
 
             Binding b;
             b.Id = id;
-            b.Type = rb.Type;
-            b.PrevPos = b.CurPos = t.Position;
+            b.Type = type;
+            b.Trigger = rb.IsTrigger;
+            b.FollowsTransform = followsTransform;
+            b.PrevPos = b.CurPos = b.WrittenPos = t.Position;
             b.PrevRot = b.CurRot = q;
-            Bindings[e] = b;
+            b.WrittenRot = t.Rotation;
+            BodyToEntity[id.GetIndexAndSequenceNumber()] = e;
+            return &(Bindings[e] = b);
+        }
+
+        // The binding for an entity, creating its body now if it has a RigidBody but no body yet
+        Binding* Find(entt::entity e) {
+            if (auto it = Bindings.find(e); it != Bindings.end()) return &it->second;
+            if (!Reg || !Reg->valid(e)) return nullptr;
+            auto* rb = Reg->try_get<RigidBodyComponent>(e);
+            auto* t = Reg->try_get<TransformComponent>(e);
+            if (!rb || !t) return nullptr;
+            return CreateBody(e, *t, *rb, FollowsTransform(e));
+        }
+
+        // Spin and Orbit write the transform every frame. On a dynamic body physics wins (as the
+        // Inspector says), so those transform writes must not count as teleports.
+        bool FollowsTransform(entt::entity e) const {
+            const auto* rb = Reg->try_get<RigidBodyComponent>(e);
+            const bool dynamic = rb && rb->Type == BodyType::Dynamic && !rb->IsTrigger;
+            return !(dynamic && Reg->any_of<SpinComponent, OrbitComponent>(e));
         }
 
         // Keep the physics world in step with the scene: new entities get bodies, removed ones lose them
         void Sync(entt::registry& reg) {
-            auto& bi = System.GetBodyInterface();
+            Reg = &reg;
             for (auto it = Bindings.begin(); it != Bindings.end();) {
-                if (!reg.valid(it->first) || !reg.all_of<RigidBodyComponent>(it->first)) {
-                    bi.RemoveBody(it->second.Id);
-                    bi.DestroyBody(it->second.Id);
-                    it = Bindings.erase(it);
-                }
-                else {
-                    ++it;
-                }
+                auto next = std::next(it);
+                if (!reg.valid(it->first) || !reg.all_of<RigidBodyComponent>(it->first)) RemoveBinding(it);
+                it = next;
             }
             reg.view<TransformComponent, RigidBodyComponent>().each(
                 [&](entt::entity e, TransformComponent& t, RigidBodyComponent& rb) {
-                    if (!Bindings.count(e)) CreateBody(e, t, rb);
+                    if (!Bindings.count(e)) CreateBody(e, t, rb, FollowsTransform(e));
                 });
+        }
+
+        // Turn what the listener recorded during one System.Update into begin / end events
+        void GatherContacts() {
+            for (const auto& r : Contacts.Take()) {
+                const uint64_t key = PairKey(r.A, r.B);
+                if (r.Added) {
+                    auto ea = BodyToEntity.find(r.A.GetIndexAndSequenceNumber());
+                    auto eb = BodyToEntity.find(r.B.GetIndexAndSequenceNumber());
+                    if (ea == BodyToEntity.end() || eb == BodyToEntity.end()) continue;
+                    Touch& t = Touching[key];
+                    if (t.Count++ == 0) {
+                        t.A = ea->second;
+                        t.B = eb->second;
+                        t.Trigger = Bindings[t.A].Trigger || Bindings[t.B].Trigger;
+                        Queued.push_back({ t.A, t.B, true, t.Trigger, r.Point, r.Normal });
+                    }
+                }
+                else {
+                    auto it = Touching.find(key);
+                    if (it == Touching.end()) continue;       // already closed (a body was removed)
+                    if (--it->second.Count <= 0) {
+                        Queued.push_back({ it->second.A, it->second.B, false, it->second.Trigger });
+                        Touching.erase(it);
+                    }
+                }
+            }
         }
     };
 
@@ -191,6 +345,7 @@ namespace Engine {
         m_Impl = std::make_unique<Impl>();
         m_Impl->System.Init(4096, 0, 4096, 4096, m_Impl->BPInterface, m_Impl->ObjVsBP, m_Impl->ObjPair);
         m_Impl->System.SetGravity(JPH::Vec3(0.0f, -9.81f, 0.0f));
+        m_Impl->System.SetContactListener(&m_Impl->Contacts);
         ENGINE_INFO("Physics ready (Jolt)");
     }
 
@@ -207,6 +362,10 @@ namespace Engine {
 
     uint32_t PhysicsWorld::BodyCount() const { return (uint32_t)m_Impl->Bindings.size(); }
 
+    const std::vector<CollisionEvent>& PhysicsWorld::Events() const { return m_Impl->Events; }
+
+    void PhysicsWorld::Sync(Scene& scene) { m_Impl->Sync(scene.Registry()); }
+
     void PhysicsWorld::Step(Scene& scene, float dt, bool snapToLatest) {
         Impl& I = *m_Impl;
         auto& reg = scene.Registry();
@@ -219,21 +378,48 @@ namespace Engine {
         if (steps > kMaxSteps) { steps = kMaxSteps; I.Accumulator = 0.0f; }
         else                   I.Accumulator -= steps * kFixedStep;
 
+        for (auto& [e, b] : I.Bindings) {
+            // Someone moved a static or dynamic body's transform (a script, the gizmo): teleport it
+            if (b.Type == BodyType::Kinematic || !b.FollowsTransform) continue;
+            const auto& t = reg.get<TransformComponent>(e);
+            if (t.Position != b.WrittenPos || t.Rotation != b.WrittenRot) {
+                const glm::quat q(t.Rotation);
+                bi.SetPositionAndRotation(b.Id, ToJolt(t.Position), ToJolt(q),
+                    b.Type == BodyType::Dynamic ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
+                b.PrevPos = b.CurPos = b.WrittenPos = t.Position;
+                b.PrevRot = b.CurRot = q;
+                b.WrittenRot = t.Rotation;
+            }
+        }
+
         if (steps > 0) {
             // Kinematic bodies follow their transform: give them the velocity that reaches it
             // exactly when this batch of steps ends, so they push dynamic bodies properly
             const float span = steps * kFixedStep;
             for (auto& [e, b] : I.Bindings) {
-                if (b.Type != BodyType::Kinematic) continue;
-                const auto& t = reg.get<TransformComponent>(e);
-                bi.MoveKinematic(b.Id, ToJolt(t.Position), ToJolt(glm::quat(t.Rotation)), span);
+                if (b.Type == BodyType::Kinematic) {
+                    const auto& t = reg.get<TransformComponent>(e);
+                    bi.MoveKinematic(b.Id, ToJolt(t.Position), ToJolt(glm::quat(t.Rotation)), span);
+                }
+                else if (b.Type == BodyType::Dynamic && glm::dot(b.Impulse, b.Impulse) > 0.0f) {
+                    bi.AddImpulse(b.Id, ToJolt(b.Impulse));
+                }
+                b.Impulse = glm::vec3(0.0f);
             }
 
             for (int i = 0; i < steps; i++) {
-                for (auto& [e, b] : I.Bindings)
-                    if (b.Type == BodyType::Dynamic) { b.PrevPos = b.CurPos; b.PrevRot = b.CurRot; }
+                for (auto& [e, b] : I.Bindings) {
+                    if (b.Type != BodyType::Dynamic) continue;
+                    b.PrevPos = b.CurPos;
+                    b.PrevRot = b.CurRot;
+                    // This frame's force acts during every fixed step the frame runs, like gravity.
+                    // (Jolt clears forces after each step.) A frame that runs no step applies none:
+                    // its time is simulated next frame, under next frame's force.
+                    if (glm::dot(b.Force, b.Force) > 0.0f) bi.AddForce(b.Id, ToJolt(b.Force));
+                }
 
                 I.System.Update(kFixedStep, 1, &I.Temp, &I.Jobs);
+                I.GatherContacts();
 
                 for (auto& [e, b] : I.Bindings) {
                     if (b.Type != BodyType::Dynamic) continue;
@@ -250,7 +436,83 @@ namespace Engine {
             auto& t = reg.get<TransformComponent>(e);
             t.Position = glm::mix(b.PrevPos, b.CurPos, alpha);
             t.Rotation = glm::eulerAngles(glm::slerp(b.PrevRot, b.CurRot, alpha));
+            b.WrittenPos = t.Position;
+            b.WrittenRot = t.Rotation;
         }
+        for (auto& [e, b] : I.Bindings) b.Force = glm::vec3(0.0f);   // add_force lasts one frame
+
+        // Publish everything since the last Step (including bodies removed between steps)
+        I.Events.swap(I.Queued);
+        I.Queued.clear();
+    }
+
+    // ---------------------------------------------------------------- per-entity access
+    bool PhysicsWorld::HasBody(entt::entity e) const { return m_Impl->Bindings.count(e) != 0; }
+
+    void PhysicsWorld::Invalidate(entt::entity e) {
+        if (auto it = m_Impl->Bindings.find(e); it != m_Impl->Bindings.end()) m_Impl->RemoveBinding(it);
+    }
+
+    glm::vec3 PhysicsWorld::GetLinearVelocity(entt::entity e) {
+        Binding* b = m_Impl->Find(e);
+        return b ? ToGlm(m_Impl->System.GetBodyInterface().GetLinearVelocity(b->Id)) : glm::vec3(0.0f);
+    }
+
+    void PhysicsWorld::SetLinearVelocity(entt::entity e, const glm::vec3& v) {
+        Binding* b = m_Impl->Find(e);
+        if (!b || b->Type != BodyType::Dynamic) return;   // kinematic velocity comes from its transform
+        auto& bi = m_Impl->System.GetBodyInterface();
+        bi.SetLinearVelocity(b->Id, ToJolt(v));
+        bi.ActivateBody(b->Id);
+    }
+
+    glm::vec3 PhysicsWorld::GetAngularVelocity(entt::entity e) {
+        Binding* b = m_Impl->Find(e);
+        return b ? ToGlm(m_Impl->System.GetBodyInterface().GetAngularVelocity(b->Id)) : glm::vec3(0.0f);
+    }
+
+    void PhysicsWorld::SetAngularVelocity(entt::entity e, const glm::vec3& w) {
+        Binding* b = m_Impl->Find(e);
+        if (!b || b->Type != BodyType::Dynamic) return;
+        auto& bi = m_Impl->System.GetBodyInterface();
+        bi.SetAngularVelocity(b->Id, ToJolt(w));
+        bi.ActivateBody(b->Id);
+    }
+
+    void PhysicsWorld::AddForce(entt::entity e, const glm::vec3& force) {
+        if (Binding* b = m_Impl->Find(e); b && b->Type == BodyType::Dynamic) b->Force += force;
+    }
+
+    void PhysicsWorld::AddImpulse(entt::entity e, const glm::vec3& impulse) {
+        if (Binding* b = m_Impl->Find(e); b && b->Type == BodyType::Dynamic) b->Impulse += impulse;
+    }
+
+    bool PhysicsWorld::Raycast(const glm::vec3& origin, const glm::vec3& direction, float maxDistance,
+        RayHit& hit, entt::entity ignore) const {
+        const float len = glm::length(direction);
+        if (len < 1e-6f || maxDistance <= 0.0f) return false;
+        const glm::vec3 dir = direction / len * maxDistance;
+
+        JPH::BodyID ignoreId;
+        if (auto it = m_Impl->Bindings.find(ignore); it != m_Impl->Bindings.end()) ignoreId = it->second.Id;
+
+        JPH::RRayCast ray{ JPH::RVec3(origin.x, origin.y, origin.z), ToJolt(dir) };
+        JPH::RayCastResult result;
+        RayFilter filter(ignoreId);
+        if (!m_Impl->System.GetNarrowPhaseQuery().CastRay(ray, result, {}, {}, filter)) return false;
+
+        auto ent = m_Impl->BodyToEntity.find(result.mBodyID.GetIndexAndSequenceNumber());
+        if (ent == m_Impl->BodyToEntity.end()) return false;
+
+        const JPH::RVec3 p = ray.GetPointOnRay(result.mFraction);
+        hit.Entity = ent->second;
+        hit.Point = ToGlm(JPH::Vec3(p));
+        hit.Distance = result.mFraction * maxDistance;
+        hit.Normal = -dir / maxDistance;
+        JPH::BodyLockRead lock(m_Impl->System.GetBodyLockInterface(), result.mBodyID);
+        if (lock.Succeeded())
+            hit.Normal = ToGlm(lock.GetBody().GetWorldSpaceSurfaceNormal(result.mSubShapeID2, p));
+        return true;
     }
 
 } // namespace Engine

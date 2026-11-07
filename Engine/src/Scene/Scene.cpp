@@ -48,23 +48,46 @@ namespace Engine {
         UpdateOrbitPositions();
     }
 
+    // The one list of component types that a copy carries (play-mode snapshot, Duplicate, script clone)
+    EntitySnapshot Scene::CaptureEntity(entt::entity handle) const {
+        EntitySnapshot s;
+        s.Tag = m_Registry.get<TagComponent>(handle).Tag;
+        s.Transform = m_Registry.get<TransformComponent>(handle);
+        if (auto* c = m_Registry.try_get<MeshRendererComponent>(handle))     s.MeshRenderer = *c;
+        if (auto* c = m_Registry.try_get<PointLightComponent>(handle))       s.PointLight = *c;
+        if (auto* c = m_Registry.try_get<DirectionalLightComponent>(handle)) s.DirectionalLight = *c;
+        if (auto* c = m_Registry.try_get<SpinComponent>(handle))             s.Spin = *c;
+        if (auto* c = m_Registry.try_get<OrbitComponent>(handle))            s.Orbit = *c;
+        if (auto* c = m_Registry.try_get<RigidBodyComponent>(handle))        s.RigidBody = *c;
+        if (auto* c = m_Registry.try_get<ScriptComponent>(handle))           s.Script = *c;
+        return s;
+    }
+
+    entt::entity Scene::CreateFromSnapshot(const EntitySnapshot& s) {
+        entt::entity e = m_Registry.create();
+        m_Registry.emplace<TagComponent>(e, TagComponent{ s.Tag });
+        m_Registry.emplace<TransformComponent>(e, s.Transform);
+        if (s.MeshRenderer)     m_Registry.emplace<MeshRendererComponent>(e, *s.MeshRenderer);
+        if (s.PointLight)       m_Registry.emplace<PointLightComponent>(e, *s.PointLight);
+        if (s.DirectionalLight) m_Registry.emplace<DirectionalLightComponent>(e, *s.DirectionalLight);
+        if (s.Spin)             m_Registry.emplace<SpinComponent>(e, *s.Spin);
+        if (s.Orbit)            m_Registry.emplace<OrbitComponent>(e, *s.Orbit);
+        if (s.RigidBody)        m_Registry.emplace<RigidBodyComponent>(e, *s.RigidBody);
+        if (s.Script)           m_Registry.emplace<ScriptComponent>(e, *s.Script);
+        return e;
+    }
+
+    Entity Scene::DuplicateEntity(Entity source) {
+        if (!source) return {};
+        return Entity(CreateFromSnapshot(CaptureEntity(source.GetHandle())), this);
+    }
+
     SceneSnapshot Scene::Capture(entt::entity selected, int& selectedIndex) {
         SceneSnapshot snap;
         selectedIndex = -1;
-
         for (auto handle : m_Registry.view<TagComponent>()) {
-            EntitySnapshot s;
-            s.Tag = m_Registry.get<TagComponent>(handle).Tag;
-            s.Transform = m_Registry.get<TransformComponent>(handle);
-            if (auto* c = m_Registry.try_get<MeshRendererComponent>(handle))     s.MeshRenderer = *c;
-            if (auto* c = m_Registry.try_get<PointLightComponent>(handle))       s.PointLight = *c;
-            if (auto* c = m_Registry.try_get<DirectionalLightComponent>(handle)) s.DirectionalLight = *c;
-            if (auto* c = m_Registry.try_get<SpinComponent>(handle))             s.Spin = *c;
-            if (auto* c = m_Registry.try_get<OrbitComponent>(handle))            s.Orbit = *c;
-            if (auto* c = m_Registry.try_get<RigidBodyComponent>(handle))        s.RigidBody = *c;
-
             if (handle == selected) selectedIndex = (int)snap.size();
-            snap.push_back(std::move(s));
+            snap.push_back(CaptureEntity(handle));
         }
         return snap;
     }
@@ -76,15 +99,7 @@ namespace Engine {
         // The registry iterates newest-first, and Capture stored them in that order.
         // Rebuild back to front so the Hierarchy list order doesn't flip.
         for (size_t n = snap.size(); n-- > 0;) {
-            const EntitySnapshot& s = snap[n];
-            entt::entity e = m_Registry.create();
-            m_Registry.emplace<TagComponent>(e, TagComponent{ s.Tag });
-            m_Registry.emplace<TransformComponent>(e, s.Transform);
-            if (s.MeshRenderer)     m_Registry.emplace<MeshRendererComponent>(e, *s.MeshRenderer);
-            if (s.PointLight)       m_Registry.emplace<PointLightComponent>(e, *s.PointLight);
-            if (s.DirectionalLight) m_Registry.emplace<DirectionalLightComponent>(e, *s.DirectionalLight);
-            if (s.Spin)             m_Registry.emplace<SpinComponent>(e, *s.Spin);
-            if (s.Orbit)            m_Registry.emplace<OrbitComponent>(e, *s.Orbit);
+            entt::entity e = CreateFromSnapshot(snap[n]);
             if ((int)n == selectedIndex) selected = e;
         }
         return selected;

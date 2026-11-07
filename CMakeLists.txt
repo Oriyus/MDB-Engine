@@ -14,6 +14,8 @@ FetchContent_Declare(entt  GIT_REPOSITORY https://github.com/skypjack/entt.git G
 FetchContent_Declare(imgui GIT_REPOSITORY https://github.com/ocornut/imgui.git GIT_TAG v1.91.0-docking)
 FetchContent_Declare(assimp GIT_REPOSITORY https://github.com/assimp/assimp.git GIT_TAG v5.4.3)
 FetchContent_Declare(json GIT_REPOSITORY https://github.com/nlohmann/json.git GIT_TAG v3.11.3)
+FetchContent_Declare(lua  GIT_REPOSITORY https://github.com/lua/lua.git GIT_TAG v5.4.6)   # no CMake: built in Engine/CmakeLists.txt
+FetchContent_Declare(sol2 GIT_REPOSITORY https://github.com/ThePhD/sol2.git GIT_TAG v3.3.0)
 
 FetchContent_Declare(JoltPhysics
     GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
@@ -40,7 +42,7 @@ set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
 set(ASSIMP_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
 
-FetchContent_MakeAvailable(glfw glm spdlog entt imgui assimp json JoltPhysics)
+FetchContent_MakeAvailable(glfw glm spdlog entt imgui assimp json JoltPhysics lua sol2)
 
 add_subdirectory(vendor/glad)
 add_subdirectory(Engine)

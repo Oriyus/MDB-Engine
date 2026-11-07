@@ -39,6 +39,7 @@ namespace Engine {
         float Friction = 0.5f;
         float Restitution = 0.2f;        // bounciness
         glm::vec3 InitialVelocity{ 0.0f };   // used once when the body is created (e.g. thrown balls)
+        bool IsTrigger = false;          // sensor: reports overlaps (on_trigger_enter/exit) but doesn't collide
     };
 
     // Geometry + material in one component for now. We'll split material out later.
@@ -79,6 +80,12 @@ namespace Engine {
         float Height = 1.5f;
         float Speed = 1.0f;          // radians per second
         float Angle = 0.0f;
+    };
+
+    // A Lua script driving this entity while playing (see Scripting/ScriptEngine.h).
+    // Path is relative to the asset directory, e.g. "Scripts/bob.lua".
+    struct ScriptComponent {
+        std::string Path;
     };
 
 } // namespace Engine

@@ -19,6 +19,19 @@ target_include_directories(imgui PUBLIC
 target_link_libraries(imgui PUBLIC glfw)
 
 # ---------------------------------------------------------------
+# Lua 5.4 (the official repo has no CMake): every .c except the standalone programs
+# ---------------------------------------------------------------
+file(GLOB LUA_SOURCES ${lua_SOURCE_DIR}/*.c)
+list(REMOVE_ITEM LUA_SOURCES
+    ${lua_SOURCE_DIR}/lua.c
+    ${lua_SOURCE_DIR}/luac.c
+    ${lua_SOURCE_DIR}/onelua.c
+    ${lua_SOURCE_DIR}/ltests.c
+)
+add_library(lua STATIC ${LUA_SOURCES})
+target_include_directories(lua PUBLIC ${lua_SOURCE_DIR})
+
+# ---------------------------------------------------------------
 # Engine
 # ---------------------------------------------------------------
 file(GLOB_RECURSE ENGINE_SOURCES
@@ -33,8 +46,12 @@ target_compile_definitions(Engine PUBLIC GLFW_INCLUDE_NONE)
 
 if(MSVC)
     target_compile_options(Engine PUBLIC /utf-8)
+    # sol2's bindings produce more sections than a default .obj can hold
+    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/src/Scripting/ScriptEngine.cpp
+        PROPERTIES COMPILE_OPTIONS /bigobj)
 endif()
 
 target_link_libraries(Engine PUBLIC
-    glfw glm::glm spdlog::spdlog EnTT::EnTT assimp glad imgui nlohmann_json::nlohmann_json Jolt
+    glfw glm::glm spdlog::spdlog EnTT::EnTT assimp glad imgui nlohmann_json::nlohmann_json Jolt lua
 )
+target_link_libraries(Engine PRIVATE sol2::sol2)   # only Scripting/ScriptEngine.cpp includes sol

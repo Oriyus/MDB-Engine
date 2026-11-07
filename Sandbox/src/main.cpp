@@ -20,6 +20,7 @@
 #include "Renderer/SSAO.h"
 #include "Renderer/Bloom.h"
 #include "Physics/PhysicsWorld.h"
+#include "Scripting/ScriptEngine.h"
 
 #include <cfloat>
 #include <glad/glad.h>
@@ -86,6 +87,8 @@ public:
         m_Bloom = std::make_unique<Bloom>(1280, 720);
 
         m_Physics = std::make_unique<PhysicsWorld>();
+        m_Scripts = std::make_unique<ScriptEngine>(std::string(ASSET_DIR), m_Physics.get());
+        m_Scripts->SetResources(MakeResources());
 
         // --- Floor
         {
@@ -112,6 +115,7 @@ public:
             mr.Geometry = m_Cube;
             mr.Texture = m_Checker;
             e.Add<SpinComponent>().Speed = glm::vec3(0.0f, 0.6f, 0.0f);
+            e.Add<ScriptComponent>().Path = "Scripts/bob.lua";   // hops up and down while playing
 
             auto& rb = e.Add<RigidBodyComponent>();
             rb.Type = BodyType::Kinematic;
@@ -188,6 +192,15 @@ public:
         m_Camera = std::make_unique<Camera>(60.0f, AspectRatio());
         m_Camera->Position = glm::vec3(0.0f, 1.0f, 6.0f);
 
+        // Test hooks, for running the app unattended:
+        //   MDB_DEMO=1 builds the script demo, MDB_AUTOPLAY=1 presses Play, MDB_QUIT_AFTER=<s> closes
+        //   MDB_TEST_SCRIPT=Scripts/x.lua adds an entity "Test" running that script
+        if (EnvVar("MDB_DEMO") == "1") BuildScriptDemo();
+        if (auto ts = EnvVar("MDB_TEST_SCRIPT"); !ts.empty())
+            m_Scene.CreateEntity("Test").Add<ScriptComponent>().Path = ts;
+        if (EnvVar("MDB_AUTOPLAY") == "1") m_PlayCmd = PlayCmd::Play;
+        if (auto q = EnvVar("MDB_QUIT_AFTER"); !q.empty()) m_QuitAfter = std::strtof(q.c_str(), nullptr);
+
         glClearColor(0.05f, 0.05f, 0.08f, 1.0f);
         LOG_INFO("Alt+LMB/MMB/RMB orbit/pan/zoom | W/E/R tools | N spawn | F frame | G delete last | F1 toggle UI | F5 reload shaders | ESC quits");
     }
@@ -203,9 +216,19 @@ public:
 
         dt = std::min(dt, 0.1f);   // a long hitch (like baking an environment) shouldn't fling the simulation
 
+        // Test hook: MDB_QUIT_AFTER=<seconds> closes the app on its own
+        m_RunTime += dt;
+        if (m_QuitAfter > 0.0f && m_RunTime >= m_QuitAfter) Close();
+
         switch (m_PlayCmd) {
-        case PlayCmd::Play: m_Physics->Reset(); StartPlay(); break;
-        case PlayCmd::Stop: m_Physics->Reset(); StopPlay();  break;
+        case PlayCmd::Play:   // bodies before scripts, so on_create can already use self.body
+            if (m_PlayState == PlayState::Edit) {
+                m_Physics->Reset(); StartPlay(); m_Physics->Sync(m_Scene); m_Scripts->Start(m_Scene);
+            }
+            break;
+        case PlayCmd::Stop:   // scripts first: Restore invalidates every entity handle
+            if (m_PlayState != PlayState::Edit) { m_Scripts->Stop(m_Scene); m_Physics->Reset(); StopPlay(); }
+            break;
         case PlayCmd::Pause:
             if (m_PlayState == PlayState::Play)        m_PlayState = PlayState::Paused;
             else if (m_PlayState == PlayState::Paused) m_PlayState = PlayState::Play;
@@ -216,6 +239,11 @@ public:
         default: break;
         }
         m_PlayCmd = PlayCmd::None;
+
+        if (m_ReloadScripts) {
+            m_ReloadScripts = false;
+            if (m_PlayState != PlayState::Edit) m_Scripts->Reload(m_Scene);
+        }
 
         const bool typing = ImGui::GetIO().WantTextInput;
 
@@ -244,6 +272,7 @@ public:
             if (f5) { m_Shader->Reload(); m_ShadowShader->Reload(); m_SunShader->Reload(); m_PostShader->Reload(); 
                 m_Env->ReloadSkyShader(); m_SSAOShader->Reload(); m_SSAOBlurShader->Reload(); m_BloomDown->Reload(); 
                 m_BloomUp->Reload(); m_FXAAShader->Reload();
+                if (m_PlayState != PlayState::Edit) m_ReloadScripts = true;   // applied next frame
             }
             if (kn) SpawnCube();
             if (f && !ImGui::GetIO().KeyAlt) FrameSelected();
@@ -283,7 +312,9 @@ public:
         if (simulate) {
             const float stepDt = m_StepFrame ? 1.0f / 60.0f : dt;
             m_Scene.OnUpdate(stepDt);                          // Spin / Orbit
+            m_Scripts->Update(m_Scene, stepDt);                // Lua on_update
             m_Physics->Step(m_Scene, stepDt, m_StepFrame);     // physics overrides dynamic transforms
+            m_Scripts->DispatchCollisions(m_Scene);            // on_collision_* / on_trigger_*
         }
         else {
             m_Scene.UpdateOrbitPositions();
@@ -352,7 +383,7 @@ public:
             if (n == "cube") return m_Cube;
             if (n == "plane") return m_Plane;
             if (n == "model") return m_ModelResource;
-            if (n == "sphere") return m_Sphere;
+            if (n == "sphere") { EnsureSphere(); return m_Sphere; }
             return nullptr;
             };
         r.TextureName = [this](const std::shared_ptr<Texture2D>& t) -> std::string {
@@ -449,6 +480,103 @@ public:
         return e;
     }
 
+    static std::string EnvVar(const char* name) {
+        char* value = nullptr;
+        size_t len = 0;
+        std::string out;
+        if (_dupenv_s(&value, &len, name) == 0 && value) out = value;
+        std::free(value);
+        return out;
+    }
+
+    // A small level that exercises scripting + physics events: a ball you roll around (player.lua),
+    // coins to collect (coin.lua, triggers), a pad that glows while something is on it (pad.lua),
+    // and a spawner dropping balls onto the pad (spawner.lua + ball.lua).
+    void BuildScriptDemo() {
+        using namespace Engine;
+        EnsureSphere();
+        m_Scene.Clear();
+        m_Selected = entt::null;
+        m_Spawned.clear();
+
+        {
+            auto e = m_Scene.CreateEntity("Floor");
+            e.Get<TransformComponent>().Position = glm::vec3(0.0f, -1.0f, 0.0f);
+            auto& mr = e.Add<MeshRendererComponent>();
+            mr.Geometry = m_Plane;
+            mr.Texture = m_Checker;
+            mr.Color = glm::vec3(0.8f);
+            mr.Roughness = 0.85f;
+            auto& rb = e.Add<RigidBodyComponent>();
+            rb.Type = BodyType::Static;
+            rb.Size = glm::vec3(12.0f, 1.0f, 12.0f);
+            rb.Center = glm::vec3(0.0f, -0.5f, 0.0f);
+        }
+        {
+            auto e = m_Scene.CreateEntity("Sun");
+            auto& t = e.Get<TransformComponent>();
+            t.Position = glm::vec3(0.0f, 6.0f, 0.0f);
+            t.Rotation = glm::vec3(-0.9f, 0.5f, 0.0f);
+            t.Scale = glm::vec3(0.12f, 0.12f, 0.6f);
+            e.Add<DirectionalLightComponent>().Intensity = 1.2f;
+        }
+        {
+            auto e = m_Scene.CreateEntity("Pad");
+            auto& t = e.Get<TransformComponent>();
+            t.Position = glm::vec3(2.5f, -0.97f, -1.5f);
+            t.Scale = glm::vec3(2.0f, 0.06f, 2.0f);
+            auto& mr = e.Add<MeshRendererComponent>();
+            mr.Geometry = m_Cube;
+            mr.Color = glm::vec3(0.25f, 0.3f, 0.4f);
+            auto& rb = e.Add<RigidBodyComponent>();
+            rb.IsTrigger = true;
+            rb.Size = glm::vec3(1.0f, 16.0f, 1.0f);      // a 1 m tall volume above the pad
+            rb.Center = glm::vec3(0.0f, 8.0f, 0.0f);
+            e.Add<ScriptComponent>().Path = "Scripts/pad.lua";
+        }
+        {
+            auto e = m_Scene.CreateEntity("Spawner");
+            e.Get<TransformComponent>().Position = glm::vec3(2.5f, 4.0f, -1.5f);
+            e.Add<ScriptComponent>().Path = "Scripts/spawner.lua";
+        }
+        const int coins = 6;
+        for (int i = 0; i < coins; i++) {
+            const float a = i * 6.2831853f / coins;
+            auto e = m_Scene.CreateEntity("Coin");
+            auto& t = e.Get<TransformComponent>();
+            t.Position = glm::vec3(std::cos(a) * 4.0f - 1.0f, -0.5f, std::sin(a) * 3.0f + 1.0f);
+            t.Scale = glm::vec3(0.3f, 0.3f, 0.08f);
+            auto& mr = e.Add<MeshRendererComponent>();
+            mr.Geometry = m_Cube;
+            mr.Color = glm::vec3(1.0f, 0.8f, 0.2f);
+            mr.Metallic = 1.0f;
+            mr.Roughness = 0.3f;
+            mr.Emissive = glm::vec3(0.6f, 0.4f, 0.05f);
+            e.Add<SpinComponent>().Speed = glm::vec3(0.0f, 2.0f, 0.0f);
+            auto& rb = e.Add<RigidBodyComponent>();
+            rb.IsTrigger = true;
+            rb.Size = glm::vec3(2.0f, 2.0f, 6.0f);       // generous: ~0.6 m around the thin coin
+            e.Add<ScriptComponent>().Path = "Scripts/coin.lua";
+        }
+        {
+            auto e = m_Scene.CreateEntity("Player");
+            auto& t = e.Get<TransformComponent>();
+            t.Position = glm::vec3(-1.0f, -0.6f, 1.0f);
+            t.Scale = glm::vec3(0.8f);
+            auto& mr = e.Add<MeshRendererComponent>();
+            mr.Geometry = m_Sphere;
+            mr.Texture = m_Checker;
+            mr.Color = glm::vec3(0.3f, 0.55f, 1.0f);
+            mr.Roughness = 0.35f;
+            auto& rb = e.Add<RigidBodyComponent>();
+            rb.Shape = ColliderShape::Sphere;
+            rb.Mass = 2.0f;
+            rb.Friction = 0.8f;
+            e.Add<ScriptComponent>().Path = "Scripts/player.lua";
+        }
+        LOG_INFO("Script demo built. Press Play (Ctrl+P).");
+    }
+
     void DrawColliders(const ImVec2& origin, const ImVec2& size) {
         using namespace Engine;
         ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -469,7 +597,8 @@ public:
         auto view = m_Scene.Registry().view<TransformComponent, RigidBodyComponent>();
         for (auto entity : view) {
             auto [t, rb] = view.get<TransformComponent, RigidBodyComponent>(entity);
-            const ImU32 col = rb.Type == BodyType::Static ? IM_COL32(80, 200, 255, 200)
+            const ImU32 col = rb.IsTrigger ? IM_COL32(230, 90, 255, 220)
+                : rb.Type == BodyType::Static ? IM_COL32(80, 200, 255, 200)
                 : rb.Type == BodyType::Dynamic ? IM_COL32(90, 230, 110, 220)
                 : IM_COL32(255, 200, 60, 220);
             const glm::mat4 M = t.GetMatrix();
@@ -622,6 +751,22 @@ private:
         ImGui::TextDisabled("T throws a ball while playing");
 
         ImGui::Separator();
+        ImGui::TextUnformatted("Scripting");
+        if (m_Scripts->IsRunning()) {
+            ImGui::Text("Scripts running: %u", m_Scripts->InstanceCount());
+            ImGui::SameLine();
+            if (ImGui::Button("Reload (F5)")) m_ReloadScripts = true;
+        }
+        else {
+            ImGui::TextDisabled("Scripts load when Play starts");
+        }
+        for (const auto& err : m_Scripts->RecentErrors()) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.3f, 1.0f));
+            ImGui::TextWrapped("%s", err.c_str());
+            ImGui::PopStyleColor();
+        }
+
+        ImGui::Separator();
         ImGui::TextUnformatted("Scene");
         ImGui::BeginDisabled(playing);
         if (ImGui::Button("Save")) {
@@ -638,6 +783,10 @@ private:
         }
         ImGui::EndDisabled();
         ImGui::TextDisabled("%s", m_ScenePath.c_str());
+        ImGui::BeginDisabled(playing);
+        if (ImGui::Button("Build script demo")) BuildScriptDemo();
+        ImGui::EndDisabled();
+        ImGui::TextDisabled("Replaces the scene: roll the ball with the arrows, Space jumps");
         ImGui::End();
     }
 
@@ -911,6 +1060,10 @@ private:
             if (rb.Type == BodyType::Dynamic) ImGui::DragFloat("Mass", &rb.Mass, 0.05f, 0.01f, 1000.0f);
             ImGui::SliderFloat("Friction", &rb.Friction, 0.0f, 1.0f);
             ImGui::SliderFloat("Bounciness", &rb.Restitution, 0.0f, 1.0f);
+            ImGui::Checkbox("Trigger", &rb.IsTrigger);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Reports overlaps to scripts (on_trigger_enter / exit) instead of colliding.\n"
+                    "Triggers follow their transform like kinematic bodies and detect dynamic bodies.");
 
             if (ImGui::Button("Fit to mesh") && e.Has<MeshRendererComponent>())
                 FitCollider(e.Get<MeshRendererComponent>(), rb);
@@ -919,6 +1072,29 @@ private:
             if (rb.Type != BodyType::Static && (e.Has<SpinComponent>() || e.Has<OrbitComponent>()) && rb.Type == BodyType::Dynamic)
                 ImGui::TextDisabled("Physics overrides Spin/Orbit on dynamic bodies");
             if (m_PlayState != PlayState::Edit) ImGui::TextDisabled("Changes apply on the next Play");
+        }
+
+        if (e.Has<ScriptComponent>() && ImGui::CollapsingHeader("Script", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto& sc = e.Get<ScriptComponent>();
+            if (ImGui::BeginCombo("Script", sc.Path.empty() ? "(none)" : sc.Path.c_str())) {
+                // Rescanned while the list is open, so new files show up without a restart
+                std::vector<std::string> files;
+                std::error_code ec;
+                const std::filesystem::path dir = std::filesystem::path(ASSET_DIR) / "Scripts";
+                for (const auto& f : std::filesystem::directory_iterator(dir, ec))
+                    if (f.path().extension() == ".lua") files.push_back("Scripts/" + f.path().filename().string());
+                std::sort(files.begin(), files.end());
+                for (const auto& f : files)
+                    if (ImGui::Selectable(f.c_str(), f == sc.Path)) sc.Path = f;
+                ImGui::EndCombo();
+            }
+            char buf[256];
+            std::snprintf(buf, sizeof(buf), "%s", sc.Path.c_str());
+            if (ImGui::InputText("Path", buf, sizeof(buf))) sc.Path = buf;
+            const bool exists = !sc.Path.empty() && std::filesystem::exists(std::string(ASSET_DIR) + sc.Path);
+            if (!exists) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "File not found in Assets/");
+            ImGui::TextDisabled("Relative to Assets/. Loads on Play; F5 reloads while playing.");
+            if (ImGui::Button("Remove##script")) e.Remove<ScriptComponent>();
         }
 
         ImGui::Separator();
@@ -934,6 +1110,7 @@ private:
                 auto& rb = e.Add<RigidBodyComponent>();
                 if (e.Has<MeshRendererComponent>()) FitCollider(e.Get<MeshRendererComponent>(), rb);
             }
+            if (!e.Has<ScriptComponent>() && ImGui::MenuItem("Script")) e.Add<ScriptComponent>().Path = "Scripts/mover.lua";
             ImGui::EndPopup();
         }
 
@@ -1099,6 +1276,10 @@ private:
     bool m_PDown = false, m_EscDown = false;
 
     std::unique_ptr<Engine::PhysicsWorld> m_Physics;
+    std::unique_ptr<Engine::ScriptEngine> m_Scripts;
+    bool  m_ReloadScripts = false;   // queued: applied at the start of the next OnUpdate
+    float m_RunTime = 0.0f;
+    float m_QuitAfter = 0.0f;        // MDB_QUIT_AFTER test hook (0 = never)
     float m_Gravity = 9.81f;
     bool  m_ShowColliders = true;
     bool  m_TDown = false;

@@ -68,8 +68,11 @@ namespace Engine {
                 auto& rb = e.Get<RigidBodyComponent>();
                 j["rigidBody"] = { { "type", (int)rb.Type },{ "shape", (int)rb.Shape },{ "size", rb.Size },
                                    { "center", rb.Center },{ "mass", rb.Mass },
-                                   { "friction", rb.Friction },{ "restitution", rb.Restitution } };
+                                   { "friction", rb.Friction },{ "restitution", rb.Restitution },
+                                   { "trigger", rb.IsTrigger } };
             }
+            if (e.Has<ScriptComponent>())
+                j["script"] = { { "path", e.Get<ScriptComponent>().Path } };
             entities.push_back(std::move(j));
         }
 
@@ -156,7 +159,10 @@ namespace Engine {
                     rb.Mass = jr.value("mass", 1.0f);
                     rb.Friction = jr.value("friction", 0.5f);
                     rb.Restitution = jr.value("restitution", 0.2f);
+                    rb.IsTrigger = jr.value("trigger", false);
                 }
+                if (j.contains("script"))
+                    e.Add<ScriptComponent>().Path = j["script"].at("path").get<std::string>();
             }
         }
         catch (const std::exception& ex) {
@@ -177,6 +183,7 @@ namespace Engine {
             if (from.Has<OrbitComponent>())         to.Add<OrbitComponent>(from.Get<OrbitComponent>());
             if (from.Has<DirectionalLightComponent>()) to.Add<DirectionalLightComponent>(from.Get<DirectionalLightComponent>());
             if (from.Has<RigidBodyComponent>()) to.Add<RigidBodyComponent>(from.Get<RigidBodyComponent>());
+            if (from.Has<ScriptComponent>())    to.Add<ScriptComponent>(from.Get<ScriptComponent>());
         }
 
         ENGINE_INFO("Loaded scene from {}", path);
