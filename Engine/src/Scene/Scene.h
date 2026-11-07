@@ -23,6 +23,7 @@ namespace Engine {
         std::optional<SpinComponent>                Spin;
         std::optional<OrbitComponent>               Orbit;
         std::optional<RigidBodyComponent>           RigidBody;
+        std::optional<ScriptComponent>              Script;
     };
     using SceneSnapshot = std::vector<EntitySnapshot>;
 
@@ -40,6 +41,12 @@ namespace Engine {
         entt::registry& Registry() { return m_Registry; }
 
         void UpdateOrbitPositions();   // place orbiting entities from their current angle, without advancing it
+
+        // Copy one entity's components, and build a new entity from such a copy
+        EntitySnapshot CaptureEntity(entt::entity handle) const;
+        entt::entity CreateFromSnapshot(const EntitySnapshot& s);
+        // A new entity with copies of every component of `source` (it appears at the top of the Hierarchy)
+        Entity DuplicateEntity(Entity source);
 
         // Copy the whole scene. selectedIndex receives the position of `selected` in the snapshot (-1 if none).
         SceneSnapshot Capture(entt::entity selected, int& selectedIndex);
