@@ -22,6 +22,9 @@ namespace Engine {
         // Simple meshes keep these defaults: one part, no material.
         virtual uint32_t SubmeshCount() const { return 1; }
         virtual void DrawSubmesh(uint32_t) const { Draw(); }
+        // Instanced: count copies, each reading its own per-instance data (see DrawList)
+        virtual void DrawInstanced(uint32_t count) const = 0;
+        virtual void DrawSubmeshInstanced(uint32_t, uint32_t count) const { DrawInstanced(count); }
         virtual const Material* GetSubmeshMaterial(uint32_t) const { return nullptr; }
 
         // Triangles in the renderable's own space, for physics (convex hull and mesh colliders).

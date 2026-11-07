@@ -17,6 +17,8 @@ namespace Engine {
         explicit Model(const std::string& path);
 
         void Draw() const override;                       // everything, ignoring materials
+        void DrawInstanced(uint32_t count) const override;
+        void DrawSubmeshInstanced(uint32_t i, uint32_t count) const override;
         bool IsValid() const { return !m_Submeshes.empty(); }
 
         uint32_t SubmeshCount() const override { return (uint32_t)m_Submeshes.size(); }

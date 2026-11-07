@@ -810,6 +810,9 @@ private:
         ImGui::Text("%.0f FPS  (%.2f ms)", ImGui::GetIO().Framerate, 1000.0f / ImGui::GetIO().Framerate);
         ImGui::Text("Draw calls: %u", RenderStats::DrawCalls);
         ImGui::Text("Triangles:  %u", RenderStats::Triangles);
+        ImGui::Text("Instances:  %u  (%.1f per draw)", RenderStats::Instances,
+            RenderStats::DrawCalls ? (float)RenderStats::Instances / RenderStats::DrawCalls : 0.0f);
+        ImGui::Text("Culled:     %u  (outside the view)", RenderStats::Culled);
         ImGui::Text("Entities:   %zu", m_Scene.Registry().view<TagComponent>().size());
         ImGui::TextDisabled("%s", (const char*)glGetString(GL_RENDERER));
 

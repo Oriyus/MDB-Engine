@@ -7,6 +7,7 @@
 #include "Audio/AudioEngine.h"
 #include "Scene/Prefab.h"
 #include "Renderer/Model.h"
+#include "Renderer/RenderStats.h"
 #include "Core/Input.h"
 #include "Core/Log.h"
 
@@ -535,6 +536,12 @@ namespace Engine {
         scene.set_function("time", [this]() { return Time; });
         scene.set_function("restart", [this]() { RestartRequested = true; });   // the app does Stop + Play next frame
         scene.set_function("quit", [this]() { QuitRequested = true; });         // the app closes (editor: stops Play)
+        // the last finished frame: { draw_calls, triangles, instances, culled }
+        scene.set_function("render_stats", [this]() {
+            const auto& c = RenderStats::LastFrame;
+            return Lua->create_table_with("draw_calls", c.DrawCalls, "triangles", c.Triangles,
+                "instances", c.Instances, "culled", c.Culled);
+        });
         scene.set_function("raycast", [this](const glm::vec3& origin, const glm::vec3& dir, float maxDist,
             sol::optional<ScriptEntity> ignore) -> sol::object {
             RayHit hit;

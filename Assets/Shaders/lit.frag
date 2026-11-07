@@ -3,6 +3,11 @@
 in vec3 v_WorldPos;
 in vec3 v_Normal;
 in vec2 v_TexCoord;
+flat in vec4  v_Color;       // per instance (DrawList): rgb sRGB-style, a alpha
+flat in vec2  v_Surface;     // metallic, roughness
+flat in vec3  v_Emissive;
+flat in int   v_EntityID;
+flat in int   v_Unlit;
 
 layout(location = 0) out vec4 FragColor;
 layout(location = 1) out int  EntityID;
@@ -22,17 +27,10 @@ uniform int  u_UseTexture;
 uniform int  u_UseNormalMap;
 uniform int  u_UseMetalRough;
 uniform int  u_UseEmissive;
-uniform int  u_Unlit;
-uniform int  u_EntityID;
 
-uniform vec3  u_Color;
-uniform float u_Metallic;
-uniform float u_Roughness;
-uniform vec3  u_Emissive;
 
 // Transparency: 0 opaque, 1 cutout (discard below u_AlphaCutoff), 2 blend (premultiplied output)
 uniform int   u_AlphaMode;
-uniform float u_Alpha;          // material alpha x opacity; the albedo texture's alpha multiplies it
 uniform float u_AlphaCutoff;
 
 uniform vec3  u_ViewPos;
@@ -186,23 +184,23 @@ vec3 EnvDir(vec3 d) {
 }
 
 void main() {
-    EntityID = u_EntityID;
+    EntityID = v_EntityID;
 
     // Picker colors are sRGB, albedo textures are decoded to linear by the GPU
     vec4 base = (u_UseTexture == 1) ? texture(u_Texture, v_TexCoord) : vec4(1.0);
-    vec3 albedo = pow(u_Color, vec3(2.2)) * base.rgb;
-    float alpha = clamp(u_Alpha * base.a, 0.0, 1.0);
+    vec3 albedo = pow(v_Color.rgb, vec3(2.2)) * base.rgb;
+    float alpha = clamp(v_Color.a * base.a, 0.0, 1.0);
     if (u_AlphaMode == 1 && alpha < u_AlphaCutoff) discard;
     bool blend = u_AlphaMode == 2;
     if (!blend) alpha = 1.0;
 
-    if (u_Unlit == 1) {
+    if (v_Unlit == 1) {
         FragColor = vec4(albedo * kUnlitGlow * alpha, alpha);
         return;
     }
 
-    float metallic = u_Metallic;
-    float roughness = u_Roughness;
+    float metallic = v_Surface.x;
+    float roughness = v_Surface.y;
     if (u_UseMetalRough == 1) {
         vec3 mr = texture(u_MetalRoughMap, v_TexCoord).rgb;   // glTF: G = roughness, B = metallic
         roughness *= mr.g;
@@ -256,7 +254,7 @@ void main() {
     }
     color += ((1.0 - metallic) * diffuse * (1.0 - specAmb) * diffuseLight + specAmb * specularLight) * u_Ambient;
 
-    vec3 emissive = u_Emissive;
+    vec3 emissive = v_Emissive;
     if (u_UseEmissive == 1) emissive *= texture(u_EmissiveMap, v_TexCoord).rgb;
     color += emissive * alpha;
     // Fade the reflections out too near alpha 0, so a fully faded object disappears

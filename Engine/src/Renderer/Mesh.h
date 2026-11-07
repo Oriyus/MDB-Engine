@@ -34,6 +34,7 @@ namespace Engine {
         static std::shared_ptr<Mesh> CreateSphere(uint32_t segments = 32);
 
         void Draw() const override;
+        void DrawInstanced(uint32_t count) const override;
         void GetLocalBounds(glm::vec3& mn, glm::vec3& mx) const override { mn = m_Min; mx = m_Max; }
         void GetCollisionGeometry(std::vector<glm::vec3>& positions, std::vector<uint32_t>& indices) const override;
         uint32_t TriangleCount() const override { return (uint32_t)(m_Indices.size() / 3); }

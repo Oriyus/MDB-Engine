@@ -192,6 +192,14 @@ namespace Engine {
         for (const auto& s : m_Submeshes) s.Geometry->Draw();
     }
 
+    void Model::DrawInstanced(uint32_t count) const {
+        for (const auto& s : m_Submeshes) s.Geometry->DrawInstanced(count);
+    }
+
+    void Model::DrawSubmeshInstanced(uint32_t i, uint32_t count) const {
+        if (i < m_Submeshes.size()) m_Submeshes[i].Geometry->DrawInstanced(count);
+    }
+
     void Model::DrawSubmesh(uint32_t i) const {
         if (i < m_Submeshes.size()) m_Submeshes[i].Geometry->Draw();
     }
