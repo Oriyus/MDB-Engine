@@ -184,9 +184,30 @@ public:
             m_PendingEnv = -1;
         }
 
+        dt = std::min(dt, 0.1f);   // a long hitch (like baking an environment) shouldn't fling the simulation
+
+        switch (m_PlayCmd) {
+        case PlayCmd::Play: StartPlay(); break;
+        case PlayCmd::Stop: StopPlay();  break;
+        case PlayCmd::Pause:
+            if (m_PlayState == PlayState::Play)        m_PlayState = PlayState::Paused;
+            else if (m_PlayState == PlayState::Paused) m_PlayState = PlayState::Play;
+            break;
+        case PlayCmd::Step:
+            if (m_PlayState == PlayState::Paused) m_StepFrame = true;
+            break;
+        default: break;
+        }
+        m_PlayCmd = PlayCmd::None;
+
         const bool typing = ImGui::GetIO().WantTextInput;
 
-        if (!typing && Input::IsKeyDown(Key::Escape)) Close();
+        bool kesc = EdgePressed(Key::Escape, m_EscDown);
+        bool kp = EdgePressed(Key::P, m_PDown);
+        if (!typing && kesc) {
+            if (m_PlayState != PlayState::Edit) m_PlayCmd = PlayCmd::Stop;
+            else Close();
+        }
 
         bool f5 = EdgePressed(Key::F5, m_F5Down);
         bool f = EdgePressed(Key::F, m_FDown);
@@ -198,6 +219,8 @@ public:
         bool kq = EdgePressed(Key::Q, m_QDown);
         bool kn = EdgePressed(Key::N, m_NDown);
         bool kdel = EdgePressed(Key::Delete, m_DelDown);
+        if (kp && ImGui::GetIO().KeyCtrl)
+            m_PlayCmd = (m_PlayState == PlayState::Edit) ? PlayCmd::Play : PlayCmd::Stop;
 
         if (!typing) {
             if (f5) { m_Shader->Reload(); m_ShadowShader->Reload(); m_SunShader->Reload(); m_PostShader->Reload(); 
@@ -236,7 +259,10 @@ public:
         m_NavDx = m_NavDy = m_NavWheel = 0.0f;
         m_Camera->Refresh();
 
-        m_Scene.OnUpdate(dt);
+        const bool simulate = m_PlayState == PlayState::Play || m_StepFrame;
+        if (simulate) m_Scene.OnUpdate(m_StepFrame ? 1.0f / 60.0f : dt);
+        else          m_Scene.UpdateOrbitPositions();   // keeps orbiting lights at their orbit position while editing
+        m_StepFrame = false;
 
         // 1) Depth passes (all point lights + sun)
         m_Scene.RenderShadows(m_Shadows);
@@ -342,6 +368,20 @@ public:
         std::sort(m_EnvFiles.begin(), m_EnvFiles.end());
     }
 
+    void StartPlay() {
+        if (m_PlayState != PlayState::Edit) return;
+        m_Snapshot = m_Scene.Capture(m_Selected, m_SnapshotSelected);
+        m_PlayState = PlayState::Play;
+    }
+
+    void StopPlay() {
+        if (m_PlayState == PlayState::Edit) return;
+        m_Selected = m_Scene.Restore(m_Snapshot, m_SnapshotSelected);
+        m_Snapshot.clear();
+        m_Spawned.clear();            // those handles died with the old registry
+        m_PlayState = PlayState::Edit;
+    }
+
 private:
     void DrawStatsPanel() {
         using namespace Engine;
@@ -370,6 +410,24 @@ private:
     void DrawToolbarPanel() {
         using namespace Engine;
         ImGui::Begin("Tools");
+
+        const bool playing = m_PlayState != PlayState::Edit;
+
+        if (!playing) { if (ImGui::Button("Play")) m_PlayCmd = PlayCmd::Play; }
+        else { if (ImGui::Button("Stop")) m_PlayCmd = PlayCmd::Stop; }
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!playing);
+        if (ImGui::Button(m_PlayState == PlayState::Paused ? "Resume" : "Pause")) m_PlayCmd = PlayCmd::Pause;
+        ImGui::SameLine();
+        ImGui::BeginDisabled(m_PlayState != PlayState::Paused);
+        if (ImGui::Button("Step")) m_PlayCmd = PlayCmd::Step;
+        ImGui::EndDisabled();
+        ImGui::EndDisabled();
+
+        if (m_PlayState == PlayState::Edit)        ImGui::TextDisabled("Edit mode  (Ctrl+P to play)");
+        else if (m_PlayState == PlayState::Play)   ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.1f, 1.0f), "PLAYING - changes are discarded on Stop");
+        else                                       ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.2f, 1.0f), "PAUSED - changes are discarded on Stop");
+        ImGui::Separator();
 
         ImGui::TextUnformatted("Gizmo");
         if (ImGui::RadioButton("Select (Q)", m_SelectTool)) m_SelectTool = true;
@@ -434,15 +492,20 @@ private:
 
         ImGui::Separator();
         ImGui::TextUnformatted("Scene");
+        ImGui::BeginDisabled(playing);
         if (ImGui::Button("Save")) {
             SceneSerializer(m_Scene, MakeResources()).Save(m_ScenePath);
         }
+        ImGui::EndDisabled();
+
         ImGui::SameLine();
+        ImGui::BeginDisabled(playing);
         if (ImGui::Button("Load")) {
             m_Selected = entt::null;
             m_Spawned.clear();
             SceneSerializer(m_Scene, MakeResources()).Load(m_ScenePath);
         }
+        ImGui::EndDisabled();
         ImGui::TextDisabled("%s", m_ScenePath.c_str());
         ImGui::End();
     }
@@ -500,6 +563,12 @@ private:
         const bool imageHovered = ImGui::IsItemHovered();
         const ImVec2 origin = ImGui::GetItemRectMin();
         const ImVec2 size = ImGui::GetItemRectSize();
+        if (m_PlayState != PlayState::Edit) {
+            const ImU32 col = m_PlayState == PlayState::Play ? IM_COL32(255, 140, 0, 255) : IM_COL32(255, 215, 0, 255);
+            ImGui::GetWindowDrawList()->AddRect(ImVec2(origin.x + 1.5f, origin.y + 1.5f),
+                ImVec2(origin.x + size.x - 1.5f, origin.y + size.y - 1.5f),
+                col, 0.0f, 0, 3.0f);
+        }
 
         // ---- Maya-style navigation: Alt + LMB tumble / MMB track / RMB dolly, wheel dollies
         ImGuiIO& io = ImGui::GetIO();
@@ -857,6 +926,16 @@ private:
     std::unique_ptr<Engine::Bloom> m_Bloom;
     std::unique_ptr<Engine::Shader> m_SSAOShader, m_SSAOBlurShader, m_BloomDown, m_BloomUp;
     std::unique_ptr<Engine::Shader> m_FXAAShader;
+
+    enum class PlayState { Edit, Play, Paused };
+    enum class PlayCmd { None, Play, Stop, Pause, Step };
+
+    PlayState m_PlayState = PlayState::Edit;
+    PlayCmd   m_PlayCmd = PlayCmd::None;     // set by the UI, applied at the start of the next frame
+    Engine::SceneSnapshot m_Snapshot;
+    int  m_SnapshotSelected = -1;
+    bool m_StepFrame = false;
+    bool m_PDown = false, m_EscDown = false;
 
     ImGuizmo::OPERATION m_GizmoOp = ImGuizmo::TRANSLATE;
 

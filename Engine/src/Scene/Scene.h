@@ -1,6 +1,9 @@
 #pragma once
 #include <entt/entt.hpp>
 #include <string>
+#include "Scene/Components.h"
+#include <optional>
+#include <vector>
 
 namespace Engine {
 
@@ -9,6 +12,18 @@ namespace Engine {
     class Shader;
     class ShadowContext;
     class Environment;
+
+    // A copy of one entity's component values, used to rewind after Play
+    struct EntitySnapshot {
+        std::string Tag;
+        TransformComponent Transform;
+        std::optional<MeshRendererComponent>      MeshRenderer;
+        std::optional<PointLightComponent>        PointLight;
+        std::optional<DirectionalLightComponent>  DirectionalLight;
+        std::optional<SpinComponent>              Spin;
+        std::optional<OrbitComponent>             Orbit;
+    };
+    using SceneSnapshot = std::vector<EntitySnapshot>;
 
     class Scene {
     public:
@@ -22,6 +37,13 @@ namespace Engine {
 
         float AmbientIntensity = 0.6f;     // strength of the environment light
         entt::registry& Registry() { return m_Registry; }
+
+        void UpdateOrbitPositions();   // place orbiting entities from their current angle, without advancing it
+
+        // Copy the whole scene. selectedIndex receives the position of `selected` in the snapshot (-1 if none).
+        SceneSnapshot Capture(entt::entity selected, int& selectedIndex);
+        // Replace the scene with a snapshot. Returns the entity that corresponds to selectedIndex.
+        entt::entity Restore(const SceneSnapshot& snapshot, int selectedIndex);
 
     private:
         entt::registry m_Registry;

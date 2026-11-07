@@ -21,6 +21,7 @@ namespace Engine {
         constexpr int Num1 = 49, Num2 = 50, Num3 = 51;
         constexpr int R = 82;
         constexpr int N = 78;
+        constexpr int P = 80;
     }
 
     namespace Mouse {

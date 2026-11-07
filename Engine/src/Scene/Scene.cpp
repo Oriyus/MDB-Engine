@@ -28,22 +28,65 @@ namespace Engine {
     void Scene::Clear() { m_Registry.clear(); }
 
     // ---------------------------------------------------------------- update systems
-    void Scene::OnUpdate(float dt) {
-        // Spin system: entities with Transform + Spin
-        m_Registry.view<TransformComponent, SpinComponent>().each(
-            [dt](TransformComponent& t, const SpinComponent& spin) {
-                t.Rotation += spin.Speed * dt;
-                t.Rotation = glm::mod(t.Rotation, glm::vec3(glm::two_pi<float>()));
-            });
-
-        // Orbit system: entities with Transform + Orbit
+    void Scene::UpdateOrbitPositions() {
         m_Registry.view<TransformComponent, OrbitComponent>().each(
-            [dt](TransformComponent& t, OrbitComponent& o) {
-                o.Angle += o.Speed * dt;
+            [](TransformComponent& t, const OrbitComponent& o) {
                 t.Position = o.Center + glm::vec3(std::cos(o.Angle) * o.Radius,
                     o.Height,
                     std::sin(o.Angle) * o.Radius);
             });
+    }
+
+    void Scene::OnUpdate(float dt) {
+        m_Registry.view<TransformComponent, SpinComponent>().each(
+            [dt](TransformComponent& t, const SpinComponent& spin) {
+                t.Rotation += spin.Speed * dt;
+            });
+
+        m_Registry.view<OrbitComponent>().each(
+            [dt](OrbitComponent& o) { o.Angle += o.Speed * dt; });
+        UpdateOrbitPositions();
+    }
+
+    SceneSnapshot Scene::Capture(entt::entity selected, int& selectedIndex) {
+        SceneSnapshot snap;
+        selectedIndex = -1;
+
+        for (auto handle : m_Registry.view<TagComponent>()) {
+            EntitySnapshot s;
+            s.Tag = m_Registry.get<TagComponent>(handle).Tag;
+            s.Transform = m_Registry.get<TransformComponent>(handle);
+            if (auto* c = m_Registry.try_get<MeshRendererComponent>(handle))     s.MeshRenderer = *c;
+            if (auto* c = m_Registry.try_get<PointLightComponent>(handle))       s.PointLight = *c;
+            if (auto* c = m_Registry.try_get<DirectionalLightComponent>(handle)) s.DirectionalLight = *c;
+            if (auto* c = m_Registry.try_get<SpinComponent>(handle))             s.Spin = *c;
+            if (auto* c = m_Registry.try_get<OrbitComponent>(handle))            s.Orbit = *c;
+
+            if (handle == selected) selectedIndex = (int)snap.size();
+            snap.push_back(std::move(s));
+        }
+        return snap;
+    }
+
+    entt::entity Scene::Restore(const SceneSnapshot& snap, int selectedIndex) {
+        m_Registry.clear();
+        entt::entity selected = entt::null;
+
+        // The registry iterates newest-first, and Capture stored them in that order.
+        // Rebuild back to front so the Hierarchy list order doesn't flip.
+        for (size_t n = snap.size(); n-- > 0;) {
+            const EntitySnapshot& s = snap[n];
+            entt::entity e = m_Registry.create();
+            m_Registry.emplace<TagComponent>(e, TagComponent{ s.Tag });
+            m_Registry.emplace<TransformComponent>(e, s.Transform);
+            if (s.MeshRenderer)     m_Registry.emplace<MeshRendererComponent>(e, *s.MeshRenderer);
+            if (s.PointLight)       m_Registry.emplace<PointLightComponent>(e, *s.PointLight);
+            if (s.DirectionalLight) m_Registry.emplace<DirectionalLightComponent>(e, *s.DirectionalLight);
+            if (s.Spin)             m_Registry.emplace<SpinComponent>(e, *s.Spin);
+            if (s.Orbit)            m_Registry.emplace<OrbitComponent>(e, *s.Orbit);
+            if ((int)n == selectedIndex) selected = e;
+        }
+        return selected;
     }
 
     // ---------------------------------------------------------------- light gathering
