@@ -21,8 +21,11 @@ namespace Engine {
 
         for (const auto& e : layout.GetElements()) {
             glEnableVertexArrayAttrib(m_ID, m_AttribIndex);
-            glVertexArrayAttribFormat(m_ID, m_AttribIndex,
-                (GLint)ShaderDataTypeCount(e.Type), GL_FLOAT, GL_FALSE, e.Offset);
+            if (e.Type == ShaderDataType::Int4)   // integers reach the shader as ivec4, not converted
+                glVertexArrayAttribIFormat(m_ID, m_AttribIndex, 4, GL_INT, e.Offset);
+            else
+                glVertexArrayAttribFormat(m_ID, m_AttribIndex,
+                    (GLint)ShaderDataTypeCount(e.Type), GL_FLOAT, GL_FALSE, e.Offset);
             glVertexArrayAttribBinding(m_ID, m_AttribIndex, m_BindingIndex);
             m_AttribIndex++;
         }

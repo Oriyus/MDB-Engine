@@ -49,6 +49,11 @@ namespace Engine {
             auto& c = e.Get<ColliderComponent>();
             j["collider"] = { { "shape", (int)c.Shape },{ "size", c.Size },{ "center", c.Center } };
         }
+        if (e.Has<AnimatorComponent>()) {
+            auto& a = e.Get<AnimatorComponent>();
+            j["animator"] = { { "clip", a.Clip },{ "speed", a.Speed },{ "loop", a.Loop },{ "playing", a.Playing },
+                              { "blendTime", a.BlendTime } };
+        }
         if (e.Has<ScriptComponent>())
             j["script"] = { { "path", e.Get<ScriptComponent>().Path } };
         if (e.Has<CameraComponent>()) {
@@ -127,6 +132,16 @@ namespace Engine {
             c.Center = jc.at("center").get<glm::vec3>();
             e.Add<ColliderComponent>(c);
         }
+        if (j.contains("animator")) {
+            const auto& ja = j["animator"];
+            AnimatorComponent a;
+            a.Clip = ja.value("clip", std::string());
+            a.Speed = ja.value("speed", 1.0f);
+            a.Loop = ja.value("loop", true);
+            a.Playing = ja.value("playing", true);
+            a.BlendTime = ja.value("blendTime", 0.25f);
+            e.Add<AnimatorComponent>(a);
+        }
         if (j.contains("script"))
             e.Add<ScriptComponent>().Path = j["script"].at("path").get<std::string>();
         if (j.contains("camera")) {
@@ -164,6 +179,7 @@ namespace Engine {
         if (e.Has<ScriptComponent>())           e.Remove<ScriptComponent>();
         if (e.Has<CameraComponent>())           e.Remove<CameraComponent>();
         if (e.Has<AudioSourceComponent>())      e.Remove<AudioSourceComponent>();
+        if (e.Has<AnimatorComponent>())         e.Remove<AnimatorComponent>();
     }
 
     bool HasComponentKeys(const json& j) {

@@ -6,7 +6,10 @@
 #include "Renderer/Shadowmap.h"
 #include "Renderer/Material.h"
 #include "Renderer/Environment.h"
+#include "Renderer/Model.h"
+#include "Core/Log.h"
 
+#include <algorithm>
 #include <cmath>
 #include <functional>
 #include <random>
@@ -162,6 +165,71 @@ namespace Engine {
         m_Registry.view<OrbitComponent>().each(
             [dt](OrbitComponent& o) { o.Angle += o.Speed * dt; });
         UpdateOrbitPositions();
+        UpdateAnimations(dt);
+    }
+
+    // ---------------------------------------------------------------- skeletal animation
+    void Scene::UpdateAnimations(float dt) {
+        static thread_local std::vector<Model::NodePose> pose, from;   // reused: no allocations per frame
+        for (auto [e, an, mr] : m_Registry.view<AnimatorComponent, MeshRendererComponent>().each()) {
+            const Model* model = dynamic_cast<const Model*>(mr.Geometry.get());
+            if (!model || !model->IsSkinned()) { an.Palette.clear(); continue; }
+
+            // A new clip: fade out of the old one
+            if (an.Clip != an.ActiveClip) {
+                an.FadeFrom = an.ActiveClip;
+                an.FadeFromTime = an.Time;
+                an.Fade = (an.FadeFrom.empty() || an.BlendTime <= 0.0f) ? 1.0f : 0.0f;
+                an.ActiveClip = an.Clip;
+                an.Time = 0.0f;
+            }
+            const int clip = model->FindAnimation(an.ActiveClip);
+            const int fromClip = an.Fade < 1.0f ? model->FindAnimation(an.FadeFrom) : -1;
+
+            if (an.Playing && dt != 0.0f) {
+                an.Time += dt * an.Speed;
+                an.FadeFromTime += dt * an.Speed;
+                if (an.Fade < 1.0f) an.Fade = std::min(1.0f, an.Fade + std::abs(dt) / std::max(an.BlendTime, 1e-4f));
+            }
+            else if (dt == 0.0f) {
+                an.Fade = 1.0f;                                  // no time passing (editor): no fade, just the clip
+            }
+            // Loop (either direction) or hold the last frame
+            auto wrap = [&](float t, int c) {
+                const float d = model->AnimationDuration(c);
+                if (d <= 0.0f) return 0.0f;
+                if (an.Loop) { t = std::fmod(t, d); return t < 0.0f ? t + d : t; }
+                return std::clamp(t, 0.0f, d);
+            };
+            an.Time = wrap(an.Time, clip);
+            an.FadeFromTime = wrap(an.FadeFromTime, fromClip);
+
+            model->SamplePose(clip, an.Time, pose);
+            if (fromClip >= 0 && an.Fade < 1.0f) {
+                model->SamplePose(fromClip, an.FadeFromTime, from);
+                for (size_t i = 0; i < pose.size(); i++) {
+                    pose[i].T = glm::mix(from[i].T, pose[i].T, an.Fade);
+                    pose[i].R = glm::slerp(from[i].R, pose[i].R, an.Fade);
+                    pose[i].S = glm::mix(from[i].S, pose[i].S, an.Fade);
+                }
+            }
+            model->PoseToPalette(pose, an.Palette);
+        }
+    }
+
+    // Bone matrices for a skinned model: the Animator's pose, or the rest pose if nothing animates it
+    void Scene::SetSkinning(Shader& shader, entt::entity e, const MeshRendererComponent& mr) {
+        constexpr size_t kMaxBones = 128;                       // MAX_BONES in lit.vert / shadow.vert
+        const Model* model = dynamic_cast<const Model*>(mr.Geometry.get());
+        if (!model || !model->IsSkinned()) { shader.SetInt("u_Skinned", 0); return; }
+        const auto* an = m_Registry.try_get<AnimatorComponent>(e);
+        const auto& palette = (an && !an->Palette.empty()) ? an->Palette : model->RestPalette();
+        if (palette.size() > kMaxBones) {
+            static bool warned = false;
+            if (!warned) { ENGINE_WARN("A model has {} bones; only {} are supported", palette.size(), kMaxBones); warned = true; }
+        }
+        shader.SetInt("u_Skinned", 1);
+        shader.SetMat4Array("u_Bones", palette.data(), (uint32_t)std::min(palette.size(), kMaxBones));
     }
 
     // The one list of component types that a copy carries (play-mode snapshot, Duplicate, script clone)
@@ -181,6 +249,7 @@ namespace Engine {
         if (auto* c = m_Registry.try_get<ScriptComponent>(handle))           s.Script = *c;
         if (auto* c = m_Registry.try_get<CameraComponent>(handle))           s.Camera = *c;
         if (auto* c = m_Registry.try_get<AudioSourceComponent>(handle))      s.AudioSource = *c;
+        if (auto* c = m_Registry.try_get<AnimatorComponent>(handle))         s.Animator = *c;
         if (auto* c = m_Registry.try_get<PrefabComponent>(handle))           s.Prefab = *c;
         return s;
     }
@@ -201,6 +270,7 @@ namespace Engine {
         if (s.Script)           m_Registry.emplace<ScriptComponent>(e, *s.Script);
         if (s.Camera)           m_Registry.emplace<CameraComponent>(e, *s.Camera);
         if (s.AudioSource)      m_Registry.emplace<AudioSourceComponent>(e, *s.AudioSource);
+        if (s.Animator)         m_Registry.emplace<AnimatorComponent>(e, *s.Animator);
         if (s.Prefab)           m_Registry.emplace<PrefabComponent>(e, *s.Prefab);
         return e;
     }
@@ -307,6 +377,7 @@ namespace Engine {
             for (auto entity : drawables) {
                 auto [t, mr] = drawables.get<TransformComponent, MeshRendererComponent>(entity);
                 if (!mr.Geometry || mr.Unlit) continue;   // light markers must not block light
+                SetSkinning(sh, entity, mr);
                 sh.SetMat4("u_Model", GetWorldMatrix(entity) * mr.LocalOffset);
                 mr.Geometry->Draw();
             }
@@ -419,6 +490,7 @@ namespace Engine {
 
             shader.SetInt("u_Unlit", mr.Unlit ? 1 : 0);
             shader.SetInt("u_EntityID", (int)entt::to_integral(entity));
+            SetSkinning(shader, entity, mr);
             shader.SetMat4("u_Model", GetWorldMatrix(entity) * mr.LocalOffset);
 
             const uint32_t parts = mr.UseModelMaterials ? mr.Geometry->SubmeshCount() : 1;

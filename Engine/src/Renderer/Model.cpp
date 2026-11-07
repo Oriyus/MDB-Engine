@@ -18,15 +18,24 @@ namespace fs = std::filesystem;
 namespace Engine {
 
     Model::Model(const std::string& path) {
+        // Read without flattening first: a model with bones keeps its node tree for animation.
+        // Anything else is flattened afterwards (PreTransformVertices), as before.
         Assimp::Importer importer;
         const aiScene* scene = importer.ReadFile(path,
             aiProcess_Triangulate |
             aiProcess_GenSmoothNormals |
             aiProcess_JoinIdenticalVertices |
             aiProcess_SortByPType |
-            aiProcess_PreTransformVertices);
+            aiProcess_LimitBoneWeights);          // at most 4 bones per vertex
 
         if (!scene || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || scene->mNumMeshes == 0) {
+            ENGINE_ERROR("Failed to load model '{}': {}", path, importer.GetErrorString());
+            return;
+        }
+        bool skinned = false;
+        for (unsigned i = 0; i < scene->mNumMeshes; i++) skinned = skinned || scene->mMeshes[i]->HasBones();
+        if (!skinned) scene = importer.ApplyPostProcessing(aiProcess_PreTransformVertices);
+        if (!scene) {
             ENGINE_ERROR("Failed to load model '{}': {}", path, importer.GetErrorString());
             return;
         }
@@ -113,6 +122,13 @@ namespace Engine {
         }
         if (m_Materials.empty()) m_Materials.emplace_back();   // always at least one
 
+        if (skinned) {
+            LoadSkinned(scene);
+            ENGINE_INFO("Loaded animated model '{}': {} submesh(es), {} bone(s), {} animation(s)", path,
+                m_Submeshes.size(), m_Bones.size(), m_Clips.size());
+            return;
+        }
+
         // ---- meshes
         glm::vec3 mn(FLT_MAX), mx(-FLT_MAX);
 
@@ -172,6 +188,216 @@ namespace Engine {
         for (const auto& m : m_Materials)
             if (m.Albedo) return true;
         return false;
+    }
+
+    // ---------------------------------------------------------------- skeletal animation
+    namespace {
+        glm::mat4 ToGlm(const aiMatrix4x4& m) {       // assimp is row-major
+            return glm::transpose(glm::mat4(m.a1, m.a2, m.a3, m.a4, m.b1, m.b2, m.b3, m.b4,
+                m.c1, m.c2, m.c3, m.c4, m.d1, m.d2, m.d3, m.d4));
+        }
+
+        Model::NodePose ToPose(const glm::mat4& m) {
+            Model::NodePose p;
+            p.T = glm::vec3(m[3]);
+            p.S = glm::vec3(glm::length(glm::vec3(m[0])), glm::length(glm::vec3(m[1])), glm::length(glm::vec3(m[2])));
+            const glm::vec3 s = glm::max(p.S, glm::vec3(1e-8f));
+            p.R = glm::normalize(glm::quat_cast(glm::mat3(glm::vec3(m[0]) / s.x, glm::vec3(m[1]) / s.y, glm::vec3(m[2]) / s.z)));
+            return p;
+        }
+
+        glm::mat4 ToMatrix(const Model::NodePose& p) {
+            return glm::translate(glm::mat4(1.0f), p.T) * glm::mat4_cast(p.R) * glm::scale(glm::mat4(1.0f), p.S);
+        }
+
+        // Linear search is fine: clips have tens of keys per channel
+        template<typename T, typename Lerp>
+        T SampleKeys(const std::vector<std::pair<float, T>>& keys, float t, const T& fallback, Lerp lerp) {
+            if (keys.empty()) return fallback;
+            if (t <= keys.front().first) return keys.front().second;
+            if (t >= keys.back().first) return keys.back().second;
+            for (size_t i = 0; i + 1 < keys.size(); i++) {
+                if (t < keys[i + 1].first) {
+                    const float span = keys[i + 1].first - keys[i].first;
+                    const float a = span > 0.0f ? (t - keys[i].first) / span : 0.0f;
+                    return lerp(keys[i].second, keys[i + 1].second, a);
+                }
+            }
+            return keys.back().second;
+        }
+    }
+
+    void Model::LoadSkinned(const aiScene* scene) {
+        // ---- the node tree, parents before children
+        std::unordered_map<std::string, int> nodeIndex;
+        std::vector<std::pair<const aiNode*, int>> stack{ { scene->mRootNode, -1 } };
+        std::vector<std::pair<const aiNode*, int>> meshNodes;    // (node, its index) for rigid meshes
+        while (!stack.empty()) {
+            auto [node, parent] = stack.back();
+            stack.pop_back();
+            const int idx = (int)m_Nodes.size();
+            m_Nodes.push_back({ node->mName.C_Str(), parent, ToPose(ToGlm(node->mTransformation)) });
+            nodeIndex.emplace(node->mName.C_Str(), idx);
+            if (node->mNumMeshes > 0) meshNodes.emplace_back(node, idx);
+            for (int c = (int)node->mNumChildren - 1; c >= 0; c--) stack.emplace_back(node->mChildren[c], idx);
+        }
+
+        // Bones are skeleton nodes with an offset matrix; the same node is one bone for every mesh
+        std::unordered_map<int, int> boneOfNode;
+        auto boneFor = [&](int node, const glm::mat4& offset) {
+            if (auto it = boneOfNode.find(node); it != boneOfNode.end()) return it->second;
+            const int b = (int)m_Bones.size();
+            m_Bones.push_back({ node, offset });
+            boneOfNode[node] = b;
+            return b;
+        };
+
+        // ---- vertices (kept until the rest pose is known, for bounds and colliders)
+        struct Pending { std::vector<SkinnedVertex> Vertices; std::vector<uint32_t> Indices; uint32_t Material; };
+        std::vector<Pending> pending;
+        for (unsigned i = 0; i < scene->mNumMeshes; i++) {
+            const aiMesh* m = scene->mMeshes[i];
+            Pending p;
+            p.Material = std::min<uint32_t>(m->mMaterialIndex, (uint32_t)m_Materials.size() - 1);
+            p.Vertices.resize(m->mNumVertices);
+            for (unsigned v = 0; v < m->mNumVertices; v++) {
+                SkinnedVertex& sv = p.Vertices[v];
+                sv.Position = glm::vec3(m->mVertices[v].x, m->mVertices[v].y, m->mVertices[v].z);
+                if (m->HasNormals()) sv.Normal = glm::vec3(m->mNormals[v].x, m->mNormals[v].y, m->mNormals[v].z);
+                if (m->HasTextureCoords(0)) sv.TexCoord = glm::vec2(m->mTextureCoords[0][v].x, m->mTextureCoords[0][v].y);
+            }
+            if (m->HasBones()) {
+                for (unsigned bi = 0; bi < m->mNumBones; bi++) {
+                    const aiBone* bone = m->mBones[bi];
+                    auto it = nodeIndex.find(bone->mName.C_Str());
+                    if (it == nodeIndex.end()) continue;
+                    const int b = boneFor(it->second, ToGlm(bone->mOffsetMatrix));
+                    for (unsigned w = 0; w < bone->mNumWeights; w++) {
+                        SkinnedVertex& sv = p.Vertices[bone->mWeights[w].mVertexId];
+                        for (int k = 0; k < 4; k++)                     // the first free slot
+                            if (sv.Weights[k] == 0.0f) { sv.Bones[k] = b; sv.Weights[k] = bone->mWeights[w].mWeight; break; }
+                    }
+                }
+            }
+            else {
+                // A rigid part of an animated model: it follows the node that holds it
+                int node = 0;
+                for (auto& [n, idx] : meshNodes)
+                    for (unsigned k = 0; k < n->mNumMeshes; k++) if (n->mMeshes[k] == i) node = idx;
+                const int b = boneFor(node, glm::mat4(1.0f));
+                for (auto& sv : p.Vertices) { sv.Bones = glm::ivec4(b, 0, 0, 0); sv.Weights = glm::vec4(1, 0, 0, 0); }
+            }
+            for (auto& sv : p.Vertices) {                              // weights sum to 1
+                const float sum = sv.Weights.x + sv.Weights.y + sv.Weights.z + sv.Weights.w;
+                if (sum > 0.0f) sv.Weights /= sum;
+                else { sv.Bones = glm::ivec4(0); sv.Weights = glm::vec4(1, 0, 0, 0); }
+            }
+            for (unsigned f = 0; f < m->mNumFaces; f++) {
+                const aiFace& face = m->mFaces[f];
+                if (face.mNumIndices != 3) continue;
+                p.Indices.insert(p.Indices.end(), { face.mIndices[0], face.mIndices[1], face.mIndices[2] });
+            }
+            if (!p.Vertices.empty() && !p.Indices.empty()) pending.push_back(std::move(p));
+        }
+
+        // ---- animation clips (times in seconds)
+        for (unsigned a = 0; a < scene->mNumAnimations; a++) {
+            const aiAnimation* anim = scene->mAnimations[a];
+            const double tps = anim->mTicksPerSecond > 0.0 ? anim->mTicksPerSecond : 25.0;
+            Clip clip;
+            clip.Duration = (float)(anim->mDuration / tps);
+            for (unsigned c = 0; c < anim->mNumChannels; c++) {
+                const aiNodeAnim* ch = anim->mChannels[c];
+                auto it = nodeIndex.find(ch->mNodeName.C_Str());
+                if (it == nodeIndex.end()) continue;
+                Channel out;
+                out.Node = it->second;
+                for (unsigned k = 0; k < ch->mNumPositionKeys; k++) {
+                    const auto& key = ch->mPositionKeys[k];
+                    out.T.emplace_back((float)(key.mTime / tps), glm::vec3(key.mValue.x, key.mValue.y, key.mValue.z));
+                }
+                for (unsigned k = 0; k < ch->mNumRotationKeys; k++) {
+                    const auto& key = ch->mRotationKeys[k];
+                    out.R.emplace_back((float)(key.mTime / tps), glm::quat(key.mValue.w, key.mValue.x, key.mValue.y, key.mValue.z));
+                }
+                for (unsigned k = 0; k < ch->mNumScalingKeys; k++) {
+                    const auto& key = ch->mScalingKeys[k];
+                    out.S.emplace_back((float)(key.mTime / tps), glm::vec3(key.mValue.x, key.mValue.y, key.mValue.z));
+                }
+                clip.Channels.push_back(std::move(out));
+            }
+            std::string name = anim->mName.C_Str();
+            if (name.empty()) name = "Animation " + std::to_string(a);
+            m_ClipNames.push_back(name);
+            m_Clips.push_back(std::move(clip));
+        }
+
+        // ---- the rest pose: where vertices are without animation (bounds, colliders)
+        std::vector<NodePose> rest;
+        SamplePose(-1, 0.0f, rest);
+        std::vector<glm::mat4> palette;
+        PoseToPalette(rest, palette);
+        m_RestPalette = palette;
+        glm::vec3 mn(FLT_MAX), mx(-FLT_MAX);
+        for (auto& p : pending) {
+            std::vector<glm::vec3> restPositions;
+            restPositions.reserve(p.Vertices.size());
+            for (const auto& sv : p.Vertices) {
+                glm::mat4 skin(0.0f);
+                for (int k = 0; k < 4; k++) skin += palette[sv.Bones[k]] * sv.Weights[k];
+                const glm::vec3 rp = glm::vec3(skin * glm::vec4(sv.Position, 1.0f));
+                restPositions.push_back(rp);
+                mn = glm::min(mn, rp);
+                mx = glm::max(mx, rp);
+            }
+            Submesh sub;
+            sub.Geometry = std::make_unique<Mesh>(p.Vertices, p.Indices, restPositions);
+            sub.MaterialIndex = p.Material;
+            m_Submeshes.push_back(std::move(sub));
+        }
+        m_Min = mn;
+        m_Max = mx;
+    }
+
+    int Model::FindAnimation(const std::string& name) const {
+        for (size_t i = 0; i < m_ClipNames.size(); i++) if (m_ClipNames[i] == name) return (int)i;
+        return -1;
+    }
+
+    float Model::AnimationDuration(int clip) const {
+        return clip >= 0 && clip < (int)m_Clips.size() ? m_Clips[clip].Duration : 0.0f;
+    }
+
+    void Model::SamplePose(int clip, float time, std::vector<NodePose>& pose) const {
+        pose.resize(m_Nodes.size());
+        for (size_t i = 0; i < m_Nodes.size(); i++) pose[i] = m_Nodes[i].Rest;
+        if (clip < 0 || clip >= (int)m_Clips.size()) return;
+        auto mixV = [](const glm::vec3& a, const glm::vec3& b, float t) { return glm::mix(a, b, t); };
+        auto mixQ = [](const glm::quat& a, const glm::quat& b, float t) { return glm::slerp(a, b, t); };
+        for (const auto& ch : m_Clips[clip].Channels) {
+            NodePose& p = pose[ch.Node];
+            p.T = SampleKeys(ch.T, time, p.T, mixV);
+            p.R = glm::normalize(SampleKeys(ch.R, time, p.R, mixQ));
+            p.S = SampleKeys(ch.S, time, p.S, mixV);
+        }
+    }
+
+    void Model::PoseToPalette(const std::vector<NodePose>& pose, std::vector<glm::mat4>& palette) const {
+        std::vector<glm::mat4> global(m_Nodes.size());
+        for (size_t i = 0; i < m_Nodes.size(); i++) {           // parents come first
+            const glm::mat4 local = ToMatrix(i < pose.size() ? pose[i] : m_Nodes[i].Rest);
+            global[i] = m_Nodes[i].Parent >= 0 ? global[m_Nodes[i].Parent] * local : local;
+        }
+        palette.resize(m_Bones.size());
+        for (size_t b = 0; b < m_Bones.size(); b++) palette[b] = global[m_Bones[b].Node] * m_Bones[b].Offset;
+    }
+
+    glm::mat4 Model::GetGroundedMatrix(float targetSize) const {
+        glm::vec3 size = m_Max - m_Min;
+        float extent = std::max({ size.x, size.y, size.z });
+        float s = extent > 0.0f ? targetSize / extent : 1.0f;
+        glm::vec3 pivot((m_Min.x + m_Max.x) * 0.5f, m_Min.y, (m_Min.z + m_Max.z) * 0.5f);
+        return glm::scale(glm::mat4(1.0f), glm::vec3(s)) * glm::translate(glm::mat4(1.0f), -pivot);
     }
 
     glm::mat4 Model::GetNormalizeMatrix(float targetSize) const {

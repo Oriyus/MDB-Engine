@@ -6,6 +6,7 @@
 #include "Physics/PhysicsWorld.h"
 #include "Audio/AudioEngine.h"
 #include "Scene/Prefab.h"
+#include "Renderer/Model.h"
 #include "Core/Input.h"
 #include "Core/Log.h"
 
@@ -51,6 +52,7 @@ namespace Engine {
         struct BodyRef  { ScriptEntity E; };
         struct CameraRef { ScriptEntity E; };
         struct AudioRef  { ScriptEntity E; };
+        struct AnimatorRef { ScriptEntity E; };
 
         constexpr int kKeyFirst = 32, kKeyCount = 349;   // GLFW_KEY_SPACE .. GLFW_KEY_LAST
         constexpr int kMouseCount = 8;
@@ -292,6 +294,22 @@ namespace Engine {
                 if (std::abs(glm::dot(dir, u)) > 0.999f) u = glm::vec3(0.0f, 0.0f, 1.0f);   // looking straight up/down
                 e.Owner->SetWorldRotation(e.Handle, glm::quatLookAt(dir, u));
             },
+            "animator", sol::readonly_property([](const ScriptEntity& e) -> sol::optional<AnimatorRef> {
+                if (e.Has<AnimatorComponent>()) return AnimatorRef{ e };
+                return sol::nullopt;
+            }),
+            "add_animator", [](const ScriptEntity& e, sol::optional<sol::table> opts) {
+                if (!e.Valid()) throw std::runtime_error("entity no longer exists");
+                AnimatorComponent a;
+                if (opts) {
+                    a.Clip = opts->get_or<std::string>("clip", a.Clip);
+                    a.Speed = opts->get_or<float>("speed", a.Speed);
+                    a.Loop = opts->get_or<bool>("loop", a.Loop);
+                    a.BlendTime = opts->get_or<float>("blend", a.BlendTime);
+                }
+                e.Owner->Registry().emplace_or_replace<AnimatorComponent>(e.Handle, a);
+                return AnimatorRef{ e };
+            },
             "audio", sol::readonly_property([](const ScriptEntity& e) -> sol::optional<AudioRef> {
                 if (e.Has<AudioSourceComponent>()) return AudioRef{ e };
                 return sol::nullopt;
@@ -326,6 +344,7 @@ namespace Engine {
                 if (kind == "camera") return e.Has<CameraComponent>();
                 if (kind == "audio")  return e.Has<AudioSourceComponent>();
                 if (kind == "collider") return e.Has<ColliderComponent>();
+                if (kind == "animator") return e.Has<AnimatorComponent>();
                 throw std::runtime_error("unknown component kind '" + kind + "'");
             },
             "remove", [](const ScriptEntity& e, const std::string& kind) {
@@ -341,6 +360,7 @@ namespace Engine {
                 else if (kind == "camera") reg.remove<CameraComponent>(e.Handle);
                 else if (kind == "audio")  reg.remove<AudioSourceComponent>(e.Handle);
                 else if (kind == "collider") reg.remove<ColliderComponent>(e.Handle);
+                else if (kind == "animator") reg.remove<AnimatorComponent>(e.Handle);
                 else throw std::runtime_error("unknown component kind '" + kind + "'");
             },
 
@@ -361,6 +381,14 @@ namespace Engine {
                     mr.Metallic = opts->get_or<float>("metallic", mr.Metallic);
                     mr.Roughness = opts->get_or<float>("roughness", mr.Roughness);
                     mr.Unlit = opts->get_or<bool>("unlit", mr.Unlit);
+                    // fit = metres: a model file is scaled and centred to that size (models come in any units)
+                    if (const auto fit = opts->get<sol::optional<float>>("fit")) {
+                        if (const auto* model = dynamic_cast<const Model*>(mr.Geometry.get())) {
+                            mr.LocalOffset = model->GetGroundedMatrix(*fit);   // feet on the entity's origin
+                            mr.UseModelMaterials = model->HasTexturedMaterials();
+                            if (mr.UseModelMaterials && !opts->get<sol::optional<glm::vec3>>("color")) mr.Color = glm::vec3(1.0f);
+                        }
+                    }
                 }
                 e.Owner->Registry().emplace_or_replace<MeshRendererComponent>(e.Handle, mr);
                 return MeshRef{ e };
@@ -579,6 +607,51 @@ namespace Engine {
             soundOpts(opts, v, p);
             if (Audio) Audio->PlayAt(clip, pos, v, p);
         });
+
+        // ---- the Animator view handed out by e.animator
+        lua.new_usertype<AnimatorRef>("Animator", sol::no_constructor,
+            "clip", sol::property(                                // setting it cross-fades to that clip
+                [](const AnimatorRef& a) { return a.E.Get<AnimatorComponent>().Clip; },
+                [](const AnimatorRef& a, const std::string& v) { a.E.Get<AnimatorComponent>().Clip = v; }),
+            "speed", sol::property(
+                [](const AnimatorRef& a) { return a.E.Get<AnimatorComponent>().Speed; },
+                [](const AnimatorRef& a, float v) { a.E.Get<AnimatorComponent>().Speed = v; }),
+            "loop", sol::property(
+                [](const AnimatorRef& a) { return a.E.Get<AnimatorComponent>().Loop; },
+                [](const AnimatorRef& a, bool v) { a.E.Get<AnimatorComponent>().Loop = v; }),
+            "playing", sol::property(
+                [](const AnimatorRef& a) { return a.E.Get<AnimatorComponent>().Playing; },
+                [](const AnimatorRef& a, bool v) { a.E.Get<AnimatorComponent>().Playing = v; }),
+            "time", sol::property(
+                [](const AnimatorRef& a) { return a.E.Get<AnimatorComponent>().Time; },
+                [](const AnimatorRef& a, float v) { a.E.Get<AnimatorComponent>().Time = v; }),
+            "blend_time", sol::property(
+                [](const AnimatorRef& a) { return a.E.Get<AnimatorComponent>().BlendTime; },
+                [](const AnimatorRef& a, float v) { a.E.Get<AnimatorComponent>().BlendTime = std::max(v, 0.0f); }),
+            // play(name [, blend seconds]): cross-fade to a clip and make sure it runs
+            "play", [](const AnimatorRef& a, const std::string& clip, sol::optional<float> blend) {
+                auto& an = a.E.Get<AnimatorComponent>();
+                if (blend) an.BlendTime = std::max(*blend, 0.0f);
+                an.Clip = clip;
+                an.Playing = true;
+            },
+            "stop", [](const AnimatorRef& a) { a.E.Get<AnimatorComponent>().Playing = false; },
+            // clip length in seconds (0 if unknown); no argument: the current clip
+            "duration", [](const AnimatorRef& a, sol::optional<std::string> clip) {
+                const auto& an = a.E.Get<AnimatorComponent>();
+                const auto* mr = a.E.Owner->Registry().try_get<MeshRendererComponent>(a.E.Handle);
+                const Model* model = mr ? dynamic_cast<const Model*>(mr->Geometry.get()) : nullptr;
+                return model ? model->AnimationDuration(model->FindAnimation(clip.value_or(an.Clip))) : 0.0f;
+            },
+            // the clip names the entity's model has
+            "clips", [this](const AnimatorRef& a) {
+                a.E.Get<AnimatorComponent>();
+                sol::table out = Lua->create_table();
+                const auto* mr = a.E.Owner->Registry().try_get<MeshRendererComponent>(a.E.Handle);
+                const Model* model = mr ? dynamic_cast<const Model*>(mr->Geometry.get()) : nullptr;
+                if (model) { int n = 1; for (const auto& name : model->AnimationNames()) out[n++] = name; }
+                return out;
+            });
 
         lua.new_usertype<AudioRef>("AudioSource", sol::no_constructor,
             "clip", sol::property(

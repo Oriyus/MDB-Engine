@@ -14,9 +14,23 @@ namespace Engine {
     };
     static_assert(sizeof(Vertex) == 8 * sizeof(float), "Vertex must be tightly packed");
 
+    // A vertex moved by up to four bones (skeletal animation). Shader locations 3 and 4.
+    struct SkinnedVertex {
+        glm::vec3 Position{ 0.0f };
+        glm::vec3 Normal{ 0.0f, 1.0f, 0.0f };
+        glm::vec2 TexCoord{ 0.0f };
+        glm::ivec4 Bones{ 0 };            // indices into the bone palette
+        glm::vec4 Weights{ 0.0f };        // sum to 1
+    };
+    static_assert(sizeof(SkinnedVertex) == 16 * 4, "SkinnedVertex must be tightly packed");
+
     class Mesh : public Renderable {
     public:
         Mesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
+        // A skinned mesh. restPositions are the vertices as the model stands without animation:
+        // they are used for bounds and colliders (the GPU gets the raw, unskinned positions).
+        Mesh(const std::vector<SkinnedVertex>& vertices, const std::vector<uint32_t>& indices,
+            const std::vector<glm::vec3>& restPositions);
         static std::shared_ptr<Mesh> CreateSphere(uint32_t segments = 32);
 
         void Draw() const override;

@@ -4,6 +4,7 @@
 #include "Scene/Entity.h"
 #include "Scene/Components.h"
 #include "Scene/Prefab.h"
+#include "Renderer/Model.h"
 #include "Core/Log.h"
 
 #include <cmath>
@@ -175,6 +176,18 @@ void BuildScriptDemo(Scene& scene, const LevelAssets& a, PrefabLibrary& prefabs)
         AddCoinPrefab(scene, a, prefabs, glm::vec3(std::cos(ang) * 4.0f - 1.0f, -0.5f, std::sin(ang) * 3.0f + 1.0f));
     }
     AddPlayer(scene, a, glm::vec3(-1.0f, -0.6f, 1.0f));
+    if (a.Fox && a.Fox->IsSkinned()) {
+        // An animated fox walking a circle (wander.lua cross-fades its Walk / Run / Survey clips)
+        Entity e = scene.CreateEntity("Fox");
+        e.Get<TransformComponent>().Position = glm::vec3(-3.0f, -1.0f, -3.0f);
+        auto& mr = e.Add<MeshRendererComponent>();
+        mr.Geometry = a.Fox;
+        mr.LocalOffset = a.Fox->GetGroundedMatrix(1.6f);
+        mr.UseModelMaterials = a.Fox->HasTexturedMaterials();
+        mr.Color = glm::vec3(1.0f);
+        e.Add<AnimatorComponent>().Clip = "Walk";
+        e.Add<ScriptComponent>().Path = "Scripts/wander.lua";
+    }
     LOG_INFO("Script demo built. Press Play (Ctrl+P).");
 }
 
