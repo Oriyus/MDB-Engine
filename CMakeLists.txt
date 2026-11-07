@@ -51,3 +51,4 @@ FetchContent_MakeAvailable(glfw glm spdlog entt imgui assimp json JoltPhysics lu
 add_subdirectory(vendor/glad)
 add_subdirectory(Engine)
 add_subdirectory(Sandbox)
+add_subdirectory(Game)

@@ -23,6 +23,10 @@
 #include "Scripting/ScriptEngine.h"
 #include "Audio/AudioEngine.h"
 #include "Scene/Prefab.h"
+#include "Renderer/SceneRenderer.h"
+#include "Runtime/ResourceLibrary.h"
+#include "Runtime/GameSession.h"
+#include "Runtime/GameUI.h"
 #include "DemoLevels.h"
 
 #include <cfloat>
@@ -47,62 +51,21 @@ public:
     void OnStart() override {
         using namespace Engine;
 
+        // Shared engine pieces: named resources, the render pipeline, and the play-mode systems
+        m_Resources = std::make_unique<ResourceLibrary>(std::string(ASSET_DIR));
+        m_Renderer = std::make_unique<SceneRenderer>(std::string(ASSET_DIR));
+        m_Session = std::make_unique<GameSession>(m_Scene, std::string(ASSET_DIR), m_Resources->Registry());
+
+        m_Cube = m_Resources->Cube();
+        m_Plane = m_Resources->Plane();
+        m_Checker = m_Resources->Checker();
         EnsureSphere();
-
-        m_Shader = std::make_unique<Shader>(
-            std::string(ASSET_DIR) + "Shaders/lit.vert",
-            std::string(ASSET_DIR) + "Shaders/lit.frag");
-
-        m_ShadowShader = std::make_unique<Shader>(
-            std::string(ASSET_DIR) + "Shaders/shadow.vert",
-            std::string(ASSET_DIR) + "Shaders/shadow.frag");
-        
-        m_SunShader = std::make_unique<Shader>(
-            std::string(ASSET_DIR) + "Shaders/shadow.vert",
-            std::string(ASSET_DIR) + "Shaders/sun_shadow.frag");
-
-        m_PostShader = std::make_unique<Shader>(
-            std::string(ASSET_DIR) + "Shaders/tonemap.vert",
-            std::string(ASSET_DIR) + "Shaders/tonemap.frag");
-
-        m_Env = std::make_unique<Environment>(std::string(ASSET_DIR) + "Shaders/");
-        m_Env->UseProcedural();
-        ScanEnvironments();
-
-        const std::string sd = std::string(ASSET_DIR) + "Shaders/";
-        m_SSAOShader = std::make_unique<Shader>(sd + "tonemap.vert", sd + "ssao.frag");
-        m_SSAOBlurShader = std::make_unique<Shader>(sd + "tonemap.vert", sd + "ssao_blur.frag");
-        m_BloomDown = std::make_unique<Shader>(sd + "tonemap.vert", sd + "bloom_down.frag");
-        m_BloomUp = std::make_unique<Shader>(sd + "tonemap.vert", sd + "bloom_up.frag");
-        m_FXAAShader = std::make_unique<Shader>(sd + "tonemap.vert", sd + "fxaa.frag");
-
-        m_PointShadows = std::make_unique<PointShadowArray>(1024);
-        m_SunShadowMap = std::make_unique<DirectionalShadowMap>(2048);
-
-        m_Shadows.Points = m_PointShadows.get();
-        m_Shadows.Sun = m_SunShadowMap.get();
-        m_Shadows.PointDepth = m_ShadowShader.get();
-        m_Shadows.SunDepth = m_SunShader.get();
-
-        m_Cube = Mesh::CreateCube();
-        m_Checker = CreateCheckerTexture();
-
-        m_SSAO = std::make_unique<SSAO>(1280, 720);
-        m_Bloom = std::make_unique<Bloom>(1280, 720);
-
-        m_Physics = std::make_unique<PhysicsWorld>();
-        m_Audio = std::make_unique<AudioEngine>(std::string(ASSET_DIR));
-        m_Scripts = std::make_unique<ScriptEngine>(std::string(ASSET_DIR), m_Physics.get(), m_Audio.get());
-        m_Scripts->SetResources(MakeResources());
-        m_Prefabs = std::make_unique<PrefabLibrary>(std::string(ASSET_DIR), MakeResources());
-        m_Scripts->SetPrefabs(m_Prefabs.get());
 
         // --- Floor
         {
             auto e = m_Scene.CreateEntity("Floor");
             e.Get<TransformComponent>().Position = glm::vec3(0.0f, -1.0f, 0.0f);
             auto& mr = e.Add<MeshRendererComponent>();
-            m_Plane = Mesh::CreatePlane(12.0f, 6.0f);
             mr.Geometry = m_Plane;
             mr.Texture = m_Checker;
             mr.Color = glm::vec3(0.8f);
@@ -130,7 +93,7 @@ public:
 
         // --- Loaded model
         {
-            m_ModelResource = std::make_shared<Model>(std::string(ASSET_DIR) + "Models/BoomBox.glb");
+            m_ModelResource = m_Resources->SampleModel();
             auto model = m_ModelResource;
             if (model->IsValid()) {
                 auto e = m_Scene.CreateEntity("Model");
@@ -194,20 +157,9 @@ public:
             mr.Unlit = true;
         }
 
-        m_Framebuffer = std::make_unique<Framebuffer>(1280, 720);
-        m_Post = std::make_unique<PostProcess>(1280, 720);
         m_Camera = std::make_unique<Camera>(60.0f, AspectRatio());
         m_GameCamera = std::make_unique<Camera>(60.0f, AspectRatio());
-
-        // A big TTF for ui.text, so game text stays crisp. Added before the first ImGui frame
-        // builds the font atlas; the default font stays first so the editor looks the same.
-        {
-            ImGuiIO& io = ImGui::GetIO();
-            if (io.Fonts->Fonts.empty()) io.Fonts->AddFontDefault();
-            for (const char* f : { "C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf" }) {
-                if (std::filesystem::exists(f)) { m_GameFont = io.Fonts->AddFontFromFileTTF(f, 64.0f); break; }
-            }
-        }
+        m_GameFont = LoadGameFont();   // before the first ImGui frame builds the font atlas
         m_Camera->Position = glm::vec3(0.0f, 1.0f, 6.0f);
 
         // Test hooks, for running the app unattended:
@@ -230,15 +182,9 @@ public:
     void OnUpdate(float dt) override {
         using namespace Engine;
 
-        if (!m_PendingSceneLoad.empty()) {   // before the environment: Load may queue a new one
+        if (!m_PendingSceneLoad.empty()) {   // a requested environment bakes in this frame's Render
             LoadScene(m_PendingSceneLoad);
             m_PendingSceneLoad.clear();
-        }
-
-        if (m_PendingEnv >= 0) {
-            if (m_PendingEnv == 0) m_Env->UseProcedural();
-            else m_Env->LoadHDR(std::string(ASSET_DIR) + "Environments/" + m_EnvFiles[m_PendingEnv - 1]);
-            m_PendingEnv = -1;
         }
 
         dt = std::min(dt, 0.1f);   // a long hitch (like baking an environment) shouldn't fling the simulation
@@ -248,13 +194,11 @@ public:
         if (m_QuitAfter > 0.0f && m_RunTime >= m_QuitAfter) Close();
 
         switch (m_PlayCmd) {
-        case PlayCmd::Play:   // bodies before scripts, so on_create can already use self.body
-            if (m_PlayState == PlayState::Edit) {
-                m_Physics->Reset(); StartPlay(); m_Physics->Sync(m_Scene); m_Scripts->Start(m_Scene);
-            }
+        case PlayCmd::Play:
+            if (m_PlayState == PlayState::Edit) { StartPlay(); m_Session->Start(); }
             break;
-        case PlayCmd::Stop:   // scripts first: Restore invalidates every entity handle
-            if (m_PlayState != PlayState::Edit) { m_Scripts->Stop(m_Scene); m_Audio->StopAll(); m_Physics->Reset(); StopPlay(); }
+        case PlayCmd::Stop:   // the session first: Restore invalidates every entity handle
+            if (m_PlayState != PlayState::Edit) { m_Session->Stop(); StopPlay(); }
             break;
         case PlayCmd::Pause:
             if (m_PlayState == PlayState::Play)        m_PlayState = PlayState::Paused;
@@ -265,18 +209,18 @@ public:
             break;
         case PlayCmd::Restart:   // scene.restart() from a script: Stop, then Play again
             if (m_PlayState != PlayState::Edit) {
-                m_Scripts->Stop(m_Scene); m_Audio->StopAll(); m_Physics->Reset(); StopPlay();
-                m_Physics->Reset(); StartPlay(); m_Physics->Sync(m_Scene); m_Scripts->Start(m_Scene);
+                m_Session->Stop(); StopPlay();
+                StartPlay(); m_Session->Start();
             }
             break;
         default: break;
         }
         m_PlayCmd = PlayCmd::None;
-        m_Audio->SetPaused(m_PlayState == PlayState::Paused);
+        m_Session->Audio().SetPaused(m_PlayState == PlayState::Paused);
 
         if (m_ReloadScripts) {
             m_ReloadScripts = false;
-            if (m_PlayState != PlayState::Edit) m_Scripts->Reload(m_Scene);
+            if (m_PlayState != PlayState::Edit) m_Session->Scripts().Reload(m_Scene);
         }
 
         const bool typing = ImGui::GetIO().WantTextInput;
@@ -307,9 +251,8 @@ public:
         if (!editorKeys) kn = f = g = kw = ke = kr = kq = kdel = kt = false;
 
         if (!typing) {
-            if (f5) { m_Shader->Reload(); m_ShadowShader->Reload(); m_SunShader->Reload(); m_PostShader->Reload(); 
-                m_Env->ReloadSkyShader(); m_SSAOShader->Reload(); m_SSAOBlurShader->Reload(); m_BloomDown->Reload(); 
-                m_BloomUp->Reload(); m_FXAAShader->Reload();
+            if (f5) {
+                m_Renderer->ReloadShaders();
                 if (m_PlayState != PlayState::Edit) m_ReloadScripts = true;   // applied next frame
             }
             if (kn) SpawnCube();
@@ -330,15 +273,15 @@ public:
                 SpawnBody(true, m_Camera->Position + m_Camera->GetFront() * 1.5f, m_Camera->GetFront() * 14.0f, false);
         }
 
-        // Make the framebuffer match the Viewport panel (panel size comes from last frame's UI)
-        if (m_ViewportSize.x >= 1.0f && m_ViewportSize.y >= 1.0f)
-            m_Framebuffer->Resize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+        // Render at the Viewport panel's size (from last frame's UI)
+        const uint32_t vw = (uint32_t)std::max(m_ViewportSize.x, 1.0f), vh = (uint32_t)std::max(m_ViewportSize.y, 1.0f);
+        const float aspect = (float)vw / (float)vh;
 
-        m_Camera->SetAspect((float)m_Framebuffer->GetWidth() / (float)m_Framebuffer->GetHeight());
+        m_Camera->SetAspect(aspect);
         // Maya-style navigation (gathered by the Viewport panel during the last UI pass)
         switch (m_NavMode) {
             case NavMode::Orbit: m_Camera->Orbit(m_NavDx, m_NavDy); break;
-            case NavMode::Pan:   m_Camera->Pan(m_NavDx, m_NavDy, (float)m_Framebuffer->GetHeight()); break;
+            case NavMode::Pan:   m_Camera->Pan(m_NavDx, m_NavDy, (float)vh); break;
             case NavMode::Dolly: m_Camera->Dolly((m_NavDx - m_NavDy) * 0.01f); break;
             default: break;
         }
@@ -348,13 +291,8 @@ public:
 
         const bool simulate = m_PlayState == PlayState::Play || m_StepFrame;
         if (simulate) {
-            const float stepDt = m_StepFrame ? 1.0f / 60.0f : dt;
-            m_Scene.OnUpdate(stepDt);                          // Spin / Orbit
-            m_Scripts->Update(m_Scene, stepDt);                // Lua on_update
-            m_Physics->Step(m_Scene, stepDt, m_StepFrame);     // physics overrides dynamic transforms
-            m_Scripts->DispatchCollisions(m_Scene);            // on_collision_* / on_trigger_*
-            m_Audio->Update(m_Scene);                          // entity sounds follow their transforms
-            if (m_Scripts->ConsumeRestartRequest()) m_PlayCmd = PlayCmd::Restart;   // next frame
+            m_Session->Update(dt, m_StepFrame);
+            if (m_Session->ConsumeRestartRequest()) m_PlayCmd = PlayCmd::Restart;   // next frame
         }
         else {
             m_Scene.UpdateOrbitPositions();
@@ -362,40 +300,12 @@ public:
         m_StepFrame = false;
 
         // During Play, look through the scene's game camera (after scripts moved it this frame)
-        m_ViewingGame = m_PlayState != PlayState::Edit && m_PlayThroughGameCamera && UpdateGameCamera();
+        m_ViewingGame = m_PlayState != PlayState::Edit && m_PlayThroughGameCamera
+            && m_Session->UpdateGameCamera(*m_GameCamera, aspect);
         Camera& view = ViewCamera();
-        m_Audio->SetListener(view.Position, view.GetFront(), glm::vec3(0.0f, 1.0f, 0.0f));
+        m_Session->SetListener(view);
 
-        // 1) Depth passes (all point lights + sun)
-        m_Scene.RenderShadows(m_Shadows);
-
-        // 2) Scene into the HDR framebuffer
-        m_Framebuffer->Bind();
-        m_Framebuffer->Clear(0.005f, 0.005f, 0.01f, 1.0f);
-        m_Scene.Render(view, *m_Shader, &m_Shadows, m_Env.get());
-        m_Env->DrawSkybox(view, m_Scene.AmbientIntensity);
-        Framebuffer::Unbind();
-
-        // 3) Screen-space effects
-        const uint32_t fw = m_Framebuffer->GetWidth(), fh = m_Framebuffer->GetHeight();
-        uint32_t aoTex = 0, bloomTex = 0;
-
-        if (m_PostSettings.AOEnabled) {
-            m_SSAO->Resize(fw, fh);
-            m_SSAO->Compute(m_Framebuffer->GetDepthAttachment(), view.GetProjection(),
-                *m_SSAOShader, *m_SSAOBlurShader);
-            aoTex = m_SSAO->GetOutput();
-        }
-        if (m_PostSettings.BloomEnabled) {
-            m_Bloom->Resize(fw, fh);
-            m_Bloom->Compute(m_Framebuffer->GetColorAttachment(), *m_BloomDown, *m_BloomUp);
-            bloomTex = m_Bloom->GetOutput();
-        }
-
-        // 4) AO + bloom + exposure + tone map + gamma into the 8-bit texture the Viewport shows
-        m_Post->Resize(fw, fh);
-        m_Post->Apply(m_Framebuffer->GetColorAttachment(), aoTex, bloomTex, *m_PostShader, m_PostSettings);
-        m_Post->ApplyFXAA(*m_FXAAShader, m_PostSettings.FXAA);
+        m_Renderer->Render(m_Scene, view, vw, vh);
 
         glViewport(0, 0, (int)GetWindow().GetWidth(), (int)GetWindow().GetHeight());
     }
@@ -414,35 +324,9 @@ public:
         }
     }
 
-    Engine::ResourceRegistry MakeResources() {
-        using namespace Engine;
-        ResourceRegistry r;
-        r.GeometryName = [this](const std::shared_ptr<Renderable>& g) -> std::string {
-            if (g == m_Cube) return "cube";
-            if (g == m_Plane) return "plane";
-            if (g == m_ModelResource) return "model";
-            if (g == m_Sphere) return "sphere";
-            return "";
-            };
-        r.FindGeometry = [this](const std::string& n) -> std::shared_ptr<Renderable> {
-            if (n == "cube") return m_Cube;
-            if (n == "plane") return m_Plane;
-            if (n == "model") return m_ModelResource;
-            if (n == "sphere") { EnsureSphere(); return m_Sphere; }
-            return nullptr;
-            };
-        r.TextureName = [this](const std::shared_ptr<Texture2D>& t) -> std::string {
-            return t && t == m_Checker ? "checker" : "";
-            };
-        r.FindTexture = [this](const std::string& n) -> std::shared_ptr<Texture2D> {
-            return n == "checker" ? m_Checker : nullptr;
-            };
-        return r;
-    }
-
     void SpawnMaterialGrid() {
         using namespace Engine;
-        if (!m_Sphere) m_Sphere = Mesh::CreateSphere(48);
+        EnsureSphere();
 
         // Rows: metallic 0 -> 1 (top to bottom). Columns: roughness 0.05 -> 1 (left to right).
         const int n = 5;
@@ -457,17 +341,6 @@ public:
                 mr.Roughness = 0.05f + 0.95f * col / float(n - 1);
             }
         }
-    }
-
-    void ScanEnvironments() {
-        m_EnvFiles.clear();
-        std::error_code ec;
-        const std::filesystem::path dir = std::filesystem::path(ASSET_DIR) / "Environments";
-        if (std::filesystem::exists(dir, ec)) {
-            for (const auto& f : std::filesystem::directory_iterator(dir, ec))
-                if (f.path().extension() == ".hdr") m_EnvFiles.push_back(f.path().filename().string());
-        }
-        std::sort(m_EnvFiles.begin(), m_EnvFiles.end());
     }
 
     void StartPlay() {
@@ -501,7 +374,7 @@ public:
         if (rb.Shape == Engine::ColliderShape::Sphere) rb.Size = glm::vec3(std::max({ rb.Size.x, rb.Size.y, rb.Size.z }));
     }
 
-    void EnsureSphere() { if (!m_Sphere) m_Sphere = Engine::Mesh::CreateSphere(48); }
+    void EnsureSphere() { if (!m_Sphere) m_Sphere = m_Resources->Sphere(); }
 
     Engine::Entity SpawnBody(bool sphere, const glm::vec3& pos, const glm::vec3& velocity, bool select) {
         using namespace Engine;
@@ -551,23 +424,7 @@ public:
 
     Engine::SceneSettings GatherSettings() const {
         Engine::SceneSettings s;
-        // A queued environment change counts as current: it bakes at the start of the next frame
-        if (m_PendingEnv == 0)     s.EnvironmentMap = "";
-        else if (m_PendingEnv > 0) s.EnvironmentMap = m_EnvFiles[m_PendingEnv - 1];
-        else                       s.EnvironmentMap = m_Env->Name == "Procedural sky" ? "" : m_Env->Name;
-        s.ShowSky = m_Env->Show;
-        s.SkyBlur = m_Env->Blur;
-        s.SkyRotation = m_Env->RotationDegrees;
-        s.Post = m_PostSettings;
-        s.Post.AODebug = false;                  // a debug view, not part of the level
-        s.Shadows = m_Shadows.Settings;
-        s.AORadius = m_SSAO->Radius;
-        s.AOBias = m_SSAO->Bias;
-        s.AOSamples = m_SSAO->Samples;
-        s.BloomThreshold = m_Bloom->Threshold;
-        s.BloomKnee = m_Bloom->Knee;
-        s.BloomRadius = m_Bloom->Radius;
-        s.BloomMaxBrightness = m_Bloom->MaxBrightness;
+        m_Renderer->GatherSettings(s);           // environment (incl. a pending one), sky, post, AO, bloom, shadows
         s.Gravity = m_Gravity;
         s.CameraPosition = m_Camera->Position;
         s.CameraYaw = m_Camera->GetYaw();
@@ -577,30 +434,9 @@ public:
     }
 
     void ApplySettings(const Engine::SceneSettings& s) {
-        // The environment bakes through the queued m_PendingEnv path
-        if (s.EnvironmentMap.empty()) {
-            if (m_Env->Name != "Procedural sky") m_PendingEnv = 0;
-        }
-        else if (s.EnvironmentMap != m_Env->Name) {
-            ScanEnvironments();
-            auto it = std::find(m_EnvFiles.begin(), m_EnvFiles.end(), s.EnvironmentMap);
-            if (it != m_EnvFiles.end()) m_PendingEnv = (int)(it - m_EnvFiles.begin()) + 1;
-            else LOG_WARN("Scene uses environment '{}', which is not in Assets/Environments", s.EnvironmentMap);
-        }
-        m_Env->Show = s.ShowSky;
-        m_Env->Blur = s.SkyBlur;
-        m_Env->RotationDegrees = s.SkyRotation;
-        m_PostSettings = s.Post;
-        m_Shadows.Settings = s.Shadows;
-        m_SSAO->Radius = s.AORadius;
-        m_SSAO->Bias = s.AOBias;
-        m_SSAO->Samples = s.AOSamples;
-        m_Bloom->Threshold = s.BloomThreshold;
-        m_Bloom->Knee = s.BloomKnee;
-        m_Bloom->Radius = s.BloomRadius;
-        m_Bloom->MaxBrightness = s.BloomMaxBrightness;
+        m_Renderer->ApplySettings(s);            // a new environment bakes at the start of the next Render
         m_Gravity = s.Gravity;
-        m_Physics->SetGravity(m_Gravity);
+        m_Session->Physics().SetGravity(m_Gravity);
         m_Camera->Position = s.CameraPosition;
         m_Camera->FocusDistance = s.CameraFocusDistance;
         m_Camera->SetOrientation(s.CameraYaw, s.CameraPitch);
@@ -608,13 +444,13 @@ public:
 
     bool SaveScene(const std::string& file) {
         const Engine::SceneSettings s = GatherSettings();
-        return Engine::SceneSerializer(m_Scene, MakeResources(), m_Prefabs.get()).Save(ScenePath(file), &s);
+        return Engine::SceneSerializer(m_Scene, m_Resources->Registry(), &m_Session->Prefabs()).Save(ScenePath(file), &s);
     }
 
     bool LoadScene(const std::string& file) {
         if (m_PlayState != PlayState::Edit) { LOG_WARN("Stop Play before loading a scene"); return false; }
         Engine::SceneSettings s = GatherSettings();   // older files without a section keep these
-        if (!Engine::SceneSerializer(m_Scene, MakeResources(), m_Prefabs.get()).Load(ScenePath(file), &s)) return false;
+        if (!Engine::SceneSerializer(m_Scene, m_Resources->Registry(), &m_Session->Prefabs()).Load(ScenePath(file), &s)) return false;
         m_Selected = entt::null;
         m_Spawned.clear();
         ApplySettings(s);
@@ -636,30 +472,11 @@ public:
     void BuildLevel(void (*build)(Engine::Scene&, const LevelAssets&, Engine::PrefabLibrary&)) {
         m_Selected = entt::null;
         m_Spawned.clear();
-        build(m_Scene, MakeLevelAssets(), *m_Prefabs);
+        build(m_Scene, MakeLevelAssets(), m_Session->Prefabs());
     }
 
     // ------------------------------------------------------------ game camera
     Engine::Camera& ViewCamera() { return m_ViewingGame ? *m_GameCamera : *m_Camera; }
-
-    // Point m_GameCamera at the primary CameraComponent (or the first camera). False if there is none.
-    bool UpdateGameCamera() {
-        using namespace Engine;
-        auto& reg = m_Scene.Registry();
-        entt::entity chosen = entt::null;
-        for (auto [e, c] : reg.view<CameraComponent>().each()) {
-            if (chosen == entt::null) chosen = e;
-            if (c.Primary) { chosen = e; break; }
-        }
-        if (chosen == entt::null) return false;
-
-        const auto& t = reg.get<TransformComponent>(chosen);
-        const auto& c = reg.get<CameraComponent>(chosen);
-        m_GameCamera->SetAspect((float)m_Framebuffer->GetWidth() / (float)m_Framebuffer->GetHeight());
-        m_GameCamera->SetLens(c.FOV, c.Near, c.Far);
-        m_GameCamera->SetPose(t.Position, glm::quat(t.Rotation));
-        return true;
-    }
 
     // Small frustum outlines for camera entities, so they can be placed in the editor
     void DrawCameraFrustums(const ImVec2& origin, const ImVec2& size) {
@@ -690,22 +507,6 @@ public:
             line(k[3] + u * 0.1f, p + f * d + u * (h + 0.3f), col);      // a little "up" roof
             line(k[2] + u * 0.1f, p + f * d + u * (h + 0.3f), col);
             line(k[3] + u * 0.1f, k[2] + u * 0.1f, col);
-        }
-    }
-
-    // ui.text from scripts, over the viewport. Kept while paused (the scripts didn't run again).
-    void DrawScriptText(const ImVec2& origin, const ImVec2& size) {
-        if (m_PlayState == PlayState::Edit) return;
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        ImFont* font = m_GameFont ? m_GameFont : ImGui::GetFont();
-        for (const auto& t : m_Scripts->Texts()) {
-            const float px = std::clamp(t.Size * size.y / 720.0f, 6.0f, 256.0f);   // sizes are given at 720p
-            const ImVec2 extent = font->CalcTextSizeA(px, FLT_MAX, 0.0f, t.Text.c_str());
-            ImVec2 pos(origin.x + t.X * size.x - extent.x * 0.5f * (float)t.Align, origin.y + t.Y * size.y);
-            const glm::vec3 c = glm::clamp(t.Color, glm::vec3(0.0f), glm::vec3(1.0f));
-            const float shadow = std::max(1.0f, px / 16.0f);
-            dl->AddText(font, px, ImVec2(pos.x + shadow, pos.y + shadow), IM_COL32(0, 0, 0, 170), t.Text.c_str());
-            dl->AddText(font, px, pos, ImGui::ColorConvertFloat4ToU32(ImVec4(c.r, c.g, c.b, 1.0f)), t.Text.c_str());
         }
     }
 
@@ -824,7 +625,7 @@ private:
 
         ImGui::Separator();
         ImGui::TextUnformatted("Shadows");
-        auto& s = m_Shadows.Settings;
+        auto& s = m_Renderer->Shadows();
         ImGui::Checkbox("Enabled", &s.Enabled);
         ImGui::SliderFloat("Point bias", &s.PointBias, 0.005f, 0.3f);
         ImGui::SliderFloat("Point range", &s.PointFar, 5.0f, 100.0f);
@@ -834,49 +635,52 @@ private:
 
         ImGui::Separator();
         ImGui::TextUnformatted("Environment");
-        if (ImGui::BeginCombo("Map", m_Env->Name.c_str())) {
-            if (ImGui::Selectable("Procedural sky", m_Env->Name == "Procedural sky")) m_PendingEnv = 0;
-            for (size_t i = 0; i < m_EnvFiles.size(); i++)
-                if (ImGui::Selectable(m_EnvFiles[i].c_str(), m_Env->Name == m_EnvFiles[i])) m_PendingEnv = (int)i + 1;
-            ImGui::EndCombo();
+        {
+            // The list is rescanned while open; the bake happens at the start of the next frame
+            const std::string current = m_Renderer->CurrentEnvironment();
+            if (ImGui::BeginCombo("Map", current.empty() ? "Procedural sky" : current.c_str())) {
+                if (ImGui::Selectable("Procedural sky", current.empty())) m_Renderer->RequestEnvironment("");
+                for (const auto& f : m_Renderer->ListEnvironments())
+                    if (ImGui::Selectable(f.c_str(), current == f)) m_Renderer->RequestEnvironment(f);
+                ImGui::EndCombo();
+            }
         }
-        if (ImGui::Button("Rescan folder")) ScanEnvironments();
-        ImGui::Checkbox("Show sky", &m_Env->Show);
-        ImGui::SliderFloat("Sky blur", &m_Env->Blur, 0.0f, 6.0f);
-        ImGui::SliderFloat("Rotation", &m_Env->RotationDegrees, -180.0f, 180.0f);
+        ImGui::Checkbox("Show sky", &m_Renderer->GetEnvironment().Show);
+        ImGui::SliderFloat("Sky blur", &m_Renderer->GetEnvironment().Blur, 0.0f, 6.0f);
+        ImGui::SliderFloat("Rotation", &m_Renderer->GetEnvironment().RotationDegrees, -180.0f, 180.0f);
         ImGui::SliderFloat("Intensity", &m_Scene.AmbientIntensity, 0.0f, 4.0f);
 
         ImGui::Separator();
         ImGui::TextUnformatted("Display");
-        ImGui::SliderFloat("Exposure", &m_PostSettings.Exposure, 0.1f, 4.0f);
+        ImGui::SliderFloat("Exposure", &m_Renderer->Post.Exposure, 0.1f, 4.0f);
         const char* modes[] = { "None (clamp)", "Reinhard", "ACES" };
-        ImGui::Combo("Tone map", &m_PostSettings.ToneMap, modes, 3);
-        ImGui::Checkbox("Gamma correction", &m_PostSettings.Gamma);
-        ImGui::Checkbox("FXAA", &m_PostSettings.FXAA);
+        ImGui::Combo("Tone map", &m_Renderer->Post.ToneMap, modes, 3);
+        ImGui::Checkbox("Gamma correction", &m_Renderer->Post.Gamma);
+        ImGui::Checkbox("FXAA", &m_Renderer->Post.FXAA);
 
         ImGui::Separator();
         ImGui::TextUnformatted("Ambient occlusion");
-        ImGui::Checkbox("AO enabled", &m_PostSettings.AOEnabled);
-        ImGui::SliderFloat("AO strength", &m_PostSettings.AOStrength, 0.0f, 1.0f);
-        ImGui::SliderFloat("AO radius", &m_SSAO->Radius, 0.1f, 2.0f);
-        ImGui::SliderFloat("AO bias", &m_SSAO->Bias, 0.0f, 0.1f, "%.3f");
-        ImGui::SliderInt("AO samples", &m_SSAO->Samples, 4, 32);
-        ImGui::Checkbox("Show AO only", &m_PostSettings.AODebug);
+        ImGui::Checkbox("AO enabled", &m_Renderer->Post.AOEnabled);
+        ImGui::SliderFloat("AO strength", &m_Renderer->Post.AOStrength, 0.0f, 1.0f);
+        ImGui::SliderFloat("AO radius", &m_Renderer->GetSSAO().Radius, 0.1f, 2.0f);
+        ImGui::SliderFloat("AO bias", &m_Renderer->GetSSAO().Bias, 0.0f, 0.1f, "%.3f");
+        ImGui::SliderInt("AO samples", &m_Renderer->GetSSAO().Samples, 4, 32);
+        ImGui::Checkbox("Show AO only", &m_Renderer->Post.AODebug);
 
         ImGui::Separator();
         ImGui::TextUnformatted("Bloom");
-        ImGui::Checkbox("Bloom enabled", &m_PostSettings.BloomEnabled);
-        ImGui::SliderFloat("Bloom intensity", &m_PostSettings.BloomIntensity, 0.0f, 1.0f);
-        ImGui::SliderFloat("Bloom threshold", &m_Bloom->Threshold, 0.0f, 5.0f);
-        ImGui::SliderFloat("Bloom knee", &m_Bloom->Knee, 0.0f, 1.0f);
-        ImGui::SliderFloat("Bloom radius", &m_Bloom->Radius, 0.5f, 2.0f);
-        ImGui::SliderFloat("Bloom max brightness", &m_Bloom->MaxBrightness, 1.0f, 30.0f);
+        ImGui::Checkbox("Bloom enabled", &m_Renderer->Post.BloomEnabled);
+        ImGui::SliderFloat("Bloom intensity", &m_Renderer->Post.BloomIntensity, 0.0f, 1.0f);
+        ImGui::SliderFloat("Bloom threshold", &m_Renderer->GetBloom().Threshold, 0.0f, 5.0f);
+        ImGui::SliderFloat("Bloom knee", &m_Renderer->GetBloom().Knee, 0.0f, 1.0f);
+        ImGui::SliderFloat("Bloom radius", &m_Renderer->GetBloom().Radius, 0.5f, 2.0f);
+        ImGui::SliderFloat("Bloom max brightness", &m_Renderer->GetBloom().MaxBrightness, 1.0f, 30.0f);
 
         ImGui::Separator();
         ImGui::TextUnformatted("Physics");
-        if (ImGui::SliderFloat("Gravity", &m_Gravity, 0.0f, 30.0f)) m_Physics->SetGravity(m_Gravity);
+        if (ImGui::SliderFloat("Gravity", &m_Gravity, 0.0f, 30.0f)) m_Session->Physics().SetGravity(m_Gravity);
         ImGui::Checkbox("Show colliders", &m_ShowColliders);
-        ImGui::Text("Bodies: %u", m_Physics->BodyCount());
+        ImGui::Text("Bodies: %u", m_Session->Physics().BodyCount());
         if (ImGui::Button("Spawn box"))  SpawnBody(false, m_Camera->Position + m_Camera->GetFront() * 3.0f, glm::vec3(0.0f), true);
         ImGui::SameLine();
         if (ImGui::Button("Spawn ball")) SpawnBody(true, m_Camera->Position + m_Camera->GetFront() * 3.0f, glm::vec3(0.0f), true);
@@ -884,13 +688,13 @@ private:
 
         ImGui::Separator();
         ImGui::TextUnformatted("Audio");
-        if (!m_Audio->IsReady()) {
+        if (!m_Session->Audio().IsReady()) {
             ImGui::TextDisabled("No audio device: sound is off");
         }
         else {
-            float master = m_Audio->GetMasterVolume();
-            if (ImGui::SliderFloat("Master volume", &master, 0.0f, 1.0f)) m_Audio->SetMasterVolume(master);
-            ImGui::Text("Voices: %u", m_Audio->VoiceCount());
+            float master = m_Session->Audio().GetMasterVolume();
+            if (ImGui::SliderFloat("Master volume", &master, 0.0f, 1.0f)) m_Session->Audio().SetMasterVolume(master);
+            ImGui::Text("Voices: %u", m_Session->Audio().VoiceCount());
         }
 
         ImGui::Separator();
@@ -899,15 +703,15 @@ private:
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("During Play, show the scene's primary Camera entity.\n"
                 "Untick to fly the editor camera (and use editor shortcuts) while the game runs.");
-        if (m_Scripts->IsRunning()) {
-            ImGui::Text("Scripts running: %u", m_Scripts->InstanceCount());
+        if (m_Session->Scripts().IsRunning()) {
+            ImGui::Text("Scripts running: %u", m_Session->Scripts().InstanceCount());
             ImGui::SameLine();
             if (ImGui::Button("Reload (F5)")) m_ReloadScripts = true;
         }
         else {
             ImGui::TextDisabled("Scripts load when Play starts");
         }
-        for (const auto& err : m_Scripts->RecentErrors()) {
+        for (const auto& err : m_Session->Scripts().RecentErrors()) {
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.3f, 1.0f));
             ImGui::TextWrapped("%s", err.c_str());
             ImGui::PopStyleColor();
@@ -975,11 +779,11 @@ private:
         ImGui::SameLine();
         if (ImGui::Button("+ Prefab")) ImGui::OpenPopup("PlacePrefab");
         if (ImGui::BeginPopup("PlacePrefab")) {
-            const auto prefabs = m_Prefabs->List();
+            const auto prefabs = m_Session->Prefabs().List();
             if (prefabs.empty()) ImGui::TextDisabled("No prefabs yet: Inspector > Save as prefab");
             for (const auto& p : prefabs) {
                 if (!ImGui::MenuItem(std::filesystem::path(p).stem().string().c_str())) continue;
-                Entity e = m_Prefabs->Instantiate(m_Scene, p);
+                Entity e = m_Session->Prefabs().Instantiate(m_Scene, p);
                 if (e) {
                     e.Get<TransformComponent>().Position = m_Camera->Position + m_Camera->GetFront() * 4.0f;
                     m_Selected = e.GetHandle();
@@ -1011,8 +815,8 @@ private:
 
         if (e.Has<PrefabComponent>()) {
             const std::string path = e.Get<PrefabComponent>().Path;
-            const bool exists = m_Prefabs->Exists(path);
-            const bool modified = m_Prefabs->IsModified(e);
+            const bool exists = m_Session->Prefabs().Exists(path);
+            const bool modified = m_Session->Prefabs().IsModified(e);
             ImGui::TextColored(kPrefabColor, "Prefab  %s", std::filesystem::path(path).filename().string().c_str());
             ImGui::SameLine();
             if (!exists)       ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "(file missing)");
@@ -1020,7 +824,7 @@ private:
 
             ImGui::BeginDisabled(playing || !modified);
             if (ImGui::Button("Apply")) {
-                const int n = m_Prefabs->Apply(m_Scene, e);
+                const int n = m_Session->Prefabs().Apply(m_Scene, e);
                 m_PrefabStatus = n < 0 ? "Could not write the prefab" : "Applied: " + std::to_string(n) + " other instance(s) updated";
                 m_PrefabStatusUntil = m_RunTime + 4.0f;
             }
@@ -1029,7 +833,7 @@ private:
             ImGui::EndDisabled();
             ImGui::SameLine();
             ImGui::BeginDisabled(!modified || !exists);
-            if (ImGui::Button("Revert")) m_Prefabs->Revert(e);
+            if (ImGui::Button("Revert")) m_Session->Prefabs().Revert(e);
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Throw away this instance's changes: take the prefab's components again");
             ImGui::EndDisabled();
@@ -1058,10 +862,10 @@ private:
                 ImGui::SameLine(0, 0);
                 ImGui::TextUnformatted(".json");
                 const std::string path = PrefabLibrary::Resolve(m_PrefabName);
-                const bool exists = m_Prefabs->Exists(path);
+                const bool exists = m_Session->Prefabs().Exists(path);
                 ImGui::BeginDisabled(m_PrefabName[0] == '\0');
                 if (ImGui::Button(exists ? "Overwrite" : "Save")) {
-                    if (m_Prefabs->Save(e, path)) {
+                    if (m_Session->Prefabs().Save(e, path)) {
                         m_PrefabStatus = "Saved " + path;
                         m_PrefabStatusUntil = m_RunTime + 4.0f;
                     }
@@ -1083,7 +887,7 @@ private:
         ImVec2 avail = ImGui::GetContentRegionAvail();
         m_ViewportSize = avail;
 
-        ImGui::Image((ImTextureID)(intptr_t)m_Post->GetOutput(),
+        ImGui::Image((ImTextureID)(intptr_t)m_Renderer->GetOutput(),
             avail, ImVec2(0, 1), ImVec2(1, 0));
 
         const bool imageHovered = ImGui::IsItemHovered();
@@ -1126,7 +930,8 @@ private:
 
         if (m_ShowColliders && !m_ViewingGame) DrawColliders(origin, size);
         if (!m_ViewingGame) DrawCameraFrustums(origin, size);
-        DrawScriptText(origin, size);
+        if (m_PlayState != PlayState::Edit)   // kept while paused: the scripts did not run again
+            DrawScriptText(ImGui::GetWindowDrawList(), m_GameFont, m_Session->Scripts().Texts(), origin, size);
         if (m_ViewingGame) {
             ImGui::GetWindowDrawList()->AddText(ImVec2(origin.x + 8.0f, origin.y + size.y - 22.0f),
                 IM_COL32(255, 255, 255, 110), "Game camera (Tools > Play through game camera)");
@@ -1169,9 +974,9 @@ private:
         if (!m_ViewingGame && imageHovered && !gizmoBusy && !navigating && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !m_MouseLook) {
             ImVec2 mouse = ImGui::GetMousePos();
             int px = (int)(mouse.x - origin.x);
-            int py = (int)m_Framebuffer->GetHeight() - 1 - (int)(mouse.y - origin.y);
+            int py = (int)m_Renderer->GetFramebuffer().GetHeight() - 1 - (int)(mouse.y - origin.y);
 
-            int id = m_Framebuffer->ReadEntityID(px, py);
+            int id = m_Renderer->GetFramebuffer().ReadEntityID(px, py);
             entt::entity picked = id < 0 ? entt::null : static_cast<entt::entity>(id);
             m_Selected = (picked != entt::null && m_Scene.Registry().valid(picked)) ? picked : entt::null;
         }
@@ -1368,7 +1173,7 @@ private:
                 ImGui::EndCombo();
             }
             ImGui::SameLine();
-            if (ImGui::SmallButton("Preview")) m_Audio->Play(a.Clip, a.Volume, a.Pitch);
+            if (ImGui::SmallButton("Preview")) m_Session->Audio().Play(a.Clip, a.Volume, a.Pitch);
             ImGui::SliderFloat("Volume##audio", &a.Volume, 0.0f, 2.0f);
             ImGui::SliderFloat("Pitch##audio", &a.Pitch, 0.25f, 3.0f);
             ImGui::Checkbox("Loop", &a.Loop);
@@ -1509,34 +1314,23 @@ private:
         m_Spawned.pop_back();
     }
 
-    std::shared_ptr<Engine::Texture2D> CreateCheckerTexture() {
-        const uint32_t size = 256, cell = 32;
-        std::vector<uint8_t> pixels(size * size * 4);
-        for (uint32_t y = 0; y < size; y++) {
-            for (uint32_t x = 0; x < size; x++) {
-                bool light = ((x / cell) + (y / cell)) % 2 == 0;
-                uint8_t c = light ? 230 : 60;
-                uint8_t* p = &pixels[(y * size + x) * 4];
-                p[0] = c; p[1] = c; p[2] = light ? 255 : c; p[3] = 255;
-            }
-        }
-        return std::make_shared<Engine::Texture2D>(size, size, pixels.data());
-    }
-
     float AspectRatio() {
         auto& w = GetWindow();
         return w.GetHeight() ? (float)w.GetWidth() / (float)w.GetHeight() : 1.0f;
     }
 
+    // Declaration order matters: the scene and resources must outlive the session that uses them
     Engine::Scene m_Scene;
-    std::unique_ptr<Engine::Shader> m_Shader;
+    std::unique_ptr<Engine::ResourceLibrary> m_Resources;   // named meshes/textures for files and scripts
+    std::unique_ptr<Engine::SceneRenderer> m_Renderer;      // the whole frame pipeline
+    std::unique_ptr<Engine::GameSession> m_Session;         // physics, scripts, audio, prefabs (Play mode)
     std::unique_ptr<Engine::Camera> m_Camera;          // the editor camera (Maya-style navigation)
     std::unique_ptr<Engine::Camera> m_GameCamera;      // follows the scene's primary CameraComponent
     bool m_PlayThroughGameCamera = true;
     bool m_ViewingGame = false;                        // this frame renders through m_GameCamera
     ImFont* m_GameFont = nullptr;                      // large font for ui.text (null: default font)
-    std::unique_ptr<Engine::Framebuffer> m_Framebuffer;
-    std::shared_ptr<Engine::Mesh> m_Cube;
+    std::shared_ptr<Engine::Mesh> m_Cube;              // shortcuts into m_Resources
+    std::shared_ptr<Engine::Mesh> m_Sphere;
     std::shared_ptr<Engine::Texture2D> m_Checker;
     std::shared_ptr<Engine::Mesh>  m_Plane;
     std::shared_ptr<Engine::Model> m_ModelResource;
@@ -1546,22 +1340,6 @@ private:
     std::string m_SceneFile = "scene.json";      // in Assets/Scenes
     std::string m_PendingSceneLoad;              // queued Load: applied at the start of OnUpdate
     char m_SaveAsName[64] = {};
-    std::unique_ptr<Engine::PointShadowArray> m_PointShadows;
-    std::unique_ptr<Engine::DirectionalShadowMap> m_SunShadowMap;
-    std::unique_ptr<Engine::Shader> m_SunShader;
-    Engine::ShadowContext m_Shadows;
-    std::unique_ptr<Engine::Shader> m_ShadowShader;
-    std::unique_ptr<Engine::PostProcess> m_Post;
-    std::unique_ptr<Engine::Shader> m_PostShader;
-    Engine::PostSettings m_PostSettings;
-    std::shared_ptr<Engine::Mesh> m_Sphere;
-    std::unique_ptr<Engine::Environment> m_Env;
-    std::vector<std::string> m_EnvFiles;     // .hdr files found in Assets/Environments
-    int m_PendingEnv = -1;                   // -1 none, 0 procedural, n = file n-1
-    std::unique_ptr<Engine::SSAO> m_SSAO;
-    std::unique_ptr<Engine::Bloom> m_Bloom;
-    std::unique_ptr<Engine::Shader> m_SSAOShader, m_SSAOBlurShader, m_BloomDown, m_BloomUp;
-    std::unique_ptr<Engine::Shader> m_FXAAShader;
 
     enum class PlayState { Edit, Play, Paused };
     enum class PlayCmd { None, Play, Stop, Pause, Step, Restart };
@@ -1573,13 +1351,9 @@ private:
     bool m_StepFrame = false;
     bool m_PDown = false, m_EscDown = false;
 
-    std::unique_ptr<Engine::PhysicsWorld> m_Physics;
-    std::unique_ptr<Engine::AudioEngine> m_Audio;      // before m_Scripts: scripts hold a pointer to it
-    std::unique_ptr<Engine::PrefabLibrary> m_Prefabs;  // before m_Scripts: same
     char m_PrefabName[64] = {};
     std::string m_PrefabStatus;
     float m_PrefabStatusUntil = 0.0f;
-    std::unique_ptr<Engine::ScriptEngine> m_Scripts;
     bool  m_ReloadScripts = false;   // queued: applied at the start of the next OnUpdate
     float m_RunTime = 0.0f;
     float m_QuitAfter = 0.0f;        // MDB_QUIT_AFTER test hook (0 = never)

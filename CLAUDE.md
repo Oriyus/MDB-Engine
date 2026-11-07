@@ -1,7 +1,7 @@
 # MDB Engine
 
 A from-scratch 3D game engine and editor for Windows. C++20, OpenGL 4.5 (core, DSA style), built with CMake.
-The engine is a static library (`Engine`) and the app that uses it is `Sandbox`.
+The engine is a static library (`Engine`). Two apps use it: `Sandbox` (the editor) and `Game` (the standalone player, no editor).
 
 ## Build
 
@@ -10,13 +10,17 @@ Visual Studio 2026 generator. Dependencies download through CMake FetchContent.
 ```powershell
 cmake -S . -B build -G "Visual Studio 18 2026" -Wno-dev
 cmake --build build --config Debug
-.\build\bin\Debug\Sandbox.exe
+.\build\bin\Debug\Sandbox.exe                   # the editor
+.\build\bin\Debug\Game.exe [--scene x.json]     # the game (settings in Assets/game.json)
+cmake --build build --config Release --target package_game   # build/dist/Release: Game.exe + Assets, ready to zip
 ```
+
+Game.exe also takes `--fullscreen`, `--windowed`, `--width N`, `--height N` and `--quit-after <seconds>` (a test hook). Release builds of Game have no console window. Its keys: Esc pauses (then R restarts, Q quits), and F11 or Alt+Enter toggles full screen.
 
 - After adding or deleting a source file, re-run the configure line first. `Engine/CMakeLists.txt` collects sources with `file(GLOB_RECURSE ...)`. `Sandbox/CMakeLists.txt` lists its sources by hand, so add new Sandbox files there.
 - Edits to existing files only need the build line.
 - Shaders are read from disk at runtime. **F5** in the app reloads them, so no rebuild is needed.
-- The absolute asset path is the `ASSET_DIR` compile definition, set in `Sandbox/CMakeLists.txt`.
+- The absolute asset path is the `ASSET_DIR` compile definition, set in `Sandbox/CMakeLists.txt` and `Game/CMakeLists.txt`. The Game looks for an `Assets` folder next to its exe first (a packaged build) and falls back to `ASSET_DIR`. Engine classes take the asset directory as a constructor argument and never read `ASSET_DIR` themselves.
 - Unattended test runs: the environment variables `MDB_DEMO=script` or `coinrush` (build that example level), `MDB_AUTOPLAY=1` (press Play), `MDB_TEST_SCRIPT=Scripts/x.lua` (add a "Test" entity running it), `MDB_SCENE=<file>` / `MDB_SAVE_SCENE=<file>` (load first / save last, in `Assets/Scenes`) and `MDB_QUIT_AFTER=<seconds>`. Redirect stdout to read the log.
 
 ## Pitfalls (these cost time before)
@@ -33,6 +37,7 @@ cmake --build build --config Debug
 - In sol2, `table.get_or<T>(key, def)` is ambiguous when `def` is already a `T` rvalue. Use `get<sol::optional<T>>(key).value_or(def)`.
 - miniaudio is fetched with `SOURCE_SUBDIR header-only` (a folder that does not exist), so its own CMake project is not built. Only `miniaudio.h` is used.
 - GLFW key state is polled once per frame. Simulated key taps (down and up in one go, like WScript `SendKeys`) are never seen, so hold the key across frames.
+- A forward declaration must use the same keyword as the definition (`struct ShadowContext`, not `class`). MSVC puts the keyword in the mangled name, so a mismatch gives LNK2019 depending on include order.
 - Windows PowerShell 5.1 `Set-Content -Encoding utf8` writes a BOM. Edit source files with the Edit tool or sed instead.
 
 ## Layout
@@ -42,13 +47,16 @@ Engine/src/
   Core/       Application, Window, Input, Log, ImGuiLayer, EntryPoint.h (owns main)
   Renderer/   Shader, Buffer, VertexArray, Texture, Camera, Mesh, Model, Material, Renderable,
               Framebuffer, ShadowMap (PointShadowArray, DirectionalShadowMap), Environment (IBL),
-              PostProcess, SSAO, Bloom, RenderStats
+              PostProcess, SSAO, Bloom, RenderStats, SceneRenderer (the whole frame pipeline)
   Scene/      Scene, Entity, Components, SceneSerializer, EntityJson (component <-> JSON), Prefab (PrefabLibrary)
+  Runtime/    ResourceLibrary (named meshes/textures), GameSession (physics+scripts+audio+prefabs), GameUI (script text, game font)
   Physics/    PhysicsWorld (Jolt): bodies, contact events, raycasts
   Scripting/  ScriptEngine (Lua 5.4 + sol2). The full script API is documented in ScriptEngine.h
   Audio/      AudioEngine (miniaudio): one-shots, entity sources, listener
 Sandbox/src/main.cpp         the editor app (SandboxApp)
 Sandbox/src/DemoLevels.cpp   code-built example levels (Script demo, Coin Rush)
+Game/src/main.cpp            the standalone game (GameApp): config, pause menu, full screen, restart
+Assets/game.json             the game's title, start scene, window size, fullscreen, vsync
 Assets/{Shaders,Models,Scenes,Environments,Scripts,Sounds,Prefabs}
 Tools/generate_sounds.ps1    synthesizes the example sounds in Assets/Sounds (deterministic)
 vendor/{glad,stb,imguizmo}
@@ -58,7 +66,8 @@ Dependencies: GLFW, glad, GLM, spdlog, EnTT, Dear ImGui (docking), ImGuizmo, ass
 
 ## Architecture
 
-- **Application** runs the loop and calls the virtual hooks `OnStart`, `OnUpdate(dt)`, `OnImGui`, `OnShutdown`. The game defines `Engine::CreateApplication()`.
+- **Application** runs the loop and calls the virtual hooks `OnStart`, `OnUpdate(dt)`, `OnImGui`, `OnShutdown`. Each app defines `Engine::CreateApplication()`. `Application(WindowProps)` sets the title, size, vsync and fullscreen (`Window::SetFullscreen` toggles at runtime). `Application::GetCommandLineArgs()` holds argv.
+- **Shared runtime, used by both apps.** `SceneRenderer` renders a scene through a camera to a texture: the editor shows it in the Viewport, the game draws it full window with ImGui's background draw list. It also owns environment requests (baked at the next Render) and Apply/GatherSettings for the render part of `SceneSettings`. `GameSession` owns PhysicsWorld, AudioEngine, PrefabLibrary and ScriptEngine. It provides Start/Stop/Update (in the right order), restart requests, the game camera and the listener. Snapshots on Play/Stop and restart are the app's job (`Scene::Capture`/`Restore`). `ResourceLibrary` provides the named resources and must outlive the session.
 - **ECS (EnTT).** `Entity` is a thin handle (`Add<T>`, `Get<T>`, `Has<T>`, `Remove<T>`). Every entity gets `TagComponent` and `TransformComponent`.
   Components: `MeshRenderer`, `PointLight`, `DirectionalLight`, `Spin`, `Orbit`, `RigidBody`, `Script`, `Camera`, `AudioSource`.
   Transforms store position, Euler rotation in radians, and scale.
@@ -71,7 +80,7 @@ Dependencies: GLFW, glad, GLM, spdlog, EnTT, Dear ImGui (docking), ImGuizmo, ass
 - **Scene files** (`Assets/Scenes/scene.json`) store resource **names** ("cube", "plane", "sphere", "model", "checker"), mapped back to live resources by `MakeResources()` in the Sandbox. A `settings` block (`SceneSettings`) holds the environment map name, sky, ambient, post, AO, bloom, shadows, gravity and the editor camera. Every section and field is optional, so older files load fine. The Sandbox fills it with `GatherSettings` and `ApplySettings`. Load is queued and applied at the start of `OnUpdate`. `demo.json` is the saved script demo. In version 3, an unmodified prefab instance is stored as `name` + `transform` + `prefab` and gets its components from the prefab file when the scene loads.
 - **Prefabs** (`PrefabLibrary`). A prefab is one entity's components in `Assets/Prefabs/<name>.json` (`{ version, name, transform, components }`, where the transform is the default rotation and scale). Instances carry `PrefabComponent{ Path }`. An instance whose components differ from the prefab is "modified". It is saved with a full copy (still linked) until Apply (writes the prefab and updates every unmodified instance) or Revert. Cached prefabs are re-read when the file changes, and are normalised through a scratch entity, so hand-edited numbers still compare equal. Instance overrides are whole-entity only (no per-field overrides), and prefabs do not nest.
 
-## Render pipeline (per frame)
+## Render pipeline (per frame, `SceneRenderer::Render`)
 
 1. Shadow passes: up to 4 point lights (cubemap array, 6 faces each) and one sun (ortho 2D map).
 2. Scene into an **HDR framebuffer** (RGBA16F color, an `R32I` entity-ID attachment used for click picking, and a depth texture).
@@ -113,4 +122,4 @@ Color spaces: lighting is done in linear space. Color pickers and albedo colors 
 - Models are imported with `PreTransformVertices`, so there is no node hierarchy or skeletal animation.
 - No transparency or blending pass. Materials with alpha render opaque.
 - The sun shadow area is fixed around the origin (no cascades).
-- Candidate next steps: a standalone game runtime without the editor, undo/redo, Ctrl+D duplicate, entity parenting, per-field prefab overrides, more UI for scripts (images, buttons), mesh/convex colliders, skeletal animation, transparency, batching/instancing, a Vulkan backend.
+- Candidate next steps: undo/redo, Ctrl+D duplicate, entity parenting, per-field prefab overrides, more UI for scripts (images, buttons), mesh/convex colliders, skeletal animation, transparency, batching/instancing, a Vulkan backend.

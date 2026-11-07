@@ -10,7 +10,7 @@ namespace Engine {
     class Entity;
     class Camera;
     class Shader;
-    class ShadowContext;
+    struct ShadowContext;
     class Environment;
 
     // A copy of one entity's component values, used to rewind after Play

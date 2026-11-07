@@ -7,6 +7,7 @@ int main(int argc, char** argv) {
     Engine::Log::Init();
     ENGINE_INFO("MDB Engine starting");
 
+    Engine::Application::SetCommandLineArgs(argc, argv);
     auto app = Engine::CreateApplication();
     app->Run();
     app.reset();

@@ -55,7 +55,33 @@ namespace Engine {
         glEnable(GL_CULL_FACE);
         glCullFace(GL_BACK);
         SetVSync(props.VSync);
-        glViewport(0, 0, (int)props.Width, (int)props.Height);
+
+        // The framebuffer can differ from the requested size (display scaling): use the real one
+        int fbw = 0, fbh = 0;
+        glfwGetFramebufferSize(m_Window, &fbw, &fbh);
+        m_Data.Width = (uint32_t)fbw;
+        m_Data.Height = (uint32_t)fbh;
+        glViewport(0, 0, fbw, fbh);
+
+        // Always created windowed, then switched: that way there is a windowed size to return to
+        m_Data.Fullscreen = false;
+        if (props.Fullscreen) SetFullscreen(true);
+    }
+
+    void Window::SetFullscreen(bool fullscreen) {
+        if (fullscreen == m_Data.Fullscreen) return;
+        if (fullscreen) {
+            glfwGetWindowPos(m_Window, &m_WindowedX, &m_WindowedY);
+            glfwGetWindowSize(m_Window, &m_WindowedW, &m_WindowedH);
+            GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+            const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+            glfwSetWindowMonitor(m_Window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
+        }
+        else {
+            glfwSetWindowMonitor(m_Window, nullptr, m_WindowedX, m_WindowedY, m_WindowedW, m_WindowedH, 0);
+        }
+        m_Data.Fullscreen = fullscreen;
+        SetVSync(m_Data.VSync);     // some drivers drop the swap interval on a mode change
     }
 
     Window::~Window() {

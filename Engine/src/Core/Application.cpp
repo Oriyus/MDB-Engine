@@ -6,11 +6,11 @@
 
 namespace Engine {
 
-    Application::Application(const std::string& name) : m_Name(name) {
+    Application::Application(const std::string& name) : Application([&] { WindowProps p; p.Title = name; return p; }()) {}
+
+    Application::Application(const WindowProps& props) : m_Name(props.Title) {
         s_Instance = this;
 
-        WindowProps props;
-        props.Title = name;
         m_Window = std::make_unique<Window>(props);
         m_ImGui = std::make_unique<ImGuiLayer>(m_Window->GetNativeWindow());
     }
@@ -20,6 +20,9 @@ namespace Engine {
         m_Window.reset();
         s_Instance = nullptr;
     }
+
+    void Application::SetCommandLineArgs(int argc, char** argv) { s_Args.assign(argv, argv + argc); }
+    const std::vector<std::string>& Application::GetCommandLineArgs() { return s_Args; }
 
     void Application::Run() {
         OnStart();
@@ -36,7 +39,7 @@ namespace Engine {
             // FPS counter in the title bar
             fpsTimer += dt;
             frameCount++;
-            if (fpsTimer >= 1.0) {
+            if (fpsTimer >= 1.0 && m_ShowFpsInTitle) {
                 m_Window->SetTitle(m_Name + " | " + std::to_string(frameCount) + " FPS");
                 fpsTimer = 0.0;
                 frameCount = 0;
