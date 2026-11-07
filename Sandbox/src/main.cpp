@@ -1001,25 +1001,30 @@ private:
             const bool loadable = prefabs.CanLoad(path);
             const auto overrides = loadable ? prefabs.ListOverrides(e) : std::vector<std::string>{};
             const bool modified = !overrides.empty();
-            ImGui::TextColored(kPrefabColor, "Prefab  %s", std::filesystem::path(path).filename().string().c_str());
+            const bool isPart = e.Get<PrefabComponent>().Node != 0;
+            ImGui::TextColored(kPrefabColor, isPart ? "Part of prefab  %s" : "Prefab  %s",
+                std::filesystem::path(path).filename().string().c_str());
             ImGui::SameLine();
             if (!loadable)     ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "(file missing or broken)");
             else if (modified) ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "(%d override%s)", (int)overrides.size(), overrides.size() == 1 ? "" : "s");
 
-            ImGui::BeginDisabled(playing || !modified);
-            if (ImGui::Button("Apply all")) {
+            // Apply works on the whole instance (its root and every part), whichever part is selected.
+            // Always available: adding or deleting children changes the instance without overriding anything.
+            ImGui::BeginDisabled(playing || !loadable);
+            if (ImGui::Button("Apply to prefab")) {
                 const int n = prefabs.Apply(m_Scene, e);
                 m_PrefabStatus = n < 0 ? "Could not write the prefab" : "Applied: " + std::to_string(n) + " other instance(s) updated";
                 m_PrefabStatusUntil = m_RunTime + 4.0f;
             }
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("Write this entity's components to %s.\nOther instances follow, keeping their own overrides.", path.c_str());
+                ImGui::SetTooltip("Write this whole instance (root, parts and their children) to %s.\n"
+                    "Other instances follow, keeping their own overrides.", path.c_str());
             ImGui::EndDisabled();
             ImGui::SameLine();
             ImGui::BeginDisabled(!modified);
             if (ImGui::Button("Revert all")) prefabs.Revert(e);
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("Drop every override: take the prefab's components again");
+                ImGui::SetTooltip("Drop every override of this entity: take its prefab node again");
             ImGui::EndDisabled();
             ImGui::SameLine();
             if (ImGui::Button("Unpack")) e.Remove<PrefabComponent>();

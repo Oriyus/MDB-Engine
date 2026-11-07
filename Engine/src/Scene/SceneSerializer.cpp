@@ -104,14 +104,27 @@ namespace Engine {
             j["id"] = m_Scene.GetID(handle);
             if (e.Has<ParentComponent>()) j["parent"] = e.Get<ParentComponent>().Parent;
 
-            // A prefab instance is stored as its link plus only what it overrides. If the prefab
-            // can't be read right now (or there's no library), it keeps a full copy instead, so
-            // saving never loses data.
-            const bool instance = e.Has<PrefabComponent>();
-            if (instance) j["prefab"] = e.Get<PrefabComponent>().Path;
-            if (instance && m_Prefabs && m_Prefabs->CanLoad(e.Get<PrefabComponent>().Path)) {
-                json overrides = m_Prefabs->GetOverrides(e);
-                if (!overrides.empty()) j["overrides"] = std::move(overrides);
+            // A prefab part is stored as its link (prefab + node) plus only what it overrides. A
+            // child part's transform is left out unless it was moved, so moving it in the prefab
+            // reaches every instance. The root lists child nodes this instance deleted. If the
+            // prefab can't be read right now (or there's no library), a full copy is stored instead,
+            // so saving never loses data.
+            if (e.Has<PrefabComponent>()) {
+                const auto& pc = e.Get<PrefabComponent>();
+                j["prefab"] = pc.Path;
+                if (pc.Node != 0) j["node"] = pc.Node;
+                if (m_Prefabs && m_Prefabs->HasNode(pc.Path, pc.Node)) {
+                    json overrides = m_Prefabs->GetOverrides(e);
+                    if (!overrides.empty()) j["overrides"] = std::move(overrides);
+                    if (pc.Node != 0 && !m_Prefabs->TransformOverridden(e)) j.erase("transform");
+                    if (pc.Node == 0) {
+                        const auto removed = m_Prefabs->MissingNodes(m_Scene, e);
+                        if (!removed.empty()) j["removedNodes"] = removed;
+                    }
+                }
+                else {
+                    j.update(ComponentsToJson(e, m_Resources));
+                }
             }
             else {
                 j.update(ComponentsToJson(e, m_Resources));
@@ -146,28 +159,37 @@ namespace Engine {
         // Parse everything into a temporary list first so a bad file can't wreck the live scene
         Scene temp;   // entities are built here, then the registry is swapped in
 
+        std::vector<std::pair<entt::entity, std::vector<uint64_t>>> instanceRoots;   // synced once all are loaded
         try {
             for (const auto& j : root.at("entities")) {
                 Entity e = temp.CreateEntity(j.at("name").get<std::string>());
-                TransformFromJson(j.at("transform"), e.Get<TransformComponent>());
+                if (j.contains("transform")) TransformFromJson(j["transform"], e.Get<TransformComponent>());
                 if (j.contains("id")) e.Add<IDComponent>(IDComponent{ j["id"].get<uint64_t>() });   // else the new one stays
                 if (j.contains("parent")) e.Add<ParentComponent>(ParentComponent{ j["parent"].get<uint64_t>() });
 
                 const std::string prefab = j.value("prefab", std::string());
+                const uint64_t node = j.value("node", uint64_t(0));
                 if (!prefab.empty() && !HasComponentKeys(j)) {
-                    // A link: the prefab file as it is now, with this instance's overrides on top
+                    // A link: the prefab node as it is now, with this part's overrides on top. A child
+                    // part without a stored transform takes its node's.
                     const json overrides = j.contains("overrides") ? j["overrides"] : json::object();
-                    if (!m_Prefabs || !m_Prefabs->ApplyPrefabTo(e, prefab, overrides)) {
+                    if (!m_Prefabs || !m_Prefabs->ApplyPrefabTo(e, prefab, node, overrides, !j.contains("transform"))) {
                         ENGINE_WARN("'{}' links to prefab {}, which could not be loaded: kept as an empty entity",
                             e.Get<TagComponent>().Tag, prefab);
-                        e.Add<PrefabComponent>(PrefabComponent{ prefab });
+                        e.Add<PrefabComponent>(PrefabComponent{ prefab, node });
                     }
+                    if (node == 0)
+                        instanceRoots.emplace_back(e.GetHandle(), j.value("removedNodes", std::vector<uint64_t>{}));
                 }
                 else {
                     ComponentsFromJson(j, e, m_Resources);
-                    if (!prefab.empty()) e.Add<PrefabComponent>(PrefabComponent{ prefab });   // an older full-copy instance (saved as overrides next time)
+                    if (!prefab.empty()) e.Add<PrefabComponent>(PrefabComponent{ prefab, node });   // an older full-copy instance
                 }
             }
+            // Bring every instance's structure up to date with its prefab: parts the prefab gained
+            // appear (unless this instance deleted them), parts it lost become plain entities
+            if (m_Prefabs)
+                for (auto& [h, removed] : instanceRoots) m_Prefabs->SyncInstance(temp, Entity(h, &temp), removed);
         }
         catch (const std::exception& ex) {
             ENGINE_ERROR("Scene file is malformed: {}", ex.what());

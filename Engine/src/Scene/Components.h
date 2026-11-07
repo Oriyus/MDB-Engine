@@ -118,10 +118,12 @@ namespace Engine {
         float MaxDistance = 25.0f;    // stops getting quieter beyond this
     };
 
-    // Marks an entity as an instance of a prefab file (see Scene/Prefab.h). Path is relative to the
-    // asset directory, e.g. "Prefabs/coin.json". Unmodified instances are saved as just a link.
+    // Marks an entity as part of a prefab instance (see Scene/Prefab.h). Path is relative to the
+    // asset directory, e.g. "Prefabs/coin.json". Node says which part of the prefab: 0 is the root,
+    // other values are the keys of the prefab's child nodes.
     struct PrefabComponent {
         std::string Path;
+        uint64_t Node = 0;
     };
 
     // A Lua script driving this entity while playing (see Scripting/ScriptEngine.h).

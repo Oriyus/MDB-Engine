@@ -156,7 +156,8 @@ namespace Engine {
     bool HasComponentKeys(const json& j) {
         for (auto it = j.begin(); it != j.end(); ++it)
             if (it.key() != "name" && it.key() != "transform" && it.key() != "prefab"
-                && it.key() != "id" && it.key() != "parent" && it.key() != "overrides") return true;
+                && it.key() != "id" && it.key() != "parent" && it.key() != "overrides"
+                && it.key() != "node" && it.key() != "removedNodes") return true;
         return false;
     }
 

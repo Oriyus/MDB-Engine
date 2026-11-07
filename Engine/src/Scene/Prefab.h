@@ -2,6 +2,7 @@
 #include "Scene/Entity.h"
 
 #include <nlohmann/json_fwd.hpp>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -11,18 +12,25 @@ namespace Engine {
     class Scene;
     struct ResourceRegistry;
 
-    // Prefabs: an entity's components saved to their own file (Assets/Prefabs/<name>.json), placed
-    // any number of times. An instance carries a PrefabComponent with the file's path.
+    // Prefabs: an entity with its children, saved to their own file (Assets/Prefabs/<name>.json)
+    // and placed any number of times.
     //
-    // An instance is the prefab plus its OVERRIDES: the fields it changed, components it added,
-    // components it removed. Scene files store only those, so a prefab edit reaches every field an
-    // instance didn't override, in every level, the next time it loads (or right away on Apply).
+    // A prefab is a tree of NODES. The root node has the components and default rotation/scale;
+    // each child node has a stable "key", a name, a local transform, components and children:
+    //   { "version": 2, "name", "transform", "components",
+    //     "children": [ { "key", "name", "transform", "components", "children": [...] } ] }
+    // (Version 1 files are the same without children.)
+    //
+    // Every entity of an instance links to its node with PrefabComponent{ Path, Node } (Node 0 =
+    // the root). Each one is its node plus OVERRIDES: the fields it changed, components it added,
+    // components it removed, and for child nodes a different local transform:
     //   overrides = { "meshRenderer": { "color": [1,0,0] },   changed fields
-    //                 "audio": { ...whole component... },     a component the prefab doesn't have
-    //                 "spin": null }                          a prefab component removed
+    //                 "audio": { ...whole component... },     a component the node doesn't have
+    //                 "spin": null }                          a node component removed
+    // Scene files store only links and overrides (plus a child's transform if it moved), so a
+    // prefab edit reaches every instance, in every level, the next time it loads or right away on
+    // Apply. An instance also remembers which child nodes were deleted from it ("removedNodes").
     //
-    // A prefab file is { "version", "name", "transform", "components" }. Name and transform are
-    // the defaults for new instances (rotation and scale; the position is the caller's).
     // Files are cached, re-read when they change on disk, and normalised (see Prefab.cpp).
     class PrefabLibrary {
     public:
@@ -36,38 +44,52 @@ namespace Engine {
 
         bool Exists(const std::string& path) const;
         std::vector<std::string> List() const;          // every prefab in Assets/Prefabs, as paths
+        bool CanLoad(const std::string& path);          // the file exists and parses
+        bool HasNode(const std::string& path, uint64_t node);
 
-        // A new linked instance (prefab name, default rotation and scale, at the origin).
-        // Returns an invalid Entity if the prefab can't be read.
+        // A new instance with all its children, the root at the origin with the prefab's default
+        // rotation and scale. Returns an invalid Entity if the prefab can't be read.
         Entity Instantiate(Scene& scene, const std::string& path);
 
-        // Make e an instance: the prefab's components with `overrides` on top (Tag, Transform,
-        // ID and Parent kept)
-        bool ApplyPrefabTo(Entity e, const std::string& path, const nlohmann::json& overrides);
+        // Make e the given node of a prefab: its components with `overrides` on top. Tag, ID and
+        // Parent are kept; the transform too unless takeNodeTransform (child nodes only).
+        bool ApplyPrefabTo(Entity e, const std::string& path, uint64_t node, const nlohmann::json& overrides,
+            bool takeNodeTransform = false);
 
-        // Write e as a prefab file and link e to it. Overwrites an existing file.
+        // After loading: give an instance the child nodes the prefab has and it lacks, except the
+        // ones in `skip` (deleted from this instance on purpose). Unlinks parts the prefab dropped.
+        void SyncInstance(Scene& scene, Entity root, const std::vector<uint64_t>& skip);
+        // Child nodes of the prefab that this instance doesn't have (it deleted them)
+        std::vector<uint64_t> MissingNodes(Scene& scene, Entity root);
+
+        // Write e and all its children as a prefab file, and link them to it. Overwrites the file.
+        // Children that belonged to another prefab become parts of this one (prefabs don't nest).
         bool Save(Entity e, const std::string& path);
 
-        // Write an instance (overrides and all) to its prefab. Every other instance in the scene
-        // keeps its own overrides on top of the new prefab. Returns how many were updated (-1 on failure).
-        int Apply(Scene& scene, Entity instance);
+        // Write the instance that `part` belongs to (any part works) to its prefab. Every other
+        // instance in the scene keeps its own overrides on top of the new prefab, gains parts the
+        // prefab gained, and keeps (unlinked) parts the prefab lost. Returns how many other
+        // instances were updated (-1 on failure).
+        int Apply(Scene& scene, Entity part);
 
-        bool Revert(Entity instance);           // drop every override
-        bool IsModified(Entity instance);       // has overrides (or its prefab file is missing)
-        bool CanLoad(const std::string& path); // the prefab file exists and parses
+        Entity InstanceRoot(Entity part);       // the root of the instance `part` belongs to
 
-        // Overrides of a live instance ({} if none), and the same as a list of readable items:
-        // "meshRenderer.color" (changed field), "+audio" (added), "-spin" (removed)
-        nlohmann::json GetOverrides(Entity instance);
-        std::vector<std::string> ListOverrides(Entity instance);
-        bool RevertOverride(Entity instance, const std::string& item);   // one item from ListOverrides
+        bool Revert(Entity part);               // drop every override of this one entity
+        bool IsModified(Entity part);           // has overrides (or its prefab can't be read)
+        bool TransformOverridden(Entity part);  // a child part moved away from its node's transform
+
+        // Overrides of a live part ({} if none), and as readable items: "meshRenderer.color"
+        // (changed field), "+audio" (added), "-spin" (removed), "transform" (a moved child part)
+        nlohmann::json GetOverrides(Entity part);
+        std::vector<std::string> ListOverrides(Entity part);
+        bool RevertOverride(Entity part, const std::string& item);   // one item from ListOverrides
 
     private:
         struct Impl;
         std::unique_ptr<Impl> m_Impl;
     };
 
-    // The override format above: prefab components + overrides <-> instance components
+    // The override format above: node components + overrides <-> entity components
     nlohmann::json DiffComponents(const nlohmann::json& prefab, const nlohmann::json& instance);
     nlohmann::json MergeOverrides(const nlohmann::json& prefab, const nlohmann::json& overrides);
 

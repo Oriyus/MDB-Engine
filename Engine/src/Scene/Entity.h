@@ -28,6 +28,7 @@ namespace Engine {
         explicit operator bool() const { return IsValid(); }
 
         entt::entity GetHandle() const { return m_Handle; }
+        Scene* GetScene() const { return m_Scene; }
 
     private:
         entt::entity m_Handle{ entt::null };
