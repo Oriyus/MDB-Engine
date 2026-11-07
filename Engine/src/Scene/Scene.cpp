@@ -8,21 +8,137 @@
 #include "Renderer/Environment.h"
 
 #include <cmath>
+#include <functional>
+#include <random>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <vector>
 
 namespace Engine {
 
+    Scene::Scene() {
+        // Keep FindByID's map honest however IDs come and go (create, destroy, clear, replace)
+        m_Registry.on_construct<IDComponent>().connect<&Scene::OnIDChanged>(this);
+        m_Registry.on_update<IDComponent>().connect<&Scene::OnIDChanged>(this);
+        m_Registry.on_destroy<IDComponent>().connect<&Scene::OnIDChanged>(this);
+    }
+
     Entity Scene::CreateEntity(const std::string& name) {
         Entity entity(m_Registry.create(), this);
         entity.Add<TransformComponent>();
         entity.Add<TagComponent>().Tag = name;
+        entity.Add<IDComponent>().ID = NewID();
         return entity;
     }
 
     void Scene::DestroyEntity(Entity entity) {
-        if (entity) m_Registry.destroy(entity.GetHandle());
+        if (!entity) return;
+        for (auto child : GetChildren(entity.GetHandle())) DestroyEntity(Entity(child, this));
+        m_Registry.destroy(entity.GetHandle());
+    }
+
+    // ---------------------------------------------------------------- hierarchy
+    uint64_t Scene::NewID() {
+        static std::mt19937_64 rng{ std::random_device{}() };
+        uint64_t id = 0;
+        while (id == 0) id = rng();            // 0 means "no ID"
+        return id;
+    }
+
+    uint64_t Scene::GetID(entt::entity e) const {
+        const auto* c = m_Registry.try_get<IDComponent>(e);
+        return c ? c->ID : 0;
+    }
+
+    entt::entity Scene::FindByID(uint64_t id) {
+        if (id == 0) return entt::null;
+        if (m_IDMapDirty) {
+            m_IDMap.clear();
+            for (auto [e, c] : m_Registry.view<IDComponent>().each()) m_IDMap[c.ID] = e;
+            m_IDMapDirty = false;
+        }
+        auto it = m_IDMap.find(id);
+        return it != m_IDMap.end() ? it->second : entt::null;
+    }
+
+    entt::entity Scene::GetParent(entt::entity e) {
+        const auto* p = m_Registry.try_get<ParentComponent>(e);
+        if (!p) return entt::null;
+        const entt::entity parent = FindByID(p->Parent);
+        return parent == e ? entt::null : parent;
+    }
+
+    std::vector<entt::entity> Scene::GetChildren(entt::entity e) {
+        std::vector<entt::entity> out;
+        const uint64_t id = GetID(e);
+        if (id == 0) return out;
+        for (auto [c, p] : m_Registry.view<ParentComponent>().each())
+            if (p.Parent == id && c != e) out.push_back(c);
+        return out;
+    }
+
+    bool Scene::IsDescendantOf(entt::entity e, entt::entity ancestor) {
+        int guard = 0;
+        for (entt::entity p = GetParent(e); p != entt::null && guard < 256; p = GetParent(p), guard++)
+            if (p == ancestor) return true;
+        return false;
+    }
+
+    bool Scene::SetParent(entt::entity child, entt::entity parent, bool keepWorld) {
+        if (!m_Registry.valid(child)) return false;
+        if (parent != entt::null && (parent == child || !m_Registry.valid(parent) || IsDescendantOf(parent, child)))
+            return false;                      // would make a loop
+        const glm::mat4 world = GetWorldMatrix(child);
+        if (parent == entt::null) m_Registry.remove<ParentComponent>(child);
+        else m_Registry.emplace_or_replace<ParentComponent>(child, ParentComponent{ GetID(parent) });
+        if (keepWorld) SetWorldMatrix(child, world);
+        return true;
+    }
+
+    glm::mat4 Scene::GetWorldMatrix(entt::entity e) {
+        glm::mat4 m = m_Registry.get<TransformComponent>(e).GetMatrix();
+        int guard = 0;                         // a corrupt file could hold a loop: don't hang on it
+        for (entt::entity p = GetParent(e); p != entt::null && guard < 256; p = GetParent(p), guard++)
+            m = m_Registry.get<TransformComponent>(p).GetMatrix() * m;
+        return m;
+    }
+
+    glm::mat4 Scene::GetParentWorldMatrix(entt::entity e) {
+        const entt::entity p = GetParent(e);
+        return p == entt::null ? glm::mat4(1.0f) : GetWorldMatrix(p);
+    }
+
+    void Scene::Decompose(const glm::mat4& m, glm::vec3& position, glm::quat& rotation, glm::vec3& scale) {
+        position = glm::vec3(m[3]);
+        scale = glm::vec3(glm::length(glm::vec3(m[0])), glm::length(glm::vec3(m[1])), glm::length(glm::vec3(m[2])));
+        if (glm::determinant(glm::mat3(m)) < 0.0f) scale.x = -scale.x;   // a mirror: put it in x
+        glm::vec3 s = scale;
+        for (int i = 0; i < 3; i++)                                      // avoid dividing by a zero scale
+            if (std::abs(s[i]) < 1e-8f) s[i] = 1e-8f;
+        rotation = glm::normalize(glm::quat_cast(glm::mat3(glm::vec3(m[0]) / s.x, glm::vec3(m[1]) / s.y, glm::vec3(m[2]) / s.z)));
+    }
+
+    void Scene::SetWorldMatrix(entt::entity e, const glm::mat4& world) {
+        const glm::mat4 local = glm::inverse(GetParentWorldMatrix(e)) * world;
+        glm::vec3 pos, scale;
+        glm::quat rot;
+        Decompose(local, pos, rot, scale);
+        auto& t = m_Registry.get<TransformComponent>(e);
+        t.Position = pos;
+        t.Rotation = glm::eulerAngles(rot);
+        t.Scale = scale;
+    }
+
+    void Scene::SetWorldPosition(entt::entity e, const glm::vec3& position) {
+        m_Registry.get<TransformComponent>(e).Position =
+            glm::vec3(glm::inverse(GetParentWorldMatrix(e)) * glm::vec4(position, 1.0f));
+    }
+
+    void Scene::SetWorldRotation(entt::entity e, const glm::quat& rotation) {
+        glm::vec3 pp, ps;
+        glm::quat parentRot;
+        Decompose(GetParentWorldMatrix(e), pp, parentRot, ps);
+        m_Registry.get<TransformComponent>(e).Rotation = glm::eulerAngles(glm::normalize(glm::inverse(parentRot) * rotation));
     }
 
     void Scene::Clear() { m_Registry.clear(); }
@@ -52,7 +168,9 @@ namespace Engine {
     EntitySnapshot Scene::CaptureEntity(entt::entity handle) const {
         EntitySnapshot s;
         s.Tag = m_Registry.get<TagComponent>(handle).Tag;
+        s.ID = GetID(handle);
         s.Transform = m_Registry.get<TransformComponent>(handle);
+        if (auto* c = m_Registry.try_get<ParentComponent>(handle))           s.Parent = *c;
         if (auto* c = m_Registry.try_get<MeshRendererComponent>(handle))     s.MeshRenderer = *c;
         if (auto* c = m_Registry.try_get<PointLightComponent>(handle))       s.PointLight = *c;
         if (auto* c = m_Registry.try_get<DirectionalLightComponent>(handle)) s.DirectionalLight = *c;
@@ -69,7 +187,9 @@ namespace Engine {
     entt::entity Scene::CreateFromSnapshot(const EntitySnapshot& s) {
         entt::entity e = m_Registry.create();
         m_Registry.emplace<TagComponent>(e, TagComponent{ s.Tag });
+        m_Registry.emplace<IDComponent>(e, IDComponent{ s.ID != 0 ? s.ID : NewID() });
         m_Registry.emplace<TransformComponent>(e, s.Transform);
+        if (s.Parent)           m_Registry.emplace<ParentComponent>(e, *s.Parent);
         if (s.MeshRenderer)     m_Registry.emplace<MeshRendererComponent>(e, *s.MeshRenderer);
         if (s.PointLight)       m_Registry.emplace<PointLightComponent>(e, *s.PointLight);
         if (s.DirectionalLight) m_Registry.emplace<DirectionalLightComponent>(e, *s.DirectionalLight);
@@ -85,7 +205,28 @@ namespace Engine {
 
     Entity Scene::DuplicateEntity(Entity source) {
         if (!source) return {};
-        return Entity(CreateFromSnapshot(CaptureEntity(source.GetHandle())), this);
+        // Copy the whole subtree first (copying adds entities, which would disturb a running search),
+        // then give every copy a new ID and point the copied children at the copied parents
+        std::vector<entt::entity> originals;
+        std::function<void(entt::entity)> collect = [&](entt::entity e) {
+            originals.push_back(e);
+            for (auto c : GetChildren(e)) collect(c);
+        };
+        collect(source.GetHandle());
+
+        std::vector<EntitySnapshot> copies;
+        for (auto e : originals) copies.push_back(CaptureEntity(e));
+        std::unordered_map<uint64_t, uint64_t> newIDs;
+        for (auto& s : copies) { const uint64_t id = NewID(); newIDs[s.ID] = id; s.ID = id; }
+        for (size_t i = 1; i < copies.size(); i++)           // the root keeps its parent: a sibling copy
+            if (copies[i].Parent) copies[i].Parent->Parent = newIDs[copies[i].Parent->Parent];
+
+        entt::entity root = entt::null;
+        for (const auto& s : copies) {
+            entt::entity e = CreateFromSnapshot(s);
+            if (root == entt::null) root = e;
+        }
+        return Entity(root, this);
     }
 
     SceneSnapshot Scene::Capture(entt::entity selected, int& selectedIndex) {
@@ -120,23 +261,25 @@ namespace Engine {
 
     // Up to MaxLights point lights. The index in this list = the light's shadow layer,
     // so RenderShadows and Render must use this same function.
-    static std::vector<PointLightData> GatherPointLights(entt::registry& reg) {
+    static std::vector<PointLightData> GatherPointLights(Scene& scene) {
+        auto& reg = scene.Registry();
         std::vector<PointLightData> out;
         auto view = reg.view<TransformComponent, PointLightComponent>();
         for (auto entity : view) {
             if (out.size() >= PointShadowArray::MaxLights) break;
             auto [t, l] = view.get<TransformComponent, PointLightComponent>(entity);
-            out.push_back({ t.Position, l.Color * l.Intensity, l.CastShadows });
+            out.push_back({ glm::vec3(scene.GetWorldMatrix(entity)[3]), l.Color * l.Intensity, l.CastShadows });
         }
         return out;
     }
 
     // First directional light, if any. dir = the direction the light travels.
-    static bool FindSun(entt::registry& reg, glm::vec3& dir, glm::vec3& color, bool& shadows) {
+    static bool FindSun(Scene& scene, glm::vec3& dir, glm::vec3& color, bool& shadows) {
+        auto& reg = scene.Registry();
         auto view = reg.view<TransformComponent, DirectionalLightComponent>();
         for (auto entity : view) {
             auto [t, d] = view.get<TransformComponent, DirectionalLightComponent>(entity);
-            dir = glm::normalize(glm::vec3(glm::mat4_cast(glm::quat(t.Rotation)) * glm::vec4(0, 0, -1, 0)));
+            dir = glm::normalize(glm::vec3(scene.GetWorldMatrix(entity) * glm::vec4(0, 0, -1, 0)));
             color = d.Color * d.Intensity;
             shadows = d.CastShadows;
             return true;
@@ -162,13 +305,13 @@ namespace Engine {
             for (auto entity : drawables) {
                 auto [t, mr] = drawables.get<TransformComponent, MeshRendererComponent>(entity);
                 if (!mr.Geometry || mr.Unlit) continue;   // light markers must not block light
-                sh.SetMat4("u_Model", t.GetMatrix() * mr.LocalOffset);
+                sh.SetMat4("u_Model", GetWorldMatrix(entity) * mr.LocalOffset);
                 mr.Geometry->Draw();
             }
             };
 
         // ---- point lights: 6 cube faces each
-        auto lights = GatherPointLights(m_Registry);
+        auto lights = GatherPointLights(*this);
         if (ctx.Points && ctx.PointDepth && !lights.empty()) {
             static const glm::vec3 dirs[6] = {
                 { 1, 0, 0 },{ -1, 0, 0 },{ 0, 1, 0 },{ 0, -1, 0 },{ 0, 0, 1 },{ 0, 0, -1 } };
@@ -194,7 +337,7 @@ namespace Engine {
         // ---- sun: one orthographic depth pass
         glm::vec3 sunDir, sunColor;
         bool sunShadows = false;
-        if (ctx.Sun && ctx.SunDepth && FindSun(m_Registry, sunDir, sunColor, sunShadows) && sunShadows) {
+        if (ctx.Sun && ctx.SunDepth && FindSun(*this, sunDir, sunColor, sunShadows) && sunShadows) {
             Shader& sh = *ctx.SunDepth;
             sh.Bind();
             ctx.Sun->Bind();
@@ -205,11 +348,11 @@ namespace Engine {
 
     // ---------------------------------------------------------------- render system
     void Scene::Render(const Camera& camera, Shader& shader, const ShadowContext* ctx, const Environment* env) {
-        const auto lights = GatherPointLights(m_Registry);
+        const auto lights = GatherPointLights(*this);
 
         glm::vec3 sunDir(0.0f, -1.0f, 0.0f), sunColor(0.0f);
         bool sunShadows = false;
-        const bool hasSun = FindSun(m_Registry, sunDir, sunColor, sunShadows);
+        const bool hasSun = FindSun(*this, sunDir, sunColor, sunShadows);
 
         const bool shadowsOn = ctx && ctx->Settings.Enabled;
 
@@ -274,7 +417,7 @@ namespace Engine {
 
             shader.SetInt("u_Unlit", mr.Unlit ? 1 : 0);
             shader.SetInt("u_EntityID", (int)entt::to_integral(entity));
-            shader.SetMat4("u_Model", t.GetMatrix() * mr.LocalOffset);
+            shader.SetMat4("u_Model", GetWorldMatrix(entity) * mr.LocalOffset);
 
             const uint32_t parts = mr.UseModelMaterials ? mr.Geometry->SubmeshCount() : 1;
             for (uint32_t i = 0; i < parts; i++) {

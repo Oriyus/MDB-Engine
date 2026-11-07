@@ -10,11 +10,25 @@
 
 namespace Engine {
 
-    // Every entity gets these two automatically (see Scene::CreateEntity)
+    // Every entity gets Tag, Transform and ID automatically (see Scene::CreateEntity)
     struct TagComponent {
         std::string Tag;
     };
 
+    // A stable identity: kept by snapshots (Play/Stop, undo) and scene files, unlike entt handles.
+    // Parent links refer to it.
+    struct IDComponent {
+        uint64_t ID = 0;
+    };
+
+    // This entity is a child of the entity with that ID: its Transform is relative to the parent's.
+    // Moving, rotating or scaling the parent carries its children along.
+    struct ParentComponent {
+        uint64_t Parent = 0;
+    };
+
+    // Position / Rotation / Scale are LOCAL: relative to the parent if there is one, else the world.
+    // Scene::GetWorldMatrix gives the world placement.
     struct TransformComponent {
         glm::vec3 Position{ 0.0f };
         glm::vec3 Rotation{ 0.0f };   // Euler angles in radians

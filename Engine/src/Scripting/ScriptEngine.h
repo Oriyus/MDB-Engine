@@ -37,8 +37,12 @@ namespace Engine {
     //   on_trigger_exit(self, other)
     //
     // ---- Entity (self, other, results of scene.find / spawn / clone)
-    //   e.name, e.position, e.rotation (radians), e.scale     read/write; vec3 values are copies
+    //   e.name, e.position, e.rotation (radians), e.scale     read/write, LOCAL (relative to the parent);
+    //                                                         vec3 values are copies
+    //   e.world_position                      read/write, world space
+    //   e.parent (entity or nil, settable: keeps the world placement), e:children()
     //   e.forward, e.right, e.up                              world-space directions (read-only)
+    //   e:look_at(target [, up]) and e.forward... work in world space
     //   e.id, e:valid(), e:destroy(), e:clone()
     //   e:has(kind), e:remove(kind)     kind = "mesh" "body" "light" "sun" "script" "spin" "orbit" "camera" "audio"
     //   e.mesh   -> nil or { color, emissive, metallic, roughness, unlit, geometry ("cube" "sphere" ...) }

@@ -191,8 +191,13 @@ namespace Engine {
             "add_impulse", [this](const BodyRef& b, const glm::vec3& i) { b.E.Get<RigidBodyComponent>(); Physics->AddImpulse(b.E.Handle, i); });
 
         // ---- Entity
+        // World-space direction of a local axis (parents included)
         auto dirOf = [](const ScriptEntity& e, const glm::vec3& local) {
-            return glm::quat(e.Get<TransformComponent>().Rotation) * local;
+            e.Get<TransformComponent>();                     // throws if the entity is gone
+            glm::vec3 p, s;
+            glm::quat q;
+            Scene::Decompose(e.Owner->GetWorldMatrix(e.Handle), p, q, s);
+            return glm::normalize(q * local);
         };
 
         lua.new_usertype<ScriptEntity>("Entity", sol::no_constructor,
@@ -213,6 +218,37 @@ namespace Engine {
             "forward", sol::readonly_property([dirOf](const ScriptEntity& e) { return dirOf(e, { 0.0f, 0.0f, -1.0f }); }),
             "right", sol::readonly_property([dirOf](const ScriptEntity& e) { return dirOf(e, { 1.0f, 0.0f, 0.0f }); }),
             "up", sol::readonly_property([dirOf](const ScriptEntity& e) { return dirOf(e, { 0.0f, 1.0f, 0.0f }); }),
+
+            // ---- hierarchy: position/rotation/scale above are local to the parent
+            "world_position", sol::property(
+                [](const ScriptEntity& e) { e.Get<TransformComponent>(); return glm::vec3(e.Owner->GetWorldMatrix(e.Handle)[3]); },
+                [](const ScriptEntity& e, const glm::vec3& v) { e.Get<TransformComponent>(); e.Owner->SetWorldPosition(e.Handle, v); }),
+            "parent", sol::property(
+                [this](const ScriptEntity& e) -> sol::optional<ScriptEntity> {
+                    e.Get<TransformComponent>();
+                    const entt::entity p = e.Owner->GetParent(e.Handle);
+                    if (p == entt::null) return sol::nullopt;
+                    return Wrap(p);
+                },
+                [](const ScriptEntity& e, sol::object parent) {   // nil = no parent; keeps the world placement
+                    e.Get<TransformComponent>();
+                    entt::entity p = entt::null;
+                    if (parent.is<ScriptEntity>()) {
+                        p = parent.as<ScriptEntity>().Handle;
+                        if (!e.Owner->Registry().valid(p)) throw std::runtime_error("parent entity no longer exists");
+                    }
+                    else if (parent.valid() && parent.get_type() != sol::type::lua_nil) {
+                        throw std::runtime_error("parent must be an entity or nil");
+                    }
+                    if (!e.Owner->SetParent(e.Handle, p, true)) throw std::runtime_error("that would make a loop of parents");
+                }),
+            "children", [this](const ScriptEntity& e) {
+                e.Get<TransformComponent>();
+                sol::table out = Lua->create_table();
+                int n = 1;
+                for (auto c : e.Owner->GetChildren(e.Handle)) out[n++] = Wrap(c);
+                return out;
+            },
 
             "mesh", sol::readonly_property([](const ScriptEntity& e) -> sol::optional<MeshRef> {
                 if (e.Has<MeshRendererComponent>()) return MeshRef{ e };
@@ -244,13 +280,13 @@ namespace Engine {
             },
             // Turn so local -Z (forward) points at target. `up` defaults to world up.
             "look_at", [](const ScriptEntity& e, const glm::vec3& target, sol::optional<glm::vec3> up) {
-                auto& t = e.Get<TransformComponent>();
-                const glm::vec3 d = target - t.Position;
+                e.Get<TransformComponent>();
+                const glm::vec3 d = target - glm::vec3(e.Owner->GetWorldMatrix(e.Handle)[3]);   // in world space
                 if (glm::dot(d, d) < 1e-10f) return;
                 const glm::vec3 dir = glm::normalize(d);
                 glm::vec3 u = up ? glm::normalize(*up) : glm::vec3(0.0f, 1.0f, 0.0f);
                 if (std::abs(glm::dot(dir, u)) > 0.999f) u = glm::vec3(0.0f, 0.0f, 1.0f);   // looking straight up/down
-                t.Rotation = glm::eulerAngles(glm::quatLookAt(dir, u));
+                e.Owner->SetWorldRotation(e.Handle, glm::quatLookAt(dir, u));
             },
             "audio", sol::readonly_property([](const ScriptEntity& e) -> sol::optional<AudioRef> {
                 if (e.Has<AudioSourceComponent>()) return AudioRef{ e };

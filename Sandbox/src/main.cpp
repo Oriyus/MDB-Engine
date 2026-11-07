@@ -613,8 +613,10 @@ public:
         const float aspect = size.y > 0.0f ? size.x / size.y : 16.0f / 9.0f;
         for (auto [e, t, c] : m_Scene.Registry().view<TransformComponent, CameraComponent>().each()) {
             const ImU32 col = e == m_Selected ? IM_COL32(255, 255, 255, 255) : IM_COL32(200, 200, 210, 150);
-            const glm::quat q(t.Rotation);
-            const glm::vec3 p = t.Position, f = q * glm::vec3(0, 0, -1), r = q * glm::vec3(1, 0, 0), u = q * glm::vec3(0, 1, 0);
+            glm::vec3 p, sc;                       // world placement: cameras can sit under a parent
+            glm::quat q;
+            Scene::Decompose(m_Scene.GetWorldMatrix(e), p, q, sc);
+            const glm::vec3 f = q * glm::vec3(0, 0, -1), r = q * glm::vec3(1, 0, 0), u = q * glm::vec3(0, 1, 0);
             const float d = 0.8f, h = std::tan(glm::radians(c.FOV) * 0.5f) * d, w = h * aspect;
             const glm::vec3 k[4] = { p + f * d - r * w - u * h, p + f * d + r * w - u * h,
                                      p + f * d + r * w + u * h, p + f * d - r * w + u * h };
@@ -649,7 +651,7 @@ public:
                 : rb.Type == BodyType::Static ? IM_COL32(80, 200, 255, 200)
                 : rb.Type == BodyType::Dynamic ? IM_COL32(90, 230, 110, 220)
                 : IM_COL32(255, 200, 60, 220);
-            const glm::mat4 M = t.GetMatrix();
+            const glm::mat4 M = m_Scene.GetWorldMatrix(entity);   // parents included
 
             if (rb.Shape == ColliderShape::Box) {
                 const glm::vec3 h = rb.Size * 0.5f;
@@ -662,10 +664,13 @@ public:
                 for (auto& ed : edges) line(c[ed[0]], c[ed[1]], col);
             }
             else {
-                const glm::vec3 s = glm::abs(t.Scale);
+                glm::vec3 wp, ws;
+                glm::quat wq;
+                Scene::Decompose(M, wp, wq, ws);
+                const glm::vec3 s = glm::abs(ws);
                 const float r = 0.5f * rb.Size.x * std::max({ s.x, s.y, s.z });
                 const glm::vec3 centre = glm::vec3(M * glm::vec4(rb.Center, 1.0f));
-                const glm::mat3 R = glm::mat3_cast(glm::quat(t.Rotation));
+                const glm::mat3 R = glm::mat3_cast(wq);
                 for (int axis = 0; axis < 3; axis++) {              // three great circles
                     const glm::vec3 u = R[(axis + 1) % 3], v = R[(axis + 2) % 3];
                     glm::vec3 prev = centre + u * r;
@@ -923,17 +928,64 @@ private:
         }
         ImGui::Separator();
 
+        // A tree: roots first, children nested. Drag an entity onto another to make it a child,
+        // or onto the empty space below the list to make it a root again.
         auto& reg = m_Scene.Registry();
-        for (auto handle : reg.view<TagComponent>()) {
-            ImGui::PushID((int)entt::to_integral(handle));
-            const bool instance = reg.all_of<PrefabComponent>(handle);
-            if (instance) ImGui::PushStyleColor(ImGuiCol_Text, kPrefabColor);
-            if (ImGui::Selectable(reg.get<TagComponent>(handle).Tag.c_str(), handle == m_Selected))
-                m_Selected = handle;
-            if (instance) ImGui::PopStyleColor();
-            ImGui::PopID();
+        m_Reparent = { entt::null, entt::null, false };
+        std::vector<entt::entity> roots;
+        for (auto handle : reg.view<TagComponent>())
+            if (m_Scene.GetParent(handle) == entt::null) roots.push_back(handle);
+        for (auto r : roots) DrawHierarchyNode(r, 0);
+
+        ImGui::Dummy(ImVec2(ImGui::GetContentRegionAvail().x, std::max(ImGui::GetContentRegionAvail().y, 30.0f)));
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload("MDB_ENTITY"))
+                m_Reparent = { *(const entt::entity*)p->Data, entt::null, true };
+            ImGui::EndDragDropTarget();
         }
         ImGui::End();
+
+        // Applied after the tree is drawn, so the views above aren't changed while being walked
+        if (m_Reparent.Pending && reg.valid(m_Reparent.Child)) {
+            if (!m_Scene.SetParent(m_Reparent.Child, m_Reparent.Parent, true))
+                LOG_WARN("Can't parent an entity to itself or to one of its own children");
+        }
+    }
+
+    struct PendingReparent { entt::entity Child, Parent; bool Pending; };
+    PendingReparent m_Reparent{ entt::null, entt::null, false };
+
+    void DrawHierarchyNode(entt::entity e, int depth) {
+        using namespace Engine;
+        auto& reg = m_Scene.Registry();
+        const auto children = m_Scene.GetChildren(e);
+
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth
+            | ImGuiTreeNodeFlags_DefaultOpen;
+        if (children.empty()) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+        if (e == m_Selected) flags |= ImGuiTreeNodeFlags_Selected;
+
+        const bool instance = reg.all_of<PrefabComponent>(e);
+        if (instance) ImGui::PushStyleColor(ImGuiCol_Text, kPrefabColor);
+        const bool open = ImGui::TreeNodeEx((void*)(uintptr_t)m_Scene.GetID(e), flags, "%s", reg.get<TagComponent>(e).Tag.c_str());
+        if (instance) ImGui::PopStyleColor();
+        if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) m_Selected = e;
+
+        if (ImGui::BeginDragDropSource()) {
+            ImGui::SetDragDropPayload("MDB_ENTITY", &e, sizeof(e));
+            ImGui::Text("%s", reg.get<TagComponent>(e).Tag.c_str());
+            ImGui::EndDragDropSource();
+        }
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload("MDB_ENTITY"))
+                m_Reparent = { *(const entt::entity*)p->Data, e, true };
+            ImGui::EndDragDropTarget();
+        }
+
+        if (open && !children.empty()) {
+            if (depth < 64) for (auto c : children) DrawHierarchyNode(c, depth + 1);
+            ImGui::TreePop();
+        }
     }
 
     static constexpr ImVec4 kPrefabColor{ 0.45f, 0.75f, 1.0f, 1.0f };   // prefab instances in the UI
@@ -1080,7 +1132,7 @@ private:
 
             glm::mat4 view = ViewCamera().GetView();
             glm::mat4 proj = ViewCamera().GetProjection();
-            glm::mat4 model = t.GetMatrix();
+            glm::mat4 model = m_Scene.GetWorldMatrix(m_Selected);   // the gizmo works in world space
 
             float snap = m_GizmoOp == ImGuizmo::ROTATE ? 15.0f : (m_GizmoOp == ImGuizmo::SCALE ? 0.1f : 0.5f);
             float snapValues[3] = { snap, snap, snap };
@@ -1091,12 +1143,7 @@ private:
                 glm::value_ptr(model), nullptr, m_Snap ? snapValues : nullptr);
 
             if (ImGuizmo::IsUsing()) {
-                glm::vec3 pos, rotDeg, scale;
-                ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(model),
-                    &pos.x, &rotDeg.x, &scale.x);
-                t.Position = pos;
-                t.Rotation = glm::radians(rotDeg);
-                t.Scale = scale;
+                m_Scene.SetWorldMatrix(m_Selected, model);   // back to a transform local to the parent
             }
             gizmoBusy = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
             m_GizmoBusy = ImGuizmo::IsUsing();
@@ -1163,6 +1210,12 @@ private:
 
         // Transform
         if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen)) {
+            const entt::entity parent = m_Scene.GetParent(e.GetHandle());
+            if (parent != entt::null) {
+                ImGui::TextDisabled("Relative to %s", m_Scene.Registry().get<TagComponent>(parent).Tag.c_str());
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Unparent")) m_Scene.SetParent(e.GetHandle(), entt::null, true);
+            }
             auto& t = e.Get<TransformComponent>();
             ImGui::DragFloat3("Position", &t.Position.x, 0.05f);
 
@@ -1374,7 +1427,7 @@ private:
             auto& mr = e.Get<MeshRendererComponent>();
             glm::vec3 lo, hi;
             mr.Geometry->GetLocalBounds(lo, hi);
-            glm::mat4 m = t.GetMatrix() * mr.LocalOffset;
+            glm::mat4 m = m_Scene.GetWorldMatrix(handle) * mr.LocalOffset;
 
             mn = glm::vec3(FLT_MAX);
             mx = glm::vec3(-FLT_MAX);
@@ -1386,8 +1439,9 @@ private:
             }
         }
         else {
-            mn = t.Position - glm::vec3(0.5f);   // lights, empties
-            mx = t.Position + glm::vec3(0.5f);
+            const glm::vec3 p(m_Scene.GetWorldMatrix(handle)[3]);   // lights, empties
+            mn = p - glm::vec3(0.5f);
+            mx = p + glm::vec3(0.5f);
         }
     }
 

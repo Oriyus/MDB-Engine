@@ -25,6 +25,8 @@ namespace {
             t.Transform = TransformToJson(e.Get<TransformComponent>()).dump();
             nlohmann::json rest = ComponentsToJson(e, res);
             if (e.Has<PrefabComponent>()) rest["prefab"] = e.Get<PrefabComponent>().Path;
+            if (e.Has<ParentComponent>()) rest["parent"] = e.Get<ParentComponent>().Parent;
+            rest["id"] = scene.GetID(h);
             t.Rest = rest.dump();
             out.push_back(std::move(t));
         }

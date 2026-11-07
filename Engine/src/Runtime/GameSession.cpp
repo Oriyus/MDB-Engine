@@ -64,11 +64,13 @@ namespace Engine {
         }
         if (chosen == entt::null) return false;
 
-        const auto& t = reg.get<TransformComponent>(chosen);
+        glm::vec3 pos, scale;               // the camera's world placement (it may sit under a parent)
+        glm::quat rot;
+        Scene::Decompose(m_Scene.GetWorldMatrix(chosen), pos, rot, scale);
         const auto& c = reg.get<CameraComponent>(chosen);
         camera.SetAspect(aspect);
         camera.SetLens(c.FOV, c.Near, c.Far);
-        camera.SetPose(t.Position, glm::quat(t.Rotation));
+        camera.SetPose(pos, rot);
         return true;
     }
 

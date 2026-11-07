@@ -139,7 +139,7 @@ namespace Engine {
                 src.Clip = a.Clip;
                 if (!src.V) continue;
             }
-            Impl::Apply(&src.V->Sound, a, t.Position);
+            Impl::Apply(&src.V->Sound, a, glm::vec3(scene.GetWorldMatrix(e)[3]));   // world position (parents included)
             if (fresh && (a.PlayOnStart || I.PendingPlay.count(e))) ma_sound_start(&src.V->Sound);
             else if (I.PendingPlay.count(e)) { ma_sound_seek_to_pcm_frame(&src.V->Sound, 0); ma_sound_start(&src.V->Sound); }
         }

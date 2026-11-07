@@ -176,7 +176,8 @@ namespace Engine {
         ContactRecorder Contacts;
         JPH::PhysicsSystem System;
 
-        entt::registry* Reg = nullptr;        // the scene from the last Step/Sync, for on-demand bodies
+        Scene* Sc = nullptr;                  // the scene from the last Step/Sync, for on-demand bodies
+        entt::registry* Reg = nullptr;        // its registry
         std::unordered_map<entt::entity, Binding> Bindings;
         std::unordered_map<uint32_t, entt::entity> BodyToEntity;   // BodyID index+sequence -> entity
         std::unordered_map<uint64_t, Touch> Touching;
@@ -218,8 +219,16 @@ namespace Engine {
             Bindings.erase(it);
         }
 
+        // Where the entity is in the world (transforms are local to their parent)
+        void WorldPose(entt::entity e, glm::vec3& pos, glm::quat& rot, glm::vec3& scale) const {
+            Scene::Decompose(Sc->GetWorldMatrix(e), pos, rot, scale);
+        }
+
         Binding* CreateBody(entt::entity e, const TransformComponent& t, const RigidBodyComponent& rb, bool followsTransform) {
-            const glm::vec3 scale = glm::abs(t.Scale);
+            glm::vec3 worldPos, worldScale;
+            glm::quat q;
+            WorldPose(e, worldPos, q, worldScale);
+            const glm::vec3 scale = glm::abs(worldScale);
 
             JPH::ShapeRefC shape;
             if (rb.Shape == ColliderShape::Sphere) {
@@ -232,7 +241,7 @@ namespace Engine {
                 shape = new JPH::BoxShape(ToJolt(half), convexRadius);
             }
 
-            const glm::vec3 offset = rb.Center * t.Scale;
+            const glm::vec3 offset = rb.Center * worldScale;
             if (glm::dot(offset, offset) > 1e-10f)
                 shape = new JPH::RotatedTranslatedShape(ToJolt(offset), JPH::Quat::sIdentity(), shape.GetPtr());
 
@@ -240,13 +249,12 @@ namespace Engine {
             // inside falls asleep (a false "exit"), an active kinematic one never does
             const BodyType type = rb.IsTrigger ? BodyType::Kinematic : rb.Type;
 
-            const glm::quat q(t.Rotation);
             JPH::EMotionType motion = type == BodyType::Static ? JPH::EMotionType::Static
                 : type == BodyType::Kinematic ? JPH::EMotionType::Kinematic
                 : JPH::EMotionType::Dynamic;
             JPH::ObjectLayer layer = type == BodyType::Static ? Layers::Static : Layers::Moving;
 
-            JPH::BodyCreationSettings bs(shape, ToJolt(t.Position), ToJolt(q), motion, layer);
+            JPH::BodyCreationSettings bs(shape, ToJolt(worldPos), ToJolt(q), motion, layer);
             bs.mFriction = rb.Friction;
             bs.mRestitution = rb.Restitution;
             bs.mIsSensor = rb.IsTrigger;
@@ -270,7 +278,8 @@ namespace Engine {
             b.Type = type;
             b.Trigger = rb.IsTrigger;
             b.FollowsTransform = followsTransform;
-            b.PrevPos = b.CurPos = b.WrittenPos = t.Position;
+            b.PrevPos = b.CurPos = worldPos;              // physics states are world space...
+            b.WrittenPos = t.Position;                    // ...the transform as last seen is local
             b.PrevRot = b.CurRot = q;
             b.WrittenRot = t.Rotation;
             BodyToEntity[id.GetIndexAndSequenceNumber()] = e;
@@ -296,7 +305,9 @@ namespace Engine {
         }
 
         // Keep the physics world in step with the scene: new entities get bodies, removed ones lose them
-        void Sync(entt::registry& reg) {
+        void Sync(Scene& scene) {
+            Sc = &scene;
+            entt::registry& reg = scene.Registry();
             Reg = &reg;
             for (auto it = Bindings.begin(); it != Bindings.end();) {
                 auto next = std::next(it);
@@ -364,14 +375,14 @@ namespace Engine {
 
     const std::vector<CollisionEvent>& PhysicsWorld::Events() const { return m_Impl->Events; }
 
-    void PhysicsWorld::Sync(Scene& scene) { m_Impl->Sync(scene.Registry()); }
+    void PhysicsWorld::Sync(Scene& scene) { m_Impl->Sync(scene); }
 
     void PhysicsWorld::Step(Scene& scene, float dt, bool snapToLatest) {
         Impl& I = *m_Impl;
         auto& reg = scene.Registry();
         auto& bi = I.System.GetBodyInterface();
 
-        I.Sync(reg);
+        I.Sync(scene);
 
         I.Accumulator += std::min(dt, 0.25f);
         int steps = (int)(I.Accumulator / kFixedStep);
@@ -379,15 +390,24 @@ namespace Engine {
         else                   I.Accumulator -= steps * kFixedStep;
 
         for (auto& [e, b] : I.Bindings) {
-            // Someone moved a static or dynamic body's transform (a script, the gizmo): teleport it
+            // Someone moved a static or dynamic body's transform (a script, the gizmo, a moving
+            // parent for a static one): teleport it. Physics itself writes dynamic transforms, so
+            // for those only a change to the local transform since that write counts.
             if (b.Type == BodyType::Kinematic || !b.FollowsTransform) continue;
             const auto& t = reg.get<TransformComponent>(e);
-            if (t.Position != b.WrittenPos || t.Rotation != b.WrittenRot) {
-                const glm::quat q(t.Rotation);
-                bi.SetPositionAndRotation(b.Id, ToJolt(t.Position), ToJolt(q),
+            glm::vec3 pos, scale;
+            glm::quat q;
+            bool moved = t.Position != b.WrittenPos || t.Rotation != b.WrittenRot;
+            if (moved || b.Type == BodyType::Static) {
+                I.WorldPose(e, pos, q, scale);
+                if (b.Type == BodyType::Static) moved = moved || pos != b.CurPos || q != b.CurRot;
+            }
+            if (moved) {
+                bi.SetPositionAndRotation(b.Id, ToJolt(pos), ToJolt(q),
                     b.Type == BodyType::Dynamic ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
-                b.PrevPos = b.CurPos = b.WrittenPos = t.Position;
+                b.PrevPos = b.CurPos = pos;
                 b.PrevRot = b.CurRot = q;
+                b.WrittenPos = t.Position;
                 b.WrittenRot = t.Rotation;
             }
         }
@@ -397,9 +417,11 @@ namespace Engine {
             // exactly when this batch of steps ends, so they push dynamic bodies properly
             const float span = steps * kFixedStep;
             for (auto& [e, b] : I.Bindings) {
-                if (b.Type == BodyType::Kinematic) {
-                    const auto& t = reg.get<TransformComponent>(e);
-                    bi.MoveKinematic(b.Id, ToJolt(t.Position), ToJolt(glm::quat(t.Rotation)), span);
+                if (b.Type == BodyType::Kinematic) {       // follows its world placement (parents included)
+                    glm::vec3 pos, scale;
+                    glm::quat q;
+                    I.WorldPose(e, pos, q, scale);
+                    bi.MoveKinematic(b.Id, ToJolt(pos), ToJolt(q), span);
                 }
                 else if (b.Type == BodyType::Dynamic && glm::dot(b.Impulse, b.Impulse) > 0.0f) {
                     bi.AddImpulse(b.Id, ToJolt(b.Impulse));
@@ -434,8 +456,16 @@ namespace Engine {
         for (auto& [e, b] : I.Bindings) {
             if (b.Type != BodyType::Dynamic) continue;
             auto& t = reg.get<TransformComponent>(e);
-            t.Position = glm::mix(b.PrevPos, b.CurPos, alpha);
-            t.Rotation = glm::eulerAngles(glm::slerp(b.PrevRot, b.CurRot, alpha));
+            const glm::vec3 pos = glm::mix(b.PrevPos, b.CurPos, alpha);
+            const glm::quat rot = glm::slerp(b.PrevRot, b.CurRot, alpha);
+            if (reg.all_of<ParentComponent>(e)) {          // physics is world space; the transform is local
+                scene.SetWorldPosition(e, pos);
+                scene.SetWorldRotation(e, rot);
+            }
+            else {
+                t.Position = pos;
+                t.Rotation = glm::eulerAngles(rot);
+            }
             b.WrittenPos = t.Position;
             b.WrittenRot = t.Rotation;
         }

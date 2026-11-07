@@ -101,6 +101,8 @@ namespace Engine {
             json j;
             j["name"] = e.Get<TagComponent>().Tag;
             j["transform"] = TransformToJson(e.Get<TransformComponent>());
+            j["id"] = m_Scene.GetID(handle);
+            if (e.Has<ParentComponent>()) j["parent"] = e.Get<ParentComponent>().Parent;
 
             // A prefab instance that matches its prefab is stored as a link only; a modified one
             // (or any instance when no library is given) keeps a full copy of its components too
@@ -142,6 +144,8 @@ namespace Engine {
             for (const auto& j : root.at("entities")) {
                 Entity e = temp.CreateEntity(j.at("name").get<std::string>());
                 TransformFromJson(j.at("transform"), e.Get<TransformComponent>());
+                if (j.contains("id")) e.Add<IDComponent>(IDComponent{ j["id"].get<uint64_t>() });   // else the new one stays
+                if (j.contains("parent")) e.Add<ParentComponent>(ParentComponent{ j["parent"].get<uint64_t>() });
 
                 const std::string prefab = j.value("prefab", std::string());
                 if (!prefab.empty() && !HasComponentKeys(j)) {
