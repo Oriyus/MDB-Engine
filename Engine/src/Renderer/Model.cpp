@@ -37,27 +37,27 @@ namespace Engine {
         // glTF stores colors in linear space. Our Material.Color is sRGB-style, so convert.
         const bool linearColors = (ext == ".gltf" || ext == ".glb");
 
-        // ---- textures (each file is loaded once, even if several materials use it)
         std::unordered_map<std::string, std::shared_ptr<Texture2D>> cache;
-        auto loadTexture = [&](const aiString& texPath) -> std::shared_ptr<Texture2D> {
-            const std::string key = texPath.C_Str();
+        auto loadTexture = [&](const aiString& texPath, bool srgb) -> std::shared_ptr<Texture2D> {
+            const std::string file = texPath.C_Str();
+            const std::string key = file + (srgb ? "|srgb" : "|linear");   // same file, different decode
             auto it = cache.find(key);
             if (it != cache.end()) return it->second;
 
             std::shared_ptr<Texture2D> tex;
-            if (const aiTexture* emb = scene->GetEmbeddedTexture(key.c_str())) {
-                if (emb->mHeight == 0)   // compressed image (png/jpg) stored in the file
-                    tex = Texture2D::FromMemory(reinterpret_cast<const uint8_t*>(emb->pcData), emb->mWidth, true);
+            if (const aiTexture* emb = scene->GetEmbeddedTexture(file.c_str())) {
+                if (emb->mHeight == 0)
+                    tex = Texture2D::FromMemory(reinterpret_cast<const uint8_t*>(emb->pcData), emb->mWidth, srgb);
                 else
-                    ENGINE_WARN("Raw embedded texture '{}' is not supported", key);
+                    ENGINE_WARN("Raw embedded texture '{}' is not supported", file);
             }
             else {
-                std::string rel = key;
-                std::replace(rel.begin(), rel.end(), '\\', '/');   // MTL files from Windows tools
+                std::string rel = file;
+                std::replace(rel.begin(), rel.end(), '\\', '/');
                 fs::path p = baseDir / rel;
-                if (!fs::exists(p)) p = baseDir / fs::path(rel).filename();   // flat folder fallback
-                if (fs::exists(p)) tex = std::make_shared<Texture2D>(p.string(), true);
-                else ENGINE_WARN("Texture not found for model '{}': {}", path, key);
+                if (!fs::exists(p)) p = baseDir / fs::path(rel).filename();
+                if (fs::exists(p)) tex = std::make_shared<Texture2D>(p.string(), srgb);
+                else ENGINE_WARN("Texture not found for model '{}': {}", path, file);
             }
             cache[key] = tex;
             return tex;
@@ -78,18 +78,36 @@ namespace Engine {
                 if (linearColors) m.Color = glm::pow(m.Color, glm::vec3(1.0f / 2.2f));
             }
 
-            aiString texPath;
-            if (am->GetTexture(aiTextureType_BASE_COLOR, 0, &texPath) == AI_SUCCESS ||
-                am->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS)
-                m.Albedo = loadTexture(texPath);
+            aiString tp;
+            if (am->GetTexture(aiTextureType_BASE_COLOR, 0, &tp) == AI_SUCCESS ||
+                am->GetTexture(aiTextureType_DIFFUSE, 0, &tp) == AI_SUCCESS)
+                m.Albedo = loadTexture(tp, true);
 
-            float shininess;
-            if (am->Get(AI_MATKEY_SHININESS, shininess) == AI_SUCCESS)
-                m.Shininess = std::clamp(shininess, 2.0f, 256.0f);
+            if (am->GetTexture(aiTextureType_NORMALS, 0, &tp) == AI_SUCCESS)
+                m.Normal = loadTexture(tp, false);
 
-            aiColor3D spec;
-            if (am->Get(AI_MATKEY_COLOR_SPECULAR, spec) == AI_SUCCESS)
-                m.SpecularStrength = std::clamp(std::max({ spec.r, spec.g, spec.b }), 0.0f, 1.0f);
+            // Only the glTF layout (G = roughness, B = metallic) is understood
+            if (linearColors &&
+                (am->GetTexture(aiTextureType_UNKNOWN, 0, &tp) == AI_SUCCESS ||
+                    am->GetTexture(aiTextureType_METALNESS, 0, &tp) == AI_SUCCESS))
+                m.MetalRough = loadTexture(tp, false);
+
+            if (am->GetTexture(aiTextureType_EMISSIVE, 0, &tp) == AI_SUCCESS)
+                m.Emissive = loadTexture(tp, true);
+
+            // Factors. OBJ files have no PBR values, so convert the old shininess to a roughness.
+            m.Metallic = 0.0f;
+            m.Roughness = 0.6f;
+            float f;
+            if (am->Get(AI_MATKEY_METALLIC_FACTOR, f) == AI_SUCCESS) m.Metallic = f;
+            if (am->Get(AI_MATKEY_ROUGHNESS_FACTOR, f) == AI_SUCCESS)
+                m.Roughness = f;
+            else if (am->Get(AI_MATKEY_SHININESS, f) == AI_SUCCESS)
+                m.Roughness = std::clamp(std::sqrt(2.0f / (f + 2.0f)), 0.05f, 1.0f);
+
+            aiColor3D em;
+            if (am->Get(AI_MATKEY_COLOR_EMISSIVE, em) == AI_SUCCESS)
+                m.EmissiveColor = glm::vec3(em.r, em.g, em.b);
 
             m_Materials.push_back(std::move(m));
         }

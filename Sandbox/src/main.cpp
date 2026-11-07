@@ -73,6 +73,7 @@ public:
             mr.Geometry = m_Plane;
             mr.Texture = m_Checker;
             mr.Color = glm::vec3(0.8f);
+            mr.Roughness = 0.85f;
         }
 
         // --- Spinning cube
@@ -247,12 +248,14 @@ public:
             if (g == m_Cube) return "cube";
             if (g == m_Plane) return "plane";
             if (g == m_ModelResource) return "model";
+            if (g == m_Sphere) return "sphere";
             return "";
             };
         r.FindGeometry = [this](const std::string& n) -> std::shared_ptr<Renderable> {
             if (n == "cube") return m_Cube;
             if (n == "plane") return m_Plane;
             if (n == "model") return m_ModelResource;
+            if (n == "sphere") return m_Sphere;
             return nullptr;
             };
         r.TextureName = [this](const std::shared_ptr<Texture2D>& t) -> std::string {
@@ -262,6 +265,25 @@ public:
             return n == "checker" ? m_Checker : nullptr;
             };
         return r;
+    }
+
+    void SpawnMaterialGrid() {
+        using namespace Engine;
+        if (!m_Sphere) m_Sphere = Mesh::CreateSphere(48);
+
+        // Rows: metallic 0 -> 1 (top to bottom). Columns: roughness 0.05 -> 1 (left to right).
+        const int n = 5;
+        for (int row = 0; row < n; row++) {
+            for (int col = 0; col < n; col++) {
+                auto e = m_Scene.CreateEntity("Sphere");
+                e.Get<TransformComponent>().Position = glm::vec3((col - 2) * 1.3f, 2.0f + (2 - row) * 1.3f, -3.5f);
+                auto& mr = e.Add<MeshRendererComponent>();
+                mr.Geometry = m_Sphere;
+                mr.Color = glm::vec3(0.9f, 0.55f, 0.25f);    // copper-ish
+                mr.Metallic = row / float(n - 1);
+                mr.Roughness = 0.05f + 0.95f * col / float(n - 1);
+            }
+        }
     }
 
 private:
@@ -312,6 +334,7 @@ private:
         ImGui::SliderFloat("Point range", &s.PointFar, 5.0f, 100.0f);
         ImGui::SliderFloat("Sun bias", &s.SunBias, 0.0002f, 0.01f, "%.4f");
         ImGui::SliderFloat("Sun area", &s.SunExtent, 4.0f, 40.0f);
+        ImGui::SliderFloat("Ambient (sky)", &m_Scene.AmbientIntensity, 0.0f, 4.0f);
 
         ImGui::Separator();
         ImGui::TextUnformatted("Display");
@@ -360,6 +383,8 @@ private:
             mr.Unlit = true;
             m_Selected = e.GetHandle();
         }
+        ImGui::SameLine();
+        if (ImGui::Button("+ Material grid")) SpawnMaterialGrid();
         ImGui::Separator();
 
         auto& reg = m_Scene.Registry();
@@ -523,8 +548,11 @@ private:
             ImGui::CollapsingHeader("Mesh Renderer", ImGuiTreeNodeFlags_DefaultOpen)) {
             auto& mr = e.Get<MeshRendererComponent>();
             ImGui::ColorEdit3("Color", &mr.Color.x);
-            ImGui::SliderFloat("Shininess", &mr.Shininess, 2.0f, 256.0f);
-            ImGui::SliderFloat("Specular", &mr.SpecularStrength, 0.0f, 2.0f);
+            if (!mr.UseModelMaterials) {
+                ImGui::SliderFloat("Metallic", &mr.Metallic, 0.0f, 1.0f);
+                ImGui::SliderFloat("Roughness", &mr.Roughness, 0.04f, 1.0f);
+                ImGui::ColorEdit3("Emissive", &mr.Emissive.x, ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float);
+            }
             ImGui::Checkbox("Unlit", &mr.Unlit);
             if (mr.Geometry && mr.Geometry->GetSubmeshMaterial(0)) {
                 ImGui::Checkbox("Use model materials", &mr.UseModelMaterials);
@@ -533,8 +561,9 @@ private:
                     if (ImGui::TreeNode("Materials")) {
                         for (uint32_t i = 0; i < mr.Geometry->SubmeshCount(); i++) {
                             const Material* mat = mr.Geometry->GetSubmeshMaterial(i);
-                            ImGui::BulletText("%s%s", mat->Name.empty() ? "(unnamed)" : mat->Name.c_str(),
-                                mat->Albedo ? "  [textured]" : "");
+                            ImGui::BulletText("%s  M:%.2f R:%.2f%s%s", mat->Name.empty() ? "(unnamed)" : mat->Name.c_str(),
+                                mat->Metallic, mat->Roughness,
+                                mat->Albedo ? " [tex]" : "", mat->Normal ? " [normal]" : "");
                         }
                         ImGui::TreePop();
                     }
@@ -731,6 +760,7 @@ private:
     std::unique_ptr<Engine::PostProcess> m_Post;
     std::unique_ptr<Engine::Shader> m_PostShader;
     Engine::PostSettings m_PostSettings;
+    std::shared_ptr<Engine::Mesh> m_Sphere;
 
     ImGuizmo::OPERATION m_GizmoOp = ImGuizmo::TRANSLATE;
 

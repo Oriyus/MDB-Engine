@@ -1,6 +1,9 @@
 #include "Renderer/RenderStats.h"
 #include "Renderer/Mesh.h"
 #include <glad/glad.h>
+#include <glm/gtc/constants.hpp>
+#include <cmath>
+#include <algorithm>
 
 namespace Engine {
 
@@ -72,6 +75,33 @@ namespace Engine {
             { glm::vec3(-s, 0, -s), n, glm::vec2(0, uvRepeat) },
         };
         std::vector<uint32_t> indices = { 0, 1, 2, 2, 3, 0 };
+        return std::make_shared<Mesh>(vertices, indices);
+    }
+
+    std::shared_ptr<Mesh> Mesh::CreateSphere(uint32_t segments) {
+        segments = std::max(segments, 8u);
+        const uint32_t rings = segments / 2;
+
+        std::vector<Vertex> vertices;
+        std::vector<uint32_t> indices;
+
+        for (uint32_t y = 0; y <= rings; y++) {
+            float v = (float)y / rings;
+            float phi = v * glm::pi<float>();                  // 0 at the top pole, pi at the bottom
+            for (uint32_t x = 0; x <= segments; x++) {
+                float u = (float)x / segments;
+                float theta = u * glm::two_pi<float>();
+                glm::vec3 n(std::cos(theta) * std::sin(phi), std::cos(phi), std::sin(theta) * std::sin(phi));
+                vertices.push_back({ n * 0.5f, n, glm::vec2(u, v) });
+            }
+        }
+        for (uint32_t y = 0; y < rings; y++) {
+            for (uint32_t x = 0; x < segments; x++) {
+                uint32_t a = y * (segments + 1) + x;
+                uint32_t b = a + segments + 1;
+                indices.insert(indices.end(), { a, a + 1, b,   a + 1, b + 1, b });   // counter-clockwise from outside
+            }
+        }
         return std::make_shared<Mesh>(vertices, indices);
     }
 

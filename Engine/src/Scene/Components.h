@@ -33,8 +33,9 @@ namespace Engine {
         std::shared_ptr<Texture2D>  Texture;      // optional
         glm::vec3 Color{ 1.0f };                  // tints the texture, or is the flat color
         glm::mat4 LocalOffset{ 1.0f };            // applied before the entity transform (used by models)
-        float Shininess = 64.0f;
-        float SpecularStrength = 0.6f;
+        float Metallic = 0.0f;
+        float Roughness = 0.5f;
+        glm::vec3 Emissive{ 0.0f };               // linear, can exceed 1
         bool  Unlit = false;
         bool  UseModelMaterials = false;   // use the model file's materials; Color becomes a tint
     };

@@ -17,6 +17,7 @@ namespace Engine {
     class Mesh : public Renderable {
     public:
         Mesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
+        static std::shared_ptr<Mesh> CreateSphere(uint32_t segments = 32);
 
         void Draw() const override;
         void GetLocalBounds(glm::vec3& mn, glm::vec3& mx) const override { mn = m_Min; mx = m_Max; }

@@ -42,8 +42,9 @@ namespace Engine {
                     { "texture",  m_Resources.TextureName(mr.Texture) },
                     { "color", mr.Color },
                     { "localOffset", mr.LocalOffset },
-                    { "shininess", mr.Shininess },
-                    { "specularStrength", mr.SpecularStrength },
+                    { "metallic", mr.Metallic },
+                    { "roughness", mr.Roughness },
+                    { "emissive", mr.Emissive },
                     { "unlit", mr.Unlit },
                     { "useModelMaterials", mr.UseModelMaterials },
                 };
@@ -109,8 +110,9 @@ namespace Engine {
                     mr.Texture = m_Resources.FindTexture(jm.at("texture").get<std::string>());
                     mr.Color = jm.at("color").get<glm::vec3>();
                     mr.LocalOffset = jm.at("localOffset").get<glm::mat4>();
-                    mr.Shininess = jm.at("shininess").get<float>();
-                    mr.SpecularStrength = jm.at("specularStrength").get<float>();
+                    mr.Metallic = jm.value("metallic", 0.0f);
+                    mr.Roughness = jm.value("roughness", 0.5f);
+                    mr.Emissive = jm.contains("emissive") ? jm["emissive"].get<glm::vec3>() : glm::vec3(0.0f);
                     mr.Unlit = jm.at("unlit").get<bool>();
                     mr.UseModelMaterials = jm.value("useModelMaterials", false);
                 }

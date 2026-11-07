@@ -11,6 +11,7 @@ namespace Engine {
 
     class Scene {
     public:
+        float AmbientIntensity = 1.0f;     // strength of the procedural sky light
         Entity CreateEntity(const std::string& name = "Entity");
         void DestroyEntity(Entity entity);
 

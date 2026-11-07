@@ -155,6 +155,10 @@ namespace Engine {
         shader.SetInt("u_Texture", 0);
         shader.SetInt("u_PointShadowMaps", 1);
         shader.SetInt("u_SunShadowMap", 2);
+        shader.SetInt("u_NormalMap", 3);
+        shader.SetInt("u_MetalRoughMap", 4);
+        shader.SetInt("u_EmissiveMap", 5);
+        shader.SetFloat("u_Ambient", AmbientIntensity);
 
         // Point lights
         const bool pointShadows = shadowsOn && ctx->Points;
@@ -200,17 +204,26 @@ namespace Engine {
             for (uint32_t i = 0; i < parts; i++) {
                 const Material* mat = mr.UseModelMaterials ? mr.Geometry->GetSubmeshMaterial(i) : nullptr;
 
-                // With a model material, the component's Color tints it. Without, the component rules.
-                glm::vec3 color = mat ? mat->Color * mr.Color : mr.Color;
-                const Texture2D* tex = mat ? mat->Albedo.get() : mr.Texture.get();
-                float shininess = mat ? mat->Shininess : mr.Shininess;
-                float specular = mat ? mat->SpecularStrength : mr.SpecularStrength;
+                // With a model material the component Color tints it; metallic/roughness/emissive come from the file
+                const glm::vec3 color = mat ? mat->Color * mr.Color : mr.Color;
+                const Texture2D* albedo = mat ? mat->Albedo.get() : mr.Texture.get();
+                const Texture2D* normal = mat ? mat->Normal.get() : nullptr;
+                const Texture2D* metalRough = mat ? mat->MetalRough.get() : nullptr;
+                const Texture2D* emissiveTex = mat ? mat->Emissive.get() : nullptr;
 
-                if (tex) tex->Bind(0);
+                if (albedo)       albedo->Bind(0);
+                if (normal)       normal->Bind(3);
+                if (metalRough)   metalRough->Bind(4);
+                if (emissiveTex)  emissiveTex->Bind(5);
+
                 shader.SetVec3("u_Color", color);
-                shader.SetInt("u_UseTexture", tex ? 1 : 0);
-                shader.SetFloat("u_Shininess", shininess);
-                shader.SetFloat("u_SpecularStrength", specular);
+                shader.SetInt("u_UseTexture", albedo ? 1 : 0);
+                shader.SetInt("u_UseNormalMap", normal ? 1 : 0);
+                shader.SetInt("u_UseMetalRough", metalRough ? 1 : 0);
+                shader.SetInt("u_UseEmissive", emissiveTex ? 1 : 0);
+                shader.SetFloat("u_Metallic", mat ? mat->Metallic : mr.Metallic);
+                shader.SetFloat("u_Roughness", mat ? mat->Roughness : mr.Roughness);
+                shader.SetVec3("u_Emissive", mat ? mat->EmissiveColor : mr.Emissive);
 
                 if (mat) mr.Geometry->DrawSubmesh(i);
                 else     mr.Geometry->Draw();
