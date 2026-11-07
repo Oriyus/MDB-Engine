@@ -1,4 +1,5 @@
 #pragma once
+#include <glm/glm.hpp>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -9,6 +10,15 @@ namespace Engine {
     class Scene;
     class PhysicsWorld;
     struct ResourceRegistry;
+
+    // One ui.text call: drawn by the app over the viewport for the frame it was made in
+    struct ScriptText {
+        std::string Text;
+        float X = 0.0f, Y = 0.0f;           // 0..1 across the viewport, from the top left
+        float Size = 24.0f;                 // pixels at a 720 px tall viewport (scales with it)
+        glm::vec3 Color{ 1.0f };
+        int Align = 0;                      // 0 left, 1 center, 2 right (of X)
+    };
 
     // Runs the Lua scripts of every entity with a ScriptComponent while the scene plays.
     // Each entity gets its own copy of the script's globals, so two entities running the same
@@ -28,7 +38,7 @@ namespace Engine {
     //   e.name, e.position, e.rotation (radians), e.scale     read/write; vec3 values are copies
     //   e.forward, e.right, e.up                              world-space directions (read-only)
     //   e.id, e:valid(), e:destroy(), e:clone()
-    //   e:has(kind), e:remove(kind)     kind = "mesh" "body" "light" "sun" "script" "spin" "orbit"
+    //   e:has(kind), e:remove(kind)     kind = "mesh" "body" "light" "sun" "script" "spin" "orbit" "camera"
     //   e.mesh   -> nil or { color, emissive, metallic, roughness, unlit, geometry ("cube" "sphere" ...) }
     //   e.light  -> nil or { color, intensity, shadows }
     //   e.body   -> nil or { velocity, angular_velocity, type, trigger, mass,
@@ -38,10 +48,14 @@ namespace Engine {
     //               center=vec3, mass, friction, bounciness, trigger=bool, velocity=vec3 }
     //   e:add_light{ color=vec3, intensity, shadows }
     //   e:add_script("Scripts/x.lua")        starts on the next frame
+    //   e.camera -> nil or { fov, primary }       e:add_camera{ fov=60, near, far, primary=true }
+    //   e:look_at(target [, up])               turn local -Z (forward) towards a point
     //
     // ---- Globals
     //   vec3(x, y, z): + - * / unary-, v:length(), v:normalize(), v:dot(w), v:cross(w)
     //   scene.find(name), scene.find_all(name), scene.spawn(name [, position]), scene.time()
+    //   scene.restart()                      Stop + Play on the next frame (retry a level)
+    //   ui.text(text, x, y [, { size=24, color=vec3, align="left"|"center"|"right" }])   x, y in 0..1, this frame only
     //   scene.raycast(origin, dir, max_dist [, ignore_entity]) -> nil or { entity, point, normal, distance }
     //   input.key_down(k), input.key_pressed(k), input.key_released(k)    Key.A..Key.Z, Key.Num0..9, Key.F1..12,
     //   input.mouse_down(b), input.mouse_pressed(b), input.mouse_position()  Key.Space, Key.Left ... Mouse.Left ...
@@ -66,6 +80,8 @@ namespace Engine {
         bool IsRunning() const;
         uint32_t InstanceCount() const;        // scripts currently running
         const std::vector<std::string>& RecentErrors() const;   // newest last, cleared on Start
+        const std::vector<ScriptText>& Texts() const;            // this frame's ui.text calls
+        bool ConsumeRestartRequest();                           // true once after scene.restart()
 
     private:
         struct Impl;                           // keeps sol2 out of everything else

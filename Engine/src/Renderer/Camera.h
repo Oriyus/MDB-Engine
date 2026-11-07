@@ -1,5 +1,6 @@
 #pragma once
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 namespace Engine {
 
@@ -25,6 +26,15 @@ namespace Engine {
         glm::mat4 GetViewProjection() const { return m_Projection * m_View; }
         glm::vec3 GetFront() const { return m_Front; }
         glm::vec3 GetRight() const;
+
+        float GetYaw() const { return m_Yaw; }       // degrees
+        float GetPitch() const { return m_Pitch; }   // degrees, clamped to +-89
+        void SetOrientation(float yawDegrees, float pitchDegrees);
+
+        // Drive the camera from an entity (game cameras): position + rotation, looking along local -Z.
+        // Roll is kept. Refresh/Orbit/Pan would go back to yaw/pitch, so don't mix the two.
+        void SetPose(const glm::vec3& position, const glm::quat& rotation);
+        void SetLens(float fovDegrees, float nearPlane, float farPlane);
 
         glm::vec3 Position{ 0.0f, 0.0f, 4.0f };
         float OrbitSensitivity = 0.3f;   // degrees per pixel

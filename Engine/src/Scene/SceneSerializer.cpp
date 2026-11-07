@@ -4,6 +4,7 @@
 #include "Core/Log.h"
 
 #include <nlohmann/json.hpp>
+#include <algorithm>
 #include <fstream>
 
 using json = nlohmann::json;
@@ -23,7 +24,86 @@ namespace glm {
 
 namespace Engine {
 
-    bool SceneSerializer::Save(const std::string& path) const {
+    namespace {
+
+        json WriteSettings(const SceneSettings& s, float ambient) {
+            const auto& p = s.Post;
+            const auto& sh = s.Shadows;
+            return {
+                { "environment", { { "map", s.EnvironmentMap },{ "showSky", s.ShowSky },{ "blur", s.SkyBlur },
+                                   { "rotation", s.SkyRotation },{ "intensity", ambient } } },
+                { "post", { { "exposure", p.Exposure },{ "toneMap", p.ToneMap },{ "gamma", p.Gamma },
+                            { "fxaa", p.FXAA } } },
+                { "ao", { { "enabled", p.AOEnabled },{ "strength", p.AOStrength },{ "radius", s.AORadius },
+                          { "bias", s.AOBias },{ "samples", s.AOSamples } } },
+                { "bloom", { { "enabled", p.BloomEnabled },{ "intensity", p.BloomIntensity },
+                             { "threshold", s.BloomThreshold },{ "knee", s.BloomKnee },
+                             { "radius", s.BloomRadius },{ "maxBrightness", s.BloomMaxBrightness } } },
+                { "shadows", { { "enabled", sh.Enabled },{ "pointBias", sh.PointBias },{ "pointFar", sh.PointFar },
+                               { "sunBias", sh.SunBias },{ "sunExtent", sh.SunExtent },{ "sunDistance", sh.SunDistance } } },
+                { "physics", { { "gravity", s.Gravity } } },
+                { "camera", { { "position", s.CameraPosition },{ "yaw", s.CameraYaw },{ "pitch", s.CameraPitch },
+                              { "focusDistance", s.CameraFocusDistance } } },
+            };
+        }
+
+        // Every section and field is optional: what's missing keeps the value passed in
+        void ReadSettings(const json& j, SceneSettings& s, float& ambient) {
+            auto section = [&](const char* name) -> const json* {
+                auto it = j.find(name);
+                return it != j.end() && it->is_object() ? &*it : nullptr;
+            };
+            auto& p = s.Post;
+            auto& sh = s.Shadows;
+            if (auto* e = section("environment")) {
+                s.EnvironmentMap = e->value("map", s.EnvironmentMap);
+                s.ShowSky = e->value("showSky", s.ShowSky);
+                s.SkyBlur = e->value("blur", s.SkyBlur);
+                s.SkyRotation = e->value("rotation", s.SkyRotation);
+                ambient = e->value("intensity", ambient);
+            }
+            if (auto* e = section("post")) {
+                p.Exposure = e->value("exposure", p.Exposure);
+                p.ToneMap = std::clamp(e->value("toneMap", p.ToneMap), 0, 2);
+                p.Gamma = e->value("gamma", p.Gamma);
+                p.FXAA = e->value("fxaa", p.FXAA);
+            }
+            if (auto* e = section("ao")) {
+                p.AOEnabled = e->value("enabled", p.AOEnabled);
+                p.AOStrength = e->value("strength", p.AOStrength);
+                s.AORadius = e->value("radius", s.AORadius);
+                s.AOBias = e->value("bias", s.AOBias);
+                s.AOSamples = std::clamp(e->value("samples", s.AOSamples), 4, 32);
+            }
+            if (auto* e = section("bloom")) {
+                p.BloomEnabled = e->value("enabled", p.BloomEnabled);
+                p.BloomIntensity = e->value("intensity", p.BloomIntensity);
+                s.BloomThreshold = e->value("threshold", s.BloomThreshold);
+                s.BloomKnee = e->value("knee", s.BloomKnee);
+                s.BloomRadius = e->value("radius", s.BloomRadius);
+                s.BloomMaxBrightness = e->value("maxBrightness", s.BloomMaxBrightness);
+            }
+            if (auto* e = section("shadows")) {
+                sh.Enabled = e->value("enabled", sh.Enabled);
+                sh.PointBias = e->value("pointBias", sh.PointBias);
+                sh.PointFar = e->value("pointFar", sh.PointFar);
+                sh.SunBias = e->value("sunBias", sh.SunBias);
+                sh.SunExtent = e->value("sunExtent", sh.SunExtent);
+                sh.SunDistance = e->value("sunDistance", sh.SunDistance);
+            }
+            if (auto* e = section("physics"))
+                s.Gravity = e->value("gravity", s.Gravity);
+            if (auto* e = section("camera")) {
+                if (e->contains("position")) s.CameraPosition = e->at("position").get<glm::vec3>();
+                s.CameraYaw = e->value("yaw", s.CameraYaw);
+                s.CameraPitch = e->value("pitch", s.CameraPitch);
+                s.CameraFocusDistance = e->value("focusDistance", s.CameraFocusDistance);
+            }
+        }
+
+    } // namespace
+
+    bool SceneSerializer::Save(const std::string& path, const SceneSettings* settings) const {
         json entities = json::array();
 
         auto& reg = m_Scene.Registry();
@@ -73,10 +153,15 @@ namespace Engine {
             }
             if (e.Has<ScriptComponent>())
                 j["script"] = { { "path", e.Get<ScriptComponent>().Path } };
+            if (e.Has<CameraComponent>()) {
+                auto& c = e.Get<CameraComponent>();
+                j["camera"] = { { "fov", c.FOV },{ "near", c.Near },{ "far", c.Far },{ "primary", c.Primary } };
+            }
             entities.push_back(std::move(j));
         }
 
-        json root = { { "version", 1 },{ "entities", entities } };
+        json root = { { "version", 2 },{ "entities", entities } };
+        if (settings) root["settings"] = WriteSettings(*settings, m_Scene.AmbientIntensity);
 
         std::ofstream file(path);
         if (!file) { ENGINE_ERROR("Could not write scene file: {}", path); return false; }
@@ -85,7 +170,7 @@ namespace Engine {
         return true;
     }
 
-    bool SceneSerializer::Load(const std::string& path) {
+    bool SceneSerializer::Load(const std::string& path, SceneSettings* settings) {
         std::ifstream file(path);
         if (!file) { ENGINE_ERROR("Could not open scene file: {}", path); return false; }
 
@@ -163,6 +248,14 @@ namespace Engine {
                 }
                 if (j.contains("script"))
                     e.Add<ScriptComponent>().Path = j["script"].at("path").get<std::string>();
+                if (j.contains("camera")) {
+                    auto& c = e.Add<CameraComponent>();
+                    const auto& jc = j["camera"];
+                    c.FOV = jc.value("fov", 60.0f);
+                    c.Near = jc.value("near", 0.1f);
+                    c.Far = jc.value("far", 500.0f);
+                    c.Primary = jc.value("primary", true);
+                }
             }
         }
         catch (const std::exception& ex) {
@@ -170,20 +263,25 @@ namespace Engine {
             return false;
         }
 
+        // Settings parse into copies too, so a bad value leaves everything as it was
+        SceneSettings parsedSettings = settings ? *settings : SceneSettings{};
+        float ambient = m_Scene.AmbientIntensity;
+        try {
+            if (root.contains("settings")) ReadSettings(root["settings"], parsedSettings, ambient);
+        }
+        catch (const std::exception& ex) {
+            ENGINE_ERROR("Scene settings are malformed: {}", ex.what());
+            return false;
+        }
+
         // Success: clear the live scene and copy the entities across
         m_Scene.Clear();
-        auto& src = temp.Registry();
-        for (auto handle : src.view<TagComponent>()) {
-            Entity from(handle, &temp);
-            Entity to = m_Scene.CreateEntity(from.Get<TagComponent>().Tag);
-            to.Get<TransformComponent>() = from.Get<TransformComponent>();
-            if (from.Has<MeshRendererComponent>())  to.Add<MeshRendererComponent>(from.Get<MeshRendererComponent>());
-            if (from.Has<PointLightComponent>())    to.Add<PointLightComponent>(from.Get<PointLightComponent>());
-            if (from.Has<SpinComponent>())          to.Add<SpinComponent>(from.Get<SpinComponent>());
-            if (from.Has<OrbitComponent>())         to.Add<OrbitComponent>(from.Get<OrbitComponent>());
-            if (from.Has<DirectionalLightComponent>()) to.Add<DirectionalLightComponent>(from.Get<DirectionalLightComponent>());
-            if (from.Has<RigidBodyComponent>()) to.Add<RigidBodyComponent>(from.Get<RigidBodyComponent>());
-            if (from.Has<ScriptComponent>())    to.Add<ScriptComponent>(from.Get<ScriptComponent>());
+        for (auto handle : temp.Registry().view<TagComponent>())
+            m_Scene.CreateFromSnapshot(temp.CaptureEntity(handle));
+
+        if (root.contains("settings")) {
+            m_Scene.AmbientIntensity = ambient;
+            if (settings) *settings = parsedSettings;
         }
 
         ENGINE_INFO("Loaded scene from {}", path);

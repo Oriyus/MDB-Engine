@@ -60,6 +60,7 @@ namespace Engine {
         if (auto* c = m_Registry.try_get<OrbitComponent>(handle))            s.Orbit = *c;
         if (auto* c = m_Registry.try_get<RigidBodyComponent>(handle))        s.RigidBody = *c;
         if (auto* c = m_Registry.try_get<ScriptComponent>(handle))           s.Script = *c;
+        if (auto* c = m_Registry.try_get<CameraComponent>(handle))           s.Camera = *c;
         return s;
     }
 
@@ -74,6 +75,7 @@ namespace Engine {
         if (s.Orbit)            m_Registry.emplace<OrbitComponent>(e, *s.Orbit);
         if (s.RigidBody)        m_Registry.emplace<RigidBodyComponent>(e, *s.RigidBody);
         if (s.Script)           m_Registry.emplace<ScriptComponent>(e, *s.Script);
+        if (s.Camera)           m_Registry.emplace<CameraComponent>(e, *s.Camera);
         return e;
     }
 

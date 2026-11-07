@@ -46,6 +46,7 @@ namespace Engine {
         struct MeshRef  { ScriptEntity E; };
         struct LightRef { ScriptEntity E; };
         struct BodyRef  { ScriptEntity E; };
+        struct CameraRef { ScriptEntity E; };
 
         constexpr int kKeyFirst = 32, kKeyCount = 349;   // GLFW_KEY_SPACE .. GLFW_KEY_LAST
         constexpr int kMouseCount = 8;
@@ -85,6 +86,8 @@ namespace Engine {
         std::vector<entt::entity> PendingDestroy;         // e:destroy() requests, handled when nothing iterates
         std::vector<entt::entity> PendingRestart;         // e:add_script() on an entity that may already run one
         std::vector<std::string> Errors;
+        std::vector<ScriptText> Texts;                    // ui.text calls of the current frame
+        bool RestartRequested = false;
 
         std::array<bool, kKeyCount> KeyNow{}, KeyPrev{};
         std::array<bool, kMouseCount> MouseNow{}, MousePrev{};
@@ -218,6 +221,32 @@ namespace Engine {
                 if (e.Has<RigidBodyComponent>()) return BodyRef{ e };
                 return sol::nullopt;
             }),
+            "camera", sol::readonly_property([](const ScriptEntity& e) -> sol::optional<CameraRef> {
+                if (e.Has<CameraComponent>()) return CameraRef{ e };
+                return sol::nullopt;
+            }),
+            "add_camera", [](const ScriptEntity& e, sol::optional<sol::table> opts) {
+                if (!e.Valid()) throw std::runtime_error("entity no longer exists");
+                CameraComponent c;
+                if (opts) {
+                    c.FOV = opts->get_or<float>("fov", c.FOV);
+                    c.Near = opts->get_or<float>("near", c.Near);
+                    c.Far = opts->get_or<float>("far", c.Far);
+                    c.Primary = opts->get_or<bool>("primary", c.Primary);
+                }
+                e.Owner->Registry().emplace_or_replace<CameraComponent>(e.Handle, c);
+                return CameraRef{ e };
+            },
+            // Turn so local -Z (forward) points at target. `up` defaults to world up.
+            "look_at", [](const ScriptEntity& e, const glm::vec3& target, sol::optional<glm::vec3> up) {
+                auto& t = e.Get<TransformComponent>();
+                const glm::vec3 d = target - t.Position;
+                if (glm::dot(d, d) < 1e-10f) return;
+                const glm::vec3 dir = glm::normalize(d);
+                glm::vec3 u = up ? glm::normalize(*up) : glm::vec3(0.0f, 1.0f, 0.0f);
+                if (std::abs(glm::dot(dir, u)) > 0.999f) u = glm::vec3(0.0f, 0.0f, 1.0f);   // looking straight up/down
+                t.Rotation = glm::eulerAngles(glm::quatLookAt(dir, u));
+            },
 
             "has", [](const ScriptEntity& e, const std::string& kind) {
                 if (!e.Valid()) return false;
@@ -228,6 +257,7 @@ namespace Engine {
                 if (kind == "script") return e.Has<ScriptComponent>();
                 if (kind == "spin")   return e.Has<SpinComponent>();
                 if (kind == "orbit")  return e.Has<OrbitComponent>();
+                if (kind == "camera") return e.Has<CameraComponent>();
                 throw std::runtime_error("unknown component kind '" + kind + "'");
             },
             "remove", [](const ScriptEntity& e, const std::string& kind) {
@@ -240,6 +270,7 @@ namespace Engine {
                 else if (kind == "script") reg.remove<ScriptComponent>(e.Handle);
                 else if (kind == "spin")   reg.remove<SpinComponent>(e.Handle);
                 else if (kind == "orbit")  reg.remove<OrbitComponent>(e.Handle);
+                else if (kind == "camera") reg.remove<CameraComponent>(e.Handle);
                 else throw std::runtime_error("unknown component kind '" + kind + "'");
             },
 
@@ -336,6 +367,7 @@ namespace Engine {
             return Wrap(e.GetHandle());
         });
         scene.set_function("time", [this]() { return Time; });
+        scene.set_function("restart", [this]() { RestartRequested = true; });   // the app does Stop + Play next frame
         scene.set_function("raycast", [this](const glm::vec3& origin, const glm::vec3& dir, float maxDist,
             sol::optional<ScriptEntity> ignore) -> sol::object {
             RayHit hit;
@@ -344,6 +376,31 @@ namespace Engine {
             return Lua->create_table_with("entity", Wrap(hit.Entity), "point", hit.Point,
                 "normal", hit.Normal, "distance", hit.Distance);
         });
+
+        // ---- ui: text drawn over the viewport this frame. x, y are 0..1 across the viewport
+        sol::table ui = lua.create_named_table("ui");
+        ui.set_function("text", [this](const std::string& text, float x, float y, sol::optional<sol::table> opts) {
+            ScriptText t;
+            t.Text = text;
+            t.X = x;
+            t.Y = y;
+            if (opts) {
+                t.Size = opts->get_or<float>("size", t.Size);
+                t.Color = opts->get_or<glm::vec3>("color", t.Color);
+                const std::string align = opts->get_or<std::string>("align", "left");
+                t.Align = align == "center" ? 1 : align == "right" ? 2 : 0;
+            }
+            if (Texts.size() < 256) Texts.push_back(std::move(t));
+        });
+
+        // ---- camera usertype
+        lua.new_usertype<CameraRef>("Camera", sol::no_constructor,
+            "fov", sol::property(
+                [](const CameraRef& c) { return c.E.Get<CameraComponent>().FOV; },
+                [](const CameraRef& c, float v) { c.E.Get<CameraComponent>().FOV = v; }),
+            "primary", sol::property(
+                [](const CameraRef& c) { return c.E.Get<CameraComponent>().Primary; },
+                [](const CameraRef& c, bool v) { c.E.Get<CameraComponent>().Primary = v; }));
 
         // ---- input (sampled once per frame, so pressed/released are exact frame edges)
         sol::table input = lua.create_named_table("input");
@@ -487,6 +544,13 @@ namespace Engine {
     bool ScriptEngine::IsRunning() const { return m_Impl->Lua != nullptr; }
     uint32_t ScriptEngine::InstanceCount() const { return (uint32_t)m_Impl->Instances.size(); }
     const std::vector<std::string>& ScriptEngine::RecentErrors() const { return m_Impl->Errors; }
+    const std::vector<ScriptText>& ScriptEngine::Texts() const { return m_Impl->Texts; }
+
+    bool ScriptEngine::ConsumeRestartRequest() {
+        const bool r = m_Impl->RestartRequested;
+        m_Impl->RestartRequested = false;
+        return r;
+    }
 
     void ScriptEngine::Start(Scene& scene) {
         Impl& m = *m_Impl;
@@ -512,6 +576,7 @@ namespace Engine {
         if (!m.Lua) return;
         m.ActiveScene = &scene;
         m.Time += dt;
+        m.Texts.clear();            // a paused game keeps showing the last frame's text
         m.SampleInput();
         auto& reg = scene.Registry();
 
@@ -589,6 +654,8 @@ namespace Engine {
         m.Failed.clear();
         m.PendingDestroy.clear();   // the scene is about to be restored anyway
         m.PendingRestart.clear();
+        m.Texts.clear();
+        m.RestartRequested = false;
         m.Lua.reset();
         m.ActiveScene = nullptr;
     }
