@@ -22,6 +22,7 @@
 #include "Physics/PhysicsWorld.h"
 #include "Scripting/ScriptEngine.h"
 #include "Audio/AudioEngine.h"
+#include "Scene/Prefab.h"
 #include "DemoLevels.h"
 
 #include <cfloat>
@@ -31,6 +32,7 @@
 #include <ImGuizmo.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <cctype>
 #include <cstdio>
 #include <filesystem>
 #include <memory>
@@ -92,6 +94,8 @@ public:
         m_Audio = std::make_unique<AudioEngine>(std::string(ASSET_DIR));
         m_Scripts = std::make_unique<ScriptEngine>(std::string(ASSET_DIR), m_Physics.get(), m_Audio.get());
         m_Scripts->SetResources(MakeResources());
+        m_Prefabs = std::make_unique<PrefabLibrary>(std::string(ASSET_DIR), MakeResources());
+        m_Scripts->SetPrefabs(m_Prefabs.get());
 
         // --- Floor
         {
@@ -604,13 +608,13 @@ public:
 
     bool SaveScene(const std::string& file) {
         const Engine::SceneSettings s = GatherSettings();
-        return Engine::SceneSerializer(m_Scene, MakeResources()).Save(ScenePath(file), &s);
+        return Engine::SceneSerializer(m_Scene, MakeResources(), m_Prefabs.get()).Save(ScenePath(file), &s);
     }
 
     bool LoadScene(const std::string& file) {
         if (m_PlayState != PlayState::Edit) { LOG_WARN("Stop Play before loading a scene"); return false; }
         Engine::SceneSettings s = GatherSettings();   // older files without a section keep these
-        if (!Engine::SceneSerializer(m_Scene, MakeResources()).Load(ScenePath(file), &s)) return false;
+        if (!Engine::SceneSerializer(m_Scene, MakeResources(), m_Prefabs.get()).Load(ScenePath(file), &s)) return false;
         m_Selected = entt::null;
         m_Spawned.clear();
         ApplySettings(s);
@@ -629,10 +633,10 @@ public:
 
     // ------------------------------------------------------------ example levels (DemoLevels.cpp)
     LevelAssets MakeLevelAssets() { EnsureSphere(); return { m_Cube, m_Plane, m_Sphere, m_Checker }; }
-    void BuildLevel(void (*build)(Engine::Scene&, const LevelAssets&)) {
+    void BuildLevel(void (*build)(Engine::Scene&, const LevelAssets&, Engine::PrefabLibrary&)) {
         m_Selected = entt::null;
         m_Spawned.clear();
-        build(m_Scene, MakeLevelAssets());
+        build(m_Scene, MakeLevelAssets(), *m_Prefabs);
     }
 
     // ------------------------------------------------------------ game camera
@@ -968,16 +972,107 @@ private:
         }
         ImGui::SameLine();
         if (ImGui::Button("+ Material grid")) SpawnMaterialGrid();
+        ImGui::SameLine();
+        if (ImGui::Button("+ Prefab")) ImGui::OpenPopup("PlacePrefab");
+        if (ImGui::BeginPopup("PlacePrefab")) {
+            const auto prefabs = m_Prefabs->List();
+            if (prefabs.empty()) ImGui::TextDisabled("No prefabs yet: Inspector > Save as prefab");
+            for (const auto& p : prefabs) {
+                if (!ImGui::MenuItem(std::filesystem::path(p).stem().string().c_str())) continue;
+                Entity e = m_Prefabs->Instantiate(m_Scene, p);
+                if (e) {
+                    e.Get<TransformComponent>().Position = m_Camera->Position + m_Camera->GetFront() * 4.0f;
+                    m_Selected = e.GetHandle();
+                }
+            }
+            ImGui::EndPopup();
+        }
         ImGui::Separator();
 
         auto& reg = m_Scene.Registry();
         for (auto handle : reg.view<TagComponent>()) {
             ImGui::PushID((int)entt::to_integral(handle));
+            const bool instance = reg.all_of<PrefabComponent>(handle);
+            if (instance) ImGui::PushStyleColor(ImGuiCol_Text, kPrefabColor);
             if (ImGui::Selectable(reg.get<TagComponent>(handle).Tag.c_str(), handle == m_Selected))
                 m_Selected = handle;
+            if (instance) ImGui::PopStyleColor();
             ImGui::PopID();
         }
         ImGui::End();
+    }
+
+    static constexpr ImVec4 kPrefabColor{ 0.45f, 0.75f, 1.0f, 1.0f };   // prefab instances in the UI
+
+    // Inspector block: the prefab link (Apply / Revert / Unpack) or "Save as prefab"
+    void DrawPrefabSection(Engine::Entity e) {
+        using namespace Engine;
+        const bool playing = m_PlayState != PlayState::Edit;
+
+        if (e.Has<PrefabComponent>()) {
+            const std::string path = e.Get<PrefabComponent>().Path;
+            const bool exists = m_Prefabs->Exists(path);
+            const bool modified = m_Prefabs->IsModified(e);
+            ImGui::TextColored(kPrefabColor, "Prefab  %s", std::filesystem::path(path).filename().string().c_str());
+            ImGui::SameLine();
+            if (!exists)       ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "(file missing)");
+            else if (modified) ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "(modified)");
+
+            ImGui::BeginDisabled(playing || !modified);
+            if (ImGui::Button("Apply")) {
+                const int n = m_Prefabs->Apply(m_Scene, e);
+                m_PrefabStatus = n < 0 ? "Could not write the prefab" : "Applied: " + std::to_string(n) + " other instance(s) updated";
+                m_PrefabStatusUntil = m_RunTime + 4.0f;
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Write this entity's components to %s.\nOther instances that weren't modified follow.", path.c_str());
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!modified || !exists);
+            if (ImGui::Button("Revert")) m_Prefabs->Revert(e);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Throw away this instance's changes: take the prefab's components again");
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (ImGui::Button("Unpack")) e.Remove<PrefabComponent>();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Keep the components, drop the link to the prefab");
+        }
+        else {
+            ImGui::BeginDisabled(playing);
+            if (ImGui::Button("Save as prefab...")) {
+                // Suggest a file name from the entity name: lower case, spaces to underscores
+                std::string name;
+                for (char c : e.Get<TagComponent>().Tag) {
+                    if (std::isalnum((unsigned char)c) || c == '-' || c == '_') name += (char)std::tolower((unsigned char)c);
+                    else if (c == ' ') name += '_';
+                }
+                std::snprintf(m_PrefabName, sizeof(m_PrefabName), "%s", name.empty() ? "prefab" : name.c_str());
+                ImGui::OpenPopup("SavePrefab");
+            }
+            ImGui::EndDisabled();
+            if (ImGui::BeginPopup("SavePrefab")) {
+                ImGui::TextUnformatted("Assets/Prefabs/");
+                ImGui::SameLine(0, 0);
+                ImGui::SetNextItemWidth(160.0f);
+                ImGui::InputText("##prefabname", m_PrefabName, sizeof(m_PrefabName));
+                ImGui::SameLine(0, 0);
+                ImGui::TextUnformatted(".json");
+                const std::string path = PrefabLibrary::Resolve(m_PrefabName);
+                const bool exists = m_Prefabs->Exists(path);
+                ImGui::BeginDisabled(m_PrefabName[0] == '\0');
+                if (ImGui::Button(exists ? "Overwrite" : "Save")) {
+                    if (m_Prefabs->Save(e, path)) {
+                        m_PrefabStatus = "Saved " + path;
+                        m_PrefabStatusUntil = m_RunTime + 4.0f;
+                    }
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::EndDisabled();
+                if (exists) ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "A prefab with this name exists");
+                ImGui::EndPopup();
+            }
+        }
+        if (m_RunTime < m_PrefabStatusUntil) ImGui::TextDisabled("%s", m_PrefabStatus.c_str());
     }
 
     void DrawViewportPanel() {
@@ -1127,6 +1222,7 @@ private:
             std::snprintf(buf, sizeof(buf), "%s", tag.Tag.c_str());
             if (ImGui::InputText("Name", buf, sizeof(buf))) tag.Tag = buf;
         }
+        DrawPrefabSection(e);
 
         // Transform
         if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -1479,6 +1575,10 @@ private:
 
     std::unique_ptr<Engine::PhysicsWorld> m_Physics;
     std::unique_ptr<Engine::AudioEngine> m_Audio;      // before m_Scripts: scripts hold a pointer to it
+    std::unique_ptr<Engine::PrefabLibrary> m_Prefabs;  // before m_Scripts: same
+    char m_PrefabName[64] = {};
+    std::string m_PrefabStatus;
+    float m_PrefabStatusUntil = 0.0f;
     std::unique_ptr<Engine::ScriptEngine> m_Scripts;
     bool  m_ReloadScripts = false;   // queued: applied at the start of the next OnUpdate
     float m_RunTime = 0.0f;

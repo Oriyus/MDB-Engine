@@ -1,6 +1,8 @@
 #include "Scene/SceneSerializer.h"
 #include "Scene/Entity.h"
 #include "Scene/Components.h"
+#include "Scene/EntityJson.h"
+#include "Scene/Prefab.h"
 #include "Core/Log.h"
 
 #include <nlohmann/json.hpp>
@@ -8,19 +10,6 @@
 #include <fstream>
 
 using json = nlohmann::json;
-
-namespace glm {
-    // Lets nlohmann/json read and write glm vectors as [x, y, z]
-    static void to_json(json& j, const vec3& v) { j = json::array({ v.x, v.y, v.z }); }
-    static void from_json(const json& j, vec3& v) { v = vec3(j.at(0).get<float>(), j.at(1).get<float>(), j.at(2).get<float>()); }
-    static void to_json(json& j, const mat4& m) {
-        j = json::array();
-        for (int c = 0; c < 4; c++) for (int r = 0; r < 4; r++) j.push_back(m[c][r]);
-    }
-    static void from_json(const json& j, mat4& m) {
-        for (int c = 0; c < 4; c++) for (int r = 0; r < 4; r++) m[c][r] = j.at(c * 4 + r).get<float>();
-    }
-}
 
 namespace Engine {
 
@@ -111,62 +100,19 @@ namespace Engine {
             Entity e(handle, &m_Scene);
             json j;
             j["name"] = e.Get<TagComponent>().Tag;
+            j["transform"] = TransformToJson(e.Get<TransformComponent>());
 
-            auto& t = e.Get<TransformComponent>();
-            j["transform"] = { { "position", t.Position },{ "rotation", t.Rotation },{ "scale", t.Scale } };
+            // A prefab instance that matches its prefab is stored as a link only; a modified one
+            // (or any instance when no library is given) keeps a full copy of its components too
+            const bool instance = e.Has<PrefabComponent>();
+            if (instance) j["prefab"] = e.Get<PrefabComponent>().Path;
+            if (!instance || !m_Prefabs || m_Prefabs->IsModified(e))
+                j.update(ComponentsToJson(e, m_Resources));
 
-            if (e.Has<MeshRendererComponent>()) {
-                auto& mr = e.Get<MeshRendererComponent>();
-                j["meshRenderer"] = {
-                    { "geometry", m_Resources.GeometryName(mr.Geometry) },
-                    { "texture",  m_Resources.TextureName(mr.Texture) },
-                    { "color", mr.Color },
-                    { "localOffset", mr.LocalOffset },
-                    { "metallic", mr.Metallic },
-                    { "roughness", mr.Roughness },
-                    { "emissive", mr.Emissive },
-                    { "unlit", mr.Unlit },
-                    { "useModelMaterials", mr.UseModelMaterials },
-                };
-            }
-            if (e.Has<PointLightComponent>()) {
-                auto& l = e.Get<PointLightComponent>();
-                j["pointLight"] = { { "color", l.Color },{ "intensity", l.Intensity },{ "castShadows", l.CastShadows } };
-            }
-            if (e.Has<DirectionalLightComponent>()) {
-                auto& d = e.Get<DirectionalLightComponent>();
-                j["directionalLight"] = { { "color", d.Color },{ "intensity", d.Intensity },{ "castShadows", d.CastShadows } };
-            }
-            if (e.Has<SpinComponent>())
-                j["spin"] = { { "speed", e.Get<SpinComponent>().Speed } };
-            if (e.Has<OrbitComponent>()) {
-                auto& o = e.Get<OrbitComponent>();
-                j["orbit"] = { { "center", o.Center },{ "radius", o.Radius },{ "height", o.Height },
-                               { "speed", o.Speed },{ "angle", o.Angle } };
-            }
-            if (e.Has<RigidBodyComponent>()) {
-                auto& rb = e.Get<RigidBodyComponent>();
-                j["rigidBody"] = { { "type", (int)rb.Type },{ "shape", (int)rb.Shape },{ "size", rb.Size },
-                                   { "center", rb.Center },{ "mass", rb.Mass },
-                                   { "friction", rb.Friction },{ "restitution", rb.Restitution },
-                                   { "trigger", rb.IsTrigger } };
-            }
-            if (e.Has<ScriptComponent>())
-                j["script"] = { { "path", e.Get<ScriptComponent>().Path } };
-            if (e.Has<CameraComponent>()) {
-                auto& c = e.Get<CameraComponent>();
-                j["camera"] = { { "fov", c.FOV },{ "near", c.Near },{ "far", c.Far },{ "primary", c.Primary } };
-            }
-            if (e.Has<AudioSourceComponent>()) {
-                auto& a = e.Get<AudioSourceComponent>();
-                j["audio"] = { { "clip", a.Clip },{ "volume", a.Volume },{ "pitch", a.Pitch },{ "loop", a.Loop },
-                               { "playOnStart", a.PlayOnStart },{ "spatial", a.Spatial },
-                               { "minDistance", a.MinDistance },{ "maxDistance", a.MaxDistance } };
-            }
             entities.push_back(std::move(j));
         }
 
-        json root = { { "version", 2 },{ "entities", entities } };
+        json root = { { "version", 3 },{ "entities", entities } };
         if (settings) root["settings"] = WriteSettings(*settings, m_Scene.AmbientIntensity);
 
         std::ofstream file(path);
@@ -190,89 +136,25 @@ namespace Engine {
         }
 
         // Parse everything into a temporary list first so a bad file can't wreck the live scene
-        struct Loaded { Entity entity; };
         Scene temp;   // entities are built here, then the registry is swapped in
 
         try {
             for (const auto& j : root.at("entities")) {
                 Entity e = temp.CreateEntity(j.at("name").get<std::string>());
+                TransformFromJson(j.at("transform"), e.Get<TransformComponent>());
 
-                auto& t = e.Get<TransformComponent>();
-                const auto& jt = j.at("transform");
-                t.Position = jt.at("position").get<glm::vec3>();
-                t.Rotation = jt.at("rotation").get<glm::vec3>();
-                t.Scale = jt.at("scale").get<glm::vec3>();
-
-                if (j.contains("meshRenderer")) {
-                    const auto& jm = j["meshRenderer"];
-                    auto& mr = e.Add<MeshRendererComponent>();
-                    mr.Geometry = m_Resources.FindGeometry(jm.at("geometry").get<std::string>());
-                    mr.Texture = m_Resources.FindTexture(jm.at("texture").get<std::string>());
-                    mr.Color = jm.at("color").get<glm::vec3>();
-                    mr.LocalOffset = jm.at("localOffset").get<glm::mat4>();
-                    mr.Metallic = jm.value("metallic", 0.0f);
-                    mr.Roughness = jm.value("roughness", 0.5f);
-                    mr.Emissive = jm.contains("emissive") ? jm["emissive"].get<glm::vec3>() : glm::vec3(0.0f);
-                    mr.Unlit = jm.at("unlit").get<bool>();
-                    mr.UseModelMaterials = jm.value("useModelMaterials", false);
+                const std::string prefab = j.value("prefab", std::string());
+                if (!prefab.empty() && !HasComponentKeys(j)) {
+                    // A plain link: the components come from the prefab file as it is now
+                    if (!m_Prefabs || !m_Prefabs->ApplyPrefabTo(e, prefab)) {
+                        ENGINE_WARN("'{}' links to prefab {}, which could not be loaded: kept as an empty entity",
+                            e.Get<TagComponent>().Tag, prefab);
+                        e.Add<PrefabComponent>(PrefabComponent{ prefab });
+                    }
                 }
-                if (j.contains("pointLight")) {
-                    auto& l = e.Add<PointLightComponent>();
-                    l.Color = j["pointLight"].at("color").get<glm::vec3>();
-                    l.Intensity = j["pointLight"].at("intensity").get<float>();
-                    l.CastShadows = j["pointLight"].value("castShadows", true);
-                }
-                if (j.contains("directionalLight")) {
-                    auto& d = e.Add<DirectionalLightComponent>();
-                    const auto& jd = j["directionalLight"];
-                    d.Color = jd.at("color").get<glm::vec3>();
-                    d.Intensity = jd.at("intensity").get<float>();
-                    d.CastShadows = jd.value("castShadows", true);
-                }
-                if (j.contains("spin"))
-                    e.Add<SpinComponent>().Speed = j["spin"].at("speed").get<glm::vec3>();
-                if (j.contains("orbit")) {
-                    auto& o = e.Add<OrbitComponent>();
-                    const auto& jo = j["orbit"];
-                    o.Center = jo.at("center").get<glm::vec3>();
-                    o.Radius = jo.at("radius").get<float>();
-                    o.Height = jo.at("height").get<float>();
-                    o.Speed = jo.at("speed").get<float>();
-                    o.Angle = jo.at("angle").get<float>();
-                }
-                if (j.contains("rigidBody")) {
-                    auto& rb = e.Add<RigidBodyComponent>();
-                    const auto& jr = j["rigidBody"];
-                    rb.Type = (BodyType)jr.value("type", 1);
-                    rb.Shape = (ColliderShape)jr.value("shape", 0);
-                    rb.Size = jr.at("size").get<glm::vec3>();
-                    rb.Center = jr.at("center").get<glm::vec3>();
-                    rb.Mass = jr.value("mass", 1.0f);
-                    rb.Friction = jr.value("friction", 0.5f);
-                    rb.Restitution = jr.value("restitution", 0.2f);
-                    rb.IsTrigger = jr.value("trigger", false);
-                }
-                if (j.contains("script"))
-                    e.Add<ScriptComponent>().Path = j["script"].at("path").get<std::string>();
-                if (j.contains("camera")) {
-                    auto& c = e.Add<CameraComponent>();
-                    const auto& jc = j["camera"];
-                    c.FOV = jc.value("fov", 60.0f);
-                    c.Near = jc.value("near", 0.1f);
-                    c.Far = jc.value("far", 500.0f);
-                    c.Primary = jc.value("primary", true);
-                }
-                if (j.contains("audio")) {
-                    auto& s = e.Add<AudioSourceComponent>();
-                    const auto& ja = j["audio"];
-                    s.Clip = ja.value("clip", std::string());
-                    s.Volume = ja.value("volume", 1.0f);
-                    s.Pitch = ja.value("pitch", 1.0f);
-                    s.Loop = ja.value("loop", true);
-                    s.PlayOnStart = ja.value("playOnStart", true);
-                    s.Spatial = ja.value("spatial", true);
-                    s.MinDistance = ja.value("minDistance", 1.0f);
-                    s.MaxDistance = ja.value("maxDistance", 25.0f);
+                else {
+                    ComponentsFromJson(j, e, m_Resources);
+                    if (!prefab.empty()) e.Add<PrefabComponent>(PrefabComponent{ prefab });   // modified instance
                 }
             }
         }

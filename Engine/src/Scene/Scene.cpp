@@ -62,6 +62,7 @@ namespace Engine {
         if (auto* c = m_Registry.try_get<ScriptComponent>(handle))           s.Script = *c;
         if (auto* c = m_Registry.try_get<CameraComponent>(handle))           s.Camera = *c;
         if (auto* c = m_Registry.try_get<AudioSourceComponent>(handle))      s.AudioSource = *c;
+        if (auto* c = m_Registry.try_get<PrefabComponent>(handle))           s.Prefab = *c;
         return s;
     }
 
@@ -78,6 +79,7 @@ namespace Engine {
         if (s.Script)           m_Registry.emplace<ScriptComponent>(e, *s.Script);
         if (s.Camera)           m_Registry.emplace<CameraComponent>(e, *s.Camera);
         if (s.AudioSource)      m_Registry.emplace<AudioSourceComponent>(e, *s.AudioSource);
+        if (s.Prefab)           m_Registry.emplace<PrefabComponent>(e, *s.Prefab);
         return e;
     }
 

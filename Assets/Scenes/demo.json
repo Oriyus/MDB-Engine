@@ -78,71 +78,8 @@
       }
     },
     {
-      "meshRenderer": {
-        "color": [
-          1.0,
-          0.800000011920929,
-          0.20000000298023224
-        ],
-        "emissive": [
-          0.6000000238418579,
-          0.4000000059604645,
-          0.05000000074505806
-        ],
-        "geometry": "cube",
-        "localOffset": [
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0
-        ],
-        "metallic": 1.0,
-        "roughness": 0.30000001192092896,
-        "texture": "",
-        "unlit": false,
-        "useModelMaterials": false
-      },
       "name": "Coin",
-      "rigidBody": {
-        "center": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "friction": 0.5,
-        "mass": 1.0,
-        "restitution": 0.20000000298023224,
-        "shape": 0,
-        "size": [
-          2.0,
-          2.0,
-          6.0
-        ],
-        "trigger": true,
-        "type": 1
-      },
-      "script": {
-        "path": "Scripts/coin.lua"
-      },
-      "spin": {
-        "speed": [
-          0.0,
-          2.0,
-          0.0
-        ]
-      },
+      "prefab": "Prefabs/coin.json",
       "transform": {
         "position": [
           1.0000014305114746,
@@ -162,71 +99,8 @@
       }
     },
     {
-      "meshRenderer": {
-        "color": [
-          1.0,
-          0.800000011920929,
-          0.20000000298023224
-        ],
-        "emissive": [
-          0.6000000238418579,
-          0.4000000059604645,
-          0.05000000074505806
-        ],
-        "geometry": "cube",
-        "localOffset": [
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0
-        ],
-        "metallic": 1.0,
-        "roughness": 0.30000001192092896,
-        "texture": "",
-        "unlit": false,
-        "useModelMaterials": false
-      },
       "name": "Coin",
-      "rigidBody": {
-        "center": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "friction": 0.5,
-        "mass": 1.0,
-        "restitution": 0.20000000298023224,
-        "shape": 0,
-        "size": [
-          2.0,
-          2.0,
-          6.0
-        ],
-        "trigger": true,
-        "type": 1
-      },
-      "script": {
-        "path": "Scripts/coin.lua"
-      },
-      "spin": {
-        "speed": [
-          0.0,
-          2.0,
-          0.0
-        ]
-      },
+      "prefab": "Prefabs/coin.json",
       "transform": {
         "position": [
           -2.999999523162842,
@@ -246,71 +120,8 @@
       }
     },
     {
-      "meshRenderer": {
-        "color": [
-          1.0,
-          0.800000011920929,
-          0.20000000298023224
-        ],
-        "emissive": [
-          0.6000000238418579,
-          0.4000000059604645,
-          0.05000000074505806
-        ],
-        "geometry": "cube",
-        "localOffset": [
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0
-        ],
-        "metallic": 1.0,
-        "roughness": 0.30000001192092896,
-        "texture": "",
-        "unlit": false,
-        "useModelMaterials": false
-      },
       "name": "Coin",
-      "rigidBody": {
-        "center": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "friction": 0.5,
-        "mass": 1.0,
-        "restitution": 0.20000000298023224,
-        "shape": 0,
-        "size": [
-          2.0,
-          2.0,
-          6.0
-        ],
-        "trigger": true,
-        "type": 1
-      },
-      "script": {
-        "path": "Scripts/coin.lua"
-      },
-      "spin": {
-        "speed": [
-          0.0,
-          2.0,
-          0.0
-        ]
-      },
+      "prefab": "Prefabs/coin.json",
       "transform": {
         "position": [
           -5.0,
@@ -330,71 +141,8 @@
       }
     },
     {
-      "meshRenderer": {
-        "color": [
-          1.0,
-          0.800000011920929,
-          0.20000000298023224
-        ],
-        "emissive": [
-          0.6000000238418579,
-          0.4000000059604645,
-          0.05000000074505806
-        ],
-        "geometry": "cube",
-        "localOffset": [
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0
-        ],
-        "metallic": 1.0,
-        "roughness": 0.30000001192092896,
-        "texture": "",
-        "unlit": false,
-        "useModelMaterials": false
-      },
       "name": "Coin",
-      "rigidBody": {
-        "center": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "friction": 0.5,
-        "mass": 1.0,
-        "restitution": 0.20000000298023224,
-        "shape": 0,
-        "size": [
-          2.0,
-          2.0,
-          6.0
-        ],
-        "trigger": true,
-        "type": 1
-      },
-      "script": {
-        "path": "Scripts/coin.lua"
-      },
-      "spin": {
-        "speed": [
-          0.0,
-          2.0,
-          0.0
-        ]
-      },
+      "prefab": "Prefabs/coin.json",
       "transform": {
         "position": [
           -3.000000238418579,
@@ -414,71 +162,8 @@
       }
     },
     {
-      "meshRenderer": {
-        "color": [
-          1.0,
-          0.800000011920929,
-          0.20000000298023224
-        ],
-        "emissive": [
-          0.6000000238418579,
-          0.4000000059604645,
-          0.05000000074505806
-        ],
-        "geometry": "cube",
-        "localOffset": [
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0
-        ],
-        "metallic": 1.0,
-        "roughness": 0.30000001192092896,
-        "texture": "",
-        "unlit": false,
-        "useModelMaterials": false
-      },
       "name": "Coin",
-      "rigidBody": {
-        "center": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "friction": 0.5,
-        "mass": 1.0,
-        "restitution": 0.20000000298023224,
-        "shape": 0,
-        "size": [
-          2.0,
-          2.0,
-          6.0
-        ],
-        "trigger": true,
-        "type": 1
-      },
-      "script": {
-        "path": "Scripts/coin.lua"
-      },
-      "spin": {
-        "speed": [
-          0.0,
-          2.0,
-          0.0
-        ]
-      },
+      "prefab": "Prefabs/coin.json",
       "transform": {
         "position": [
           0.9999998807907104,
@@ -498,71 +183,8 @@
       }
     },
     {
-      "meshRenderer": {
-        "color": [
-          1.0,
-          0.800000011920929,
-          0.20000000298023224
-        ],
-        "emissive": [
-          0.6000000238418579,
-          0.4000000059604645,
-          0.05000000074505806
-        ],
-        "geometry": "cube",
-        "localOffset": [
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0
-        ],
-        "metallic": 1.0,
-        "roughness": 0.30000001192092896,
-        "texture": "",
-        "unlit": false,
-        "useModelMaterials": false
-      },
       "name": "Coin",
-      "rigidBody": {
-        "center": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "friction": 0.5,
-        "mass": 1.0,
-        "restitution": 0.20000000298023224,
-        "shape": 0,
-        "size": [
-          2.0,
-          2.0,
-          6.0
-        ],
-        "trigger": true,
-        "type": 1
-      },
-      "script": {
-        "path": "Scripts/coin.lua"
-      },
-      "spin": {
-        "speed": [
-          0.0,
-          2.0,
-          0.0
-        ]
-      },
+      "prefab": "Prefabs/coin.json",
       "transform": {
         "position": [
           3.0,
@@ -645,7 +267,7 @@
       "rigidBody": {
         "center": [
           0.0,
-          8.0,
+          8.333333969116211,
           0.0
         ],
         "friction": 0.5,
@@ -654,7 +276,7 @@
         "shape": 0,
         "size": [
           1.0,
-          16.0,
+          16.666667938232422,
           1.0
         ],
         "trigger": true,
@@ -836,5 +458,5 @@
       "sunExtent": 12.0
     }
   },
-  "version": 2
+  "version": 3
 }

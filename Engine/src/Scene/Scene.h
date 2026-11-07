@@ -26,6 +26,7 @@ namespace Engine {
         std::optional<ScriptComponent>              Script;
         std::optional<CameraComponent>              Camera;
         std::optional<AudioSourceComponent>         AudioSource;
+        std::optional<PrefabComponent>              Prefab;
     };
     using SceneSnapshot = std::vector<EntitySnapshot>;
 

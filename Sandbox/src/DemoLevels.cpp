@@ -3,9 +3,11 @@
 #include "Scene/Scene.h"
 #include "Scene/Entity.h"
 #include "Scene/Components.h"
+#include "Scene/Prefab.h"
 #include "Core/Log.h"
 
 #include <cmath>
+#include <functional>
 #include <string>
 
 using namespace Engine;
@@ -113,9 +115,48 @@ namespace {
         return e;
     }
 
+    // An instance of a prefab. The first time (no file yet) `make` builds the entity, which is saved
+    // as the prefab and removed, so the prefab file can be edited afterwards and stays as edited.
+    Entity FromPrefab(Scene& scene, PrefabLibrary& prefabs, const std::string& path,
+        const std::function<Entity()>& make, const glm::vec3& pos) {
+        if (!prefabs.Exists(path)) {
+            Entity proto = make();
+            if (!prefabs.Save(proto, path)) {             // can't write the file: keep a plain entity
+                proto.Remove<PrefabComponent>();
+                proto.Get<TransformComponent>().Position = pos;
+                return proto;
+            }
+            scene.DestroyEntity(proto);
+        }
+        Entity e = prefabs.Instantiate(scene, path);
+        if (e) e.Get<TransformComponent>().Position = pos;
+        return e;
+    }
+
+    Entity AddCoinPrefab(Scene& scene, const LevelAssets& a, PrefabLibrary& prefabs, const glm::vec3& pos) {
+        return FromPrefab(scene, prefabs, "Prefabs/coin.json", [&] { return AddCoin(scene, a, glm::vec3(0.0f)); }, pos);
+    }
+
+    // What spawner.lua drops: a small bouncy ball running ball.lua (the spawner picks its colour)
+    void EnsureDropBallPrefab(Scene& scene, const LevelAssets& a, PrefabLibrary& prefabs) {
+        const std::string path = "Prefabs/drop_ball.json";
+        if (prefabs.Exists(path)) return;
+        Entity e = scene.CreateEntity("Drop");
+        e.Get<TransformComponent>().Scale = glm::vec3(0.4f);
+        auto& mr = e.Add<MeshRendererComponent>();
+        mr.Geometry = a.Sphere;
+        mr.Roughness = 0.4f;
+        auto& rb = e.Add<RigidBodyComponent>();
+        rb.Shape = ColliderShape::Sphere;
+        rb.Restitution = 0.35f;
+        e.Add<ScriptComponent>().Path = "Scripts/ball.lua";
+        prefabs.Save(e, path);
+        scene.DestroyEntity(e);
+    }
+
 } // namespace
 
-void BuildScriptDemo(Scene& scene, const LevelAssets& a) {
+void BuildScriptDemo(Scene& scene, const LevelAssets& a, PrefabLibrary& prefabs) {
     scene.Clear();
     AddFloor(scene, a, 1.0f);
     AddSun(scene, 1.2f);
@@ -127,16 +168,17 @@ void BuildScriptDemo(Scene& scene, const LevelAssets& a) {
         e.Get<TransformComponent>().Position = glm::vec3(2.5f, 4.0f, -1.5f);
         e.Add<ScriptComponent>().Path = "Scripts/spawner.lua";
     }
+    EnsureDropBallPrefab(scene, a, prefabs);
     const int coins = 6;
     for (int i = 0; i < coins; i++) {
         const float ang = i * 6.2831853f / coins;
-        AddCoin(scene, a, glm::vec3(std::cos(ang) * 4.0f - 1.0f, -0.5f, std::sin(ang) * 3.0f + 1.0f));
+        AddCoinPrefab(scene, a, prefabs, glm::vec3(std::cos(ang) * 4.0f - 1.0f, -0.5f, std::sin(ang) * 3.0f + 1.0f));
     }
     AddPlayer(scene, a, glm::vec3(-1.0f, -0.6f, 1.0f));
     LOG_INFO("Script demo built. Press Play (Ctrl+P).");
 }
 
-void BuildCoinRush(Scene& scene, const LevelAssets& a) {
+void BuildCoinRush(Scene& scene, const LevelAssets& a, PrefabLibrary& prefabs) {
     scene.Clear();
 
     // ---- arena: 24 x 24 floor at y = -1, walled in
@@ -189,7 +231,7 @@ void BuildCoinRush(Scene& scene, const LevelAssets& a) {
              glm::vec3(0.0f, -0.5f, 7.0f), glm::vec3(-8.0f, -0.5f, 6.0f), glm::vec3(9.0f, -0.5f, 8.0f),
              glm::vec3(0.0f, -0.05f, 2.5f), glm::vec3(-3.0f, 1.0f, -2.5f), glm::vec3(3.0f, 1.0f, -6.5f),
              glm::vec3(7.0f, 1.8f, -4.5f), glm::vec3(-9.0f, -0.5f, -9.0f) })
-        AddCoin(scene, a, p);
+        AddCoinPrefab(scene, a, prefabs, p);
 
     {
         Entity e = scene.CreateEntity("Platform Light");

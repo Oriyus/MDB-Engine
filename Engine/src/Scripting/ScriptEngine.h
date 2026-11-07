@@ -10,6 +10,7 @@ namespace Engine {
     class Scene;
     class PhysicsWorld;
     class AudioEngine;
+    class PrefabLibrary;
     struct ResourceRegistry;
 
     // One ui.text call: drawn by the app over the viewport for the frame it was made in
@@ -57,6 +58,7 @@ namespace Engine {
     // ---- Globals
     //   vec3(x, y, z): + - * / unary-, v:length(), v:normalize(), v:dot(w), v:cross(w)
     //   scene.find(name), scene.find_all(name), scene.spawn(name [, position]), scene.time()
+    //   scene.spawn_prefab(name [, position])  an instance of Prefabs/<name>.json (nil if missing)
     //   scene.restart()                      Stop + Play on the next frame (retry a level)
     //   audio.play(clip [, { volume, pitch }])             2D one-shot, e.g. "Sounds/coin.wav"
     //   audio.play_at(clip, position [, { volume, pitch }]) 3D one-shot, quieter with distance
@@ -75,6 +77,7 @@ namespace Engine {
 
         // Name <-> resource mapping used by add_mesh and mesh.geometry
         void SetResources(const ResourceRegistry& resources);
+        void SetPrefabs(PrefabLibrary* prefabs);   // for scene.spawn_prefab
 
         void Start(Scene& scene);              // call when Play starts (after PhysicsWorld::Sync)
         void Update(Scene& scene, float dt);   // call once per simulated frame, before the physics step

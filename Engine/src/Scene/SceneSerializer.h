@@ -12,6 +12,7 @@ namespace Engine {
 
     class Renderable;
     class Texture2D;
+    class PrefabLibrary;
 
     // Maps names stored in the file to live resources, and back
     struct ResourceRegistry {
@@ -48,8 +49,10 @@ namespace Engine {
 
     class SceneSerializer {
     public:
-        SceneSerializer(Scene& scene, ResourceRegistry resources)
-            : m_Scene(scene), m_Resources(std::move(resources)) {}
+        // prefabs: resolves prefab links on Load and lets Save store unmodified instances as links.
+        // Without it, instances are saved with full copies and links in files load as empty entities.
+        SceneSerializer(Scene& scene, ResourceRegistry resources, PrefabLibrary* prefabs = nullptr)
+            : m_Scene(scene), m_Resources(std::move(resources)), m_Prefabs(prefabs) {}
 
         // settings may be null: then only the entities are written / read.
         // On Load, sections missing from the file (older files) leave those settings untouched,
@@ -60,6 +63,7 @@ namespace Engine {
     private:
         Scene& m_Scene;
         ResourceRegistry m_Resources;
+        PrefabLibrary* m_Prefabs = nullptr;
     };
 
 } // namespace Engine

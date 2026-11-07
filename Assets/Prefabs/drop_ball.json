@@ -1,0 +1,80 @@
+{
+  "components": {
+    "meshRenderer": {
+      "color": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "emissive": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "geometry": "sphere",
+      "localOffset": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.4000000059604645,
+      "texture": "",
+      "unlit": false,
+      "useModelMaterials": false
+    },
+    "rigidBody": {
+      "center": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "friction": 0.5,
+      "mass": 1.0,
+      "restitution": 0.3499999940395355,
+      "shape": 1,
+      "size": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "trigger": false,
+      "type": 1
+    },
+    "script": {
+      "path": "Scripts/ball.lua"
+    }
+  },
+  "name": "Drop",
+  "transform": {
+    "position": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "rotation": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "scale": [
+      0.4000000059604645,
+      0.4000000059604645,
+      0.4000000059604645
+    ]
+  },
+  "version": 1
+}

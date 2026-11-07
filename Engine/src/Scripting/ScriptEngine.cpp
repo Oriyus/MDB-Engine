@@ -5,6 +5,7 @@
 #include "Scene/SceneSerializer.h"
 #include "Physics/PhysicsWorld.h"
 #include "Audio/AudioEngine.h"
+#include "Scene/Prefab.h"
 #include "Core/Input.h"
 #include "Core/Log.h"
 
@@ -78,6 +79,7 @@ namespace Engine {
         std::string AssetDir;
         PhysicsWorld* Physics = nullptr;
         AudioEngine* Audio = nullptr;
+        PrefabLibrary* Prefabs = nullptr;
         ResourceRegistry Resources;
         Scene* ActiveScene = nullptr;
         float Time = 0.0f;
@@ -392,6 +394,14 @@ namespace Engine {
             if (pos) e.Get<TransformComponent>().Position = *pos;
             return Wrap(e.GetHandle());
         });
+        // A prefab instance ("coin" or "Prefabs/coin.json"). nil (and a warning) if the prefab is missing.
+        scene.set_function("spawn_prefab", [this](const std::string& name, sol::optional<glm::vec3> pos) -> sol::optional<ScriptEntity> {
+            if (!Prefabs) return sol::nullopt;
+            Entity e = Prefabs->Instantiate(*ActiveScene, PrefabLibrary::Resolve(name));
+            if (!e) return sol::nullopt;
+            if (pos) e.Get<TransformComponent>().Position = *pos;
+            return Wrap(e.GetHandle());
+        });
         scene.set_function("time", [this]() { return Time; });
         scene.set_function("restart", [this]() { RestartRequested = true; });   // the app does Stop + Play next frame
         scene.set_function("raycast", [this](const glm::vec3& origin, const glm::vec3& dir, float maxDist,
@@ -604,6 +614,7 @@ namespace Engine {
     ScriptEngine::~ScriptEngine() = default;
 
     void ScriptEngine::SetResources(const ResourceRegistry& resources) { m_Impl->Resources = resources; }
+    void ScriptEngine::SetPrefabs(PrefabLibrary* prefabs) { m_Impl->Prefabs = prefabs; }
 
     bool ScriptEngine::IsRunning() const { return m_Impl->Lua != nullptr; }
     uint32_t ScriptEngine::InstanceCount() const { return (uint32_t)m_Impl->Instances.size(); }
