@@ -47,7 +47,16 @@
 
 class SandboxApp : public Engine::Application {
 public:
-    SandboxApp() : Application("Sandbox") {}
+    // The editor opens full screen (borderless, at the monitor's resolution); F11 switches to a window
+    static Engine::WindowProps EditorWindow() {
+        Engine::WindowProps p;
+        p.Title = "Sandbox";
+        p.Width = 1600;
+        p.Height = 900;
+        p.Fullscreen = EnvVar("MDB_WINDOWED") != "1";   // test hook: screen captures need a normal window
+        return p;
+    }
+    SandboxApp() : Application(EditorWindow()) {}
 
     void OnStart() override {
         using namespace Engine;
@@ -160,6 +169,18 @@ public:
 
         m_Camera = std::make_unique<Camera>(60.0f, AspectRatio());
         m_GameCamera = std::make_unique<Camera>(60.0f, AspectRatio());
+        // Editor look: the layout file, a proper UI font (the first font is the default), a mono font for
+        // the Console, and the style. All before the first ImGui frame builds the font atlas.
+        {
+            ImGuiIO& io = ImGui::GetIO();
+            io.IniFilename = "editor.ini";
+            if (std::filesystem::exists("C:/Windows/Fonts/segoeui.ttf"))
+                io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/segoeui.ttf", 17.0f);
+            else io.Fonts->AddFontDefault();
+            if (std::filesystem::exists("C:/Windows/Fonts/consola.ttf"))
+                m_MonoFont = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/consola.ttf", 15.0f);
+            ApplyEditorStyle();
+        }
         m_GameFont = LoadGameFont();   // before the first ImGui frame builds the font atlas
         m_Camera->Position = glm::vec3(0.0f, 1.0f, 6.0f);
 
@@ -179,12 +200,14 @@ public:
         m_History.Reset(m_Scene, m_Selected, m_Resources->Registry());   // the starting point for undo
 
         glClearColor(0.05f, 0.05f, 0.08f, 1.0f);
-        LOG_INFO("Alt+LMB/MMB/RMB orbit/pan/zoom | W/E/R tools | N spawn | F frame | Ctrl+Z/Y undo/redo | Ctrl+D duplicate | Ctrl+S save | F5 reload shaders | ESC quits");
+        LOG_INFO("Editor ready. Help > Controls lists the shortcuts (Alt+mouse moves the camera, W/E/R the gizmo, Ctrl+P plays).");
     }
 
     void OnUpdate(float dt) override {
         using namespace Engine;
 
+        if (m_PendingNewScene) { m_PendingNewScene = false; NewScene(); }
+        if (m_ToggleFullscreen) { m_ToggleFullscreen = false; GetWindow().SetFullscreen(!GetWindow().IsFullscreen()); }
         if (!m_PendingSceneLoad.empty()) {   // a requested environment bakes in this frame's Render
             LoadScene(m_PendingSceneLoad);
             m_PendingSceneLoad.clear();
@@ -250,11 +273,15 @@ public:
         const bool ctrl = ImGui::GetIO().KeyCtrl, shift = ImGui::GetIO().KeyShift;
         const bool kz = EdgePressed(Key::Z, m_ZDown), ky = EdgePressed(Key::Y, m_YDown);
         const bool kd = EdgePressed(Key::D, m_DDown), ks = EdgePressed(Key::S, m_SDown);
+        const bool kn = EdgePressed(Key::N, m_NDown);
+        if (EdgePressed(Key::F11, m_F11Down)) m_ToggleFullscreen = true;
         if (ctrl && !typing && !interacting && m_PlayState == PlayState::Edit) {
             if (kz && !shift) UndoStep();
             if (ky || (kz && shift)) RedoStep();
             if (kd) DuplicateSelected();
-            if (ks) SaveScene(m_SceneFile);
+            if (ks && shift) m_OpenSaveAs = true;
+            else if (ks) SaveScene(m_SceneFile);
+            if (kn && !shift) RequestNewScene();
         }
 
         bool f5 = EdgePressed(Key::F5, m_F5Down);
@@ -265,7 +292,7 @@ public:
         bool ke = EdgePressed(Key::E, m_EDown);
         bool kr = EdgePressed(Key::R, m_RDown);
         bool kq = EdgePressed(Key::Q, m_QDown);
-        bool kn = EdgePressed(Key::N, m_NDown);
+        bool knSpawn = kn && !ctrl;                      // plain N spawns a cube (Ctrl+N is New Scene)
         bool kdel = EdgePressed(Key::Delete, m_DelDown);
         bool kt = EdgePressed(Key::T, m_TDown);
         if (kp && ImGui::GetIO().KeyCtrl)
@@ -273,14 +300,14 @@ public:
 
         // Looking through a game camera, the game owns the keyboard: only Esc, Ctrl+P, F1 and F5 stay
         const bool editorKeys = !typing && !m_ViewingGame;
-        if (!editorKeys) kn = f = g = kw = ke = kr = kq = kdel = kt = false;
+        if (!editorKeys) knSpawn = f = g = kw = ke = kr = kq = kdel = kt = false;
 
         if (!typing) {
             if (f5) {
                 m_Renderer->ReloadShaders();
                 if (m_PlayState != PlayState::Edit) m_ReloadScripts = true;   // applied next frame
             }
-            if (kn) SpawnCube();
+            if (knSpawn) SpawnCube();
             if (f && !ImGui::GetIO().KeyAlt) FrameSelected();
             if (kdel && m_Selected != entt::null && m_Scene.Registry().valid(m_Selected)) {
                 m_Scene.DestroyEntity(Engine::Entity(m_Selected, &m_Scene));
@@ -347,17 +374,21 @@ public:
 
     // ------------------------------------------------------------------ UI
     void OnImGui() override {
-        ImGuiID dockspace = ImGui::DockSpaceOverViewport();   // full-window dock area
+        // Menu bar and toolbar take their strips off the top; the dock area fills the rest
+        DrawMainMenuBar();
+        DrawToolbar();
+        ImGuiID dockspace = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
         BuildDefaultLayoutOnce(dockspace);
 
         DrawViewportPanel();
         if (m_ShowUI) {
-            DrawToolbarPanel();
-            DrawStatsPanel();
-            DrawHierarchyPanel();
-            DrawInspectorPanel();
+            if (m_ShowHierarchy) DrawHierarchyPanel();
+            if (m_ShowInspector) DrawInspectorPanel();
+            if (m_ShowSceneSettings) DrawSceneSettingsPanel();
+            if (m_ShowConsole) DrawConsolePanel();
         }
         DrawUnsavedChangesModal();
+        DrawDialogs();
 
         // Anything that may have changed the scene: check it once the interaction is over
         if (ImGui::IsAnyItemActive() || m_GizmoBusy) m_MaybeChanged = true;
@@ -419,12 +450,14 @@ public:
         if (!ImGui::BeginPopupModal("Unsaved changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
 
         ImGui::Text("%s has unsaved changes.", m_SceneFile.c_str());
-        ImGui::TextDisabled(m_Confirm == ConfirmAction::Quit ? "Save them before quitting?" : "Save them before loading %s?",
+        ImGui::TextDisabled(m_Confirm == ConfirmAction::Quit ? "Save them before quitting?"
+            : m_Confirm == ConfirmAction::New ? "Save them before starting a new scene?" : "Save them before loading %s?",
             m_ConfirmFile.c_str());
         ImGui::Spacing();
         auto proceed = [this] {
             if (m_Confirm == ConfirmAction::Quit) { m_QuitConfirmed = true; Close(); }
             else if (m_Confirm == ConfirmAction::Load) m_PendingSceneLoad = m_ConfirmFile;
+            else if (m_Confirm == ConfirmAction::New) m_PendingNewScene = true;
             m_Confirm = ConfirmAction::None;
             ImGui::CloseCurrentPopup();
         };
@@ -801,248 +834,236 @@ public:
     }
 
 private:
-    void DrawStatsPanel() {
-        using namespace Engine;
-        ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize(ImVec2(300, 0), ImGuiCond_FirstUseEver);
-        ImGui::Begin("Stats");
+    // ================================================================== editor shell
+    // Menu bar, toolbar, Scene Settings, Console and the create menu, laid out like Unity / Godot.
 
-        ImGui::Text("%.0f FPS  (%.2f ms)", ImGui::GetIO().Framerate, 1000.0f / ImGui::GetIO().Framerate);
-        ImGui::Text("Draw calls: %u", RenderStats::DrawCalls);
-        ImGui::Text("Triangles:  %u", RenderStats::Triangles);
-        ImGui::Text("Instances:  %u  (%.1f per draw)", RenderStats::Instances,
-            RenderStats::DrawCalls ? (float)RenderStats::Instances / RenderStats::DrawCalls : 0.0f);
-        ImGui::Text("Culled:     %u  (outside the view)", RenderStats::Culled);
-        ImGui::Text("Shadow skipped: %u  (caster x light views)", RenderStats::ShadowSkipped);
-        if (m_Scene.StaticBatchCount() > 0)
-            ImGui::Text("Static batches: %u  (from %u objects)", m_Scene.StaticBatchCount(), m_Scene.StaticMergedCount());
-        ImGui::Text("Entities:   %zu", m_Scene.Registry().view<TagComponent>().size());
-        ImGui::TextDisabled("%s", (const char*)glGetString(GL_RENDERER));
+    // A darker, flatter look with a blue accent (closer to Unity / Godot than ImGui's default)
+    static void ApplyEditorStyle() {
+        ImGuiStyle& s = ImGui::GetStyle();
+        s.WindowPadding = ImVec2(8, 8);
+        s.FramePadding = ImVec2(6, 4);
+        s.ItemSpacing = ImVec2(8, 5);
+        s.ItemInnerSpacing = ImVec2(6, 4);
+        s.IndentSpacing = 16.0f;
+        s.ScrollbarSize = 13.0f;
+        s.GrabMinSize = 10.0f;
+        s.WindowRounding = 3.0f;
+        s.ChildRounding = 3.0f;
+        s.FrameRounding = 3.0f;
+        s.PopupRounding = 3.0f;
+        s.ScrollbarRounding = 6.0f;
+        s.GrabRounding = 3.0f;
+        s.TabRounding = 3.0f;
+        s.WindowBorderSize = 1.0f;
+        s.FrameBorderSize = 0.0f;
+        s.PopupBorderSize = 1.0f;
+        s.TabBorderSize = 0.0f;
+        s.WindowMenuButtonPosition = ImGuiDir_None;      // no dock menu triangle on every panel
+        s.SeparatorTextBorderSize = 1.0f;
 
-        bool vsync = GetWindow().IsVSync();
-        if (ImGui::Checkbox("VSync", &vsync)) GetWindow().SetVSync(vsync);
-
-        ImGui::Separator();
-        ImGui::Text("Camera  (%.1f, %.1f, %.1f)", m_Camera->Position.x, m_Camera->Position.y, m_Camera->Position.z);
-        ImGui::SliderFloat("Orbit sensitivity", &m_Camera->OrbitSensitivity, 0.05f, 1.0f);
-
-        ImGui::Separator();
-        ImGui::TextDisabled("Alt+mouse nav | Q/W/E/R tools | F frame | N spawn | Del delete");
-        ImGui::End();
+        ImVec4* c = s.Colors;
+        const ImVec4 bg(0.125f, 0.13f, 0.145f, 1.0f), panel(0.155f, 0.16f, 0.178f, 1.0f);
+        const ImVec4 frame(0.21f, 0.215f, 0.24f, 1.0f), frameHover(0.27f, 0.28f, 0.31f, 1.0f);
+        const ImVec4 accent(0.26f, 0.53f, 0.90f, 1.0f), accentDim(0.22f, 0.40f, 0.65f, 1.0f);
+        c[ImGuiCol_Text] = ImVec4(0.90f, 0.91f, 0.93f, 1.0f);
+        c[ImGuiCol_TextDisabled] = ImVec4(0.52f, 0.54f, 0.58f, 1.0f);
+        c[ImGuiCol_WindowBg] = panel;
+        c[ImGuiCol_ChildBg] = ImVec4(0, 0, 0, 0);
+        c[ImGuiCol_PopupBg] = ImVec4(0.14f, 0.145f, 0.16f, 0.98f);
+        c[ImGuiCol_Border] = ImVec4(0.08f, 0.08f, 0.09f, 1.0f);
+        c[ImGuiCol_FrameBg] = frame;
+        c[ImGuiCol_FrameBgHovered] = frameHover;
+        c[ImGuiCol_FrameBgActive] = ImVec4(0.30f, 0.31f, 0.35f, 1.0f);
+        c[ImGuiCol_TitleBg] = bg;
+        c[ImGuiCol_TitleBgActive] = bg;
+        c[ImGuiCol_TitleBgCollapsed] = bg;
+        c[ImGuiCol_MenuBarBg] = bg;
+        c[ImGuiCol_ScrollbarBg] = ImVec4(0, 0, 0, 0);
+        c[ImGuiCol_ScrollbarGrab] = ImVec4(0.30f, 0.31f, 0.34f, 1.0f);
+        c[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.38f, 0.39f, 0.43f, 1.0f);
+        c[ImGuiCol_ScrollbarGrabActive] = accentDim;
+        c[ImGuiCol_CheckMark] = accent;
+        c[ImGuiCol_SliderGrab] = accentDim;
+        c[ImGuiCol_SliderGrabActive] = accent;
+        c[ImGuiCol_Button] = frame;
+        c[ImGuiCol_ButtonHovered] = frameHover;
+        c[ImGuiCol_ButtonActive] = accentDim;
+        c[ImGuiCol_Header] = ImVec4(0.22f, 0.36f, 0.56f, 0.85f);
+        c[ImGuiCol_HeaderHovered] = ImVec4(0.26f, 0.42f, 0.64f, 0.80f);
+        c[ImGuiCol_HeaderActive] = accent;
+        c[ImGuiCol_Separator] = ImVec4(0.24f, 0.25f, 0.28f, 1.0f);
+        c[ImGuiCol_SeparatorHovered] = accentDim;
+        c[ImGuiCol_SeparatorActive] = accent;
+        c[ImGuiCol_ResizeGrip] = ImVec4(0, 0, 0, 0);
+        c[ImGuiCol_ResizeGripHovered] = accentDim;
+        c[ImGuiCol_ResizeGripActive] = accent;
+        c[ImGuiCol_Tab] = bg;
+        c[ImGuiCol_TabHovered] = frameHover;
+        c[ImGuiCol_TabSelected] = panel;
+        c[ImGuiCol_TabSelectedOverline] = accent;
+        c[ImGuiCol_TabDimmed] = bg;
+        c[ImGuiCol_TabDimmedSelected] = panel;
+        c[ImGuiCol_TabDimmedSelectedOverline] = ImVec4(0, 0, 0, 0);
+        c[ImGuiCol_DockingPreview] = ImVec4(0.26f, 0.53f, 0.90f, 0.5f);
+        c[ImGuiCol_DockingEmptyBg] = bg;
+        c[ImGuiCol_TextSelectedBg] = ImVec4(0.26f, 0.53f, 0.90f, 0.35f);
+        c[ImGuiCol_NavHighlight] = accent;
+        c[ImGuiCol_ModalWindowDimBg] = ImVec4(0, 0, 0, 0.45f);
     }
 
-    void DrawToolbarPanel() {
+    // ------------------------------------------------------------------ main menu bar
+    void DrawMainMenuBar() {
         using namespace Engine;
-        ImGui::Begin("Tools");
-
         const bool playing = m_PlayState != PlayState::Edit;
+        if (!ImGui::BeginMainMenuBar()) return;
 
-        if (!playing) { if (ImGui::Button("Play")) m_PlayCmd = PlayCmd::Play; }
-        else { if (ImGui::Button("Stop")) m_PlayCmd = PlayCmd::Stop; }
-        ImGui::SameLine();
-        ImGui::BeginDisabled(!playing);
-        if (ImGui::Button(m_PlayState == PlayState::Paused ? "Resume" : "Pause")) m_PlayCmd = PlayCmd::Pause;
-        ImGui::SameLine();
-        ImGui::BeginDisabled(m_PlayState != PlayState::Paused);
-        if (ImGui::Button("Step")) m_PlayCmd = PlayCmd::Step;
-        ImGui::EndDisabled();
-        ImGui::EndDisabled();
-
-        if (m_PlayState == PlayState::Edit)        ImGui::TextDisabled("Edit mode  (Ctrl+P to play)");
-        else if (m_PlayState == PlayState::Play)   ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.1f, 1.0f), "PLAYING - changes are discarded on Stop");
-        else                                       ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.2f, 1.0f), "PAUSED - changes are discarded on Stop");
-
-        // Undo / redo: the buttons name the step they would take back or redo
-        ImGui::BeginDisabled(playing || !m_History.CanUndo());
-        if (ImGui::Button("Undo")) UndoStep();
-        ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip(m_History.CanUndo() ? "Ctrl+Z: undo \"%s\"" : "Ctrl+Z: nothing to undo", m_History.UndoLabel().c_str());
-        ImGui::SameLine();
-        ImGui::BeginDisabled(playing || !m_History.CanRedo());
-        if (ImGui::Button("Redo")) RedoStep();
-        ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip(m_History.CanRedo() ? "Ctrl+Y: redo \"%s\"" : "Ctrl+Y: nothing to redo", m_History.RedoLabel().c_str());
-        ImGui::SameLine();
-        if (m_History.CanUndo()) ImGui::TextDisabled("%s", m_History.UndoLabel().c_str());
-        ImGui::Separator();
-
-        ImGui::TextUnformatted("Gizmo");
-        if (ImGui::RadioButton("Select (Q)", m_SelectTool)) m_SelectTool = true;
-        ImGui::SameLine();
-        if (ImGui::RadioButton("Move (W)", !m_SelectTool && m_GizmoOp == ImGuizmo::TRANSLATE)) { m_SelectTool = false; m_GizmoOp = ImGuizmo::TRANSLATE; }
-        if (ImGui::RadioButton("Rotate (E)", !m_SelectTool && m_GizmoOp == ImGuizmo::ROTATE)) { m_SelectTool = false; m_GizmoOp = ImGuizmo::ROTATE; }
-        ImGui::SameLine();
-        if (ImGui::RadioButton("Scale (R)", !m_SelectTool && m_GizmoOp == ImGuizmo::SCALE)) { m_SelectTool = false; m_GizmoOp = ImGuizmo::SCALE; }
-
-        ImGui::Checkbox("Local space", &m_GizmoLocal);
-        ImGui::Checkbox("Snap", &m_Snap);
-
-        ImGui::Separator();
-        ImGui::TextUnformatted("Shadows");
-        auto& s = m_Renderer->Shadows();
-        ImGui::Checkbox("Enabled", &s.Enabled);
-        ImGui::SliderFloat("Point bias", &s.PointBias, 0.005f, 0.3f);
-        ImGui::SliderFloat("Point range", &s.PointFar, 5.0f, 100.0f);
-        ImGui::SliderFloat("Sun bias", &s.SunBias, 0.0002f, 0.01f, "%.4f");
-        ImGui::Checkbox("Sun cascades (follow the camera)", &s.SunCascades);
-        if (s.SunCascades) {
-            ImGui::SliderInt("Cascades", &s.CascadeCount, 1, 4);
-            ImGui::SliderFloat("Shadow distance", &s.ShadowDistance, 10.0f, 300.0f, "%.0f m");
-            ImGui::SliderFloat("Cascade split", &s.CascadeSplit, 0.0f, 1.0f, "%.2f");
-            ImGui::SetItemTooltip("0 = even slices, 1 = logarithmic (sharper near the camera)");
-            ImGui::Checkbox("Show cascades", &s.CascadeDebug);
-        }
-        else ImGui::SliderFloat("Sun area", &s.SunExtent, 4.0f, 40.0f);
-        ImGui::SliderFloat("Ambient (sky)", &m_Scene.AmbientIntensity, 0.0f, 4.0f);
-
-        ImGui::Separator();
-        ImGui::TextUnformatted("Environment");
-        {
-            // The list is rescanned while open; the bake happens at the start of the next frame
-            const std::string current = m_Renderer->CurrentEnvironment();
-            if (ImGui::BeginCombo("Map", current.empty() ? "Procedural sky" : current.c_str())) {
-                if (ImGui::Selectable("Procedural sky", current.empty())) m_Renderer->RequestEnvironment("");
-                for (const auto& f : m_Renderer->ListEnvironments())
-                    if (ImGui::Selectable(f.c_str(), current == f)) m_Renderer->RequestEnvironment(f);
-                ImGui::EndCombo();
+        if (ImGui::BeginMenu("File")) {
+            ImGui::BeginDisabled(playing);
+            if (ImGui::MenuItem("New Scene", "Ctrl+N")) RequestNewScene();
+            if (ImGui::BeginMenu("Open Scene")) {
+                for (const auto& f : ListSceneFiles())       // rescanned while open: new files show up
+                    if (ImGui::MenuItem(f.c_str(), nullptr, f == m_SceneFile)) RequestLoad(f);
+                ImGui::EndMenu();
             }
-        }
-        ImGui::Checkbox("Show sky", &m_Renderer->GetEnvironment().Show);
-        ImGui::SliderFloat("Sky blur", &m_Renderer->GetEnvironment().Blur, 0.0f, 6.0f);
-        ImGui::SliderFloat("Rotation", &m_Renderer->GetEnvironment().RotationDegrees, -180.0f, 180.0f);
-        ImGui::SliderFloat("Intensity", &m_Scene.AmbientIntensity, 0.0f, 4.0f);
-
-        ImGui::Separator();
-        ImGui::TextUnformatted("Display");
-        ImGui::SliderFloat("Exposure", &m_Renderer->Post.Exposure, 0.1f, 4.0f);
-        const char* modes[] = { "None (clamp)", "Reinhard", "ACES" };
-        ImGui::Combo("Tone map", &m_Renderer->Post.ToneMap, modes, 3);
-        ImGui::Checkbox("Gamma correction", &m_Renderer->Post.Gamma);
-        ImGui::Checkbox("FXAA", &m_Renderer->Post.FXAA);
-
-        ImGui::Separator();
-        ImGui::TextUnformatted("Ambient occlusion");
-        ImGui::Checkbox("AO enabled", &m_Renderer->Post.AOEnabled);
-        ImGui::SliderFloat("AO strength", &m_Renderer->Post.AOStrength, 0.0f, 1.0f);
-        ImGui::SliderFloat("AO radius", &m_Renderer->GetSSAO().Radius, 0.1f, 2.0f);
-        ImGui::SliderFloat("AO bias", &m_Renderer->GetSSAO().Bias, 0.0f, 0.1f, "%.3f");
-        ImGui::SliderInt("AO samples", &m_Renderer->GetSSAO().Samples, 4, 32);
-        ImGui::Checkbox("Show AO only", &m_Renderer->Post.AODebug);
-
-        ImGui::Separator();
-        ImGui::TextUnformatted("Bloom");
-        ImGui::Checkbox("Bloom enabled", &m_Renderer->Post.BloomEnabled);
-        ImGui::SliderFloat("Bloom intensity", &m_Renderer->Post.BloomIntensity, 0.0f, 1.0f);
-        ImGui::SliderFloat("Bloom threshold", &m_Renderer->GetBloom().Threshold, 0.0f, 5.0f);
-        ImGui::SliderFloat("Bloom knee", &m_Renderer->GetBloom().Knee, 0.0f, 1.0f);
-        ImGui::SliderFloat("Bloom radius", &m_Renderer->GetBloom().Radius, 0.5f, 2.0f);
-        ImGui::SliderFloat("Bloom max brightness", &m_Renderer->GetBloom().MaxBrightness, 1.0f, 30.0f);
-
-        ImGui::Separator();
-        ImGui::TextUnformatted("Physics");
-        if (ImGui::SliderFloat("Gravity", &m_Gravity, 0.0f, 30.0f)) m_Session->Physics().SetGravity(m_Gravity);
-        ImGui::Checkbox("Show colliders", &m_ShowColliders);
-        ImGui::Text("Bodies: %u", m_Session->Physics().BodyCount());
-        if (ImGui::Button("Spawn box"))  SpawnBody(false, m_Camera->Position + m_Camera->GetFront() * 3.0f, glm::vec3(0.0f), true);
-        ImGui::SameLine();
-        if (ImGui::Button("Spawn ball")) SpawnBody(true, m_Camera->Position + m_Camera->GetFront() * 3.0f, glm::vec3(0.0f), true);
-        ImGui::TextDisabled("T throws a ball while playing");
-
-        ImGui::Separator();
-        ImGui::TextUnformatted("Audio");
-        if (!m_Session->Audio().IsReady()) {
-            ImGui::TextDisabled("No audio device: sound is off");
-        }
-        else {
-            float master = m_Session->Audio().GetMasterVolume();
-            if (ImGui::SliderFloat("Master volume", &master, 0.0f, 1.0f)) m_Session->Audio().SetMasterVolume(master);
-            ImGui::Text("Voices: %u", m_Session->Audio().VoiceCount());
+            ImGui::Separator();
+            if (ImGui::MenuItem("Save", "Ctrl+S")) SaveScene(m_SceneFile);
+            if (ImGui::MenuItem("Save As...", "Ctrl+Shift+S")) m_OpenSaveAs = true;
+            ImGui::Separator();
+            if (ImGui::BeginMenu("Example Levels")) {
+                ImGui::TextDisabled("Replaces the current scene");
+                if (ImGui::MenuItem("Script Demo")) BuildLevel(BuildScriptDemo);
+                if (ImGui::MenuItem("Coin Rush")) BuildLevel(BuildCoinRush);
+                ImGui::EndMenu();
+            }
+            ImGui::EndDisabled();
+            if (playing) ImGui::TextDisabled("Stop Play to change scenes");
+            ImGui::Separator();
+            if (ImGui::MenuItem("Exit", "Esc")) RequestQuit();
+            ImGui::EndMenu();
         }
 
-        ImGui::Separator();
-        ImGui::TextUnformatted("Scripting");
-        ImGui::Checkbox("Play through game camera", &m_PlayThroughGameCamera);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("During Play, show the scene's primary Camera entity.\n"
+        if (ImGui::BeginMenu("Edit")) {
+            const std::string undo = m_History.CanUndo() ? "Undo " + m_History.UndoLabel() : "Undo";
+            const std::string redo = m_History.CanRedo() ? "Redo " + m_History.RedoLabel() : "Redo";
+            if (ImGui::MenuItem(undo.c_str(), "Ctrl+Z", false, !playing && m_History.CanUndo())) UndoStep();
+            if (ImGui::MenuItem(redo.c_str(), "Ctrl+Y", false, !playing && m_History.CanRedo())) RedoStep();
+            ImGui::Separator();
+            const bool selected = m_Selected != entt::null && m_Scene.Registry().valid(m_Selected);
+            if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, selected && !playing)) DuplicateSelected();
+            if (ImGui::MenuItem("Delete", "Del", false, selected)) DeleteSelected();
+            if (ImGui::MenuItem("Deselect", nullptr, false, selected)) m_Selected = entt::null;
+            ImGui::Separator();
+            if (ImGui::MenuItem("Frame Selected", "F")) FrameSelected();
+            ImGui::Separator();
+            if (ImGui::MenuItem("Reload Shaders", "F5")) m_Renderer->ReloadShaders();
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Create")) {
+            DrawCreateMenuItems();
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Play")) {
+            if (!playing) { if (ImGui::MenuItem("Play", "Ctrl+P")) m_PlayCmd = PlayCmd::Play; }
+            else if (ImGui::MenuItem("Stop", "Ctrl+P")) m_PlayCmd = PlayCmd::Stop;
+            if (ImGui::MenuItem(m_PlayState == PlayState::Paused ? "Resume" : "Pause", nullptr, false, playing)) m_PlayCmd = PlayCmd::Pause;
+            if (ImGui::MenuItem("Step One Frame", nullptr, false, m_PlayState == PlayState::Paused)) m_PlayCmd = PlayCmd::Step;
+            ImGui::Separator();
+            ImGui::MenuItem("Play Through Game Camera", nullptr, &m_PlayThroughGameCamera);
+            ImGui::SetItemTooltip("During Play, show the scene's primary Camera entity.\n"
                 "Untick to fly the editor camera (and use editor shortcuts) while the game runs.");
-        if (m_Session->Scripts().IsRunning()) {
-            ImGui::Text("Scripts running: %u", m_Session->Scripts().InstanceCount());
-            ImGui::SameLine();
-            if (ImGui::Button("Reload (F5)")) m_ReloadScripts = true;
-        }
-        else {
-            ImGui::TextDisabled("Scripts load when Play starts");
-        }
-        for (const auto& err : m_Session->Scripts().RecentErrors()) {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.3f, 1.0f));
-            ImGui::TextWrapped("%s", err.c_str());
-            ImGui::PopStyleColor();
+            if (ImGui::MenuItem("Reload Scripts", "F5", false, playing)) m_ReloadScripts = true;
+            ImGui::Separator();
+            ImGui::TextDisabled("T throws a ball while playing");
+            ImGui::EndMenu();
         }
 
-        ImGui::Separator();
-        ImGui::TextUnformatted("Scene");
-        ImGui::BeginDisabled(playing);
-        if (ImGui::BeginCombo("File", m_SceneFile.c_str())) {
-            // Rescanned while the list is open, so new files show up without a restart
-            for (const auto& f : ListSceneFiles())
-                if (ImGui::Selectable(f.c_str(), f == m_SceneFile)) m_SceneFile = f;
-            ImGui::EndCombo();
+        if (ImGui::BeginMenu("Window")) {
+            ImGui::MenuItem("Hierarchy", nullptr, &m_ShowHierarchy);
+            ImGui::MenuItem("Inspector", nullptr, &m_ShowInspector);
+            ImGui::MenuItem("Scene Settings", nullptr, &m_ShowSceneSettings);
+            ImGui::MenuItem("Console", nullptr, &m_ShowConsole);
+            ImGui::Separator();
+            if (ImGui::MenuItem("Hide Panels", "F1", !m_ShowUI)) m_ShowUI = !m_ShowUI;
+            if (ImGui::MenuItem("Full Screen", "F11", GetWindow().IsFullscreen())) m_ToggleFullscreen = true;
+            bool vsync = GetWindow().IsVSync();
+            if (ImGui::MenuItem("VSync", nullptr, &vsync)) GetWindow().SetVSync(vsync);
+            ImGui::Separator();
+            if (ImGui::MenuItem("Reset Layout")) m_ResetLayout = true;
+            ImGui::EndMenu();
         }
-        if (ImGui::Button("Save")) SaveScene(m_SceneFile);
-        ImGui::SameLine();
-        if (ImGui::Button("Load")) RequestLoad(m_SceneFile);   // asks about unsaved changes; loads next frame
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.6f);
-        ImGui::InputTextWithHint("##saveas", "new_level", m_SaveAsName, sizeof(m_SaveAsName));
-        ImGui::SameLine();
-        ImGui::BeginDisabled(m_SaveAsName[0] == '\0');
-        if (ImGui::Button("Save as")) {
-            std::string name = m_SaveAsName;
-            if (std::filesystem::path(name).extension() != ".json") name += ".json";
-            if (SaveScene(name)) { m_SceneFile = name; m_SaveAsName[0] = '\0'; }
+
+        if (ImGui::BeginMenu("Help")) {
+            if (ImGui::MenuItem("Controls...")) m_ShowControls = true;
+            if (ImGui::MenuItem("About MDB Engine...")) m_OpenAbout = true;
+            ImGui::EndMenu();
         }
-        ImGui::EndDisabled();
-        ImGui::TextDisabled("Assets/Scenes. Saves entities, environment, post, shadows, gravity, camera");
-        ImGui::TextUnformatted("Example levels (replace the scene)");
-        if (ImGui::Button("Script demo")) BuildLevel(BuildScriptDemo);
-        ImGui::SameLine();
-        if (ImGui::Button("Coin Rush")) BuildLevel(BuildCoinRush);
-        ImGui::EndDisabled();
-        ImGui::TextDisabled("Arrows roll the ball, Space jumps, R retries");
-        ImGui::End();
+
+        // Right side: the scene file (with * for unsaved changes) and the frame rate
+        char right[160];
+        std::snprintf(right, sizeof(right), "%s%s    %.0f FPS", m_SceneFile.c_str(), m_History.IsDirty() ? " *" : "",
+            ImGui::GetIO().Framerate);
+        const float w = ImGui::CalcTextSize(right).x + ImGui::GetStyle().ItemSpacing.x * 2.0f;
+        ImGui::SameLine(ImGui::GetWindowWidth() - w);
+        ImGui::TextDisabled("%s", right);
+        ImGui::EndMainMenuBar();
     }
 
-    void DrawHierarchyPanel() {
+    // The entries of Create (the menu bar, the Hierarchy "+" button and its right-click menu)
+    void DrawCreateMenuItems() {
         using namespace Engine;
-        ImGui::SetNextWindowPos(ImVec2(10, 230), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize(ImVec2(300, 280), ImGuiCond_FirstUseEver);
-        ImGui::Begin("Hierarchy");
-
-        if (ImGui::Button("+ Cube")) {
-            auto e = m_Scene.CreateEntity("Cube");
-            auto& mr = e.Add<MeshRendererComponent>();
-            mr.Geometry = m_Cube;
-            e.Get<TransformComponent>().Position = m_Camera->Position + m_Camera->GetFront() * 3.0f;
+        const glm::vec3 spot = m_Camera->Position + m_Camera->GetFront() * 3.0f;   // in front of the camera
+        auto place = [&](Entity e) {
+            e.Get<TransformComponent>().Position = spot;
             m_Selected = e.GetHandle();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("+ Light")) {
-            auto e = m_Scene.CreateEntity("Point Light");
-            auto& t = e.Get<TransformComponent>();
-            t.Position = m_Camera->Position + m_Camera->GetFront() * 3.0f;
-            t.Scale = glm::vec3(0.15f);
-            e.Add<PointLightComponent>();
+        };
+        auto shape = [&](const char* name, std::shared_ptr<Renderable> geometry, float scale) {
+            Entity e = m_Scene.CreateEntity(name);
             auto& mr = e.Add<MeshRendererComponent>();
+            mr.Geometry = geometry;
+            e.Get<TransformComponent>().Scale = glm::vec3(scale);
+            place(e);
+        };
+
+        if (ImGui::MenuItem("Empty Entity")) place(m_Scene.CreateEntity("Entity"));
+        ImGui::SeparatorText("3D Objects");
+        if (ImGui::MenuItem("Cube")) shape("Cube", m_Cube, 1.0f);
+        if (ImGui::MenuItem("Sphere")) { EnsureSphere(); shape("Sphere", m_Sphere, 1.0f); }
+        if (ImGui::MenuItem("Plane")) shape("Plane", m_Plane, 0.25f);
+        ImGui::SeparatorText("Lights");
+        if (ImGui::MenuItem("Point Light")) {
+            Entity e = m_Scene.CreateEntity("Point Light");
+            e.Get<TransformComponent>().Scale = glm::vec3(0.15f);
+            e.Add<PointLightComponent>();
+            auto& mr = e.Add<MeshRendererComponent>();       // a small glowing marker
             mr.Geometry = m_Cube;
             mr.Unlit = true;
-            m_Selected = e.GetHandle();
+            place(e);
         }
-        ImGui::SameLine();
-        if (ImGui::Button("+ Material grid")) SpawnMaterialGrid();
-        ImGui::SameLine();
-        if (ImGui::Button("+ Prefab")) ImGui::OpenPopup("PlacePrefab");
-        if (ImGui::BeginPopup("PlacePrefab")) {
+        if (ImGui::MenuItem("Directional Light (Sun)")) {
+            Entity e = m_Scene.CreateEntity("Sun");
+            auto& t = e.Get<TransformComponent>();
+            t.Rotation = glm::vec3(-0.9f, 0.5f, 0.0f);
+            t.Scale = glm::vec3(0.12f, 0.12f, 0.6f);
+            e.Add<DirectionalLightComponent>();
+            auto& mr = e.Add<MeshRendererComponent>();
+            mr.Geometry = m_Cube;
+            mr.Color = glm::vec3(1.0f, 0.9f, 0.4f);
+            mr.Unlit = true;
+            place(e);
+        }
+        ImGui::SeparatorText("Gameplay");
+        if (ImGui::MenuItem("Camera")) {
+            Entity e = m_Scene.CreateEntity("Camera");
+            e.Add<CameraComponent>();
+            place(e);
+        }
+        if (ImGui::MenuItem("Physics Box")) SpawnBody(false, spot, glm::vec3(0.0f), true);
+        if (ImGui::MenuItem("Physics Ball")) SpawnBody(true, spot, glm::vec3(0.0f), true);
+        if (ImGui::MenuItem("Material Grid")) SpawnMaterialGrid();
+        ImGui::Separator();
+        if (ImGui::BeginMenu("Prefab")) {
             const auto prefabs = m_Session->Prefabs().List();
             if (prefabs.empty()) ImGui::TextDisabled("No prefabs yet: Inspector > Save as prefab");
             for (const auto& p : prefabs) {
@@ -1053,18 +1074,448 @@ private:
                     m_Selected = e.GetHandle();
                 }
             }
-            ImGui::EndPopup();
+            ImGui::EndMenu();
         }
+    }
+
+    // ------------------------------------------------------------------ toolbar
+    // A button that stays highlighted while its tool / option is on
+    bool ToggleButton(const char* label, bool on, const char* tooltip, float width = 0.0f) {
+        if (on) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.22f, 0.40f, 0.65f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.26f, 0.46f, 0.74f, 1.0f));
+        }
+        const bool clicked = ImGui::Button(label, ImVec2(width, 0.0f));
+        if (on) ImGui::PopStyleColor(2);
+        if (tooltip) ImGui::SetItemTooltip("%s", tooltip);
+        return clicked;
+    }
+
+    // A square button with a drawn icon: 0 play, 1 stop, 2 pause, 3 step
+    bool IconButton(const char* id, int icon, bool on, bool enabled, const char* tooltip) {
+        const float h = ImGui::GetFrameHeight();
+        const ImVec2 size(h * 1.5f, h);
+        ImGui::BeginDisabled(!enabled);
+        if (on) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.22f, 0.40f, 0.65f, 1.0f));
+        const bool clicked = ImGui::Button(id, size);
+        if (on) ImGui::PopStyleColor();
+        ImGui::EndDisabled();
+        if (tooltip) ImGui::SetItemTooltip("%s", tooltip);
+
+        const ImVec2 mn = ImGui::GetItemRectMin(), mx = ImGui::GetItemRectMax();
+        const ImVec2 c((mn.x + mx.x) * 0.5f, (mn.y + mx.y) * 0.5f);
+        const float r = h * 0.26f;
+        const ImU32 col = ImGui::GetColorU32(enabled ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        switch (icon) {
+        case 0: dl->AddTriangleFilled(ImVec2(c.x - r * 0.8f, c.y - r), ImVec2(c.x - r * 0.8f, c.y + r), ImVec2(c.x + r, c.y), col); break;
+        case 1: dl->AddRectFilled(ImVec2(c.x - r * 0.85f, c.y - r * 0.85f), ImVec2(c.x + r * 0.85f, c.y + r * 0.85f), col, 1.5f); break;
+        case 2:
+            dl->AddRectFilled(ImVec2(c.x - r * 0.8f, c.y - r), ImVec2(c.x - r * 0.25f, c.y + r), col);
+            dl->AddRectFilled(ImVec2(c.x + r * 0.25f, c.y - r), ImVec2(c.x + r * 0.8f, c.y + r), col);
+            break;
+        case 3:
+            dl->AddTriangleFilled(ImVec2(c.x - r, c.y - r), ImVec2(c.x - r, c.y + r), ImVec2(c.x + r * 0.45f, c.y), col);
+            dl->AddRectFilled(ImVec2(c.x + r * 0.55f, c.y - r), ImVec2(c.x + r, c.y + r), col);
+            break;
+        }
+        return clicked;
+    }
+
+    // The strip under the menu bar: transform tools (left), Play / Pause / Step (centre), status (right)
+    void DrawToolbar() {
+        const bool playing = m_PlayState != PlayState::Edit;
+        const float height = ImGui::GetFrameHeight() + 10.0f;
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 5.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.125f, 0.13f, 0.145f, 1.0f));
+        const ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings |
+            ImGuiWindowFlags_NoScrollWithMouse;
+        if (ImGui::BeginViewportSideBar("##Toolbar", ImGui::GetMainViewport(), ImGuiDir_Up, height, flags)) {
+            // Transform tools
+            if (ToggleButton("Select", m_SelectTool, "Select (Q): click objects, no gizmo")) m_SelectTool = true;
+            ImGui::SameLine(0, 2);
+            if (ToggleButton("Move", !m_SelectTool && m_GizmoOp == ImGuizmo::TRANSLATE, "Move (W)")) { m_SelectTool = false; m_GizmoOp = ImGuizmo::TRANSLATE; }
+            ImGui::SameLine(0, 2);
+            if (ToggleButton("Rotate", !m_SelectTool && m_GizmoOp == ImGuizmo::ROTATE, "Rotate (E)")) { m_SelectTool = false; m_GizmoOp = ImGuizmo::ROTATE; }
+            ImGui::SameLine(0, 2);
+            if (ToggleButton("Scale", !m_SelectTool && m_GizmoOp == ImGuizmo::SCALE, "Scale (R): always in local space")) { m_SelectTool = false; m_GizmoOp = ImGuizmo::SCALE; }
+            ImGui::SameLine(0, 12);
+            if (ToggleButton(m_GizmoLocal ? "Local" : "World", false, "Gizmo space: click to switch between Local and World", 52.0f))
+                m_GizmoLocal = !m_GizmoLocal;
+            ImGui::SameLine(0, 2);
+            if (ToggleButton("Snap", m_Snap, "Snap moves to 0.5 m, rotations to 15 deg, scales to 0.1")) m_Snap = !m_Snap;
+
+            // Play controls, centred in the window
+            const float h = ImGui::GetFrameHeight();
+            const float groupWidth = h * 1.5f * 3.0f + 4.0f;
+            ImGui::SameLine(std::max(ImGui::GetCursorPosX() + 16.0f, (ImGui::GetWindowWidth() - groupWidth) * 0.5f));
+            if (IconButton(playing ? "##stop" : "##play", playing ? 1 : 0, playing, true, playing ? "Stop (Ctrl+P)" : "Play (Ctrl+P)"))
+                m_PlayCmd = playing ? PlayCmd::Stop : PlayCmd::Play;
+            ImGui::SameLine(0, 2);
+            if (IconButton("##pause", 2, m_PlayState == PlayState::Paused, playing, m_PlayState == PlayState::Paused ? "Resume" : "Pause"))
+                m_PlayCmd = PlayCmd::Pause;
+            ImGui::SameLine(0, 2);
+            if (IconButton("##step", 3, false, m_PlayState == PlayState::Paused, "Step one frame (while paused)"))
+                m_PlayCmd = PlayCmd::Step;
+
+            // Status and the game-camera switch, on the right
+            const char* status = m_PlayState == PlayState::Edit ? "Editing"
+                : m_PlayState == PlayState::Play ? "Playing: changes are discarded on Stop" : "Paused: changes are discarded on Stop";
+            const ImVec4 statusCol = m_PlayState == PlayState::Edit ? ImVec4(0.55f, 0.57f, 0.6f, 1.0f)
+                : m_PlayState == PlayState::Play ? ImVec4(1.0f, 0.6f, 0.2f, 1.0f) : ImVec4(1.0f, 0.85f, 0.3f, 1.0f);
+            const float camWidth = ImGui::CalcTextSize("Game camera").x + h + 8.0f;
+            const float rightWidth = ImGui::CalcTextSize(status).x + camWidth + 24.0f;
+            ImGui::SameLine(std::max(ImGui::GetCursorPosX() + 16.0f, ImGui::GetWindowWidth() - rightWidth));
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextColored(statusCol, "%s", status);
+            ImGui::SameLine(0, 16);
+            ImGui::Checkbox("Game camera", &m_PlayThroughGameCamera);
+            ImGui::SetItemTooltip("During Play, look through the scene's primary Camera entity");
+        }
+        ImGui::End();
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(2);
+    }
+
+    // ------------------------------------------------------------------ Scene Settings panel
+    // What the old Tools panel held: environment, lighting and shadows, post-processing, physics, audio.
+    // All of it is saved in the scene file.
+    void DrawSceneSettingsPanel() {
+        using namespace Engine;
+        if (!ImGui::Begin("Scene Settings", &m_ShowSceneSettings)) { ImGui::End(); return; }
+        ImGui::PushItemWidth(-140.0f);
+
+        if (ImGui::CollapsingHeader("Environment", ImGuiTreeNodeFlags_DefaultOpen)) {
+            // The list is rescanned while open; the bake happens at the start of the next frame
+            const std::string current = m_Renderer->CurrentEnvironment();
+            if (ImGui::BeginCombo("Sky map", current.empty() ? "Procedural sky" : current.c_str())) {
+                if (ImGui::Selectable("Procedural sky", current.empty())) m_Renderer->RequestEnvironment("");
+                for (const auto& f : m_Renderer->ListEnvironments())
+                    if (ImGui::Selectable(f.c_str(), current == f)) m_Renderer->RequestEnvironment(f);
+                ImGui::EndCombo();
+            }
+            ImGui::Checkbox("Show sky", &m_Renderer->GetEnvironment().Show);
+            ImGui::SliderFloat("Sky blur", &m_Renderer->GetEnvironment().Blur, 0.0f, 6.0f);
+            ImGui::SliderFloat("Sky rotation", &m_Renderer->GetEnvironment().RotationDegrees, -180.0f, 180.0f, "%.0f deg");
+            ImGui::SliderFloat("Ambient intensity", &m_Scene.AmbientIntensity, 0.0f, 4.0f);
+        }
+
+        if (ImGui::CollapsingHeader("Shadows", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto& s = m_Renderer->Shadows();
+            ImGui::Checkbox("Enabled##shadows", &s.Enabled);
+            ImGui::BeginDisabled(!s.Enabled);
+            ImGui::SeparatorText("Point lights");
+            ImGui::SliderFloat("Range", &s.PointFar, 5.0f, 100.0f, "%.0f m");
+            ImGui::SliderFloat("Bias##point", &s.PointBias, 0.005f, 0.3f, "%.3f");
+            ImGui::SeparatorText("Sun");
+            ImGui::SliderFloat("Bias##sun", &s.SunBias, 0.0002f, 0.01f, "%.4f");
+            ImGui::Checkbox("Cascades (follow the camera)", &s.SunCascades);
+            if (s.SunCascades) {
+                ImGui::SliderInt("Cascade count", &s.CascadeCount, 1, 4);
+                ImGui::SliderFloat("Shadow distance", &s.ShadowDistance, 10.0f, 300.0f, "%.0f m");
+                ImGui::SliderFloat("Cascade split", &s.CascadeSplit, 0.0f, 1.0f, "%.2f");
+                ImGui::SetItemTooltip("0 = even slices, 1 = logarithmic (sharper near the camera)");
+            }
+            else ImGui::SliderFloat("Area around origin", &s.SunExtent, 4.0f, 40.0f, "%.0f m");
+            ImGui::EndDisabled();
+        }
+
+        if (ImGui::CollapsingHeader("Post Processing")) {
+            ImGui::SeparatorText("Tone mapping");
+            ImGui::SliderFloat("Exposure", &m_Renderer->Post.Exposure, 0.1f, 4.0f);
+            const char* modes[] = { "None (clamp)", "Reinhard", "ACES" };
+            ImGui::Combo("Tone map", &m_Renderer->Post.ToneMap, modes, 3);
+            ImGui::Checkbox("Gamma correction", &m_Renderer->Post.Gamma);
+            ImGui::Checkbox("FXAA (anti-aliasing)", &m_Renderer->Post.FXAA);
+
+            ImGui::SeparatorText("Ambient occlusion");
+            ImGui::Checkbox("Enabled##ao", &m_Renderer->Post.AOEnabled);
+            ImGui::BeginDisabled(!m_Renderer->Post.AOEnabled);
+            ImGui::SliderFloat("Strength##ao", &m_Renderer->Post.AOStrength, 0.0f, 1.0f);
+            ImGui::SliderFloat("Radius##ao", &m_Renderer->GetSSAO().Radius, 0.1f, 2.0f);
+            ImGui::SliderFloat("Bias##ao", &m_Renderer->GetSSAO().Bias, 0.0f, 0.1f, "%.3f");
+            ImGui::SliderInt("Samples##ao", &m_Renderer->GetSSAO().Samples, 4, 32);
+            ImGui::EndDisabled();
+
+            ImGui::SeparatorText("Bloom");
+            ImGui::Checkbox("Enabled##bloom", &m_Renderer->Post.BloomEnabled);
+            ImGui::BeginDisabled(!m_Renderer->Post.BloomEnabled);
+            ImGui::SliderFloat("Intensity##bloom", &m_Renderer->Post.BloomIntensity, 0.0f, 1.0f);
+            ImGui::SliderFloat("Threshold##bloom", &m_Renderer->GetBloom().Threshold, 0.0f, 5.0f);
+            ImGui::SliderFloat("Knee##bloom", &m_Renderer->GetBloom().Knee, 0.0f, 1.0f);
+            ImGui::SliderFloat("Radius##bloom", &m_Renderer->GetBloom().Radius, 0.5f, 2.0f);
+            ImGui::SliderFloat("Max brightness##bloom", &m_Renderer->GetBloom().MaxBrightness, 1.0f, 30.0f);
+            ImGui::EndDisabled();
+        }
+
+        if (ImGui::CollapsingHeader("Physics")) {
+            if (ImGui::SliderFloat("Gravity", &m_Gravity, 0.0f, 30.0f, "%.2f m/s2")) m_Session->Physics().SetGravity(m_Gravity);
+            ImGui::TextDisabled("Bodies: %u (they exist during Play)", m_Session->Physics().BodyCount());
+        }
+
+        if (ImGui::CollapsingHeader("Audio")) {
+            if (!m_Session->Audio().IsReady()) ImGui::TextDisabled("No audio device: sound is off");
+            else {
+                float master = m_Session->Audio().GetMasterVolume();
+                if (ImGui::SliderFloat("Master volume", &master, 0.0f, 1.0f)) m_Session->Audio().SetMasterVolume(master);
+                ImGui::TextDisabled("Voices playing: %u", m_Session->Audio().VoiceCount());
+            }
+        }
+
+        if (ImGui::CollapsingHeader("Scripts")) {
+            if (m_Session->Scripts().IsRunning()) {
+                ImGui::Text("Running: %u", m_Session->Scripts().InstanceCount());
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Reload (F5)")) m_ReloadScripts = true;
+            }
+            else ImGui::TextDisabled("Scripts load when Play starts");
+            ImGui::TextDisabled("Errors appear in the Console");
+        }
+        ImGui::PopItemWidth();
+        ImGui::End();
+    }
+
+    // ------------------------------------------------------------------ Console panel
+    // Every log line (engine, game, scripts), with level filters, a search box and auto-scroll
+    void DrawConsolePanel() {
+        if (!ImGui::Begin("Console", &m_ShowConsole)) { ImGui::End(); return; }
+        const uint64_t count = Engine::Log::HistoryCount();
+        if (count != m_ConsoleSeen) { m_ConsoleLines = Engine::Log::History(); m_ConsoleSeen = count; }
+
+        if (ImGui::Button("Clear")) { Engine::Log::ClearHistory(); m_ConsoleLines.clear(); }
+        ImGui::SameLine();
+        int infos = 0, warns = 0, errors = 0;
+        for (const auto& l : m_ConsoleLines) (l.Level >= 4 ? errors : l.Level == 3 ? warns : infos)++;
+        char label[48];
+        std::snprintf(label, sizeof(label), "Info %d", infos);
+        ImGui::Checkbox(label, &m_ConsoleInfo);
+        ImGui::SameLine();
+        std::snprintf(label, sizeof(label), "Warnings %d", warns);
+        ImGui::Checkbox(label, &m_ConsoleWarn);
+        ImGui::SameLine();
+        std::snprintf(label, sizeof(label), "Errors %d", errors);
+        ImGui::Checkbox(label, &m_ConsoleError);
+        ImGui::SameLine();
+        ImGui::Checkbox("Auto-scroll", &m_ConsoleAutoScroll);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::InputTextWithHint("##consolefilter", "Search", m_ConsoleFilter, sizeof(m_ConsoleFilter));
         ImGui::Separator();
 
-        // A tree: roots first, children nested. Drag an entity onto another to make it a child,
-        // or onto the empty space below the list to make it a root again.
+        ImGui::BeginChild("##lines", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
+        if (m_MonoFont) ImGui::PushFont(m_MonoFont);
+        const std::string filter = Lower(m_ConsoleFilter);
+        for (const auto& l : m_ConsoleLines) {
+            if (l.Level >= 4 ? !m_ConsoleError : l.Level == 3 ? !m_ConsoleWarn : !m_ConsoleInfo) continue;
+            if (!filter.empty() && Lower(l.Text).find(filter) == std::string::npos) continue;
+            const ImVec4 col = l.Level >= 4 ? ImVec4(1.0f, 0.42f, 0.38f, 1.0f) : l.Level == 3 ? ImVec4(1.0f, 0.8f, 0.35f, 1.0f)
+                : l.Logger == "GAME" ? ImVec4(0.85f, 0.87f, 0.9f, 1.0f) : ImVec4(0.6f, 0.63f, 0.68f, 1.0f);
+            ImGui::TextDisabled("%s", l.Time.c_str());
+            ImGui::SameLine();
+            ImGui::TextColored(col, "%s", l.Text.c_str());
+        }
+        if (m_ConsoleAutoScroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 4.0f) ImGui::SetScrollHereY(1.0f);
+        if (m_MonoFont) ImGui::PopFont();
+        ImGui::EndChild();
+        ImGui::End();
+    }
+
+    static std::string Lower(std::string s) {
+        std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+        return s;
+    }
+
+    // ------------------------------------------------------------------ dialogs
+    void DrawDialogs() {
+        // Save As
+        if (m_OpenSaveAs) { ImGui::OpenPopup("Save Scene As"); m_OpenSaveAs = false; }
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        if (ImGui::BeginPopupModal("Save Scene As", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::TextUnformatted("File name in Assets/Scenes:");
+            if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+            ImGui::SetNextItemWidth(280.0f);
+            const bool enter = ImGui::InputTextWithHint("##saveasname", "new_level", m_SaveAsName, sizeof(m_SaveAsName),
+                ImGuiInputTextFlags_EnterReturnsTrue);
+            ImGui::BeginDisabled(m_SaveAsName[0] == '\0');
+            if (ImGui::Button("Save", ImVec2(120, 0)) || (enter && m_SaveAsName[0] != '\0')) {
+                std::string name = m_SaveAsName;
+                if (std::filesystem::path(name).extension() != ".json") name += ".json";
+                if (SaveScene(name)) { m_SceneFile = name; m_SaveAsName[0] = '\0'; }
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+
+        // About
+        if (m_OpenAbout) { ImGui::OpenPopup("About MDB Engine"); m_OpenAbout = false; }
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        if (ImGui::BeginPopupModal("About MDB Engine", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::TextUnformatted("MDB Engine editor");
+            ImGui::TextDisabled("C++20, OpenGL 4.5, EnTT, Jolt Physics, Lua 5.4, miniaudio, Dear ImGui");
+            ImGui::TextDisabled("%s", (const char*)glGetString(GL_RENDERER));
+            if (ImGui::Button("Close", ImVec2(120, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+
+        // Controls (a normal window, so it can stay open while working)
+        if (m_ShowControls) {
+            ImGui::SetNextWindowSize(ImVec2(440, 0), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+            if (ImGui::Begin("Controls", &m_ShowControls, ImGuiWindowFlags_NoDocking)) {
+                auto row = [](const char* keys, const char* what) {
+                    ImGui::TextUnformatted(keys);
+                    ImGui::SameLine(170.0f);
+                    ImGui::TextDisabled("%s", what);
+                };
+                ImGui::SeparatorText("Viewport camera");
+                row("Alt + Left drag", "Orbit");
+                row("Alt + Middle drag", "Pan");
+                row("Alt + Right drag / wheel", "Zoom");
+                row("F", "Frame the selection");
+                ImGui::SeparatorText("Tools");
+                row("Q / W / E / R", "Select / Move / Rotate / Scale");
+                row("N", "Spawn a cube");
+                row("Del", "Delete the selection");
+                ImGui::SeparatorText("Edit");
+                row("Ctrl+Z / Ctrl+Y", "Undo / Redo");
+                row("Ctrl+D", "Duplicate");
+                row("Ctrl+N / Ctrl+S", "New scene / Save");
+                row("Ctrl+Shift+S", "Save as");
+                ImGui::SeparatorText("Play");
+                row("Ctrl+P", "Play / Stop");
+                row("T", "Throw a ball (while playing)");
+                row("F5", "Reload shaders (and scripts while playing)");
+                ImGui::SeparatorText("Window");
+                row("F1", "Hide the panels");
+                row("F11", "Full screen on / off");
+                row("Esc", "Stop Play, or quit");
+            }
+            ImGui::End();
+        }
+    }
+
+    // ------------------------------------------------------------------ new scene
+    void RequestNewScene() {
+        if (m_History.IsDirty()) m_Confirm = ConfirmAction::New;
+        else m_PendingNewScene = true;
+    }
+
+    // An empty level: a sun and a floor. Settings (sky, post...) are kept as they are.
+    void NewScene() {
+        using namespace Engine;
+        m_Scene.Clear();
+        m_Selected = entt::null;
+        m_Spawned.clear();
+        {
+            Entity e = m_Scene.CreateEntity("Sun");
+            auto& t = e.Get<TransformComponent>();
+            t.Position = glm::vec3(0.0f, 6.0f, 0.0f);
+            t.Rotation = glm::vec3(-0.9f, 0.5f, 0.0f);
+            t.Scale = glm::vec3(0.12f, 0.12f, 0.6f);
+            e.Add<DirectionalLightComponent>();
+            auto& mr = e.Add<MeshRendererComponent>();
+            mr.Geometry = m_Cube;
+            mr.Color = glm::vec3(1.0f, 0.9f, 0.4f);
+            mr.Unlit = true;
+        }
+        {
+            Entity e = m_Scene.CreateEntity("Floor");
+            e.Get<TransformComponent>().Position = glm::vec3(0.0f, -1.0f, 0.0f);
+            auto& mr = e.Add<MeshRendererComponent>();
+            mr.Geometry = m_Plane;
+            mr.Texture = m_Checker;
+            mr.Color = glm::vec3(0.8f);
+            mr.Roughness = 0.85f;
+            mr.Static = true;
+            auto& rb = e.Add<RigidBodyComponent>();
+            rb.Type = BodyType::Static;
+            rb.Size = glm::vec3(12.0f, 1.0f, 12.0f);
+            rb.Center = glm::vec3(0.0f, -0.5f, 0.0f);
+        }
+        m_SceneFile = "untitled.json";
+        m_History.Reset(m_Scene, m_Selected, m_Resources->Registry());
+        LOG_INFO("New scene (File > Save As to name it)");
+    }
+
+    void DeleteSelected() {
+        if (m_Selected == entt::null || !m_Scene.Registry().valid(m_Selected)) return;
+        m_Scene.DestroyEntity(Engine::Entity(m_Selected, &m_Scene));
+        m_Selected = entt::null;
+    }
+
+    // Stats drawn over the top-right corner of the viewport image
+    void DrawStatsOverlay(const ImVec2& origin, const ImVec2& size) {
+        using namespace Engine;
+        char lines[9][96];
+        int n = 0;
+        std::snprintf(lines[n++], 96, "%.0f FPS  (%.2f ms)", ImGui::GetIO().Framerate, 1000.0f / std::max(ImGui::GetIO().Framerate, 1.0f));
+        std::snprintf(lines[n++], 96, "Draw calls  %u", RenderStats::DrawCalls);
+        std::snprintf(lines[n++], 96, "Triangles   %u", RenderStats::Triangles);
+        std::snprintf(lines[n++], 96, "Instances   %u", RenderStats::Instances);
+        std::snprintf(lines[n++], 96, "Culled      %u", RenderStats::Culled);
+        std::snprintf(lines[n++], 96, "Shadow skip %u", RenderStats::ShadowSkipped);
+        if (m_Scene.StaticBatchCount() > 0)
+            std::snprintf(lines[n++], 96, "Static      %u batches / %u objects", m_Scene.StaticBatchCount(), m_Scene.StaticMergedCount());
+        std::snprintf(lines[n++], 96, "Entities    %zu", m_Scene.Registry().view<TagComponent>().size());
+        std::snprintf(lines[n++], 96, "Camera      %.1f, %.1f, %.1f", m_Camera->Position.x, m_Camera->Position.y, m_Camera->Position.z);
+
+        if (m_MonoFont) ImGui::PushFont(m_MonoFont);
+        float w = 0.0f;
+        for (int i = 0; i < n; i++) w = std::max(w, ImGui::CalcTextSize(lines[i]).x);
+        const float lh = ImGui::GetTextLineHeight();
+        const ImVec2 pad(8.0f, 6.0f);
+        const ImVec2 mx(origin.x + size.x - 8.0f, origin.y + 8.0f + pad.y * 2 + lh * n);
+        const ImVec2 mn(mx.x - w - pad.x * 2, origin.y + 8.0f);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(mn, mx, IM_COL32(15, 16, 20, 175), 4.0f);
+        for (int i = 0; i < n; i++)
+            dl->AddText(ImVec2(mn.x + pad.x, mn.y + pad.y + lh * i), i == 0 ? IM_COL32(255, 255, 255, 235) : IM_COL32(205, 210, 220, 215), lines[i]);
+        if (m_MonoFont) ImGui::PopFont();
+    }
+
+    void DrawHierarchyPanel() {
+        using namespace Engine;
+        ImGui::SetNextWindowPos(ImVec2(10, 230), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(300, 280), ImGuiCond_FirstUseEver);
+        ImGui::Begin("Hierarchy", &m_ShowHierarchy);
+
+        // "+" opens the Create menu; the box filters the list by name
+        if (ImGui::Button("+", ImVec2(ImGui::GetFrameHeight() * 1.4f, 0.0f))) ImGui::OpenPopup("HierarchyCreate");
+        ImGui::SetItemTooltip("Create (also in the Create menu, or right-click the list)");
+        if (ImGui::BeginPopup("HierarchyCreate")) { DrawCreateMenuItems(); ImGui::EndPopup(); }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::InputTextWithHint("##hierarchyfilter", "Search", m_HierarchyFilter, sizeof(m_HierarchyFilter));
+        ImGui::Separator();
+
         auto& reg = m_Scene.Registry();
         m_Reparent = { entt::null, entt::null, false };
-        std::vector<entt::entity> roots;
-        for (auto handle : reg.view<TagComponent>())
-            if (m_Scene.GetParent(handle) == entt::null) roots.push_back(handle);
-        for (auto r : roots) DrawHierarchyNode(r, 0);
+        m_RowAction = { RowAction::None, entt::null };
+        const std::string filter = Lower(m_HierarchyFilter);
+        ImGui::BeginChild("##entities");
+        if (!filter.empty()) {
+            // Searching: a flat list of the matches
+            for (auto handle : reg.view<TagComponent>()) {
+                const std::string& name = reg.get<TagComponent>(handle).Tag;
+                if (Lower(name).find(filter) == std::string::npos) continue;
+                ImGui::PushID((int)entt::to_integral(handle));
+                if (ImGui::Selectable(name.c_str(), handle == m_Selected)) m_Selected = handle;
+                DrawRowContextMenu(handle);
+                ImGui::PopID();
+            }
+        }
+        else {
+            // A tree: roots first, children nested. Drag an entity onto another to make it a child,
+            // or onto the empty space below the list to make it a root again.
+            std::vector<entt::entity> roots;
+            for (auto handle : reg.view<TagComponent>())
+                if (m_Scene.GetParent(handle) == entt::null) roots.push_back(handle);
+            for (auto r : roots) DrawHierarchyNode(r, 0);
+        }
 
         ImGui::Dummy(ImVec2(ImGui::GetContentRegionAvail().x, std::max(ImGui::GetContentRegionAvail().y, 30.0f)));
         if (ImGui::BeginDragDropTarget()) {
@@ -1072,6 +1523,12 @@ private:
                 m_Reparent = { *(const entt::entity*)p->Data, entt::null, true };
             ImGui::EndDragDropTarget();
         }
+        if (ImGui::IsItemClicked()) m_Selected = entt::null;           // a click on empty space deselects
+        if (ImGui::BeginPopupContextWindow("HierarchyEmpty", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
+            DrawCreateMenuItems();
+            ImGui::EndPopup();
+        }
+        ImGui::EndChild();
         ImGui::End();
 
         // Applied after the tree is drawn, so the views above aren't changed while being walked
@@ -1079,7 +1536,30 @@ private:
             if (!m_Scene.SetParent(m_Reparent.Child, m_Reparent.Parent, true))
                 LOG_WARN("Can't parent an entity to itself or to one of its own children");
         }
+        if (m_RowAction.Kind != RowAction::None && reg.valid(m_RowAction.Target)) {
+            m_Selected = m_RowAction.Target;
+            if (m_RowAction.Kind == RowAction::Duplicate) DuplicateSelected();
+            else if (m_RowAction.Kind == RowAction::Delete) DeleteSelected();
+            else if (m_RowAction.Kind == RowAction::Unparent) m_Scene.SetParent(m_RowAction.Target, entt::null, true);
+        }
     }
+
+    // Right-click on a row: actions on that entity (applied after the list is drawn)
+    void DrawRowContextMenu(entt::entity e) {
+        if (!ImGui::BeginPopupContextItem()) return;     // keyed to the row just drawn
+        m_Selected = e;
+        const bool playing = m_PlayState != PlayState::Edit;
+        if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, !playing)) m_RowAction = { RowAction::Duplicate, e };
+        if (ImGui::MenuItem("Delete", "Del")) m_RowAction = { RowAction::Delete, e };
+        if (ImGui::MenuItem("Unparent", nullptr, false, m_Scene.GetParent(e) != entt::null)) m_RowAction = { RowAction::Unparent, e };
+        ImGui::Separator();
+        if (ImGui::MenuItem("Frame", "F")) FrameSelected();
+        ImGui::EndPopup();
+    }
+
+    enum class RowAction { None, Duplicate, Delete, Unparent };
+    struct PendingRowAction { RowAction Kind; entt::entity Target; };
+    PendingRowAction m_RowAction{ RowAction::None, entt::null };
 
     struct PendingReparent { entt::entity Child, Parent; bool Pending; };
     PendingReparent m_Reparent{ entt::null, entt::null, false };
@@ -1099,6 +1579,7 @@ private:
         const bool open = ImGui::TreeNodeEx((void*)(uintptr_t)m_Scene.GetID(e), flags, "%s", reg.get<TagComponent>(e).Tag.c_str());
         if (instance) ImGui::PopStyleColor();
         if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) m_Selected = e;
+        DrawRowContextMenu(e);
 
         if (ImGui::BeginDragDropSource()) {
             ImGui::SetDragDropPayload("MDB_ENTITY", &e, sizeof(e));
@@ -1215,8 +1696,32 @@ private:
 
     void DrawViewportPanel() {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-        ImGui::Begin("Viewport");
+        ImGui::Begin("Viewport", nullptr, ImGuiWindowFlags_MenuBar);
         ImGui::PopStyleVar();
+
+        // The viewport's own menu: what is drawn over the scene, debug views, the camera
+        if (ImGui::BeginMenuBar()) {
+            ImGui::Dummy(ImVec2(2.0f, 0.0f));
+            if (ImGui::BeginMenu("View")) {
+                ImGui::MenuItem("Stats", nullptr, &m_ShowStatsOverlay);
+                ImGui::MenuItem("Colliders", nullptr, &m_ShowColliders);
+                ImGui::MenuItem("Camera Frustums", nullptr, &m_ShowFrustums);
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Debug")) {
+                ImGui::MenuItem("Ambient Occlusion Only", nullptr, &m_Renderer->Post.AODebug);
+                ImGui::MenuItem("Shadow Cascades", nullptr, &m_Renderer->Shadows().CascadeDebug);
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Camera")) {
+                if (ImGui::MenuItem("Frame Selected", "F")) FrameSelected();
+                ImGui::SetNextItemWidth(160.0f);
+                ImGui::SliderFloat("Orbit speed", &m_Camera->OrbitSensitivity, 0.05f, 1.0f);
+                ImGui::TextDisabled("Alt + left / middle / right drag: orbit / pan / zoom");
+                ImGui::EndMenu();
+            }
+            ImGui::EndMenuBar();
+        }
 
         ImVec2 avail = ImGui::GetContentRegionAvail();
         m_ViewportSize = avail;
@@ -1265,12 +1770,13 @@ private:
         const bool navigating = alt || m_NavMode != NavMode::None;
 
         if (m_ShowColliders && !m_ViewingGame) DrawColliders(origin, size);
-        if (!m_ViewingGame) DrawCameraFrustums(origin, size);
+        if (!m_ViewingGame && m_ShowFrustums) DrawCameraFrustums(origin, size);
         if (m_PlayState != PlayState::Edit)   // kept while paused: the scripts did not run again
             DrawScriptUI(ImGui::GetWindowDrawList(), m_GameFont, m_Session->Scripts().UIItems(), origin, size, &m_UITextures);
+        if (m_ShowStatsOverlay && !m_ViewingGame) DrawStatsOverlay(origin, size);
         if (m_ViewingGame) {
             ImGui::GetWindowDrawList()->AddText(ImVec2(origin.x + 8.0f, origin.y + size.y - 22.0f),
-                IM_COL32(255, 255, 255, 110), "Game camera (Tools > Play through game camera)");
+                IM_COL32(255, 255, 255, 110), "Game camera (Play > Play Through Game Camera)");
         }
 
         // ---- Gizmo for the selected entity (not while looking through the game camera)
@@ -1316,32 +1822,41 @@ private:
         ImGui::End();
     }
 
+    // The standard layout (Unity / Godot style): Hierarchy left, Viewport centre, Console below it,
+    // Inspector and Scene Settings as tabs on the right. Built when there is no editor.ini yet, or on
+    // Window > Reset Layout.
     void BuildDefaultLayoutOnce(ImGuiID dockspace) {
-        if (m_LayoutChecked) return;
+        if (m_LayoutChecked && !m_ResetLayout) return;
+        const bool force = m_ResetLayout;
         m_LayoutChecked = true;
-        if (std::filesystem::exists("imgui.ini")) return;
+        m_ResetLayout = false;
+        if (!force && std::filesystem::exists("editor.ini")) return;
+        m_ShowHierarchy = m_ShowInspector = m_ShowSceneSettings = m_ShowConsole = m_ShowUI = true;
 
         ImGui::DockBuilderRemoveNode(dockspace);
         ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
-        ImGui::DockBuilderSetNodeSize(dockspace, ImGui::GetMainViewport()->Size);
+        ImGui::DockBuilderSetNodeSize(dockspace, ImGui::GetMainViewport()->WorkSize);
 
         ImGuiID center = dockspace;
+        ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, nullptr, &center);
         ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.20f, nullptr, &center);
-        ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.25f, nullptr, &center);
-        ImGuiID leftBottom = ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.60f, nullptr, &left);
+        ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.24f, nullptr, &center);
 
-        ImGui::DockBuilderDockWindow("Stats", left);
-        ImGui::DockBuilderDockWindow("Hierarchy", leftBottom);
+        ImGui::DockBuilderDockWindow("Hierarchy", left);
+        ImGui::DockBuilderDockWindow("Scene Settings", right);
         ImGui::DockBuilderDockWindow("Inspector", right);
+        ImGui::DockBuilderDockWindow("Console", bottom);
         ImGui::DockBuilderDockWindow("Viewport", center);
         ImGui::DockBuilderFinish(dockspace);
+        m_FocusInspector = true;           // the Inspector tab in front of Scene Settings
     }
 
     void DrawInspectorPanel() {
         using namespace Engine;
         ImGui::SetNextWindowPos(ImVec2(940, 10), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(330, 520), ImGuiCond_FirstUseEver);
-        ImGui::Begin("Inspector");
+        if (m_FocusInspector) { ImGui::SetNextWindowFocus(); m_FocusInspector = false; }
+        ImGui::Begin("Inspector", &m_ShowInspector);
 
         if (m_Selected == entt::null || !m_Scene.Registry().valid(m_Selected)) {
             m_Selected = entt::null;
@@ -1950,6 +2465,18 @@ private:
     float m_QuitAfter = 0.0f;        // MDB_QUIT_AFTER test hook (0 = never)
     float m_Gravity = 9.81f;
     bool  m_ShowColliders = true;
+
+    // Editor shell (menu bar, toolbar, panels)
+    bool  m_ShowHierarchy = true, m_ShowInspector = true, m_ShowSceneSettings = true, m_ShowConsole = true;
+    bool  m_ShowStatsOverlay = true, m_ShowFrustums = true, m_ShowControls = false;
+    bool  m_OpenSaveAs = false, m_OpenAbout = false, m_ResetLayout = false, m_FocusInspector = false;
+    bool  m_PendingNewScene = false, m_ToggleFullscreen = false, m_F11Down = false;
+    char  m_HierarchyFilter[64] = {};
+    ImFont* m_MonoFont = nullptr;                    // Console and the stats overlay
+    std::vector<Engine::LogEntry> m_ConsoleLines;    // a copy, refreshed when new lines arrive
+    uint64_t m_ConsoleSeen = ~0ull;
+    bool  m_ConsoleInfo = true, m_ConsoleWarn = true, m_ConsoleError = true, m_ConsoleAutoScroll = true;
+    char  m_ConsoleFilter[64] = {};
     bool  m_TDown = false;
 
     EditorHistory m_History;              // undo / redo (Edit mode only)
@@ -1957,7 +2484,7 @@ private:
     bool m_GizmoBusy = false;             // the gizmo is being dragged
     bool m_ZDown = false, m_YDown = false, m_DDown = false, m_SDown = false;
     std::string m_Title;
-    enum class ConfirmAction { None, Quit, Load };
+    enum class ConfirmAction { None, Quit, Load, New };
     ConfirmAction m_Confirm = ConfirmAction::None;   // the "unsaved changes" dialog is open for this
     std::string m_ConfirmFile;            // the scene to load after the dialog
     bool m_QuitConfirmed = false;
