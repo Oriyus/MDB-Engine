@@ -130,6 +130,25 @@ namespace Engine {
         rotation = glm::normalize(glm::quat_cast(glm::mat3(glm::vec3(m[0]) / s.x, glm::vec3(m[1]) / s.y, glm::vec3(m[2]) / s.z)));
     }
 
+    // TransformComponent builds its rotation with glm::quat(vec3(x, y, z)), which is R = Rz(z) * Ry(y) * Rx(x):
+    //   R = [ cy*cz   cz*sy*sx - sz*cx   cz*sy*cx + sz*sx ]
+    //       [ cy*sz   sz*sy*sx + cz*cx   sz*sy*cx - cz*sx ]
+    //       [ -sy     cy*sx              cy*cx            ]
+    // glm::eulerAngles reads x and z from entries that all shrink with cos(y), so next to gimbal lock (y near
+    // +-90 degrees) float rounding makes them wrong by degrees, differently every frame (a camera aimed with
+    // look_at shook). Here z comes first (0 at the lock), and x and y are solved for that z from entries that
+    // don't shrink, so the angles always rebuild the same rotation (Day, "Euler angles from a rotation matrix").
+    glm::vec3 Scene::EulerFromQuat(const glm::quat& q) {
+        const glm::mat3 m = glm::mat3_cast(glm::normalize(q));   // m[column][row]
+        auto R = [&](int row, int col) { return m[col][row]; };
+        const float cy = std::sqrt(R(0, 0) * R(0, 0) + R(1, 0) * R(1, 0));
+        const float z = cy > 1e-4f ? std::atan2(R(1, 0), R(0, 0)) : 0.0f;
+        const float sz = std::sin(z), cz = std::cos(z);
+        const float x = std::atan2(sz * R(0, 2) - cz * R(1, 2), cz * R(1, 1) - sz * R(0, 1));
+        const float y = std::atan2(-R(2, 0), cz * R(0, 0) + sz * R(1, 0));
+        return glm::vec3(x, y, z);
+    }
+
     void Scene::SetWorldMatrix(entt::entity e, const glm::mat4& world) {
         const glm::mat4 local = glm::inverse(GetParentWorldMatrix(e)) * world;
         glm::vec3 pos, scale;
@@ -137,7 +156,7 @@ namespace Engine {
         Decompose(local, pos, rot, scale);
         auto& t = m_Registry.get<TransformComponent>(e);
         t.Position = pos;
-        t.Rotation = glm::eulerAngles(rot);
+        t.Rotation = EulerFromQuat(rot);
         t.Scale = scale;
     }
 
@@ -150,7 +169,7 @@ namespace Engine {
         glm::vec3 pp, ps;
         glm::quat parentRot;
         Decompose(GetParentWorldMatrix(e), pp, parentRot, ps);
-        m_Registry.get<TransformComponent>(e).Rotation = glm::eulerAngles(glm::normalize(glm::inverse(parentRot) * rotation));
+        m_Registry.get<TransformComponent>(e).Rotation = EulerFromQuat(glm::inverse(parentRot) * rotation);
     }
 
     void Scene::Clear() {

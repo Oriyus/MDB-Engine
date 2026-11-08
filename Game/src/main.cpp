@@ -114,11 +114,12 @@ public:
         using namespace Engine;
         ImGui::GetIO().IniFilename = nullptr;    // no imgui.ini next to a shipped game
         glClearColor(0.02f, 0.02f, 0.03f, 1.0f);   // only visible if the scene can't be shown
-        m_Font = LoadGameFont();
+        m_Fonts = LoadGameFonts();
 
         m_Resources = std::make_unique<ResourceLibrary>(m_Cfg.AssetDir);
         m_Renderer = std::make_unique<SceneRenderer>(m_Cfg.AssetDir, GetWindow().GetWidth(), GetWindow().GetHeight());
         m_Session = std::make_unique<GameSession>(m_Scene, m_Cfg.AssetDir, m_Resources->Registry());
+        m_Session->Scripts().SetUIFonts(m_Fonts.Bold, m_Fonts.Regular);   // ui.label measures with them
 
         SceneSettings settings;
         m_Renderer->GatherSettings(settings);    // defaults for anything the file leaves out
@@ -179,7 +180,8 @@ public:
             const ImVec2 d = io.DisplaySize;
             const float px = io.MousePos.x / std::max(d.x, 1.0f), py = io.MousePos.y / std::max(d.y, 1.0f);
             const bool inside = px >= 0.0f && px <= 1.0f && py >= 0.0f && py <= 1.0f;
-            m_Session->Scripts().SetPointer(px, py, inside, ImGui::IsMouseDown(ImGuiMouseButton_Left));
+            m_Session->Scripts().SetPointer(px, py, inside, ImGui::IsMouseDown(ImGuiMouseButton_Left),
+                inside ? io.MouseWheel : 0.0f, ImGui::IsMouseDown(ImGuiMouseButton_Right));
             m_Session->Scripts().SetViewAspect(d.x / std::max(d.y, 1.0f));   // for scene.screen_ray
 
             m_Session->Update(dt);                                            // scene.restart() is handled by the session
@@ -212,14 +214,14 @@ public:
             lines[1].Text = "Check game.json or the --scene argument.  Esc quits.";
             lines[1].X = 0.5f; lines[1].Y = 0.52f; lines[1].Size = 24.0f; lines[1].Align = 1;
             lines[1].Color = glm::vec3(0.8f);
-            DrawScriptText(dl, m_Font, lines, ImVec2(0, 0), size);
+            DrawScriptText(dl, m_Fonts.Bold, lines, ImVec2(0, 0), size);
             return;
         }
         if (!m_Running) return;
 
         // The rendered frame fills the window (GL textures are bottom-up, so flip V)
         dl->AddImage((ImTextureID)(intptr_t)m_Renderer->GetOutput(), ImVec2(0, 0), size, ImVec2(0, 1), ImVec2(1, 0));
-        DrawScriptUI(dl, m_Font, m_Session->Scripts().UIItems(), ImVec2(0, 0), size, &m_UITextures);
+        DrawScriptUI(dl, m_Fonts, m_Session->Scripts().UIItems(), ImVec2(0, 0), size, &m_UITextures);
 
         if (m_Paused) DrawPauseMenu(dl, size);
     }
@@ -256,7 +258,7 @@ public:
         keys.X = 0.5f; keys.Y = 0.75f; keys.Size = 22.0f; keys.Align = 1;
         keys.Color = glm::vec3(0.75f);
         menu.push_back(keys);
-        DrawScriptUI(dl, m_Font, menu, ImVec2(0, 0), size, nullptr);
+        DrawScriptUI(dl, m_Fonts, menu, ImVec2(0, 0), size, nullptr);
 
         // Acted on next frame by OnUpdate (or right away for quitting)
         if (clicked == 0) m_Paused = false;
@@ -279,7 +281,7 @@ private:
     std::unique_ptr<Engine::SceneRenderer> m_Renderer;
     std::unique_ptr<Engine::GameSession> m_Session;
     Engine::Camera m_GameCamera, m_FallbackCamera;
-    ImFont* m_Font = nullptr;
+    Engine::UIFonts m_Fonts;                 // script UI and the pause menu
     Engine::UITextureCache m_UITextures{ m_Cfg.AssetDir };   // images for ui.image (declared after m_Cfg)
     std::string m_Error;
 

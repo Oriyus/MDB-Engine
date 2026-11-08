@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+struct ImFont;
+
 namespace Engine {
 
     class Scene;
@@ -34,7 +36,8 @@ namespace Engine {
     // One ui.* call: drawn by the app over the game view for the frame it was made in, in call
     // order (later items on top). Positions and sizes are 0..1 of the view's width / height.
     struct ScriptUIItem {
-        enum class Type { Text, Rect, Image, Button };
+        // Border: a rectangle outline. ClipPush / ClipPop: later items are cut to X, Y, W, H (nested).
+        enum class Type { Text, Rect, Image, Button, Border, ClipPush, ClipPop };
         Type Kind = Type::Text;
         std::string Text;                   // the text, a button's label, or an image path ("Textures/x.png")
         float X = 0.0f, Y = 0.0f;           // text: anchor (see Align); others: top left
@@ -46,6 +49,10 @@ namespace Engine {
         float Rounding = 0.0f;              // corner radius in pixels at 720p
         int Align = 0;                      // text: 0 left, 1 center, 2 right (of X)
         bool Hovered = false, Pressed = false;   // buttons, for drawing
+        bool Regular = false;               // text: the regular font (default: bold)
+        bool Shadow = true;                 // text: a soft drop shadow
+        float Thickness = 1.0f;             // border width in pixels at 720p
+        float Slice = 0.0f;                 // image: 9-slice frame, this many texture pixels kept unstretched on each side
     };
     using ScriptText = ScriptUIItem;        // the older name
 
@@ -65,6 +72,7 @@ namespace Engine {
     //   on_anim_event(self, name, clip)         an Animator event fired (see e.animator), or "end" of a non-looping clip
     //   on_save(self) -> table                  a save game (or leaving the level) stores what it returns
     //   on_load(self, data)                     right after on_create, when the level is restored: data = that table
+    //   on_event(self, name, data)              someone called events.emit(name, data) (delivered after the frame's on_update)
     //
     // ---- Save games and levels (Runtime/GameSession). Entities are saved by the engine (everything that
     // differs from the scene file); a script saves its own variables through on_save / on_load. Saved
@@ -84,6 +92,11 @@ namespace Engine {
     //   scene.is_loading() -> true during on_create / on_load of a restored level (a save, or a level visited
     //       before): don't spawn level content then, it was saved
     //   e.uid -> stable id (kept by saves), scene.find_uid(uid), e.transient (true: never saved, e.g. markers)
+    // ---- Events, data files, libraries
+    //   events.emit(name [, data])           every script with on_event(self, name, data) hears it (this frame)
+    //   data.load(path) -> table or nil, error   any JSON file under Assets, as a Lua table
+    //   Scripts/Lib/*.lua run once (name order) in the shared globals when scripts start: shared code, like
+    //   Lib/dialogue.lua (dialogue.open). Scripts can add to those tables (dialogue.helpers.give = ...).
     //
     // ---- Entity (self, other, results of scene.find / spawn / clone)
     //   e.name, e.position, e.rotation (radians), e.scale     read/write, LOCAL (relative to the parent);
@@ -153,6 +166,29 @@ namespace Engine {
     //   ui.image(path, x, y, w [, h] [, { color (tint), alpha }])          "Textures/x.png"; no h: keep aspect
     //   ui.button(label, x, y, w, h [, { color, text_color, size, alpha, rounding }]) -> true on the frame it's clicked
     //   ui.mouse() -> x, y, inside                                         pointer over the view, 0..1
+    //   ---- laid-out UI (Runtime/UILayout.h): panels place their contents. Sizes are units (pixels at 720p).
+    //   ui.begin_panel(id, { x=0.5, y=0.5, anchor="center", w=400, h (0: fit the content), title, close=false,
+    //                        padding, color, alpha, image, slice }) -> open (false on the frame its x is clicked)
+    //       anchor: which point of the panel sits at x, y (0..1 of the view): "center" "top" "bottom" "left" "right"
+    //       "topleft" "topright" "bottomleft" "bottomright". Every begin_* needs its end_*.
+    //   ui.end_panel(), ui.begin_row([spacing]) / ui.end_row() (side by side), ui.begin_scroll(id, height) / ui.end_scroll()
+    //   ui.begin_column([width]) / ui.end_column()   a stack inside a row. w = 0 on a panel: as wide as its content
+    //       (give bars a width there; text doesn't wrap)
+    //   ui.label(text [, { size, color, align="left"|"center"|"right", bold, muted, wrap=true, shadow, width }])
+    //       wraps to the width left; markup: {#ffcc66}coloured{/}, {b}bold{/b}, "\n" new line
+    //   ui.button(label [, { w, h, fill, size, color, disabled, selected, tooltip, id }]) -> clicked (on release)
+    //   ui.image(path [, { w=64, h=w, color, alpha }]), ui.bar(fraction [, { w, h=18, color, back, text }])
+    //   ui.slot(id [, { icon, count, size, tooltip, drag = value, accept=true, highlight, color }])
+    //       -> clicked, dropped, right_clicked, hovered.  drag: this slot's icon can be dragged; dropped is the
+    //       dragged slot's value when a drag ends here (nil otherwise)
+    //   ui.tabs(id, { "A", "B" }, current) -> index, ui.space([units]), ui.separator()
+    //   ui.tooltip(text)                     for the widget just placed (widgets also take tooltip = ...)
+    //   ui.theme{ panel_color, panel_alpha, panel_image, panel_slice, border_color, border_alpha, title_color, title_size,
+    //             text_color, text_size, muted_color, button_color, accent_color, button_text_size, button_height,
+    //             padding, spacing, rounding, slot_color, slot_size, slot_image, slot_slice, tooltip_width }
+    //   ui.wants_mouse() -> true when the pointer is over UI (or dragging): don't treat the click as a world click
+    //   ui.dragging() -> the dragged value or nil, ui.last_rect() -> x, y, w, h (0..1), ui.text_width(text [, size [, bold]])
+    //   ui.simulate_pointer(x, y, down [, wheel [, right]]) / ui.simulate_pointer()   test hook: overrides the pointer
     //   scene.raycast(origin, dir, max_dist [, ignore_entity]) -> nil or { entity, point, normal, distance }
     //   scene.screen_ray(x, y) -> origin, dir          through the game camera, x, y 0..1 of the view (ui.mouse())
     //   scene.pick(x, y [, max_dist = 500]) -> nil or a raycast result along screen_ray (what is under the mouse)
@@ -211,7 +247,9 @@ namespace Engine {
         const std::vector<ScriptUIItem>& UIItems() const;        // this frame's ui.* calls, in order
         // Where the pointer is over the game view (0..1, top left origin) and whether the left button
         // is down. Call every frame before Update: ui.button and ui.mouse read it.
-        void SetPointer(float x, float y, bool inside, bool down);
+        void SetPointer(float x, float y, bool inside, bool down, float wheel = 0.0f, bool rightDown = false);
+        // The fonts laid-out UI measures text with (ui.label wraps, buttons fit their label). Null: ImGui's default.
+        void SetUIFonts(ImFont* bold, ImFont* regular);
         bool ConsumeQuitRequest();                              // true once after scene.quit()
         bool ConsumeRestartRequest();                           // true once after scene.restart()
 

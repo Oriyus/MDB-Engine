@@ -1,0 +1,250 @@
+{
+  "nodes": [
+    {
+      "cond": "game.met_sage",
+      "else": 2,
+      "id": 1,
+      "next": 3,
+      "pos": [
+        40.0,
+        260.0
+      ],
+      "type": "branch"
+    },
+    {
+      "action": "game.met_sage = true",
+      "event": "",
+      "id": 2,
+      "next": 4,
+      "pos": [
+        340.0,
+        400.0
+      ],
+      "type": "action"
+    },
+    {
+      "action": "",
+      "choices": [],
+      "event": "",
+      "id": 3,
+      "next": 5,
+      "pos": [
+        340.0,
+        120.0
+      ],
+      "speaker": "",
+      "text": "Back again, little fox? The cellar is still where I left it.",
+      "type": "line"
+    },
+    {
+      "action": "",
+      "choices": [],
+      "event": "",
+      "id": 4,
+      "next": 5,
+      "pos": [
+        640.0,
+        400.0
+      ],
+      "speaker": "",
+      "text": "Well met, little fox. The yard is quiet today, but the cellar below hums with old things. {#a0a8b8}The sage leans on a staff carved with runes.{/}",
+      "type": "line"
+    },
+    {
+      "action": "",
+      "choices": [
+        {
+          "action": "",
+          "cond": "",
+          "event": "",
+          "next": 6,
+          "show": "hidden",
+          "text": "What's down in the cellar?",
+          "why": ""
+        },
+        {
+          "action": "",
+          "cond": "",
+          "event": "",
+          "next": 7,
+          "show": "hidden",
+          "text": "Do you sell anything?",
+          "why": ""
+        },
+        {
+          "action": "",
+          "cond": "",
+          "event": "",
+          "next": 9,
+          "show": "hidden",
+          "text": "Tell me about this place.",
+          "why": ""
+        },
+        {
+          "action": "",
+          "cond": "",
+          "event": "",
+          "next": 10,
+          "show": "hidden",
+          "text": "Can you show me some magic?",
+          "why": ""
+        },
+        {
+          "action": "",
+          "cond": "",
+          "event": "",
+          "next": 12,
+          "show": "hidden",
+          "text": "Farewell.",
+          "why": ""
+        }
+      ],
+      "event": "",
+      "id": 5,
+      "next": 0,
+      "pos": [
+        960.0,
+        220.0
+      ],
+      "speaker": "",
+      "text": "What would you like to know?",
+      "type": "line"
+    },
+    {
+      "action": "game.quest_cellar = game.quest_cellar or \"started\"",
+      "choices": [
+        {
+          "action": "",
+          "cond": "",
+          "event": "",
+          "next": 5,
+          "show": "hidden",
+          "text": "I'll take a look.",
+          "why": ""
+        }
+      ],
+      "event": "quest_started",
+      "id": 6,
+      "next": 0,
+      "pos": [
+        1340.0,
+        -60.0
+      ],
+      "speaker": "",
+      "text": "A chest, and one of the red ones guarding it. Take the {#7fe0ff}glowing pad{/} in the south-west corner of the yard. Whatever {#ffcc66}gold{/} you find there is yours to keep.",
+      "type": "line"
+    },
+    {
+      "action": "",
+      "choices": [
+        {
+          "action": "game.gold = game.gold - 25\ngive(\"potion\")",
+          "cond": "(game.gold or 0) >= 25",
+          "event": "",
+          "next": 8,
+          "show": "disabled",
+          "text": "Buy a potion (25 gold).",
+          "why": "You need 25 gold. Chests have some."
+        },
+        {
+          "action": "",
+          "cond": "",
+          "event": "",
+          "next": 5,
+          "show": "hidden",
+          "text": "Not now.",
+          "why": ""
+        }
+      ],
+      "event": "",
+      "id": 7,
+      "next": 0,
+      "pos": [
+        1340.0,
+        160.0
+      ],
+      "speaker": "",
+      "text": "A healing potion, brewed this morning, for {#ffcc66}25 gold{/}. You have {#ffcc66}{=game.gold or 0}{/}.",
+      "type": "line"
+    },
+    {
+      "action": "",
+      "choices": [],
+      "event": "",
+      "id": 8,
+      "next": 7,
+      "pos": [
+        1700.0,
+        160.0
+      ],
+      "speaker": "",
+      "text": "Here you are. Drink it when the red ones get too close.",
+      "type": "line"
+    },
+    {
+      "action": "",
+      "choices": [
+        {
+          "action": "",
+          "cond": "",
+          "event": "",
+          "next": 5,
+          "show": "hidden",
+          "text": "Thank you.",
+          "why": ""
+        }
+      ],
+      "event": "",
+      "id": 9,
+      "next": 0,
+      "pos": [
+        1340.0,
+        400.0
+      ],
+      "speaker": "",
+      "text": "This yard was a garrison once. The terraces were built for archers, and the bridge between them was the only way across when the lower ground flooded in spring.\n\nWhen the garrison left, they sealed the stores below, but not well. Foxes found the way in first, then the red ones followed, and nobody has been brave or foolish enough to clear them out.\n\n{b}They say{/b} the old quartermaster hid a key somewhere in the cellar, and that the key opens something far more interesting than a store room. I am too old to go and look. You are not.",
+      "type": "line"
+    },
+    {
+      "action": "",
+      "event": "magic",
+      "id": 10,
+      "next": 11,
+      "pos": [
+        1340.0,
+        620.0
+      ],
+      "type": "action"
+    },
+    {
+      "action": "",
+      "choices": [],
+      "event": "",
+      "id": 11,
+      "next": 5,
+      "pos": [
+        1640.0,
+        620.0
+      ],
+      "speaker": "",
+      "text": "Watch closely... {#c9a0ff}there!{/} Old tricks still work.",
+      "type": "line"
+    },
+    {
+      "action": "",
+      "choices": [],
+      "event": "",
+      "id": 12,
+      "next": 0,
+      "pos": [
+        1340.0,
+        800.0
+      ],
+      "speaker": "",
+      "text": "Safe travels, little fox.",
+      "type": "line"
+    }
+  ],
+  "start": 1,
+  "version": 1
+}

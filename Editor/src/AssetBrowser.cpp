@@ -62,6 +62,7 @@ namespace {
         case K::Scene:       return { "SCENE", IM_COL32(60, 176, 190, 255) };
         case K::Environment: return { "HDR", IM_COL32(90, 140, 210, 255) };
         case K::Shader:      return { upper.c_str(), IM_COL32(110, 120, 150, 255) };
+        case K::Dialogue:    return { "TALK", IM_COL32(220, 170, 70, 255) };
         case K::Texture:     return { upper.c_str(), IM_COL32(200, 90, 130, 255) };
         default:             return { upper.empty() ? "FILE" : upper.c_str(), IM_COL32(120, 124, 132, 255) };
         }
@@ -84,6 +85,7 @@ AssetBrowser::Kind AssetBrowser::KindOf(const std::string& path) {
         const std::string folder = Lower(FolderOf(path));
         if (folder.rfind("prefabs", 0) == 0) return Kind::Prefab;
         if (folder.rfind("scenes", 0) == 0) return Kind::Scene;
+        if (folder.rfind("dialogues", 0) == 0) return Kind::Dialogue;
     }
     return Kind::Other;
 }
@@ -94,7 +96,8 @@ const char* AssetBrowser::KindName(Kind k) {
     case Kind::Texture: return "Texture";      case Kind::Prefab: return "Prefab";
     case Kind::Script: return "Script";        case Kind::Sound: return "Sound";
     case Kind::Scene: return "Scene";          case Kind::Environment: return "Sky (HDR)";
-    case Kind::Shader: return "Shader";        default: return "File";
+    case Kind::Shader: return "Shader";        case Kind::Dialogue: return "Dialogue";
+    default: return "File";
     }
 }
 
@@ -397,6 +400,7 @@ void AssetBrowser::HandleItem(const Entry& e) {
         case Kind::Model: case Kind::Prefab: m_Actions.push_back({ Action::Place, e.Path }); break;
         case Kind::Sound: m_Actions.push_back({ Action::PlaySound, e.Path }); break;
         case Kind::Environment: m_Actions.push_back({ Action::SetSky, e.Path }); break;
+        case Kind::Dialogue: m_Actions.push_back({ Action::OpenDialogue, e.Path }); break;
         default: m_Actions.push_back({ Action::OpenExternal, e.Path }); break;
         }
     };
@@ -417,7 +421,7 @@ void AssetBrowser::HandleItem(const Entry& e) {
         m_Selected = e.Path;
         const char* openLabel = e.Type == Kind::Folder ? "Open" : e.Type == Kind::Scene ? "Open Scene"
             : (e.Type == Kind::Model || e.Type == Kind::Prefab) ? "Place in Scene" : e.Type == Kind::Sound ? "Play"
-            : e.Type == Kind::Environment ? "Use as Sky" : "Open";
+            : e.Type == Kind::Environment ? "Use as Sky" : e.Type == Kind::Dialogue ? "Edit Dialogue" : "Open";
         if (ImGui::MenuItem(openLabel)) open();
         if (e.Type != Kind::Folder && ImGui::MenuItem("Open with System")) m_Actions.push_back({ Action::OpenExternal, e.Path });
         if (ImGui::MenuItem("Show in Explorer")) Platform::ShowInExplorer(m_AssetDir + e.Path);

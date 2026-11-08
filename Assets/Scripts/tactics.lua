@@ -263,30 +263,34 @@ local function update_enemy_turn(dt)
     end
 end
 
--- ---- UI
-local function panel_text(text, line, opts)
-    ui.text(text, 0.025, 0.028 + line * 0.036, opts or { size = 17 })
-end
+-- ---- UI (laid out: ui.begin_panel ... ui.end_panel; see ScriptEngine.h)
+local function clock(t) return string.format("%d:%02d", math.floor(t / 60), math.floor(t % 60)) end
 
-local function draw_ui()
+-- Top left: what you can do now, gold, the level and the quest
+local function draw_hud()
     local combat = mode == "combat"
-    local dim = { size = 17, color = vec3(0.7, 0.75, 0.8) }
-    ui.rect(0.012, 0.015, 0.38, combat and 0.2 or 0.165, { color = vec3(0.02, 0.03, 0.05), alpha = 0.55, rounding = 6 })
-    panel_text("TACTICS TEST", 0, { size = 22, color = vec3(1, 0.85, 0.4) })
+    ui.begin_panel("hud", { x = 0.012, y = 0.02, anchor = "topleft", w = 420, title = "Tactics Test", alpha = 0.78 })
     if not combat then
-        panel_text("Exploring: click the ground to walk (free movement).", 1)
-        panel_text("C or the button: combat. Walk near an enemy: ambush.", 2)
-        panel_text("Q / E: turn the camera.  F6 quicksave, F9 quickload.", 3, dim)
+        ui.label("Exploring: click the ground to walk. Walk near an enemy, or press {b}C{/b}, to fight.")
+        ui.label("Q / E turn the camera.  I inventory.  F6 / F9 quicksave / quickload.", { muted = true, size = 16 })
     else
         local u = units[turn]
-        panel_text("Combat: " .. (u.enemy and (u.name .. " is moving...") or "your turn"), 1)
-        panel_text(string.format("Movement %.1f / %d   (diagonal steps cost %.1f)", math.max(points, 0), move_points, diagonal), 2)
-        panel_text("Click a blue cell to move. Space: end turn.", 3)
-        panel_text("C: leave combat. Q / E: turn the camera.", 4, dim)
+        ui.label("Combat: " .. (u.enemy and (u.name .. " is moving...") or "{#9fd0ff}your turn{/}"))
+        ui.bar(math.max(points, 0) / move_points, { h = 20, color = vec3(0.25, 0.5, 0.95),
+            text = string.format("Movement %.1f / %d", math.max(points, 0), move_points) })
+        ui.label(string.format("Click a blue cell to move (diagonals cost %.1f). Space ends the turn.", diagonal),
+            { muted = true, size = 16 })
     end
-    local t = level.play_time()
-    panel_text(string.format("Gold %d     %s     %d:%02d", game.gold or 0, level.current(), math.floor(t / 60), math.floor(t % 60)),
-        combat and 5 or 4, { size = 17, color = vec3(1, 0.85, 0.4) })
+    ui.begin_row(8)
+    ui.image("Textures/coin_icon.png", { w = 22 })
+    ui.label(string.format("{#ffcc66}%d{/}", game.gold or 0), { bold = true })
+    ui.space(10)
+    ui.label(level.current() .. "   " .. clock(level.play_time()), { muted = true, size = 16 })
+    ui.end_row()
+    if game.quest_cellar then
+        ui.label("{#ffcc66}Quest:{/} explore the cellar (the glowing pad in the south-west corner).", { size = 16 })
+    end
+    ui.end_panel()
     if message and message_time > 0 then
         ui.text(message, 0.5, 0.08, { size = 28, align = "center", alpha = math.min(1, message_time) })
     end
@@ -295,7 +299,6 @@ end
 -- ---- save slots: F6 / F9 quicksave and quickload, and a panel with three slots ("Saves" button)
 local menu_open = false
 local slot_info = {}               -- slot -> { name, time, level, play_time } (read when the panel opens)
-local menu_x, menu_y, menu_w, menu_h = 0.6, 0.12, 0.38, 0.36
 
 local function refresh_slots()
     slot_info = {}
@@ -314,27 +317,55 @@ local function load_from(slot)
     if saves.load(slot) then say("Loading " .. slot .. "...") else say("No save in " .. slot) end
 end
 
--- Draws the panel; true if the mouse is over it (so clicks there don't walk)
-local function draw_save_menu(mx, my)
-    if not menu_open then return false end
-    ui.rect(menu_x, menu_y, menu_w, menu_h, { color = vec3(0.02, 0.03, 0.05), alpha = 0.8, rounding = 8 })
-    ui.text("SAVE SLOTS", menu_x + 0.015, menu_y + 0.015, { size = 22, color = vec3(1, 0.85, 0.4) })
+local function draw_save_menu()
+    if not menu_open then return end
+    if not ui.begin_panel("saves", { x = 0.985, y = 0.03, anchor = "topright", w = 470, title = "Save Slots", close = true,
+                                     image = "Textures/panel_frame.png", slice = 20, padding = 26 }) then
+        menu_open = false
+    end
     for i = 1, 3 do
         local slot = "slot" .. i
-        local y = menu_y + 0.07 + (i - 1) * 0.095
         local s = slot_info[slot]
-        ui.text(s and s.name or "(empty)", menu_x + 0.015, y, { size = 18 })
-        if s then
-            ui.text(string.format("%s   played %d:%02d", s.time, math.floor(s.play_time / 60), math.floor(s.play_time % 60)),
-                menu_x + 0.015, y + 0.032, { size = 15, color = vec3(0.7, 0.75, 0.8) })
-        end
-        if ui.button("Save", menu_x + 0.22, y, 0.07, 0.055, { rounding = 5 }) then save_to(slot) end
-        if s and ui.button("Load", menu_x + 0.295, y, 0.07, 0.055, { rounding = 5, color = vec3(0.25, 0.45, 0.85) }) then load_from(slot) end
+        ui.begin_row(10)
+        ui.slot("icon" .. i, { icon = s and "Textures/Icons/scroll.png" or nil, size = 48, accept = false })
+        ui.begin_column(220)
+        ui.label(s and s.name or "{#a0a8b8}(empty){/}", { bold = s ~= nil, size = 17 })
+        if s then ui.label(s.time .. "   played " .. clock(s.play_time), { muted = true, size = 14 }) end
+        ui.end_column()
+        if ui.button("Save", { id = "save" .. i, w = 70, disabled = mode == "combat",
+                               tooltip = mode == "combat" and "Not during combat" or nil }) then save_to(slot) end
+        if ui.button("Load", { id = "load" .. i, w = 70, disabled = s == nil, color = vec3(0.25, 0.45, 0.85) }) then load_from(slot) end
+        ui.end_row()
+        if i < 3 then ui.separator() end
     end
-    return mx >= menu_x and mx <= menu_x + menu_w and my >= menu_y and my <= menu_y + menu_h
+    ui.end_panel()
+end
+
+-- Bottom right: the buttons (auto width: the panel fits them)
+local function draw_toolbar(hero_turn)
+    ui.begin_panel("toolbar", { x = 0.988, y = 0.975, anchor = "bottomright", w = 0, padding = 10, alpha = 0.7 })
+    ui.begin_row(8)
+    if shared.can_talk and mode == "explore" and not shared.talking then
+        if ui.button("Talk (T)", { color = vec3(0.2, 0.55, 0.45) }) then shared.talk_to = shared.can_talk end
+    end
+    if ui.button("Inventory (I)", { selected = shared.inventory_open }) then shared.toggle_inventory = true end
+    if ui.button("Saves", { selected = menu_open }) then
+        menu_open = not menu_open
+        if menu_open then refresh_slots() end
+    end
+    if hero_turn and ui.button("End turn", { color = vec3(0.25, 0.45, 0.85) }) then end_turn() end
+    if ui.button(mode == "explore" and "Start combat" or "Leave combat") then toggle_combat() end
+    ui.end_row()
+    ui.end_panel()
 end
 
 -- ---- callbacks
+
+-- Events from other scripts and dialogues (events.emit). The Sage's dialogue sends "quest_started".
+function on_event(self, name, data)
+    if name == "quest_started" then say("New quest: explore the cellar") end
+end
+
 function on_create(self)
     owner = self
     local count = nav.bake{ cell_size = 1, agent_radius = 0.3, agent_height = 1.8, max_step = 0.4 }
@@ -372,24 +403,12 @@ function on_update(self, dt)
     used = 0
     message_time = message_time - dt
 
-    -- buttons first, so their click doesn't also count as a click on the ground
+    -- the panels first: a click on them must not also walk (ui.wants_mouse below)
     local mx, my, inside = ui.mouse()
-    local ui_click = false
-    if ui.button(mode == "explore" and "Start combat" or "Leave combat", 0.83, 0.91, 0.15, 0.065, { rounding = 6 }) then
-        toggle_combat()
-        ui_click = true
-    end
     local hero_turn = mode == "combat" and not units[turn].enemy and not units[turn].moving
-    if hero_turn and ui.button("End turn", 0.66, 0.91, 0.15, 0.065, { rounding = 6, color = vec3(0.25, 0.45, 0.85) }) then
-        end_turn()
-        ui_click = true
-    end
-    if ui.button(menu_open and "Close" or "Saves", 0.50, 0.91, 0.14, 0.065, { rounding = 6 }) then
-        menu_open = not menu_open
-        if menu_open then refresh_slots() end
-        ui_click = true
-    end
-    local over_menu = draw_save_menu(mx, my)
+    draw_hud()
+    draw_toolbar(hero_turn)
+    draw_save_menu()
     if input.key_pressed(Key.C) then toggle_combat() end
     if hero_turn and input.key_pressed(Key.Space) then end_turn() end
     if input.key_pressed(Key.F6) then save_to("quick") end
@@ -397,7 +416,7 @@ function on_update(self, dt)
     if shared.notice then say(shared.notice); shared.notice = nil end   -- from other scripts (chest.lua)
     shared.mode = mode                                                   -- exit.lua: no level change in combat
 
-    local click = inside and not ui_click and not over_menu and my < 0.89 and input.mouse_pressed(Mouse.Left)
+    local click = inside and not ui.wants_mouse() and input.mouse_pressed(Mouse.Left)
     if mode == "explore" then
         update_explore(dt, mx, my, click)
     elseif units[turn].enemy then
@@ -421,5 +440,4 @@ function on_update(self, dt)
 
     local active = mode == "combat" and units[turn] or hero
     shared.focus = active.e.position
-    draw_ui()
 end

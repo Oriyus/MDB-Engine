@@ -42,9 +42,9 @@ local function run()
         around and string.format("%.2f m", path_length(around)))
 
     -- open ground: a straight line, smoothed down to two points
-    local s = nav.find_path(vec3(-10.5, -1, 10.5), vec3(-4.2, -1, 7.3))
+    local s = nav.find_path(vec3(-10.5, -1, 10.5), vec3(-7.2, -1, 8.3))
     check("open ground is one straight segment", s ~= nil and #s.points == 2, s and (#s.points .. " points"))
-    check("free path ends exactly at the target", s ~= nil and near(s.points[#s.points].x, -4.2) and near(s.points[#s.points].z, 7.3))
+    check("free path ends exactly at the target", s ~= nil and near(s.points[#s.points].x, -7.2) and near(s.points[#s.points].z, 8.3))
 
     -- up the ramp to the west terrace, then over the bridge to the east terrace
     local r = nav.find_path(vec3(-8.5, -1, 4.5), vec3(-8.5, 1.5, -9.5))

@@ -14,10 +14,10 @@
 // AssetBrowser::Payload (see PayloadPath).
 class AssetBrowser {
 public:
-    enum class Kind { Folder, Model, Texture, Prefab, Script, Sound, Scene, Environment, Shader, Other };
+    enum class Kind { Folder, Model, Texture, Prefab, Script, Sound, Scene, Environment, Shader, Dialogue, Other };
 
     struct Action {
-        enum Type { OpenScene, Place, PlaySound, SetSky, OpenExternal } What;
+        enum Type { OpenScene, Place, PlaySound, SetSky, OpenExternal, OpenDialogue } What;
         std::string Path;              // relative to the asset folder
     };
 

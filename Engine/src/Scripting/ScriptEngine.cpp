@@ -11,6 +11,7 @@
 #include "Scene/Particles.h"
 #include "Navigation/NavGrid.h"
 #include "Scene/EntityJson.h"          // glm <-> json
+#include "Runtime/UILayout.h"
 #include "Core/Input.h"
 #include "Core/Log.h"
 
@@ -23,6 +24,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <array>
 #include <stdexcept>
 #include <typeinfo>
@@ -92,7 +95,7 @@ namespace Engine {
         sol::object Self;
         sol::protected_function OnUpdate, OnDestroy;
         sol::protected_function OnCollisionBegin, OnCollisionEnd, OnTriggerEnter, OnTriggerExit, OnAnimEvent;
-        sol::protected_function OnSave, OnLoad;
+        sol::protected_function OnSave, OnLoad, OnEvent;
         bool Enabled = true;
     };
 
@@ -121,9 +124,20 @@ namespace Engine {
         std::vector<entt::entity> PendingDestroy;         // e:destroy() requests, handled when nothing iterates
         std::vector<entt::entity> PendingRestart;         // e:add_script() on an entity that may already run one
         std::vector<std::string> Errors;
+        struct QueuedEvent { std::string Name; sol::object Data; };
+        std::vector<QueuedEvent> Events;                  // events.emit, delivered after this frame's on_update
+        void DispatchEvents();
+        void LoadLibraries();
         std::vector<ScriptUIItem> UI;                     // ui.* calls of the current frame
         float PtrX = 0.0f, PtrY = 0.0f;                   // pointer over the game view, 0..1
         bool PtrInside = false, PtrDown = false, PtrClicked = false;
+        float PtrWheel = 0.0f;
+        bool PtrRightDown = false;
+        UIContext UIC;                                    // laid-out ui (panels, labels, slots...)
+        sol::object DragPayload;                          // the value of the slot being dragged (after Lua: dies first)
+        bool SimPointer = false;                          // ui.simulate_pointer is on
+        UIPointerState Sim;
+        bool UIWarned = false;
         bool QuitRequested = false;
         bool RestartRequested = false;
 
@@ -666,55 +680,220 @@ namespace Engine {
             style(opts, r);
             push(std::move(r));
         });
-        // A filled bar: the back over the whole rect, the colour over `fraction` of it (from the left)
-        ui.set_function("bar", [push, style](float x, float y, float w, float h, float fraction, sol::optional<sol::table> opts) {
-            ScriptUIItem back;
-            back.Kind = ScriptUIItem::Type::Rect;
-            back.X = x; back.Y = y; back.W = w; back.H = h;
-            back.Color = glm::vec3(0.1f);
-            back.Alpha = 0.6f;
-            if (opts) {
-                back.Color = opts->get_or<glm::vec3>("back", back.Color);
-                back.Rounding = opts->get_or<float>("rounding", back.Rounding);
+        // ---- option readers for the laid-out widgets
+        auto optF = [](const sol::optional<sol::table>& t, const char* k, float d) { return t ? t->get<sol::optional<float>>(k).value_or(d) : d; };
+        auto optB = [](const sol::optional<sol::table>& t, const char* k, bool d) { return t ? t->get<sol::optional<bool>>(k).value_or(d) : d; };
+        auto optS = [](const sol::optional<sol::table>& t, const char* k, const std::string& d) {
+            return t ? t->get<sol::optional<std::string>>(k).value_or(d) : d;
+        };
+        auto optV = [](const sol::optional<sol::table>& t, const char* k, glm::vec3& out) {
+            if (!t) return false;
+            auto v = t->get<sol::optional<glm::vec3>>(k);
+            if (v) out = *v;
+            return (bool)v;
+        };
+        auto tableAt = [](const sol::variadic_args& va, size_t i) -> sol::optional<sol::table> {
+            if (i < va.size() && va[i].get_type() == sol::type::table) return va[i].as<sol::table>();
+            return sol::nullopt;
+        };
+        auto isPlaced = [](const sol::variadic_args& va, size_t minArgs) {   // the older form: positions first
+            return va.size() >= minArgs && va[0].get_type() == sol::type::number;
+        };
+
+        // A filled bar. Laid out: ui.bar(fraction [, opts]). Placed: ui.bar(x, y, w, h, fraction [, opts]):
+        // the back over the whole rect, the colour over `fraction` of it (from the left)
+        ui.set_function("bar", [this, push, style, optF, optS, optV, tableAt, isPlaced](sol::variadic_args va) {
+            if (isPlaced(va, 5)) {
+                const float x = va[0].as<float>(), y = va[1].as<float>(), w = va[2].as<float>(), h = va[3].as<float>();
+                const float fraction = va[4].as<float>();
+                const sol::optional<sol::table> opts = tableAt(va, 5);
+                ScriptUIItem back;
+                back.Kind = ScriptUIItem::Type::Rect;
+                back.X = x; back.Y = y; back.W = w; back.H = h;
+                back.Color = glm::vec3(0.1f);
+                back.Alpha = 0.6f;
+                if (opts) {
+                    back.Color = opts->get_or<glm::vec3>("back", back.Color);
+                    back.Rounding = opts->get_or<float>("rounding", back.Rounding);
+                }
+                ScriptUIItem fill = back;
+                fill.Color = glm::vec3(0.3f, 0.85f, 0.4f);
+                fill.Alpha = 1.0f;
+                style(opts, fill);
+                fill.W = w * std::clamp(fraction, 0.0f, 1.0f);
+                push(std::move(back));
+                if (fill.W > 0.0f) push(std::move(fill));
+                return;
             }
-            ScriptUIItem fill = back;
-            fill.Color = glm::vec3(0.3f, 0.85f, 0.4f);
-            fill.Alpha = 1.0f;
-            style(opts, fill);
-            fill.W = w * std::clamp(fraction, 0.0f, 1.0f);
-            push(std::move(back));
-            if (fill.W > 0.0f) push(std::move(fill));
+            const float fraction = va.size() > 0 ? va[0].as<float>() : 0.0f;
+            const sol::optional<sol::table> opts = tableAt(va, 1);
+            glm::vec3 color(0.3f, 0.85f, 0.4f), back(0.1f);
+            optV(opts, "color", color);
+            optV(opts, "back", back);
+            UIC.Bar(fraction, optF(opts, "w", 0.0f), optF(opts, "h", 0.0f), color, back, optS(opts, "text", ""));
         });
-        ui.set_function("image", [push, style](const std::string& path, float x, float y, float w,
-            sol::object hOrOpts, sol::optional<sol::table> opts) {
-            ScriptUIItem img;
-            img.Kind = ScriptUIItem::Type::Image;
-            img.Text = path;
-            img.X = x; img.Y = y; img.W = w;
-            if (hOrOpts.is<float>()) img.H = hOrOpts.as<float>();
-            else if (hOrOpts.is<sol::table>()) opts = hOrOpts.as<sol::table>();   // ui.image(path, x, y, w, { ... })
-            style(opts, img);
-            push(std::move(img));
+        // Laid out: ui.image(path [, opts]). Placed: ui.image(path, x, y, w [, h] [, opts])
+        ui.set_function("image", [this, push, style, optF, optV, tableAt, isPlaced](const std::string& path, sol::variadic_args va) {
+            if (isPlaced(va, 3)) {
+                ScriptUIItem img;
+                img.Kind = ScriptUIItem::Type::Image;
+                img.Text = path;
+                img.X = va[0].as<float>(); img.Y = va[1].as<float>(); img.W = va[2].as<float>();
+                sol::optional<sol::table> opts;
+                if (va.size() > 3) {
+                    if (va[3].get_type() == sol::type::number) img.H = va[3].as<float>();
+                    else opts = tableAt(va, 3);
+                }
+                if (!opts) opts = tableAt(va, 4);
+                style(opts, img);
+                push(std::move(img));
+                return;
+            }
+            const sol::optional<sol::table> opts = tableAt(va, 0);
+            glm::vec3 color(1.0f);
+            optV(opts, "color", color);
+            UIC.Image(path, optF(opts, "w", 64.0f), optF(opts, "h", 0.0f), color, optF(opts, "alpha", 1.0f));
         });
-        // Immediate mode: draws the button and says whether it was clicked this frame
-        ui.set_function("button", [this, push, style](const std::string& label, float x, float y, float w, float h,
-            sol::optional<sol::table> opts) {
-            ScriptUIItem b;
-            b.Kind = ScriptUIItem::Type::Button;
-            b.Text = label;
-            b.X = x; b.Y = y; b.W = w; b.H = h;
-            b.Color = glm::vec3(0.16f, 0.2f, 0.3f);
-            b.Alpha = 0.92f;
-            b.Rounding = 10.0f;
-            b.Size = 28.0f;
-            style(opts, b);
-            b.Hovered = PtrInside && PtrX >= x && PtrX <= x + w && PtrY >= y && PtrY <= y + h;
-            b.Pressed = b.Hovered && PtrDown;
-            const bool clicked = b.Hovered && PtrClicked;
-            push(std::move(b));
-            return clicked;
+        // Laid out: ui.button(label [, opts]) -> clicked (on release). Placed: ui.button(label, x, y, w, h [, opts])
+        // -> clicked (on press), drawn where it is told
+        ui.set_function("button", [this, push, style, optF, optB, optS, optV, tableAt, isPlaced](const std::string& label, sol::variadic_args va) {
+            if (isPlaced(va, 4)) {
+                const float x = va[0].as<float>(), y = va[1].as<float>(), w = va[2].as<float>(), h = va[3].as<float>();
+                ScriptUIItem b;
+                b.Kind = ScriptUIItem::Type::Button;
+                b.Text = label;
+                b.X = x; b.Y = y; b.W = w; b.H = h;
+                b.Color = glm::vec3(0.16f, 0.2f, 0.3f);
+                b.Alpha = 0.92f;
+                b.Rounding = 10.0f;
+                b.Size = 28.0f;
+                style(tableAt(va, 4), b);
+                b.Hovered = PtrInside && PtrX >= x && PtrX <= x + w && PtrY >= y && PtrY <= y + h;
+                b.Pressed = b.Hovered && PtrDown;
+                const bool clicked = b.Hovered && PtrClicked;
+                push(std::move(b));
+                UIC.AddBlocker(x, y, w, h);          // ui.wants_mouse() over it
+                return clicked;
+            }
+            const sol::optional<sol::table> opts = tableAt(va, 0);
+            UIButtonOptions o;
+            o.Id = optS(opts, "id", "");
+            o.W = optF(opts, "w", 0.0f);
+            o.H = optF(opts, "h", 0.0f);
+            o.Fill = optB(opts, "fill", false);
+            o.Size = optF(opts, "size", 0.0f);
+            o.HasColor = optV(opts, "color", o.Color);
+            o.Disabled = optB(opts, "disabled", false);
+            o.Selected = optB(opts, "selected", false);
+            o.Tooltip = optS(opts, "tooltip", "");
+            return UIC.Button(label, o);
         });
         ui.set_function("mouse", [this]() { return std::make_tuple(PtrX, PtrY, PtrInside); });
+
+        // ---- laid-out UI: panels, rows, scroll regions and the widgets inside them (Runtime/UILayout.h)
+        ui.set_function("begin_panel", [this, optF, optB, optS, optV](const std::string& id, sol::optional<sol::table> opts) {
+            static const std::unordered_map<std::string, glm::vec2> anchors = {
+                { "center", { 0.5f, 0.5f } }, { "top", { 0.5f, 0.0f } }, { "bottom", { 0.5f, 1.0f } },
+                { "left", { 0.0f, 0.5f } }, { "right", { 1.0f, 0.5f } }, { "topleft", { 0.0f, 0.0f } },
+                { "topright", { 1.0f, 0.0f } }, { "bottomleft", { 0.0f, 1.0f } }, { "bottomright", { 1.0f, 1.0f } } };
+            UIPanelOptions o;
+            o.X = optF(opts, "x", 0.5f);
+            o.Y = optF(opts, "y", 0.5f);
+            o.W = optF(opts, "w", 400.0f);
+            o.H = optF(opts, "h", 0.0f);
+            const std::string anchor = optS(opts, "anchor", "center");
+            const auto it = anchors.find(anchor);
+            if (it == anchors.end()) throw std::runtime_error("ui.begin_panel: unknown anchor '" + anchor + "'");
+            o.Pivot = it->second;
+            o.Title = optS(opts, "title", "");
+            o.Close = optB(opts, "close", false);
+            o.Padding = optF(opts, "padding", -1.0f);
+            o.HasColor = optV(opts, "color", o.Color);
+            o.Alpha = optF(opts, "alpha", -1.0f);
+            o.Image = optS(opts, "image", "");
+            o.Slice = optF(opts, "slice", -1.0f);
+            return UIC.BeginPanel(id, o);
+        });
+        ui.set_function("end_panel", [this]() { UIC.EndPanel(); });
+        ui.set_function("begin_row", [this](sol::optional<float> spacing) { UIC.BeginRow(spacing.value_or(-1.0f)); });
+        ui.set_function("end_row", [this]() { UIC.EndRow(); });
+        ui.set_function("begin_scroll", [this](const std::string& id, float height) { UIC.BeginScroll(id, height); });
+        ui.set_function("end_scroll", [this]() { UIC.EndScroll(); });
+        ui.set_function("begin_column", [this](sol::optional<float> width) { UIC.BeginColumn(width.value_or(0.0f)); });
+        ui.set_function("end_column", [this]() { UIC.EndColumn(); });
+        ui.set_function("label", [this, optF, optB, optS, optV](const std::string& text, sol::optional<sol::table> opts) {
+            UITextOptions o;
+            o.Size = optF(opts, "size", 0.0f);
+            o.HasColor = optV(opts, "color", o.Color);
+            o.Alpha = optF(opts, "alpha", 1.0f);
+            const std::string align = optS(opts, "align", "left");
+            o.Align = align == "center" ? 1 : align == "right" ? 2 : 0;
+            o.Bold = optB(opts, "bold", false);
+            o.Muted = optB(opts, "muted", false);
+            o.Wrap = optB(opts, "wrap", true);
+            o.Shadow = optB(opts, "shadow", false);
+            o.Width = optF(opts, "width", 0.0f);
+            UIC.Label(text, o);
+        });
+        ui.set_function("slot", [this, optF, optB, optS, optV](const std::string& id, sol::optional<sol::table> opts) {
+            UISlotOptions o;
+            o.Icon = optS(opts, "icon", "");
+            o.Count = (int)optF(opts, "count", 0.0f);
+            o.Size = optF(opts, "size", 0.0f);
+            o.Tooltip = optS(opts, "tooltip", "");
+            const sol::object drag = opts ? opts->get<sol::object>("drag") : sol::object();
+            o.Draggable = drag.valid() && drag.get_type() != sol::type::lua_nil && drag.get_type() != sol::type::none;
+            o.Accept = optB(opts, "accept", true);
+            o.Highlight = optB(opts, "highlight", false);
+            o.HasColor = optV(opts, "color", o.Color);
+            o.IconAlpha = optF(opts, "icon_alpha", 1.0f);
+            const UISlotResult r = UIC.Slot(id, o);
+            if (r.DragStarted) DragPayload = drag;
+            sol::object dropped = sol::make_object(*Lua, sol::lua_nil);
+            if (r.Dropped) dropped = DragPayload.valid() ? DragPayload : sol::make_object(*Lua, true);
+            return std::make_tuple(r.Clicked, dropped, r.RightClicked, r.Hovered);
+        });
+        ui.set_function("tabs", [this](const std::string& id, sol::table labels, int current) {
+            std::vector<std::string> list;
+            for (size_t i = 1; i <= labels.size(); i++) list.push_back(labels.get<std::string>(i));
+            return UIC.Tabs(id, list, current - 1) + 1;
+        });
+        ui.set_function("space", [this](sol::optional<float> h) { UIC.Space(h.value_or(UIC.Theme.Spacing)); });
+        ui.set_function("separator", [this]() { UIC.Separator(); });
+        ui.set_function("tooltip", [this](const std::string& text) { UIC.Tooltip(text); });
+        ui.set_function("wants_mouse", [this]() { return UIC.WantsMouse(); });
+        ui.set_function("dragging", [this]() -> sol::object {
+            return UIC.Dragging() && DragPayload.valid() ? DragPayload : sol::make_object(*Lua, sol::lua_nil);
+        });
+        ui.set_function("last_rect", [this]() {
+            float x, y, w, h;
+            UIC.LastRect(x, y, w, h);
+            return std::make_tuple(x, y, w, h);
+        });
+        ui.set_function("text_width", [this](const std::string& text, sol::optional<float> size, sol::optional<bool> bold) {
+            return UIC.TextWidth(text, size.value_or(UIC.Theme.TextSize), bold.value_or(false));
+        });
+        ui.set_function("simulate_pointer", [this](sol::optional<float> x, sol::optional<float> y, sol::optional<bool> down,
+            sol::optional<float> wheel, sol::optional<bool> right) {
+            if (!x) { SimPointer = false; return; }
+            SimPointer = true;
+            Sim = UIPointerState{ *x, y.value_or(0.0f), true, down.value_or(false), right.value_or(false), wheel.value_or(0.0f) };
+        });
+        ui.set_function("theme", [this](sol::table t) {
+            UITheme& th = UIC.Theme;
+            auto f = [&](const char* k, float& v) { v = t.get<sol::optional<float>>(k).value_or(v); };
+            auto c = [&](const char* k, glm::vec3& v) { v = t.get<sol::optional<glm::vec3>>(k).value_or(v); };
+            auto s = [&](const char* k, std::string& v) { v = t.get<sol::optional<std::string>>(k).value_or(v); };
+            c("panel_color", th.PanelColor); f("panel_alpha", th.PanelAlpha); s("panel_image", th.PanelImage); f("panel_slice", th.PanelSlice);
+            c("border_color", th.BorderColor); f("border_alpha", th.BorderAlpha);
+            c("title_color", th.TitleColor); f("title_size", th.TitleSize);
+            c("text_color", th.TextColor); f("text_size", th.TextSize); c("muted_color", th.MutedColor);
+            c("button_color", th.ButtonColor); c("accent_color", th.AccentColor);
+            f("button_text_size", th.ButtonTextSize); f("button_height", th.ButtonHeight);
+            f("padding", th.Padding); f("spacing", th.Spacing); f("rounding", th.Rounding);
+            c("slot_color", th.SlotColor); f("slot_size", th.SlotSize); s("slot_image", th.SlotImage); f("slot_slice", th.SlotSlice);
+            f("tooltip_width", th.TooltipWidth);
+        });
 
         // ---- audio: one-shots, and the AudioSource view handed out by e.audio
         sol::table audio = lua.create_named_table("audio");
@@ -1314,6 +1493,70 @@ namespace Engine {
         });
         level.set_function("play_time", [this]() { return Host ? Host->PlayTime() : 0.0f; });
         level.set_function("arrived", [this]() { return Host && Host->Arrived(); });
+
+        // ---- events: one script (or a dialogue) tells every script something happened
+        sol::table events = lua.create_named_table("events");
+        events.set_function("emit", [this](const std::string& name, sol::optional<sol::object> data) {
+            if (Events.size() >= 1024) throw std::runtime_error("events.emit: too many events this frame (an endless loop?)");
+            Events.push_back({ name, data ? *data : sol::make_object(*Lua, sol::lua_nil) });
+        });
+
+        // ---- data files: any JSON under Assets as a Lua table (dialogues, item tables, quest lists)
+        sol::table dataT = lua.create_named_table("data");
+        dataT.set_function("load", [this](const std::string& path) -> std::tuple<sol::object, sol::object> {
+            std::ifstream in(AssetDir + path);
+            if (!in) return { sol::make_object(*Lua, sol::lua_nil), sol::make_object(*Lua, "can't open " + path) };
+            try {
+                nlohmann::json j;
+                in >> j;
+                return { FromJson(j), sol::make_object(*Lua, sol::lua_nil) };
+            }
+            catch (const std::exception& ex) {
+                return { sol::make_object(*Lua, sol::lua_nil), sol::make_object(*Lua, path + ": " + ex.what()) };
+            }
+        });
+    }
+
+    // Every queued event goes to every script with on_event(self, name, data). Events emitted meanwhile
+    // are delivered in the same call, a few rounds deep at most.
+    void ScriptEngine::Impl::DispatchEvents() {
+        for (int round = 0; round < 8 && !Events.empty(); round++) {
+            std::vector<QueuedEvent> batch;
+            batch.swap(Events);
+            std::vector<entt::entity> handles;
+            for (auto& [h, inst] : Instances) handles.push_back(h);
+            for (const QueuedEvent& ev : batch)
+                for (entt::entity h : handles) {
+                    auto it = Instances.find(h);
+                    if (it == Instances.end() || !it->second.Enabled || !it->second.OnEvent.valid()) continue;
+                    Check(it->second.OnEvent(it->second.Self, ev.Name, ev.Data), it->second, "on_event");
+                }
+        }
+        if (!Events.empty()) {
+            ReportError("[script] events: still emitting after 8 rounds (events that emit each other?); dropped "
+                + std::to_string(Events.size()));
+            Events.clear();
+        }
+    }
+
+    // Scripts/Lib/*.lua (in name order) run once in the shared globals when scripts start: code every
+    // script can call, without each one loading it.
+    void ScriptEngine::Impl::LoadLibraries() {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path dir = fs::path(AssetDir) / "Scripts" / "Lib";
+        if (!fs::is_directory(dir, ec)) return;
+        std::vector<fs::path> files;
+        for (const auto& f : fs::directory_iterator(dir, ec))
+            if (f.path().extension() == ".lua") files.push_back(f.path());
+        std::sort(files.begin(), files.end());
+        for (const fs::path& f : files) {
+            auto r = Lua->safe_script_file(f.string(), sol::script_pass_on_error);
+            if (!r.valid()) {
+                sol::error err = r;
+                ReportError("[script] Scripts/Lib/" + f.filename().string() + " (load): " + err.what());
+            }
+        }
     }
 
     // ---------------------------------------------------------------- instances
@@ -1363,6 +1606,7 @@ namespace Engine {
         inst.OnAnimEvent = inst.Env["on_anim_event"];
         inst.OnSave = inst.Env["on_save"];
         inst.OnLoad = inst.Env["on_load"];
+        inst.OnEvent = inst.Env["on_event"];
 
         sol::protected_function onCreate = inst.Env["on_create"];
         auto& stored = Instances.emplace(handle, std::move(inst)).first->second;
@@ -1472,14 +1716,18 @@ namespace Engine {
     const std::vector<std::string>& ScriptEngine::RecentErrors() const { return m_Impl->Errors; }
     const std::vector<ScriptUIItem>& ScriptEngine::UIItems() const { return m_Impl->UI; }
 
-    void ScriptEngine::SetPointer(float x, float y, bool inside, bool down) {
+    void ScriptEngine::SetPointer(float x, float y, bool inside, bool down, float wheel, bool rightDown) {
         Impl& m = *m_Impl;
         m.PtrClicked = down && !m.PtrDown && inside;      // pressed this frame, over the view
         m.PtrX = x;
         m.PtrY = y;
         m.PtrInside = inside;
         m.PtrDown = down;
+        m.PtrWheel = wheel;
+        m.PtrRightDown = rightDown;
     }
+
+    void ScriptEngine::SetUIFonts(ImFont* bold, ImFont* regular) { m_Impl->UIC.SetFonts(bold, regular); }
 
     bool ScriptEngine::ConsumeQuitRequest() {
         const bool q = m_Impl->QuitRequested;
@@ -1501,6 +1749,10 @@ namespace Engine {
         m.Time = 0.0f;
         m.NavTried = false;
         m.NavConfig = NavSettings{};
+        m.UIC.Reset();
+        m.DragPayload = sol::object();
+        m.SimPointer = false;
+        m.UIWarned = false;
         m.Errors.clear();
         m.Lua = std::make_unique<sol::state>();
         m.BindApi();
@@ -1523,6 +1775,8 @@ namespace Engine {
             m.PendingRestore = nullptr;
         }
 
+        m.LoadLibraries();          // Scripts/Lib/*.lua: shared code (e.g. the dialogue runner) in the globals
+
         // Start everything now so on_create runs before the first frame
         m.StartNewInstances(scene.Registry());
         m.FlushDestroys(scene);
@@ -1537,6 +1791,12 @@ namespace Engine {
         m.ActiveScene = &scene;
         m.Time += dt;
         m.UI.clear();               // a paused game keeps showing the last frame's UI
+        {
+            UIPointerState p{ m.PtrX, m.PtrY, m.PtrInside, m.PtrDown, m.PtrRightDown, m.PtrWheel };
+            if (m.SimPointer) p = m.Sim;                                  // ui.simulate_pointer (tests)
+            m.UIC.BeginFrame(m.UI, m.ViewAspect, p, dt);
+            if (m.UIC.DragEndedLastFrame()) m.DragPayload = sol::object();
+        }
         m.SampleInput();
         auto& reg = scene.Registry();
 
@@ -1559,7 +1819,12 @@ namespace Engine {
             m.Check(it->second.OnUpdate(it->second.Self, dt), it->second, "on_update");
         }
 
+        m.DispatchEvents();         // events.emit from on_update (on_event may destroy things too)
         m.FlushDestroys(scene);
+        if (const int open = m.UIC.EndFrame(); open > 0 && !m.UIWarned) {   // a begin_* without its end_*
+            m.UIWarned = true;
+            m.ReportError("[script] ui: " + std::to_string(open) + " ui.begin_* call(s) without ui.end_* (closed automatically)");
+        }
     }
 
     void ScriptEngine::DispatchCollisions(Scene& scene) {
@@ -1628,6 +1893,7 @@ namespace Engine {
         Impl& m = *m_Impl;
         if (!m.Lua) return;
         m.ActiveScene = &scene;
+        m.DragPayload = sol::object();   // before the Lua state goes
 
         std::vector<entt::entity> handles;
         for (auto& [h, inst] : m.Instances) handles.push_back(h);
@@ -1641,6 +1907,7 @@ namespace Engine {
         m.UI.clear();
         m.QuitRequested = false;
         m.RestartRequested = false;
+        m.Events.clear();           // they hold Lua values
         m.Lua.reset();
         m.ActiveScene = nullptr;
     }

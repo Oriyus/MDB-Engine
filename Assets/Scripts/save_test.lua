@@ -47,7 +47,7 @@ function on_update(self, dt)
     if phase == 1 then
         if step == 1 then
             for _, s in ipairs({ "test_a", "test_b", "restart_marker" }) do saves.delete(s) end
-            check("fresh game: game table empty", next(game) == nil)
+            check("fresh game: no gold yet", game.gold == nil)   -- (inventory.lua already filled game.bag)
             check("not loading on a new game", not loading_at_create and not level.arrived())
             game.gold = 42
             shared.flag = "yard"

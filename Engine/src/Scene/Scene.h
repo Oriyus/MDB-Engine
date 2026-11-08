@@ -70,6 +70,10 @@ namespace Engine {
         void SetWorldRotation(entt::entity e, const glm::quat& rotation);
         // Split a matrix into position, rotation and scale (no shear)
         static void Decompose(const glm::mat4& m, glm::vec3& position, glm::quat& rotation, glm::vec3& scale);
+        // The Euler angles (radians) that TransformComponent turns back into q (glm::quat(euler): R = Rz * Ry * Rx).
+        // Stable next to gimbal lock (y near +-90 degrees), where glm::eulerAngles loses several degrees: the result
+        // always rebuilds the same rotation, and roll is 0 right at the lock.
+        static glm::vec3 EulerFromQuat(const glm::quat& q);
 
         void Clear();
         void OnUpdate(float dt);

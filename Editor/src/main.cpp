@@ -32,6 +32,7 @@
 #include "DemoLevels.h"
 #include "EditorHistory.h"
 #include "AssetBrowser.h"
+#include "DialogueEditor.h"
 #include "Platform.h"
 
 #include <cfloat>
@@ -190,7 +191,8 @@ public:
                 m_MonoFont = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/consola.ttf", 15.0f);
             ApplyEditorStyle();
         }
-        m_GameFont = LoadGameFont();   // before the first ImGui frame builds the font atlas
+        m_GameFonts = LoadGameFonts();   // before the first ImGui frame builds the font atlas
+        m_Session->Scripts().SetUIFonts(m_GameFonts.Bold, m_GameFonts.Regular);   // ui.label measures with them
         m_Camera->Position = glm::vec3(0.0f, 1.0f, 6.0f);
 
         // Test hooks, for running the app unattended:
@@ -205,6 +207,13 @@ public:
         if (auto ts = EnvVar("MDB_TEST_SCRIPT"); !ts.empty())
             m_Scene.CreateEntity("Test").Add<ScriptComponent>().Path = ts;
         if (auto sv = EnvVar("MDB_SAVE_SCENE"); !sv.empty()) SaveScene(sv);
+        if (auto dl = EnvVar("MDB_OPEN_DIALOGUE"); !dl.empty()) {     // "Dialogues/x.json" or "Dialogues/x.json#7" (selects node 7)
+            const size_t hash = dl.find('#');
+            m_Dialogue.Open(dl.substr(0, hash));
+            if (hash != std::string::npos) m_Dialogue.Select(std::atoi(dl.c_str() + hash + 1));
+            if (EnvVar("MDB_SAVE_DIALOGUE") == "1") m_Dialogue.SaveIfNamed();   // re-save it through the editor
+            m_ShowDialogue = true;
+        }
         if (EnvVar("MDB_AUTOPLAY") == "1") m_PlayCmd = PlayCmd::Play;
         if (auto q = EnvVar("MDB_QUIT_AFTER"); !q.empty()) m_QuitAfter = std::strtof(q.c_str(), nullptr);
 
@@ -276,7 +285,8 @@ public:
 
         bool kesc = EdgePressed(Key::Escape, m_EscDown);
         bool kp = EdgePressed(Key::P, m_PDown);
-        if (!typing && kesc) {
+        const bool dialogueKeys = m_ShowDialogue && m_Dialogue.IsFocused();   // the Dialogue Editor has its own shortcuts
+        if (!typing && kesc && !dialogueKeys) {
             if (m_PlayState != PlayState::Edit) m_PlayCmd = PlayCmd::Stop;
             else RequestQuit();
         }
@@ -287,7 +297,7 @@ public:
         const bool kd = EdgePressed(Key::D, m_DDown), ks = EdgePressed(Key::S, m_SDown);
         const bool kn = EdgePressed(Key::N, m_NDown);
         if (EdgePressed(Key::F11, m_F11Down)) m_ToggleFullscreen = true;
-        if (ctrl && !typing && !interacting && m_PlayState == PlayState::Edit) {
+        if (ctrl && !typing && !interacting && !dialogueKeys && m_PlayState == PlayState::Edit) {
             if (kz && !shift) UndoStep();
             if (ky || (kz && shift)) RedoStep();
             if (kd) DuplicateSelected();
@@ -311,7 +321,7 @@ public:
             m_PlayCmd = (m_PlayState == PlayState::Edit) ? PlayCmd::Play : PlayCmd::Stop;
 
         // Looking through a game camera, the game owns the keyboard: only Esc, Ctrl+P, F1 and F5 stay
-        const bool editorKeys = !typing && !m_ViewingGame;
+        const bool editorKeys = !typing && !m_ViewingGame && !dialogueKeys;
         if (!editorKeys) knSpawn = f = g = kw = ke = kr = kq = kdel = kt = false;
 
         if (!typing) {
@@ -371,7 +381,9 @@ public:
                 const ImVec2 mp = ImGui::GetIO().MousePos;
                 const float px = (mp.x - m_ViewportOrigin.x) / std::max(m_ViewportSize.x, 1.0f);
                 const float py = (mp.y - m_ViewportOrigin.y) / std::max(m_ViewportSize.y, 1.0f);
-                m_Session->Scripts().SetPointer(px, py, m_ViewportHovered && m_ViewingGame, ImGui::IsMouseDown(ImGuiMouseButton_Left));
+                const bool over = m_ViewportHovered && m_ViewingGame;
+                m_Session->Scripts().SetPointer(px, py, over, ImGui::IsMouseDown(ImGuiMouseButton_Left),
+                    over ? ImGui::GetIO().MouseWheel : 0.0f, ImGui::IsMouseDown(ImGuiMouseButton_Right));
                 m_Session->Scripts().SetViewAspect(aspect);   // for scene.screen_ray
             }
             m_Session->Update(dt, m_StepFrame);            // scene.restart() is handled by the session
@@ -419,6 +431,13 @@ public:
                 }));
             }
         }
+        if (m_ShowDialogue) {
+            // the first time: a tab beside the Viewport (saved layouts don't know the window yet)
+            if (ImGuiWindow* vp = ImGui::FindWindowByName("Viewport"); vp && vp->DockId)
+                ImGui::SetNextWindowDockID(vp->DockId, ImGuiCond_FirstUseEver);
+            m_Dialogue.Draw(&m_ShowDialogue);
+        }
+        DrawDialogueQuitModal();
         DrawUnsavedChangesModal();
         DrawDialogs();
 
@@ -461,14 +480,42 @@ public:
 
     // Quit (Esc in Edit mode or the window's close button): ask first if there are unsaved changes
     void RequestQuit() {
+        if (m_Dialogue.IsDirty() && !m_DialogueDiscarded) { m_AskDialogueQuit = true; m_ShowDialogue = true; return; }
         if (m_History.IsDirty()) m_Confirm = ConfirmAction::Quit;
         else Close();
     }
 
     bool OnCloseRequested() override {
+        if (m_Dialogue.IsDirty() && !m_DialogueDiscarded && !m_QuitConfirmed) { m_AskDialogueQuit = true; m_ShowDialogue = true; return false; }
         if (m_QuitConfirmed || !m_History.IsDirty()) return true;
         m_Confirm = ConfirmAction::Quit;
         return false;
+    }
+
+    // Quitting with unsaved changes in the Dialogue Editor: asked before the scene's own question
+    void DrawDialogueQuitModal() {
+        if (m_AskDialogueQuit && !ImGui::IsPopupOpen("Unsaved dialogue changes")) ImGui::OpenPopup("Unsaved dialogue changes");
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        if (!ImGui::BeginPopupModal("Unsaved dialogue changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+        const std::string path = m_Dialogue.Path();
+        ImGui::Text("The dialogue %s has unsaved changes.", path.empty() ? "(not saved yet)" : path.c_str());
+        if (path.empty()) ImGui::TextDisabled("Use File > Save As in the Dialogue Editor to keep it.");
+        ImGui::Spacing();
+        if (!path.empty() && ImGui::Button("Save", ImVec2(110, 0)) && m_Dialogue.SaveIfNamed()) {
+            m_AskDialogueQuit = false;
+            ImGui::CloseCurrentPopup();
+            RequestQuit();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Discard", ImVec2(110, 0))) {
+            m_AskDialogueQuit = false;
+            m_DialogueDiscarded = true;
+            ImGui::CloseCurrentPopup();
+            RequestQuit();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(110, 0))) { m_AskDialogueQuit = false; ImGui::CloseCurrentPopup(); }
+        ImGui::EndPopup();
     }
 
     void RequestLoad(const std::string& file) {
@@ -1066,6 +1113,7 @@ private:
             ImGui::MenuItem("Scene Settings", nullptr, &m_ShowSceneSettings);
             ImGui::MenuItem("Console", nullptr, &m_ShowConsole);
             ImGui::MenuItem("Assets", nullptr, &m_ShowAssets);
+            ImGui::MenuItem("Dialogue Editor", nullptr, &m_ShowDialogue);
             ImGui::Separator();
             if (ImGui::MenuItem("Hide Panels", "F1", !m_ShowUI)) m_ShowUI = !m_ShowUI;
             if (ImGui::MenuItem("Full Screen", "F11", GetWindow().IsFullscreen())) m_ToggleFullscreen = true;
@@ -1621,6 +1669,11 @@ private:
                 if (a.Path.rfind("Environments/", 0) == 0) m_Renderer->RequestEnvironment(a.Path.substr(13));
                 else LOG_WARN("Sky maps load from Assets/Environments ({} is elsewhere)", a.Path);
                 break;
+            case AssetBrowser::Action::OpenDialogue:
+                m_Dialogue.Open(a.Path);
+                m_ShowDialogue = true;
+                ImGui::SetWindowFocus("###DialogueEditor");
+                break;
             case AssetBrowser::Action::OpenExternal:
                 if (!Platform::OpenWithSystem(m_Assets.Absolute(a.Path))) LOG_WARN("No program opens {}", a.Path);
                 break;
@@ -2031,7 +2084,7 @@ private:
         if (!m_ViewingGame && m_ShowFrustums) DrawCameraFrustums(origin, size);
         if (!m_ViewingGame && m_ShowNavGrid && m_PlayState != PlayState::Edit) DrawNavGrid(origin, size);
         if (m_PlayState != PlayState::Edit)   // kept while paused: the scripts did not run again
-            DrawScriptUI(ImGui::GetWindowDrawList(), m_GameFont, m_Session->Scripts().UIItems(), origin, size, &m_UITextures);
+            DrawScriptUI(ImGui::GetWindowDrawList(), m_GameFonts, m_Session->Scripts().UIItems(), origin, size, &m_UITextures);
         if (m_ShowStatsOverlay && !m_ViewingGame) DrawStatsOverlay(origin, size);
         if (m_ViewingGame) {
             ImGui::GetWindowDrawList()->AddText(ImVec2(origin.x + 8.0f, origin.y + size.y - 22.0f),
@@ -2107,6 +2160,7 @@ private:
         ImGui::DockBuilderDockWindow("Console", bottom);
         ImGui::DockBuilderDockWindow("Assets", bottom);
         ImGui::DockBuilderDockWindow("Viewport", center);
+        ImGui::DockBuilderDockWindow("###DialogueEditor", center);   // a tab beside the Viewport: it wants room
         ImGui::DockBuilderFinish(dockspace);
         m_FocusInspector = true;           // the Inspector tab in front of Scene Settings
     }
@@ -2775,7 +2829,7 @@ private:
     std::unique_ptr<Engine::Camera> m_GameCamera;      // follows the scene's primary CameraComponent
     bool m_PlayThroughGameCamera = true;
     bool m_ViewingGame = false;                        // this frame renders through m_GameCamera
-    ImFont* m_GameFont = nullptr;                      // large font for ui.text (null: default font)
+    Engine::UIFonts m_GameFonts;                       // large fonts for script UI (null: the default font)
     std::shared_ptr<Engine::Mesh> m_Cube;              // shortcuts into m_Resources
     std::shared_ptr<Engine::Mesh> m_Sphere;
     std::shared_ptr<Engine::Texture2D> m_Checker;
@@ -2814,6 +2868,9 @@ private:
     bool  m_ShowStatsOverlay = true, m_ShowFrustums = true, m_ShowControls = false;
     AssetBrowser m_Assets{ std::string(ASSET_DIR) };   // the Assets panel
     bool  m_ShowAssets = true;
+    DialogueEditor m_Dialogue{ std::string(ASSET_DIR) };   // the Dialogue Editor window (Window menu, or a dialogue in Assets)
+    bool  m_ShowDialogue = false;
+    bool  m_AskDialogueQuit = false, m_DialogueDiscarded = false;   // quitting with an unsaved dialogue
     struct AssetDrop { std::string Path; entt::entity Target = entt::null; bool Pending = false; };
     AssetDrop m_AssetDrop;                           // an asset dropped on the Hierarchy, applied after the tree
     bool  m_OpenSaveAs = false, m_OpenAbout = false, m_ResetLayout = false, m_FocusInspector = false;

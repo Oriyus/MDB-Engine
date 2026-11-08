@@ -617,7 +617,7 @@ namespace Engine {
             }
             else {
                 t.Position = pos;
-                t.Rotation = glm::eulerAngles(rot);
+                t.Rotation = Scene::EulerFromQuat(rot);
             }
             b.WrittenPos = t.Position;
             b.WrittenRot = t.Rotation;

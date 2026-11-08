@@ -220,6 +220,7 @@ namespace {
         cam.Add<CameraComponent>().FOV = 50.0f;
         cam.Add<ScriptComponent>().Path = "Scripts/tactics_camera.lua";
         scene.CreateEntity("Tactics").Add<ScriptComponent>().Path = "Scripts/tactics.lua";
+        scene.CreateEntity("Inventory").Add<ScriptComponent>().Path = "Scripts/inventory.lua";   // the bag (in `game`)
     }
 
     // A glowing pad that takes the hero to another level (exit.lua reads the target from the name:
@@ -244,9 +245,9 @@ namespace {
     }
 
     // A chest with a hinged lid (chest.lua opens it when the hero comes close: gold into game.gold)
-    void AddChest(Scene& scene, const LevelAssets& a, const glm::vec3& pos, float yaw) {
+    void AddChest(Scene& scene, const LevelAssets& a, const glm::vec3& pos, float yaw, const std::string& loot = "") {
         const glm::vec3 wood(0.5f, 0.3f, 0.15f), trim(0.85f, 0.65f, 0.25f);
-        Entity chest = scene.CreateEntity("Chest");
+        Entity chest = scene.CreateEntity(loot.empty() ? std::string("Chest") : "Chest: " + loot);   // chest.lua gives that item
         chest.Get<TransformComponent>().Position = pos;
         chest.Get<TransformComponent>().Rotation = glm::vec3(0.0f, yaw, 0.0f);
         auto& mr = chest.Add<MeshRendererComponent>();
@@ -273,6 +274,30 @@ namespace {
         lm.Metallic = 0.6f;
         lm.Roughness = 0.4f;
         lid.Add<ParentComponent>(ParentComponent{ hinge.Get<IDComponent>().ID });
+    }
+
+    // Someone to talk to (npc.lua plays Dialogues/sage.json: walk close, press T). A static body: its cell isn't walkable.
+    void AddSage(Scene& scene, const LevelAssets& a, const glm::vec3& pos) {
+        Entity e = scene.CreateEntity("Sage");
+        e.Get<TransformComponent>().Position = pos;
+        auto& mr = e.Add<MeshRendererComponent>();
+        mr.Geometry = a.Cube;
+        mr.Color = glm::vec3(0.25f, 0.7f, 0.65f);
+        mr.Roughness = 0.5f;
+        mr.LocalOffset = BlockOffset(0.6f, 1.7f);
+        auto& rb = e.Add<RigidBodyComponent>();
+        rb.Type = BodyType::Static;
+        rb.Size = glm::vec3(0.6f, 1.7f, 0.6f);
+        rb.Center = glm::vec3(0.0f, 0.85f, 0.0f);
+        e.Add<ScriptComponent>().Path = "Scripts/npc.lua";       // plays Dialogues/sage.json
+        Entity hat = scene.CreateEntity("Hat");            // so you can tell which way it faces
+        auto& ht = hat.Get<TransformComponent>();
+        ht.Position = glm::vec3(0.0f, 1.82f, 0.08f);
+        ht.Scale = glm::vec3(0.5f, 0.24f, 0.5f);
+        auto& hm = hat.Add<MeshRendererComponent>();
+        hm.Geometry = a.Cube;
+        hm.Color = glm::vec3(0.35f, 0.25f, 0.6f);
+        hat.Add<ParentComponent>(ParentComponent{ e.Get<IDComponent>().ID });
     }
 
 } // namespace
@@ -491,7 +516,8 @@ void BuildTacticsTest(Scene& scene, const LevelAssets& a, PrefabLibrary&) {
     // ---- the way down to the cellar (a second level), where you arrive from it, and a chest
     AddExit(scene, a, "tactics_cellar.json", "From Yard", glm::vec3(-10.5f, -1.0f, 10.5f));
     AddEntry(scene, "From Cellar", glm::vec3(-8.5f, -1.0f, 10.5f), 1.5708f);
-    AddChest(scene, a, glm::vec3(10.5f, -1.0f, 10.5f), 3.14159f);
+    AddChest(scene, a, glm::vec3(10.5f, -1.0f, 10.5f), 3.14159f, "gem");
+    AddSage(scene, a, glm::vec3(-4.5f, -1.0f, 7.5f));
 
     // ---- the units. They have no rigid body: tactics.lua moves them along nav paths.
     AddHero(scene, a, glm::vec3(-2.5f, -1.0f, 9.5f), 3.14159265f);
@@ -528,7 +554,7 @@ void BuildTacticsCellar(Scene& scene, const LevelAssets& a, PrefabLibrary&) {
 
     AddExit(scene, a, "tactics_test.json", "From Cellar", glm::vec3(-4.5f, -1.0f, 4.5f));
     AddEntry(scene, "From Yard", glm::vec3(-4.5f, -1.0f, 2.5f), 3.14159f);
-    AddChest(scene, a, glm::vec3(4.5f, -1.0f, -4.5f), 0.0f);
+    AddChest(scene, a, glm::vec3(4.5f, -1.0f, -4.5f), 0.0f, "helmet");
 
     AddHero(scene, a, glm::vec3(-4.5f, -1.0f, 2.5f), 3.14159265f);
     AddEnemy(scene, a, glm::vec3(3.5f, -1.0f, -1.5f));
