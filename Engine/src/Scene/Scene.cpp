@@ -252,7 +252,33 @@ namespace Engine {
             else if (dt == 0.0f) {
                 an.Fade = 1.0f;                                  // no time passing (editor): no fade, just the clip
             }
+            const float prevTime = an.Time;
             an.Time = AdvanceClip(an, *model, clip, an.ActiveClip, an.Time, step, an.Loop);
+
+            // Root motion: where the root bone goes sideways in this clip, the entity goes instead.
+            // M takes the bone's translation (its parent's space) into the entity's own space.
+            int motionRoot = -1;
+            glm::mat3 toEntity(1.0f);
+            if (an.RootMotion && clip >= 0) {
+                motionRoot = an.RootBone.empty() ? model->RootMotionNode(clip) : model->FindNode(an.RootBone);
+                if (motionRoot >= 0) toEntity = glm::mat3(mr.LocalOffset * model->ParentRestGlobal(motionRoot));
+            }
+            if (motionRoot >= 0 && step != 0.0f) {
+                const float d = model->AnimationDuration(clip);
+                glm::vec3 delta = model->SampleNodeTranslation(clip, motionRoot, an.Time) -
+                                  model->SampleNodeTranslation(clip, motionRoot, prevTime);
+                if (an.Loop && d > 0.0f) {                       // whole laps carry the clip's full travel
+                    const float laps = std::floor((prevTime + step) / d);
+                    if (laps != 0.0f)
+                        delta += laps * (model->SampleNodeTranslation(clip, motionRoot, d) -
+                                         model->SampleNodeTranslation(clip, motionRoot, 0.0f));
+                }
+                glm::vec3 moveLocal = toEntity * delta;
+                moveLocal.y = 0.0f;                              // sideways only: the bob stays in the pose
+                const glm::mat4 world = GetWorldMatrix(e);
+                SetWorldPosition(e, glm::vec3(world[3]) + glm::mat3(world) * moveLocal);
+            }
+
             if (fromClip >= 0) {                                 // the clip fading out keeps running, silently
                 const float d = model->AnimationDuration(fromClip);
                 float t = an.FadeFromTime + step;
@@ -270,7 +296,16 @@ namespace Engine {
                 }
             }
 
-            // Layers, in order: each replaces the pose of its masked nodes by its own clip, by Weight
+            // Root motion: keep the root bone where the clip started, sideways (the entity carries it)
+            if (motionRoot >= 0 && motionRoot < (int)pose.size()) {
+                glm::vec3 offset = toEntity * (model->SampleNodeTranslation(clip, motionRoot, an.Time) -
+                                               model->SampleNodeTranslation(clip, motionRoot, 0.0f));
+                offset.y = 0.0f;
+                pose[motionRoot].T -= glm::inverse(toEntity) * offset;
+            }
+
+            // Layers, in order: each replaces the pose of its masked nodes by its own clip, by Weight,
+            // or (Additive) adds its motion relative to its first frame
             for (auto& L : an.Layers) {
                 if (L.TargetWeight >= 0.0f && dt != 0.0f) {      // fading towards a target weight
                     const float delta = L.FadeRate * std::abs(dt);
@@ -291,6 +326,18 @@ namespace Engine {
                 }
                 model->SubtreeMask(root, mask);
                 model->SamplePose(lclip, L.Time, layer);
+                if (L.Additive) {
+                    // The change from the clip's first frame, scaled by the weight, on top of the pose
+                    model->SamplePose(lclip, 0.0f, from);
+                    const glm::quat identity(1.0f, 0.0f, 0.0f, 0.0f);
+                    for (size_t i = 0; i < pose.size(); i++) {
+                        if (!mask[i]) continue;
+                        pose[i].T += (layer[i].T - from[i].T) * w;
+                        pose[i].R = glm::normalize(pose[i].R * glm::slerp(identity, glm::inverse(from[i].R) * layer[i].R, w));
+                        pose[i].S *= glm::mix(glm::vec3(1.0f), layer[i].S / glm::max(from[i].S, glm::vec3(1e-6f)), w);
+                    }
+                    continue;
+                }
                 for (size_t i = 0; i < pose.size(); i++) {
                     if (!mask[i]) continue;
                     pose[i].T = glm::mix(pose[i].T, layer[i].T, w);

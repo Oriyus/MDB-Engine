@@ -208,11 +208,13 @@ void BuildScriptDemo(Scene& scene, const LevelAssets& a, PrefabLibrary& prefabs)
         // Footsteps: a sound event on each paw strike (two per Walk cycle, two per Run stride)
         for (float t : { 0.10f, 0.45f }) an.Events.push_back({ "Walk", t, "sound:Sounds/step.wav" });
         for (float t : { 0.20f, 0.75f }) an.Events.push_back({ "Run", t, "sound:Sounds/step.wav" });
-        // A layer that plays Survey on the neck and head only: wander.lua fades it in to look around
+        // An additive layer: Survey's head movement on the neck and head, added to whatever the body
+        // is doing (wander.lua fades it in to look around while walking)
         AnimLayer look;
         look.Clip = "Survey";
         look.Mask = "b_Neck_04";
         look.Weight = 0.0f;
+        look.Additive = true;
         an.Layers.push_back(look);
         e.Add<ScriptComponent>().Path = "Scripts/wander.lua";
     }

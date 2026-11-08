@@ -673,6 +673,13 @@ namespace Engine {
             "time", sol::property(
                 [](const AnimatorRef& a) { return a.E.Get<AnimatorComponent>().Time; },
                 [](const AnimatorRef& a, float v) { a.E.Get<AnimatorComponent>().Time = v; }),
+            // root motion: the root bone's sideways movement moves the entity (root_bone "" = automatic)
+            "root_motion", sol::property(
+                [](const AnimatorRef& a) { return a.E.Get<AnimatorComponent>().RootMotion; },
+                [](const AnimatorRef& a, bool v) { a.E.Get<AnimatorComponent>().RootMotion = v; }),
+            "root_bone", sol::property(
+                [](const AnimatorRef& a) { return a.E.Get<AnimatorComponent>().RootBone; },
+                [](const AnimatorRef& a, const std::string& v) { a.E.Get<AnimatorComponent>().RootBone = v; }),
             "blend_time", sol::property(
                 [](const AnimatorRef& a) { return a.E.Get<AnimatorComponent>().BlendTime; },
                 [](const AnimatorRef& a, float v) { a.E.Get<AnimatorComponent>().BlendTime = std::max(v, 0.0f); }),
@@ -711,6 +718,7 @@ namespace Engine {
                 if (const auto w = opts.get<sol::optional<float>>("weight")) { L.Weight = std::clamp(*w, 0.0f, 1.0f); L.TargetWeight = -1.0f; }
                 L.Speed = opts.get<sol::optional<float>>("speed").value_or(L.Speed);
                 L.Loop = opts.get<sol::optional<bool>>("loop").value_or(L.Loop);
+                L.Additive = opts.get<sol::optional<bool>>("additive").value_or(L.Additive);
             },
             // layer_weight(n, weight [, seconds]): set it now, or fade to it over that many seconds
             "layer_weight", [](const AnimatorRef& a, int n, float w, sol::optional<float> seconds) {
@@ -726,7 +734,7 @@ namespace Engine {
                 if (n < 1 || n > (int)layers.size()) return sol::lua_nil;
                 const AnimLayer& L = layers[n - 1];
                 return sol::make_object(*Lua, Lua->create_table_with("clip", L.Clip, "mask", L.Mask, "weight", L.Weight,
-                    "speed", L.Speed, "loop", L.Loop, "time", L.Time));
+                    "speed", L.Speed, "loop", L.Loop, "additive", L.Additive, "time", L.Time));
             },
             "remove_layer", [](const AnimatorRef& a, int n) {
                 auto& layers = a.E.Get<AnimatorComponent>().Layers;

@@ -1,7 +1,7 @@
 -- An animated character that wanders in a circle around where it starts: it walks, breaks into
 -- a run, then stops to look around, cross-fading between its clips.
 -- Needs an Animator on a model with "Walk", "Run" and "Survey" clips (like Models/Fox.glb).
--- If the Animator has a layer 1 (in the demo: Survey on the neck), the character turns its head
+-- If the Animator has a layer 1 (in the demo: Survey added on the neck), the character turns its head
 -- to look around in the middle of each walk. Footstep sounds are Animator events, not script.
 -- The model faces +Z; its yaw is set from the direction it moves.
 

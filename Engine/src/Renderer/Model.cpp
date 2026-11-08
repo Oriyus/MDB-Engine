@@ -403,6 +403,30 @@ namespace Engine {
         return -1;
     }
 
+    int Model::RootMotionNode(int clip) const {
+        if (clip < 0 || clip >= (int)m_Clips.size()) return -1;
+        int best = -1;
+        for (const auto& ch : m_Clips[clip].Channels)        // nodes are parents first: lowest index = topmost
+            if (ch.T.size() > 1 && (best < 0 || ch.Node < best)) best = ch.Node;
+        return best;
+    }
+
+    glm::vec3 Model::SampleNodeTranslation(int clip, int node, float time) const {
+        if (node < 0 || node >= (int)m_Nodes.size()) return glm::vec3(0.0f);
+        const glm::vec3 rest = m_Nodes[node].Rest.T;
+        if (clip < 0 || clip >= (int)m_Clips.size()) return rest;
+        for (const auto& ch : m_Clips[clip].Channels)
+            if (ch.Node == node) return SampleKeys(ch.T, time, rest, [](const glm::vec3& a, const glm::vec3& b, float t) { return glm::mix(a, b, t); });
+        return rest;
+    }
+
+    glm::mat4 Model::ParentRestGlobal(int node) const {
+        glm::mat4 m(1.0f);
+        if (node < 0 || node >= (int)m_Nodes.size()) return m;
+        for (int p = m_Nodes[node].Parent; p >= 0; p = m_Nodes[p].Parent) m = ToMatrix(m_Nodes[p].Rest) * m;
+        return m;
+    }
+
     void Model::SubtreeMask(int root, std::vector<uint8_t>& mask) const {
         mask.assign(m_Nodes.size(), root < 0 ? 1 : 0);     // no root: everything
         if (root < 0 || root >= (int)m_Nodes.size()) return;

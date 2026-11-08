@@ -1,7 +1,7 @@
 {
   "entities": [
     {
-      "id": 1982304427216301764,
+      "id": 12145684917596511633,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "blend",
@@ -81,7 +81,7 @@
       }
     },
     {
-      "id": 2607269261562989107,
+      "id": 5328806256591842150,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
@@ -161,7 +161,7 @@
       }
     },
     {
-      "id": 9931408500611331547,
+      "id": 5136094911537923595,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
@@ -241,7 +241,7 @@
       }
     },
     {
-      "id": 10437135081157724284,
+      "id": 14031515869924571551,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
@@ -321,7 +321,7 @@
       }
     },
     {
-      "id": 13869004651649890317,
+      "id": 6039077769387488588,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
@@ -401,7 +401,7 @@
       }
     },
     {
-      "id": 17434576951616572107,
+      "id": 15051936170359706029,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
@@ -508,6 +508,7 @@
         ],
         "layers": [
           {
+            "additive": true,
             "clip": "Survey",
             "loop": true,
             "mask": "b_Neck_04",
@@ -519,7 +520,7 @@
         "playing": true,
         "speed": 1.0
       },
-      "id": 12943063163935737987,
+      "id": 14936981917389729856,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -584,7 +585,7 @@
       }
     },
     {
-      "id": 9015399602175686628,
+      "id": 498087567166457095,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -667,7 +668,7 @@
       }
     },
     {
-      "id": 8733348797617232099,
+      "id": 3570312126381599020,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -689,7 +690,7 @@
       }
     },
     {
-      "id": 5521960742702316902,
+      "id": 6959935528009635553,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -711,7 +712,7 @@
       }
     },
     {
-      "id": 16367734463840147843,
+      "id": 5612824435235574733,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -733,7 +734,7 @@
       }
     },
     {
-      "id": 5203746992961010796,
+      "id": 6429700059133259924,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -755,7 +756,7 @@
       }
     },
     {
-      "id": 8619472494404404702,
+      "id": 12354088855810487648,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -777,7 +778,7 @@
       }
     },
     {
-      "id": 18353143012545703312,
+      "id": 1794327846732331094,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -799,7 +800,7 @@
       }
     },
     {
-      "id": 10255065206957614888,
+      "id": 16317865398725307256,
       "name": "Spawner",
       "script": {
         "path": "Scripts/spawner.lua"
@@ -823,7 +824,7 @@
       }
     },
     {
-      "id": 1786722182190792025,
+      "id": 1214848784693012919,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -915,7 +916,7 @@
         ],
         "intensity": 1.2000000476837158
       },
-      "id": 1080564887312738600,
+      "id": 9150879708837541510,
       "name": "Sun",
       "transform": {
         "position": [
@@ -936,7 +937,7 @@
       }
     },
     {
-      "id": 14599297711359536994,
+      "id": 11675899521575780619,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",

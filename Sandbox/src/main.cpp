@@ -1568,6 +1568,19 @@ private:
                     }
                 };
 
+                // Root motion: the root bone's sideways travel moves the entity
+                ImGui::Checkbox("Root motion", &an.RootMotion);
+                ImGui::SetItemTooltip("The root bone's sideways travel in the clip moves the entity\n"
+                    "(use no Rigid Body, or a kinematic one)");
+                if (an.RootMotion) {
+                    if (ImGui::BeginCombo("Root bone", an.RootBone.empty() ? "(automatic)" : an.RootBone.c_str())) {
+                        if (ImGui::Selectable("(automatic)", an.RootBone.empty())) an.RootBone.clear();
+                        for (const auto& b : model->NodeNames())
+                            if (ImGui::Selectable(b.c_str(), an.RootBone == b)) an.RootBone = b;
+                        ImGui::EndCombo();
+                    }
+                }
+
                 // Layers: another clip over the base one, on a bone and everything below it
                 if (ImGui::TreeNode("Layers", "Layers (%d)", (int)an.Layers.size())) {
                     const auto bones = model->NodeNames();
@@ -1587,6 +1600,9 @@ private:
                         ImGui::SliderFloat("Weight", &L.Weight, 0.0f, 1.0f);
                         ImGui::SliderFloat("Speed##layer", &L.Speed, -2.0f, 3.0f);
                         ImGui::Checkbox("Loop##layer", &L.Loop);
+                        ImGui::SameLine();
+                        ImGui::Checkbox("Additive", &L.Additive);
+                        ImGui::SetItemTooltip("Add the clip's motion (relative to its first frame) instead of replacing the pose");
                         ImGui::SameLine();
                         if (ImGui::SmallButton("Remove layer")) removeLayer = i;
                         ImGui::PopID();

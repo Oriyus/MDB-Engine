@@ -165,13 +165,17 @@ namespace Engine {
     };
 
     // Another clip played over the base clip on part of the skeleton: Mask is a bone (node) name and
-    // everything below it ("" = the whole skeleton). Weight 0..1 blends it in over the base pose.
+    // everything below it ("" = the whole skeleton). Weight 0..1 blends it in over the base pose
+    // (override), or scales the motion it adds (Additive).
     struct AnimLayer {
         std::string Clip;
         std::string Mask;
         float Weight = 1.0f;
         float Speed = 1.0f;
         bool  Loop = true;
+        // Additive: add the clip's motion relative to its first frame on top of the pose, instead of
+        // replacing it (a head turn or breathing over any walk)
+        bool  Additive = false;
 
         // Runtime state (not saved)
         float Time = 0.0f;
@@ -189,6 +193,11 @@ namespace Engine {
         float BlendTime = 0.25f;          // seconds
         std::vector<AnimLayer> Layers;
         std::vector<AnimEvent> Events;
+        // Root motion: the root bone's horizontal movement in the base clip moves the entity instead of
+        // the mesh (the bone stays put sideways; vertical bob stays in the animation). RootBone "" = the
+        // topmost bone the clip moves. Works on the transform: use no body or a kinematic one.
+        bool RootMotion = false;
+        std::string RootBone;
 
         // Runtime state (not saved)
         float Time = 0.0f;                // seconds into ActiveClip

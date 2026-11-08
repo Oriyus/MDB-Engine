@@ -64,6 +64,11 @@ namespace Engine {
         std::vector<std::string> NodeNames() const;
         int FindNode(const std::string& name) const;      // -1 if missing
         void SubtreeMask(int root, std::vector<uint8_t>& mask) const;   // 1 for root and its descendants
+        // Root motion: the topmost node a clip translates (-1: none), that node's translation at a time,
+        // and the rest transform of its parent chain (node space -> model space)
+        int RootMotionNode(int clip) const;
+        glm::vec3 SampleNodeTranslation(int clip, int node, float time) const;
+        glm::mat4 ParentRestGlobal(int node) const;
 
     private:
         struct Submesh {

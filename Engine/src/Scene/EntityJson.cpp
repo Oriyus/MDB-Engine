@@ -70,8 +70,13 @@ namespace Engine {
             if (!a.Layers.empty()) {
                 json layers = json::array();
                 for (const auto& L : a.Layers)
-                    layers.push_back({ { "clip", L.Clip },{ "mask", L.Mask },{ "weight", L.Weight },{ "speed", L.Speed },{ "loop", L.Loop } });
+                    layers.push_back({ { "clip", L.Clip },{ "mask", L.Mask },{ "weight", L.Weight },{ "speed", L.Speed },{ "loop", L.Loop },
+                                       { "additive", L.Additive } });
                 j["animator"]["layers"] = layers;
+            }
+            if (a.RootMotion || !a.RootBone.empty()) {
+                j["animator"]["rootMotion"] = a.RootMotion;
+                j["animator"]["rootBone"] = a.RootBone;
             }
             if (!a.Events.empty()) {
                 json events = json::array();
@@ -178,8 +183,11 @@ namespace Engine {
                     L.Weight = jl.value("weight", 1.0f);
                     L.Speed = jl.value("speed", 1.0f);
                     L.Loop = jl.value("loop", true);
+                    L.Additive = jl.value("additive", false);
                     a.Layers.push_back(L);
                 }
+            a.RootMotion = ja.value("rootMotion", false);
+            a.RootBone = ja.value("rootBone", std::string());
             if (ja.contains("events"))
                 for (const auto& je : ja["events"])
                     a.Events.push_back({ je.value("clip", std::string()), je.value("time", 0.0f), je.value("name", std::string()) });

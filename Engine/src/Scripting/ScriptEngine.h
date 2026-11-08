@@ -74,12 +74,14 @@ namespace Engine {
     //   e:look_at(target [, up])               turn local -Z (forward) towards a point
     //   e.audio -> nil or { clip, volume, pitch, loop, playing, play(), stop() }
     //   e:add_audio(clip [, { volume, pitch, loop=true, spatial=true, play=true, min_distance, max_distance }])
-    //   e.animator -> nil or { clip (set = cross-fade), speed, loop, playing, time, blend_time,
+    //   e.animator -> nil or { clip (set = cross-fade), speed, loop, playing, time, blend_time, root_motion, root_bone,
     //                          play(name [, blend_seconds]), stop(), duration([name]), clips(), bones(),
     //                          add_event(clip, time, name), clear_events([clip]), events(),
-    //                          set_layer(n, { clip, mask = bone name, weight, speed, loop }), layer(n),
+    //                          set_layer(n, { clip, mask = bone name, weight, speed, loop, additive }), layer(n),
     //                          layer_weight(n, weight [, fade_seconds]), remove_layer(n), layer_count() }
     //     Layers play another clip over the base one on a bone and everything below it (mask "" = all).
+    //     An additive layer adds its clip's motion (relative to its first frame) instead of replacing the pose.
+    //     root_motion: the root bone's sideways travel in the base clip moves the entity (no body, or kinematic).
     //     Events fire on_anim_event(self, name, clip) when playback crosses their time; a non-looping clip
     //     also fires "end". An event named "sound:Sounds/x.wav" plays that sound at the entity instead.
     //   e:add_animator{ clip, speed=1, loop=true, blend=0.25 }   needs a Mesh Renderer with an animated model
