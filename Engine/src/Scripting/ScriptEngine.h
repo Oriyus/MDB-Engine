@@ -78,10 +78,17 @@ namespace Engine {
     //                          play(name [, blend_seconds]), stop(), duration([name]), clips(), bones(),
     //                          add_event(clip, time, name), clear_events([clip]), events(),
     //                          set_layer(n, { clip, mask = bone name, weight, speed, loop, additive }), layer(n),
-    //                          layer_weight(n, weight [, fade_seconds]), remove_layer(n), layer_count() }
+    //                          layer_weight(n, weight [, fade_seconds]), remove_layer(n), layer_count(),
+    //                          set_ik(n, { type = "look"|"limb", bone, target = vec3 or entity, offset, weight,
+    //                                      max_angle, chain, pole }), ik_weight(n, w), remove_ik(n), ik_count(),
+    //                          ik(n) -> { type, bone, target = world point, entity, offset, weight, max_angle, chain, pole },
+    //                          bone_position(name) -> world vec3 or nil (after layers and IK),
+    //                          bone_forward(name) -> the world direction it faces (at rest: the entity's +Z) }
     //     Layers play another clip over the base one on a bone and everything below it (mask "" = all).
     //     An additive layer adds its clip's motion (relative to its first frame) instead of replacing the pose.
     //     root_motion: the root bone's sideways travel in the base clip moves the entity (no body, or kinematic).
+    //     IK "look" turns bone (a head) and chain-1 parents towards the target, at most max_angle from the
+    //     way the entity faces (+Z); "limb" bends bone's parent and grandparent so bone reaches the target.
     //     Events fire on_anim_event(self, name, clip) when playback crosses their time; a non-looping clip
     //     also fires "end". An event named "sound:Sounds/x.wav" plays that sound at the entity instead.
     //   e:add_animator{ clip, speed=1, loop=true, blend=0.25 }   needs a Mesh Renderer with an animated model

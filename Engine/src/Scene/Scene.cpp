@@ -181,6 +181,131 @@ namespace Engine {
     }
 
     // ---------------------------------------------------------------- skeletal animation
+    // ---------------------------------------------------------------- inverse kinematics
+    namespace {
+        // The rotation part of a node matrix (columns normalised, so node scale doesn't leak in)
+        glm::quat RotationOf(const glm::mat4& m) {
+            const glm::mat3 r(glm::normalize(glm::vec3(m[0])), glm::normalize(glm::vec3(m[1])), glm::normalize(glm::vec3(m[2])));
+            return glm::normalize(glm::quat_cast(r));
+        }
+
+        // The shortest rotation taking direction a to direction b
+        glm::quat RotationBetween(glm::vec3 a, glm::vec3 b) {
+            a = glm::normalize(a); b = glm::normalize(b);
+            const float d = glm::dot(a, b);
+            if (d > 0.99999f) return glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+            if (d < -0.99999f) {
+                glm::vec3 axis = glm::cross(glm::vec3(1, 0, 0), a);
+                if (glm::length(axis) < 1e-4f) axis = glm::cross(glm::vec3(0, 1, 0), a);
+                return glm::angleAxis(glm::pi<float>(), glm::normalize(axis));
+            }
+            return glm::angleAxis(std::acos(d), glm::normalize(glm::cross(a, b)));
+        }
+
+        // Turn node i by a model-space rotation q about its own origin: G' = q * G, so its local
+        // rotation becomes P^-1 * q * P * L (P = the parent's model-space rotation)
+        void RotateNode(const Model& model, const std::vector<glm::mat4>& globals, std::vector<Model::NodePose>& pose,
+            int i, const glm::quat& q) {
+            const int p = model.NodeParent(i);
+            const glm::quat P = p >= 0 ? RotationOf(globals[p]) : glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+            pose[i].R = glm::normalize(glm::inverse(P) * q * P * pose[i].R);
+        }
+
+        float SafeAcos(float x) { return std::acos(std::clamp(x, -1.0f, 1.0f)); }
+    }
+
+    // Solve the Animator's IK goals on `pose` (all in model space). targets[i] is goal i's target in
+    // model space; modelForward is the entity's +Z in model space. an.Globals is kept up to date.
+    static void SolveIK(const Model& model, AnimatorComponent& an, std::vector<Model::NodePose>& pose,
+        const std::vector<glm::vec3>& targets, const glm::vec3& modelForward, const glm::mat3& entityToModel,
+        const std::vector<glm::mat4>& restGlobals) {
+        const glm::quat identity(1.0f, 0.0f, 0.0f, 0.0f);
+        for (size_t g = 0; g < an.IK.size(); g++) {
+            const AnimIK& ik = an.IK[g];
+            const float w = std::clamp(ik.Weight, 0.0f, 1.0f);
+            const int end = model.FindNode(ik.Bone);
+            if (w <= 0.0f || end < 0) continue;
+            const glm::vec3 target = targets[g];
+
+            if (ik.Type == IKType::Look) {
+                // The head's own "forward": at rest it looks where the entity faces
+                const glm::vec3 localForward = glm::inverse(RotationOf(restGlobals[end])) * modelForward;
+                std::vector<int> chain;                          // head first, then its parents
+                for (int n = end; n >= 0 && (int)chain.size() < std::max(ik.Chain, 1); n = model.NodeParent(n)) chain.push_back(n);
+                const float maxAngle = glm::radians(std::clamp(ik.MaxAngle, 0.0f, 180.0f));
+
+                for (int k = (int)chain.size() - 1; k >= 0; k--) {    // top of the chain first
+                    const glm::vec3 headPos = glm::vec3(an.Globals[end][3]);
+                    glm::vec3 want = target - headPos;
+                    if (glm::length(want) < 1e-5f) break;
+                    want = glm::normalize(want);
+                    // Never further than MaxAngle from the way the body faces
+                    const float off = SafeAcos(glm::dot(modelForward, want));
+                    if (off > maxAngle) {
+                        const glm::vec3 axis = glm::cross(modelForward, want);
+                        want = glm::length(axis) > 1e-5f ? glm::angleAxis(maxAngle, glm::normalize(axis)) * modelForward : modelForward;
+                    }
+                    const glm::vec3 now = RotationOf(an.Globals[end]) * localForward;
+                    // Each bone takes its share of what is left: 1/k+1 ... the head takes the rest
+                    const glm::quat turn = glm::slerp(identity, RotationBetween(now, want), w / float(k + 1));
+                    RotateNode(model, an.Globals, pose, chain[k], turn);
+                    model.PoseToGlobals(pose, an.Globals);
+                }
+                continue;
+            }
+
+            // Limb: two-bone IK (a = root of the limb, b = the middle joint, c = the end), in three exact steps
+            // with the positions refreshed between them: bend b to the right length, swing a to point at the
+            // target, then twist around that line so b bends towards the pole.
+            const int b = model.NodeParent(end);
+            const int a = b >= 0 ? model.NodeParent(b) : -1;
+            if (a < 0) continue;
+            auto pos = [&](int n) { return glm::vec3(an.Globals[n][3]); };
+            const float lab = glm::length(pos(b) - pos(a)), lcb = glm::length(pos(end) - pos(b));
+            if (lab < 1e-6f || lcb < 1e-6f) continue;
+            const glm::quat oldA = pose[a].R, oldB = pose[b].R;
+            const glm::vec3 pole = entityToModel * ik.Pole;
+            const bool hasPole = glm::length(ik.Pole) > 1e-5f;
+
+            // 1) Bend: the angle at b that makes |c - a| the distance to the target (clamped to reach)
+            const float reach = std::clamp(glm::length(target - pos(a)), std::abs(lab - lcb) + 1e-4f, (lab + lcb) * 0.9999f);
+            const glm::vec3 u = glm::normalize(pos(a) - pos(b)), v = glm::normalize(pos(end) - pos(b));
+            const float bendNow = SafeAcos(glm::dot(u, v));
+            const float bendWant = SafeAcos((lab * lab + lcb * lcb - reach * reach) / (2.0f * lab * lcb));
+            glm::vec3 normal = glm::cross(u, v);
+            if (glm::length(normal) < 1e-6f) {                   // a straight limb: bend towards the pole, or any way
+                normal = glm::cross(u, hasPole ? pole : glm::vec3(0, 1, 0));
+                if (glm::length(normal) < 1e-6f) normal = glm::cross(u, glm::vec3(1, 0, 0));
+            }
+            RotateNode(model, an.Globals, pose, b, glm::angleAxis(bendWant - bendNow, glm::normalize(normal)));
+            model.PoseToGlobals(pose, an.Globals);
+
+            // 2) Swing: turn a so the end lies on the line to the target
+            RotateNode(model, an.Globals, pose, a, RotationBetween(pos(end) - pos(a), target - pos(a)));
+            model.PoseToGlobals(pose, an.Globals);
+
+            // 3) Pole: twist the limb around that line so the middle joint points at the pole
+            if (hasPole && glm::length(target - pos(a)) > 1e-5f) {
+                const glm::vec3 axis = glm::normalize(target - pos(a));
+                glm::vec3 have = pos(b) - pos(a), want = pole;
+                have -= glm::dot(have, axis) * axis;
+                want -= glm::dot(want, axis) * axis;
+                if (glm::length(have) > 1e-6f && glm::length(want) > 1e-6f) {
+                    have = glm::normalize(have); want = glm::normalize(want);
+                    const float angle = std::atan2(glm::dot(glm::cross(have, want), axis), glm::dot(have, want));
+                    RotateNode(model, an.Globals, pose, a, glm::angleAxis(angle, axis));
+                }
+            }
+
+            // Weight: blend from the animated pose
+            if (w < 1.0f) {
+                pose[a].R = glm::normalize(glm::slerp(oldA, pose[a].R, w));
+                pose[b].R = glm::normalize(glm::slerp(oldB, pose[b].R, w));
+            }
+            model.PoseToGlobals(pose, an.Globals);
+        }
+    }
+
     // Advance a clip's time by `step` seconds and report the events it crossed into an.Fired.
     // Looping clips wrap (either direction); others hold the end and fire "end" once when they reach it.
     static float AdvanceClip(AnimatorComponent& an, const Model& model, int clip, const std::string& clipName,
@@ -345,8 +470,58 @@ namespace Engine {
                     pose[i].S = glm::mix(pose[i].S, layer[i].S, w);
                 }
             }
-            model->PoseToPalette(pose, an.Palette);
+            model->PoseToGlobals(pose, an.Globals);
+
+            // Inverse kinematics on the final pose, in model space (the entity's world * LocalOffset undone)
+            if (!an.IK.empty()) {
+                static thread_local std::vector<Model::NodePose> restPose;
+                static thread_local std::vector<glm::mat4> restGlobals;
+                static thread_local std::vector<glm::vec3> targets;
+                model->SamplePose(-1, 0.0f, restPose);
+                model->PoseToGlobals(restPose, restGlobals);
+                const glm::mat4 modelToWorld = GetWorldMatrix(e) * mr.LocalOffset;
+                const glm::mat4 worldToModel = glm::inverse(modelToWorld);
+                const glm::mat3 entityToModel = glm::inverse(glm::mat3(mr.LocalOffset));
+                targets.clear();
+                for (const AnimIK& ik : an.IK) {
+                    glm::vec3 world = ik.Target;                 // a world point, or an offset from the target entity
+                    if (ik.TargetID != 0) {
+                        const entt::entity t = FindByID(ik.TargetID);
+                        world = (t != entt::null ? glm::vec3(GetWorldMatrix(t)[3]) : glm::vec3(modelToWorld[3])) + ik.Target;
+                    }
+                    targets.push_back(glm::vec3(worldToModel * glm::vec4(world, 1.0f)));
+                }
+                const glm::vec3 modelForward = glm::normalize(entityToModel * glm::vec3(0.0f, 0.0f, 1.0f));
+                SolveIK(*model, an, pose, targets, modelForward, entityToModel, restGlobals);
+            }
+            model->GlobalsToPalette(an.Globals, an.Palette);
         }
+    }
+
+    glm::vec3 Scene::BoneForward(entt::entity e, const std::string& bone) {
+        const auto* an = m_Registry.try_get<AnimatorComponent>(e);
+        const auto* mr = m_Registry.try_get<MeshRendererComponent>(e);
+        const Model* model = mr ? dynamic_cast<const Model*>(mr->Geometry.get()) : nullptr;
+        if (!an || !model) return glm::vec3(std::nanf(""));
+        const int n = model->FindNode(bone);
+        if (n < 0 || n >= (int)an->Globals.size()) return glm::vec3(std::nanf(""));
+        std::vector<Model::NodePose> restPose;
+        std::vector<glm::mat4> restGlobals;
+        model->SamplePose(-1, 0.0f, restPose);
+        model->PoseToGlobals(restPose, restGlobals);
+        const glm::vec3 modelForward = glm::normalize(glm::inverse(glm::mat3(mr->LocalOffset)) * glm::vec3(0, 0, 1));
+        const glm::vec3 now = RotationOf(an->Globals[n]) * (glm::inverse(RotationOf(restGlobals[n])) * modelForward);
+        return glm::normalize(glm::mat3(GetWorldMatrix(e) * mr->LocalOffset) * now);
+    }
+
+    glm::vec3 Scene::BonePosition(entt::entity e, const std::string& bone) {
+        const auto* an = m_Registry.try_get<AnimatorComponent>(e);
+        const auto* mr = m_Registry.try_get<MeshRendererComponent>(e);
+        const Model* model = mr ? dynamic_cast<const Model*>(mr->Geometry.get()) : nullptr;
+        if (!an || !model) return glm::vec3(std::nanf(""));
+        const int n = model->FindNode(bone);
+        if (n < 0 || n >= (int)an->Globals.size()) return glm::vec3(std::nanf(""));
+        return glm::vec3(GetWorldMatrix(e) * mr->LocalOffset * an->Globals[n][3]);
     }
 
     // The one list of component types that a copy carries (play-mode snapshot, Duplicate, script clone)

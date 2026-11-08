@@ -94,6 +94,10 @@ namespace Engine {
         void UpdateOrbitPositions();   // place orbiting entities from their current angle, without advancing it
         // Advance every Animator by dt and compute its bone matrices (dt 0: just pose it, e.g. in the editor)
         void UpdateAnimations(float dt);
+        // Where a bone of an animated model is now, in world space (after IK). NaN if unknown.
+        glm::vec3 BonePosition(entt::entity e, const std::string& bone);
+        // The world direction a bone faces: the direction that, at rest, points where the entity faces (+Z)
+        glm::vec3 BoneForward(entt::entity e, const std::string& bone);
 
         // Copy one entity's components, and build a new entity from such a copy
         EntitySnapshot CaptureEntity(entt::entity handle) const;

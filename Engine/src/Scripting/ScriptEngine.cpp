@@ -14,6 +14,7 @@
 #define SOL_ALL_SAFETIES_ON 1
 #define SOL_PRINT_ERRORS 0          // errors are reported through the engine log instead
 #include <tuple>
+#include <cmath>
 #include <sol/sol.hpp>
 
 #include <glm/glm.hpp>
@@ -691,6 +692,77 @@ namespace Engine {
                 an.Playing = true;
             },
             "stop", [](const AnimatorRef& a) { a.E.Get<AnimatorComponent>().Playing = false; },
+            // ---- IK (1-based): set_ik(n, { type = "look"|"limb", bone, target = vec3 or entity, offset = vec3,
+            //      weight, max_angle (degrees), chain, pole = vec3 (entity space) }) creates or changes one
+            "set_ik", [](const AnimatorRef& a, int n, sol::table opts) {
+                auto& iks = a.E.Get<AnimatorComponent>().IK;
+                if (n < 1 || n > 8) throw std::runtime_error("IK number must be 1..8");
+                if ((int)iks.size() < n) iks.resize(n);
+                AnimIK& ik = iks[n - 1];
+                if (const auto t = opts.get<sol::optional<std::string>>("type")) {
+                    if (*t == "look") ik.Type = IKType::Look;
+                    else if (*t == "limb") ik.Type = IKType::Limb;
+                    else throw std::runtime_error("IK type must be \"look\" or \"limb\"");
+                }
+                ik.Bone = opts.get<sol::optional<std::string>>("bone").value_or(ik.Bone);
+                sol::object target = opts["target"];
+                if (target.is<ScriptEntity>()) {
+                    const ScriptEntity t = target.as<ScriptEntity>();
+                    if (!t.Valid() || !t.Has<IDComponent>()) throw std::runtime_error("IK target entity no longer exists");
+                    ik.TargetID = t.Get<IDComponent>().ID;
+                    ik.Target = opts.get<sol::optional<glm::vec3>>("offset").value_or(glm::vec3(0.0f));
+                }
+                else if (target.is<glm::vec3>()) {
+                    ik.TargetID = 0;
+                    ik.Target = target.as<glm::vec3>();
+                }
+                if (const auto w = opts.get<sol::optional<float>>("weight")) ik.Weight = std::clamp(*w, 0.0f, 1.0f);
+                ik.MaxAngle = opts.get<sol::optional<float>>("max_angle").value_or(ik.MaxAngle);
+                ik.Chain = std::max(1, opts.get<sol::optional<int>>("chain").value_or(ik.Chain));
+                ik.Pole = opts.get<sol::optional<glm::vec3>>("pole").value_or(ik.Pole);
+            },
+            "ik_weight", [](const AnimatorRef& a, int n, float w) {
+                auto& iks = a.E.Get<AnimatorComponent>().IK;
+                if (n < 1 || n > (int)iks.size()) throw std::runtime_error("no IK " + std::to_string(n));
+                iks[n - 1].Weight = std::clamp(w, 0.0f, 1.0f);
+            },
+            "remove_ik", [](const AnimatorRef& a, int n) {
+                auto& iks = a.E.Get<AnimatorComponent>().IK;
+                if (n >= 1 && n <= (int)iks.size()) iks.erase(iks.begin() + (n - 1));
+            },
+            "ik_count", [](const AnimatorRef& a) { return (int)a.E.Get<AnimatorComponent>().IK.size(); },
+            "ik", [this](const AnimatorRef& a, int n) -> sol::object {
+                const auto& iks = a.E.Get<AnimatorComponent>().IK;
+                if (n < 1 || n > (int)iks.size()) return sol::lua_nil;
+                const AnimIK& ik = iks[n - 1];
+                sol::table t = Lua->create_table_with("type", ik.Type == IKType::Limb ? "limb" : "look", "bone", ik.Bone,
+                    "weight", ik.Weight, "max_angle", ik.MaxAngle, "chain", ik.Chain, "pole", ik.Pole);
+                // target: always the world point it aims at now; entity + offset when it follows an entity
+                if (ik.TargetID != 0) {
+                    const entt::entity te = a.E.Owner->FindByID(ik.TargetID);
+                    t["offset"] = ik.Target;
+                    if (te != entt::null) {
+                        t["entity"] = MakeEntity(te);
+                        t["target"] = glm::vec3(a.E.Owner->GetWorldMatrix(te)[3]) + ik.Target;
+                    }
+                }
+                else t["target"] = ik.Target;
+                return t;
+            },
+            // the world direction a bone faces (at rest: where the entity faces); nil if no such bone
+            "bone_forward", [](const AnimatorRef& a, const std::string& bone) -> sol::optional<glm::vec3> {
+                a.E.Get<AnimatorComponent>();
+                const glm::vec3 d = a.E.Owner->BoneForward(a.E.Handle, bone);
+                if (std::isnan(d.x)) return sol::nullopt;
+                return d;
+            },
+            // where a bone is now, in world space (after layers and IK); nil if there is no such bone
+            "bone_position", [](const AnimatorRef& a, const std::string& bone) -> sol::optional<glm::vec3> {
+                a.E.Get<AnimatorComponent>();
+                const glm::vec3 p = a.E.Owner->BonePosition(a.E.Handle, bone);
+                if (std::isnan(p.x)) return sol::nullopt;
+                return p;
+            },
             // ---- events: add_event(clip, time, name), clear_events([clip]), events() -> { {clip, time, name}, ... }
             "add_event", [](const AnimatorRef& a, const std::string& clip, float time, const std::string& name) {
                 a.E.Get<AnimatorComponent>().Events.push_back({ clip, time, name });

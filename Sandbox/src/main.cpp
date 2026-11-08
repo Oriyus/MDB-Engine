@@ -1638,6 +1638,58 @@ private:
                     ImGui::TextDisabled("Scripts: on_anim_event(self, name, clip).\nName \"sound:Sounds/x.wav\" plays that sound.");
                     ImGui::TreePop();
                 }
+
+                // IK: look at / reach for a target, on the final pose (also previews in Edit mode)
+                if (ImGui::TreeNode("IK", "IK (%d)", (int)an.IK.size())) {
+                    const auto bones = model->NodeNames();
+                    int removeIK = -1;
+                    for (int i = 0; i < (int)an.IK.size(); i++) {
+                        auto& ik = an.IK[i];
+                        ImGui::PushID(2000 + i);
+                        ImGui::SeparatorText(("IK " + std::to_string(i + 1)).c_str());
+                        int type = (int)ik.Type;
+                        static const char* types[] = { "Look at (head)", "Limb (two bones)" };
+                        if (ImGui::Combo("Type", &type, types, IM_ARRAYSIZE(types))) ik.Type = (IKType)type;
+                        if (ImGui::BeginCombo("Bone##ik", ik.Bone.empty() ? "(choose)" : ik.Bone.c_str())) {
+                            for (const auto& b : bones)
+                                if (ImGui::Selectable(b.c_str(), ik.Bone == b)) ik.Bone = b;
+                            ImGui::EndCombo();
+                        }
+                        ImGui::SetItemTooltip(ik.Type == IKType::Look ? "The head: it and Chain-1 parents turn"
+                                                                      : "The end of the limb (paw, foot, hand)");
+                        // Target: another entity, or a world point
+                        const entt::entity targetEntity = ik.TargetID ? m_Scene.FindByID(ik.TargetID) : entt::null;
+                        const std::string targetName = ik.TargetID == 0 ? "(world point)"
+                            : targetEntity != entt::null ? m_Scene.Registry().get<TagComponent>(targetEntity).Tag : "(missing)";
+                        if (ImGui::BeginCombo("Target", targetName.c_str())) {
+                            if (ImGui::Selectable("(world point)", ik.TargetID == 0)) ik.TargetID = 0;
+                            for (auto [te, tag, id] : m_Scene.Registry().view<TagComponent, IDComponent>().each()) {
+                                if (te == e.GetHandle()) continue;
+                                ImGui::PushID((int)entt::to_integral(te));
+                                if (ImGui::Selectable(tag.Tag.c_str(), ik.TargetID == id.ID)) ik.TargetID = id.ID;
+                                ImGui::PopID();
+                            }
+                            ImGui::EndCombo();
+                        }
+                        ImGui::DragFloat3(ik.TargetID ? "Offset" : "Point", &ik.Target.x, 0.02f);
+                        ImGui::SliderFloat("Weight##ik", &ik.Weight, 0.0f, 1.0f);
+                        if (ik.Type == IKType::Look) {
+                            ImGui::SliderFloat("Max angle", &ik.MaxAngle, 0.0f, 180.0f, "%.0f deg");
+                            ImGui::SliderInt("Chain", &ik.Chain, 1, 4);
+                            ImGui::SetItemTooltip("How many bones share the turn: 1 = the head only, 2 = head and neck...");
+                        }
+                        else {
+                            ImGui::DragFloat3("Pole", &ik.Pole.x, 0.02f);
+                            ImGui::SetItemTooltip("Which way the middle joint bends, in the entity's space (0 = keep the animation's bend)");
+                        }
+                        if (ImGui::SmallButton("Remove IK")) removeIK = i;
+                        ImGui::PopID();
+                    }
+                    if (removeIK >= 0) an.IK.erase(an.IK.begin() + removeIK);
+                    if (an.IK.size() < 8 && ImGui::Button("Add IK")) an.IK.push_back({});
+                    ImGui::TextDisabled("Look faces the target within Max angle of the entity's +Z.\nScripts: set_ik, ik_weight, bone_position.");
+                    ImGui::TreePop();
+                }
             }
             if (ImGui::Button("Remove##animator")) e.Remove<AnimatorComponent>();
         }

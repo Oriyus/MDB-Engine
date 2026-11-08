@@ -183,6 +183,24 @@ namespace Engine {
         float FadeRate = 0.0f;            // weight per second
     };
 
+    // Inverse kinematics on the final pose (after layers). The target is another entity (TargetID, its
+    // world position + Offset) or, with TargetID 0, the world point Target.
+    //   Look: turn Bone (a head) to face the target, spread over Chain bones (the head and its parents),
+    //         limited to MaxAngle degrees from the way the entity faces. "Facing" is the entity's +Z.
+    //   Limb: two-bone IK. Bone is the end (paw, foot, hand); its parent and grandparent bend so it
+    //         reaches the target. Pole (entity space, optional) is the direction the middle joint bends.
+    enum class IKType : int { Look = 0, Limb = 1 };     // stored in scene files: append only
+    struct AnimIK {
+        IKType Type = IKType::Look;
+        std::string Bone;
+        uint64_t TargetID = 0;            // an entity's IDComponent; 0 = use Target
+        glm::vec3 Target{ 0.0f };         // world point (TargetID 0), or offset from the target entity
+        float Weight = 1.0f;
+        float MaxAngle = 70.0f;           // Look: degrees
+        int   Chain = 2;                  // Look: how many bones turn (1 = just Bone)
+        glm::vec3 Pole{ 0.0f };           // Limb: bend direction in entity space (0 = keep the current bend)
+    };
+
     // Plays a skeletal animation on this entity's Mesh Renderer model (one with bones). Changing
     // Clip cross-fades from the old clip over BlendTime seconds. Layers go on top, in order.
     struct AnimatorComponent {
@@ -198,6 +216,7 @@ namespace Engine {
         // topmost bone the clip moves. Works on the transform: use no body or a kinematic one.
         bool RootMotion = false;
         std::string RootBone;
+        std::vector<AnimIK> IK;           // solved after layers, in order
 
         // Runtime state (not saved)
         float Time = 0.0f;                // seconds into ActiveClip
@@ -209,6 +228,7 @@ namespace Engine {
         // Events that fired this frame as (name, clip), plus "end" when a non-looping clip finishes.
         // Filled by Scene::UpdateAnimations, delivered by ScriptEngine::DispatchAnimationEvents.
         std::vector<std::pair<std::string, std::string>> Fired;
+        std::vector<glm::mat4> Globals;   // each node in model space after IK (bone_position; empty: not posed)
     };
 
     // A Lua script driving this entity while playing (see Scripting/ScriptEngine.h).

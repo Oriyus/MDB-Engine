@@ -1,7 +1,7 @@
 {
   "entities": [
     {
-      "id": 12145684917596511633,
+      "id": 15699709190746470066,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "blend",
@@ -81,7 +81,7 @@
       }
     },
     {
-      "id": 5328806256591842150,
+      "id": 10993537002357939586,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
@@ -161,7 +161,7 @@
       }
     },
     {
-      "id": 5136094911537923595,
+      "id": 7511521883217350259,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
@@ -241,7 +241,7 @@
       }
     },
     {
-      "id": 14031515869924571551,
+      "id": 16178630880273792021,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
@@ -321,7 +321,7 @@
       }
     },
     {
-      "id": 6039077769387488588,
+      "id": 18060556610871623117,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
@@ -401,7 +401,7 @@
       }
     },
     {
-      "id": 15051936170359706029,
+      "id": 6164493853673648116,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
@@ -506,6 +506,26 @@
             "time": 0.75
           }
         ],
+        "ik": [
+          {
+            "bone": "b_Head_05",
+            "chain": 2,
+            "maxAngle": 75.0,
+            "pole": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "target": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "targetId": 146521103838601367,
+            "type": "look",
+            "weight": 0.0
+          }
+        ],
         "layers": [
           {
             "additive": true,
@@ -520,7 +540,7 @@
         "playing": true,
         "speed": 1.0
       },
-      "id": 14936981917389729856,
+      "id": 5606112171130898131,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -585,7 +605,7 @@
       }
     },
     {
-      "id": 498087567166457095,
+      "id": 146521103838601367,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -668,7 +688,7 @@
       }
     },
     {
-      "id": 3570312126381599020,
+      "id": 15710887849608667552,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -690,7 +710,7 @@
       }
     },
     {
-      "id": 6959935528009635553,
+      "id": 9719694338981011207,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -712,7 +732,7 @@
       }
     },
     {
-      "id": 5612824435235574733,
+      "id": 10899224551190832635,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -734,7 +754,7 @@
       }
     },
     {
-      "id": 6429700059133259924,
+      "id": 339765161452514720,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -756,7 +776,7 @@
       }
     },
     {
-      "id": 12354088855810487648,
+      "id": 12090258547045070719,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -778,7 +798,7 @@
       }
     },
     {
-      "id": 1794327846732331094,
+      "id": 3551736327629016259,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -800,7 +820,7 @@
       }
     },
     {
-      "id": 16317865398725307256,
+      "id": 5092597957755645071,
       "name": "Spawner",
       "script": {
         "path": "Scripts/spawner.lua"
@@ -824,7 +844,7 @@
       }
     },
     {
-      "id": 1214848784693012919,
+      "id": 10842576685226737439,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -916,7 +936,7 @@
         ],
         "intensity": 1.2000000476837158
       },
-      "id": 9150879708837541510,
+      "id": 12073768987878331220,
       "name": "Sun",
       "transform": {
         "position": [
@@ -937,7 +957,7 @@
       }
     },
     {
-      "id": 11675899521575780619,
+      "id": 12917178066472727864,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",

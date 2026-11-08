@@ -59,6 +59,10 @@ namespace Engine {
         void SamplePose(int clip, float time, std::vector<NodePose>& pose) const;
         // Bone matrices for the shader (u_Bones): model space, one per bone
         void PoseToPalette(const std::vector<NodePose>& pose, std::vector<glm::mat4>& palette) const;
+        // The same in two steps: each node in model space, then the bone matrices (IK edits in between)
+        void PoseToGlobals(const std::vector<NodePose>& pose, std::vector<glm::mat4>& globals) const;
+        void GlobalsToPalette(const std::vector<glm::mat4>& globals, std::vector<glm::mat4>& palette) const;
+        int NodeParent(int node) const { return node >= 0 && node < (int)m_Nodes.size() ? m_Nodes[node].Parent : -1; }
         const std::vector<glm::mat4>& RestPalette() const { return m_RestPalette; }   // for a model nobody animates
         // Skeleton nodes, for animation layer masks: names (parents first), lookup, and a node's subtree
         std::vector<std::string> NodeNames() const;

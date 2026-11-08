@@ -193,7 +193,7 @@ void BuildScriptDemo(Scene& scene, const LevelAssets& a, PrefabLibrary& prefabs)
         const float ang = i * 6.2831853f / coins;
         AddCoinPrefab(scene, a, prefabs, glm::vec3(std::cos(ang) * 4.0f - 1.0f, -0.5f, std::sin(ang) * 3.0f + 1.0f));
     }
-    AddPlayer(scene, a, glm::vec3(-1.0f, -0.6f, 1.0f));
+    Entity player = AddPlayer(scene, a, glm::vec3(-1.0f, -0.6f, 1.0f));
     if (a.Fox && a.Fox->IsSkinned()) {
         // An animated fox walking a circle (wander.lua cross-fades its Walk / Run / Survey clips)
         Entity e = scene.CreateEntity("Fox");
@@ -215,6 +215,15 @@ void BuildScriptDemo(Scene& scene, const LevelAssets& a, PrefabLibrary& prefabs)
         look.Mask = "b_Neck_04";
         look.Weight = 0.0f;
         look.Additive = true;
+        // Look-at IK on the player ball: wander.lua fades it in when the ball comes close
+        AnimIK watch;
+        watch.Type = IKType::Look;
+        watch.Bone = "b_Head_05";
+        watch.TargetID = player.Get<IDComponent>().ID;
+        watch.Weight = 0.0f;
+        watch.MaxAngle = 75.0f;
+        watch.Chain = 2;
+        an.IK.push_back(watch);
         an.Layers.push_back(look);
         e.Add<ScriptComponent>().Path = "Scripts/wander.lua";
     }

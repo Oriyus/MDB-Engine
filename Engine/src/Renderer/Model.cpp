@@ -457,15 +457,25 @@ namespace Engine {
         }
     }
 
-    void Model::PoseToPalette(const std::vector<NodePose>& pose, std::vector<glm::mat4>& palette) const {
-        std::vector<glm::mat4> global(m_Nodes.size());
+    void Model::PoseToGlobals(const std::vector<NodePose>& pose, std::vector<glm::mat4>& globals) const {
+        globals.resize(m_Nodes.size());
         for (size_t i = 0; i < m_Nodes.size(); i++) {           // parents come first
             const glm::mat4 local = ToMatrix(i < pose.size() ? pose[i] : m_Nodes[i].Rest);
-            global[i] = m_Nodes[i].Parent >= 0 ? global[m_Nodes[i].Parent] * local : local;
+            globals[i] = m_Nodes[i].Parent >= 0 ? globals[m_Nodes[i].Parent] * local : local;
         }
-        palette.resize(m_Bones.size());
-        for (size_t b = 0; b < m_Bones.size(); b++) palette[b] = global[m_Bones[b].Node] * m_Bones[b].Offset;
     }
+
+    void Model::GlobalsToPalette(const std::vector<glm::mat4>& globals, std::vector<glm::mat4>& palette) const {
+        palette.resize(m_Bones.size());
+        for (size_t b = 0; b < m_Bones.size(); b++) palette[b] = globals[m_Bones[b].Node] * m_Bones[b].Offset;
+    }
+
+    void Model::PoseToPalette(const std::vector<NodePose>& pose, std::vector<glm::mat4>& palette) const {
+        std::vector<glm::mat4> globals;
+        PoseToGlobals(pose, globals);
+        GlobalsToPalette(globals, palette);
+    }
+
 
     glm::mat4 Model::GetGroundedMatrix(float targetSize) const {
         glm::vec3 size = m_Max - m_Min;

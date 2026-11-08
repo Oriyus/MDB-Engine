@@ -74,6 +74,14 @@ namespace Engine {
                                        { "additive", L.Additive } });
                 j["animator"]["layers"] = layers;
             }
+            if (!a.IK.empty()) {
+                json iks = json::array();
+                for (const auto& ik : a.IK)
+                    iks.push_back({ { "type", ik.Type == IKType::Limb ? "limb" : "look" },{ "bone", ik.Bone },
+                                    { "targetId", ik.TargetID },{ "target", ik.Target },{ "weight", ik.Weight },
+                                    { "maxAngle", ik.MaxAngle },{ "chain", ik.Chain },{ "pole", ik.Pole } });
+                j["animator"]["ik"] = iks;
+            }
             if (a.RootMotion || !a.RootBone.empty()) {
                 j["animator"]["rootMotion"] = a.RootMotion;
                 j["animator"]["rootBone"] = a.RootBone;
@@ -185,6 +193,19 @@ namespace Engine {
                     L.Loop = jl.value("loop", true);
                     L.Additive = jl.value("additive", false);
                     a.Layers.push_back(L);
+                }
+            if (ja.contains("ik"))
+                for (const auto& ji : ja["ik"]) {
+                    AnimIK ik;
+                    ik.Type = ji.value("type", std::string("look")) == "limb" ? IKType::Limb : IKType::Look;
+                    ik.Bone = ji.value("bone", std::string());
+                    ik.TargetID = ji.value("targetId", (uint64_t)0);
+                    if (ji.contains("target")) ik.Target = ji["target"].get<glm::vec3>();
+                    ik.Weight = ji.value("weight", 1.0f);
+                    ik.MaxAngle = ji.value("maxAngle", 70.0f);
+                    ik.Chain = ji.value("chain", 2);
+                    if (ji.contains("pole")) ik.Pole = ji["pole"].get<glm::vec3>();
+                    a.IK.push_back(ik);
                 }
             a.RootMotion = ja.value("rootMotion", false);
             a.RootBone = ja.value("rootBone", std::string());
