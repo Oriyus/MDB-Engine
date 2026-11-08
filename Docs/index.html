@@ -1,0 +1,1329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MDB Engine Documentation</title>
+<style>
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --side: #efefeb; --text: #1d1f23; --muted: #646a73; --line: #dcdcd6;
+  --accent: #b5651d; --accent-soft: #f6e6d4; --code-bg: #f1f0ec; --code-text: #23262b; --link: #8a4a12;
+  --k: #8b2fb3; --s: #2f7d32; --c: #8a8f98; --n: #b0541a; --f: #1f5fa8;
+  --engine: #2b6cb0; --editor: #2f855a; --scripting: #b7791f; --mark: #ffe58a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15171b; --panel: #1b1e23; --side: #121418; --text: #e4e6ea; --muted: #9aa1ab; --line: #2b2f36;
+    --accent: #e0a060; --accent-soft: #3a2c1e; --code-bg: #101215; --code-text: #dfe3e8; --link: #f0b070;
+    --k: #d38bff; --s: #8fd18f; --c: #6f7782; --n: #f0a66a; --f: #7fb6ff;
+    --engine: #6aa8ef; --editor: #6fcf97; --scripting: #e7b75c; --mark: #6b5a17;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font: 15px/1.6 "Segoe UI", system-ui, -apple-system, sans-serif; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { font: 13px/1.5 Consolas, "Cascadia Mono", monospace; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+pre { position: relative; background: var(--code-bg); color: var(--code-text); border: 1px solid var(--line); border-radius: 8px;
+      padding: 12px 14px; overflow-x: auto; margin: 10px 0 16px; }
+pre code { background: none; padding: 0; font-size: 13px; }
+pre .copy { position: absolute; top: 6px; right: 6px; font: 12px "Segoe UI", sans-serif; background: var(--panel); color: var(--muted);
+            border: 1px solid var(--line); border-radius: 5px; padding: 2px 8px; cursor: pointer; opacity: 0; transition: opacity .15s; }
+pre:hover .copy { opacity: 1; }
+.tk-k { color: var(--k); font-weight: 600; } .tk-s { color: var(--s); } .tk-c { color: var(--c); font-style: italic; }
+.tk-n { color: var(--n); } .tk-f { color: var(--f); }
+
+header { position: fixed; top: 0; left: 0; right: 0; height: 58px; display: flex; align-items: center; gap: 16px;
+         padding: 0 18px; background: var(--panel); border-bottom: 1px solid var(--line); z-index: 20; }
+header .brand { font-weight: 700; font-size: 17px; white-space: nowrap; }
+header .brand span { color: var(--accent); }
+#menuBtn { display: none; background: none; border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 4px 10px; font-size: 16px; cursor: pointer; }
+.searchWrap { position: relative; flex: 1; max-width: 560px; }
+#search { width: 100%; padding: 8px 12px 8px 34px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg);
+          color: var(--text); font-size: 15px; outline: none; }
+#search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.searchWrap::before { content: "⌕"; position: absolute; left: 11px; top: 5px; color: var(--muted); font-size: 18px; }
+.searchWrap kbd { position: absolute; right: 9px; top: 8px; font: 12px Consolas, monospace; color: var(--muted);
+                  border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
+#results { position: absolute; top: 44px; left: 0; right: 0; max-height: 70vh; overflow-y: auto; background: var(--panel);
+           border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 30px rgba(0,0,0,.18); display: none; }
+#results a { display: block; padding: 8px 12px; border-bottom: 1px solid var(--line); color: var(--text); }
+#results a:last-child { border-bottom: none; }
+#results a.sel, #results a:hover { background: var(--accent-soft); text-decoration: none; }
+#results .rt { font-weight: 600; }
+#results .rs { color: var(--muted); font-size: 13px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#results .none { padding: 12px; color: var(--muted); }
+.badge { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase;
+         border-radius: 4px; padding: 0 6px; margin-right: 6px; color: #fff; vertical-align: 1px; }
+.b-Engine { background: var(--engine); } .b-Editor { background: var(--editor); } .b-Scripting { background: var(--scripting); }
+mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1px; }
+
+nav { position: fixed; top: 58px; bottom: 0; left: 0; width: 280px; overflow-y: auto; background: var(--side);
+      border-right: 1px solid var(--line); padding: 14px 0 40px; }
+nav .group { margin-bottom: 8px; }
+nav .gtitle { display: flex; align-items: center; gap: 8px; padding: 6px 18px; font-weight: 700; font-size: 13px;
+              text-transform: uppercase; letter-spacing: .06em; cursor: pointer; user-select: none; }
+nav .gtitle .dot { width: 9px; height: 9px; border-radius: 50%; }
+nav .gtitle .arrow { margin-left: auto; color: var(--muted); transition: transform .15s; }
+nav .group.closed .arrow { transform: rotate(-90deg); }
+nav .group.closed ul { display: none; }
+nav ul { list-style: none; margin: 0; padding: 0; }
+nav li a { display: block; padding: 3px 18px 3px 34px; color: var(--text); font-size: 14px; border-left: 3px solid transparent; }
+nav li a:hover { background: var(--accent-soft); text-decoration: none; }
+nav li a.active { border-left-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+
+main { margin-left: 280px; padding: 78px 44px 80px; max-width: 1060px; }
+.part { margin: 10px 0 30px; padding: 22px 26px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
+.part h1 { margin: 0 0 6px; font-size: 30px; }
+.part p { margin: 0; color: var(--muted); }
+.part.Engine { border-top: 5px solid var(--engine); } .part.Editor { border-top: 5px solid var(--editor); }
+.part.Scripting { border-top: 5px solid var(--scripting); }
+section.doc { padding: 6px 0 18px; border-bottom: 1px solid var(--line); margin-bottom: 18px; scroll-margin-top: 74px; }
+section.doc h2 { font-size: 22px; margin: 10px 0 6px; }
+section.doc h2 .anchor { color: var(--muted); font-weight: 400; margin-left: 8px; font-size: 16px; opacity: 0; }
+section.doc h2:hover .anchor { opacity: 1; }
+section.doc h3 { font-size: 16px; margin: 18px 0 4px; }
+section.doc p { margin: 6px 0 10px; }
+section.doc ul, section.doc ol { margin: 6px 0 12px; padding-left: 22px; }
+section.doc li { margin: 2px 0; }
+table { border-collapse: collapse; width: 100%; margin: 8px 0 16px; font-size: 14px; }
+th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 6px 10px; vertical-align: top; }
+th { background: var(--code-bg); font-weight: 600; }
+td code { white-space: nowrap; }
+.note { border-left: 4px solid var(--accent); background: var(--accent-soft); padding: 8px 14px; border-radius: 0 8px 8px 0; margin: 10px 0 14px; }
+.flash { animation: flash 1.6s ease-out; }
+@keyframes flash { from { background: var(--accent-soft); } to { background: transparent; } }
+.toTop { position: fixed; right: 20px; bottom: 20px; background: var(--panel); border: 1px solid var(--line); border-radius: 50%;
+         width: 40px; height: 40px; display: grid; place-items: center; color: var(--muted); box-shadow: 0 4px 14px rgba(0,0,0,.12); }
+.toTop:hover { text-decoration: none; color: var(--accent); }
+footer { color: var(--muted); font-size: 13px; margin-top: 40px; }
+
+@media (max-width: 900px) {
+  #menuBtn { display: block; }
+  nav { transform: translateX(-100%); transition: transform .2s; z-index: 15; width: 85vw; max-width: 320px; }
+  body.navOpen nav { transform: none; box-shadow: 0 0 40px rgba(0,0,0,.3); }
+  main { margin-left: 0; padding: 74px 16px 60px; }
+  header .brand { font-size: 15px; }
+  .searchWrap kbd { display: none; }
+}
+</style>
+</head>
+<body>
+<header>
+  <button id="menuBtn" aria-label="Menu">☰</button>
+  <div class="brand">MDB <span>Engine</span> Docs</div>
+  <div class="searchWrap">
+    <input id="search" type="search" placeholder="Search everything (e.g. nav.find_path, prefab, gizmo)…" autocomplete="off">
+    <kbd>/</kbd>
+    <div id="results"></div>
+  </div>
+</header>
+<nav id="nav"></nav>
+<main id="main">
+
+<!-- ===================================================================================================== ENGINE -->
+<div class="part Engine" id="part-engine" data-part="Engine">
+  <h1>Engine</h1>
+  <p>The runtime: rendering, scenes, physics, audio, animation, navigation, save games and the systems both apps share.</p>
+</div>
+
+<section class="doc" data-group="Engine" id="engine-overview">
+<h2>Overview &amp; architecture</h2>
+<p>MDB Engine is a C++20 game engine for Windows using OpenGL 4.5 (core profile, direct state access). The engine is a static library, <code>Engine</code>, used by two apps:</p>
+<ul>
+  <li><b>MDBEditor</b> — the editor (folder <code>Editor/</code>).</li>
+  <li><b>Game</b> — the standalone player with no editor (folder <code>Game/</code>).</li>
+</ul>
+<p><code>Application</code> runs the main loop and calls the virtual hooks <code>OnStart</code>, <code>OnUpdate(dt)</code>, <code>OnImGui</code> and <code>OnShutdown</code>. Each app defines <code>Engine::CreateApplication()</code>.</p>
+<h3>Shared runtime</h3>
+<ul>
+  <li><b>SceneRenderer</b> renders a scene through a camera into a texture (the editor shows it in the Viewport, the game draws it full window).</li>
+  <li><b>GameSession</b> owns physics, audio, prefabs, scripts and navigation, steps them in order, and is also the campaign (save slots, level changes).</li>
+  <li><b>ResourceLibrary</b> maps resource names (<code>"cube"</code>, <code>"model:Models/Fox.glb"</code>) to loaded meshes and textures.</li>
+</ul>
+<h3>One frame of play</h3>
+<ol>
+  <li>Pending loads, level changes and restarts are applied (<code>GameSession::ApplyPending</code>).</li>
+  <li><code>Scene::OnUpdate</code>: Spin, Orbit, animation, particles.</li>
+  <li>Animation events, then Lua <code>on_update</code>, then queued <code>events.emit</code> events.</li>
+  <li>Physics step (fixed 60 Hz, interpolated), then collision and trigger callbacks.</li>
+  <li>Audio follows its entities; the scene is rendered.</li>
+</ol>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-build">
+<h2>Building &amp; running</h2>
+<p>CMake with the Visual Studio 2026 generator. Dependencies download automatically (FetchContent).</p>
+<pre><code class="sh">cmake -S . -B build -G "Visual Studio 18 2026" -Wno-dev
+cmake --build build --config Debug
+.\build\bin\Debug\MDBEditor.exe                  # the editor
+.\build\bin\Debug\Game.exe --scene coin_rush.json # the game
+cmake --build build --config Release --target package_game   # build/dist/Release: Game.exe + Assets</code></pre>
+<ul>
+  <li>After <b>adding or deleting</b> a source file, run the configure line again (engine sources are collected with a glob; editor sources are listed in <code>Editor/CMakeLists.txt</code>).</li>
+  <li>Shaders are read at run time: <b>F5</b> reloads them without rebuilding.</li>
+  <li>In Visual Studio, F5 starts the editor (it is the startup project).</li>
+</ul>
+<p>Dependencies: GLFW, glad, GLM, spdlog, EnTT, Dear ImGui (docking), ImGuizmo, assimp, nlohmann/json, stb_image, Jolt Physics, Lua 5.4, sol2, miniaudio.</p>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-layout">
+<h2>Project layout</h2>
+<table>
+<tr><th>Path</th><th>What it holds</th></tr>
+<tr><td><code>Engine/src/Core</code></td><td>Application, Window, Input, Log, ImGui layer, entry point</td></tr>
+<tr><td><code>Engine/src/Renderer</code></td><td>Shaders, buffers, textures, meshes, models, materials, shadows, IBL, post-processing, draw lists, SceneRenderer</td></tr>
+<tr><td><code>Engine/src/Scene</code></td><td>Scene, Entity, components, scene files, prefabs, particles</td></tr>
+<tr><td><code>Engine/src/Runtime</code></td><td>ResourceLibrary, GameSession, LevelState (saves), GameUI and UILayout (script UI)</td></tr>
+<tr><td><code>Engine/src/Physics</code></td><td>PhysicsWorld (Jolt)</td></tr>
+<tr><td><code>Engine/src/Navigation</code></td><td>NavGrid</td></tr>
+<tr><td><code>Engine/src/Scripting</code></td><td>ScriptEngine (Lua + sol2); the full API is listed in <code>ScriptEngine.h</code></td></tr>
+<tr><td><code>Engine/src/Audio</code></td><td>AudioEngine (miniaudio)</td></tr>
+<tr><td><code>Editor/src</code></td><td>The editor, example level builders, undo history, Assets panel, Dialogue Editor</td></tr>
+<tr><td><code>Game/src</code></td><td>The standalone game</td></tr>
+<tr><td><code>Assets/</code></td><td>Shaders, Models, Scenes, Environments, Scripts (and <code>Scripts/Lib</code>), Sounds, Prefabs, Textures, Dialogues, <code>game.json</code></td></tr>
+<tr><td><code>Tools/</code></td><td>Scripts that generate the example sounds and UI images</td></tr>
+</table>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-ecs">
+<h2>Entities &amp; components</h2>
+<p>Scenes use an ECS (EnTT). An <code>Entity</code> is a thin handle with <code>Add&lt;T&gt;</code>, <code>Get&lt;T&gt;</code>, <code>Has&lt;T&gt;</code> and <code>Remove&lt;T&gt;</code>. Every entity has a name (Tag), a Transform and a stable 64-bit ID.</p>
+<table>
+<tr><th>Component</th><th>Purpose</th></tr>
+<tr><td>Transform</td><td>Position, rotation (Euler, radians) and scale, relative to the parent</td></tr>
+<tr><td>Mesh Renderer</td><td>Geometry, colour, metallic/roughness, emissive, textures, alpha mode, opacity, shadows, Static flag</td></tr>
+<tr><td>Point Light / Directional Light</td><td>Lights (the first sun and up to 4 point lights are used)</td></tr>
+<tr><td>Rigid Body</td><td>Physics body: type, shape, size, centre, mass, friction, bounciness, trigger</td></tr>
+<tr><td>Collider</td><td>An extra shape for the nearest ancestor body (compound colliders)</td></tr>
+<tr><td>Script</td><td>A Lua file in <code>Assets/Scripts</code></td></tr>
+<tr><td>Camera</td><td>Game camera (FOV, near, far, primary)</td></tr>
+<tr><td>Audio Source</td><td>A looping or one-shot sound that follows the entity</td></tr>
+<tr><td>Animator</td><td>Skeletal animation: clip, speed, layers, events, root motion, IK</td></tr>
+<tr><td>Particle Emitter</td><td>CPU particles with presets (Fire, Smoke, Sparks, Magic, Dust, Embers)</td></tr>
+<tr><td>Spin / Orbit</td><td>Simple motion helpers</td></tr>
+<tr><td>Prefab</td><td>Link to a prefab file and node</td></tr>
+<tr><td>Parent / ID</td><td>Hierarchy links (by ID, never by handle)</td></tr>
+</table>
+<pre><code class="cpp">Engine::Entity e = scene.CreateEntity("Crate");
+e.Get&lt;TransformComponent&gt;().Position = glm::vec3(2, 0, 1);
+auto&amp; mr = e.Add&lt;MeshRendererComponent&gt;();
+mr.Geometry = resources.FindGeometry("cube");
+e.Add&lt;RigidBodyComponent&gt;().Type = BodyType::Static;</code></pre>
+<div class="note">Adding a new component type means updating <code>Components.h</code>, the snapshot code in <code>Scene</code>, the JSON functions in <code>Scene/EntityJson.cpp</code>, and the editor's Inspector.</div>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-hierarchy">
+<h2>Transforms &amp; hierarchy</h2>
+<p>A child stores its parent's ID (<code>ParentComponent</code>) and its transform is <b>local</b> to the parent. Everything spatial (rendering, physics, audio, cameras, the gizmo) works in world space.</p>
+<ul>
+  <li><code>GetWorldMatrix</code>, <code>SetWorldMatrix / Position / Rotation</code>, <code>SetParent(child, parent, keepWorld)</code> (refuses loops), <code>GetChildren</code>.</li>
+  <li>Destroying an entity destroys its children; duplicating copies the whole subtree with new IDs.</li>
+  <li>Static and kinematic bodies follow their parent; dynamic bodies simulate in world space.</li>
+</ul>
+<div class="note">Rotations are stored as Euler angles. Convert a quaternion back with <code>Scene::EulerFromQuat</code>, never <code>glm::eulerAngles</code> (it is unstable near gimbal lock and made cameras shake).</div>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-scenefiles">
+<h2>Scene files</h2>
+<p>Scenes are JSON files in <code>Assets/Scenes</code>. Entities store their name, ID, parent, transform and components; resources are stored by <b>name</b> and resolved on load.</p>
+<table>
+<tr><th>Resource name</th><th>Meaning</th></tr>
+<tr><td><code>"cube"</code>, <code>"sphere"</code>, <code>"plane"</code></td><td>Built-in meshes</td></tr>
+<tr><td><code>"model:Models/Fox.glb"</code></td><td>Any model file (loaded once, on demand)</td></tr>
+<tr><td><code>"checker"</code>, <code>"texture:Textures/fence.png"</code></td><td>Built-in or any image texture</td></tr>
+</table>
+<p>A <code>settings</code> block holds the sky/environment, ambient, post-processing, AO, bloom, shadows, gravity and the editor camera. Every field is optional, so older files load fine. Unmodified prefab instances are stored as links plus overrides.</p>
+<pre><code class="json">{ "version": 3,
+  "entities": [ { "name": "Crate", "id": 6093641303218615616,
+                  "transform": { "position": [2, -0.5, 1], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
+                  "meshRenderer": { "geometry": "cube", "color": [0.7, 0.45, 0.25] },
+                  "rigidBody": { "type": "static", "shape": "box" } } ],
+  "settings": { "physics": { "gravity": 9.81 } } }</code></pre>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-prefabs">
+<h2>Prefabs</h2>
+<p>A prefab is an entity <b>with its children</b>, saved as <code>Assets/Prefabs/&lt;name&gt;.json</code>. Each entity of an instance links to its prefab node. Instances keep <b>overrides</b>: changed fields, added or removed components, moved child transforms, and deleted child nodes.</p>
+<ul>
+  <li><b>Apply</b> writes the whole instance back to the prefab; other instances keep their overrides on top.</li>
+  <li><b>Revert</b> (per entity or per override) and <b>Unpack</b> (make it a plain entity).</li>
+  <li>When a prefab file changes, instances gain new parts and unlink removed ones on load.</li>
+  <li>Prefabs do not nest.</li>
+</ul>
+<pre><code class="lua">local coin = scene.spawn_prefab("coin", vec3(0, 1, 0))   -- Prefabs/coin.json</code></pre>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-rendering">
+<h2>Rendering pipeline</h2>
+<p><code>SceneRenderer::Render</code> draws one frame:</p>
+<ol>
+  <li><b>Draw list</b>: everything the camera or a light can see, culled and batched for instancing.</li>
+  <li><b>Shadows</b>: up to 4 point lights (cube maps) and one sun with cascades.</li>
+  <li><b>Scene</b> into an HDR framebuffer (colour, entity-ID for click picking, depth). PBR shading, then the sky, then see-through surfaces back to front.</li>
+  <li><b>SSAO</b>, then <b>bloom</b>.</li>
+  <li><b>Post</b>: AO, bloom, exposure, tone mapping (ACES by default), gamma.</li>
+  <li><b>FXAA</b>. The result is a texture shown by the app.</li>
+</ol>
+<p>Every scene draw is instanced: per-object data lives in a storage buffer; objects that share geometry, textures and alpha state are drawn with one call.</p>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-materials">
+<h2>Materials &amp; PBR</h2>
+<p>The lit shader is metallic-roughness PBR (Cook-Torrance GGX) with albedo, normal, metal/rough and emissive maps. Lighting is done in linear space; colour pickers and albedo/emissive textures are sRGB.</p>
+<ul>
+  <li><b>Metallic</b> 0..1, <b>Roughness</b> 0..1, <b>Emissive</b> colour (above 1 glows with bloom).</li>
+  <li><b>Unlit</b>: drawn as a bright emitter (intended for light markers).</li>
+  <li>Models can use their own materials (<i>Use model materials</i>).</li>
+</ul>
+<pre><code class="lua">self:add_mesh{ geometry = "sphere", color = vec3(0.9, 0.2, 0.2), metallic = 1, roughness = 0.25 }</code></pre>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-transparency">
+<h2>Transparency</h2>
+<table>
+<tr><th>Alpha mode</th><th>Behaviour</th></tr>
+<tr><td>Opaque</td><td>Normal solid surface</td></tr>
+<tr><td>Cutout</td><td>Pixels below the cutoff are discarded (fences, leaves)</td></tr>
+<tr><td>Blend</td><td>See-through, premultiplied: diffuse fades with alpha, reflections stay (glass)</td></tr>
+</table>
+<p>Alpha = texture alpha × material alpha × opacity. Blend surfaces are sorted per entity, back to front, and write no depth. Setting opacity below 1 on an opaque mesh switches it to Blend.</p>
+<pre><code class="lua">self.mesh.opacity = 0.4          -- now see-through
+self:add_mesh{ geometry = "cube", texture = "texture:Textures/fence.png", alpha_mode = "cutout" }</code></pre>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-lighting">
+<h2>Lighting &amp; shadows</h2>
+<ul>
+  <li><b>Sun</b> (Directional Light): the first one is used. Cascaded shadows (1–4 cascades, stable while the camera turns). Viewport &gt; Debug &gt; Shadow Cascades tints them.</li>
+  <li><b>Point lights</b>: up to 4, each with cube-map shadows.</li>
+  <li>Casters are culled per shadow view; the stats overlay shows how many were skipped.</li>
+  <li>Settings: shadow distance, cascade split, biases, extent (Scene Settings &gt; Shadows).</li>
+</ul>
+<pre><code class="lua">local lamp = scene.spawn("Lamp", vec3(0, 3, 0))
+lamp:add_light{ color = vec3(1, 0.7, 0.4), intensity = 2, shadows = true }</code></pre>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-environment">
+<h2>Environment &amp; sky</h2>
+<p>Ambient light comes from image-based lighting: irradiance and prefiltered cube maps baked from an HDR panorama in <code>Assets/Environments</code>, or a procedural sky when none is loaded. Sky visibility, blur, rotation and ambient intensity are scene settings. Double-clicking an <code>.hdr</code> in the Assets panel makes it the sky.</p>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-post">
+<h2>Post-processing</h2>
+<ul>
+  <li><b>SSAO</b>: radius, bias, samples, strength (a post-multiply; Viewport &gt; Debug shows it alone).</li>
+  <li><b>Bloom</b>: threshold with soft knee, radius, intensity, brightness ceiling (no fireflies).</li>
+  <li><b>Tone mapping</b>: ACES (default) and others, exposure, gamma.</li>
+  <li><b>FXAA</b> anti-aliasing.</li>
+</ul>
+<p>All are saved with the scene and edited in Scene Settings &gt; Post Processing.</p>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-batching">
+<h2>Batching, instancing &amp; static merging</h2>
+<p>Objects with the same geometry part, textures and alpha state are drawn as one instanced batch. Skinned meshes are batches of one.</p>
+<p><b>Static merging</b>: Mesh Renderers marked <i>Static</i> that use a unique mesh are merged, when Play starts, into world-space chunks per material and 8 m cell. Repeated meshes stay instanced (that is faster). Moving or recolouring a merged entity during Play is not seen.</p>
+<pre><code class="lua">local s = scene.render_stats()
+ui.text(s.draw_calls .. " draws, " .. s.static_merged .. " merged", 0.02, 0.95)</code></pre>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-animation">
+<h2>Skeletal animation</h2>
+<p>Models with bones (glTF/FBX) keep their skeleton and clips; the GPU skins up to 128 bones, 4 weights per vertex.</p>
+<ul>
+  <li><b>Clips</b> with cross-fade when the clip changes.</li>
+  <li><b>Layers</b>: another clip on a bone and its descendants (mask), override or <b>additive</b>, with fading weights.</li>
+  <li><b>Events</b> at clip times → <code>on_anim_event</code>, or <code>"sound:Sounds/x.wav"</code> plays a sound.</li>
+  <li><b>Root motion</b>: the root bone's travel moves the entity.</li>
+  <li><b>IK</b>: <i>look</i> (head turns towards a target) and <i>limb</i> (two-bone reach), also in Edit mode.</li>
+</ul>
+<pre><code class="lua">self.animator:play("Run", 0.3)
+self.animator:set_layer(1, { clip = "Survey", mask = "b_Neck_04", weight = 0, additive = true })
+self.animator:layer_weight(1, 1, 0.6)                       -- fade in over 0.6 s
+self.animator:set_ik(1, { type = "look", bone = "b_Head_05", target = player, max_angle = 75, chain = 2 })</code></pre>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-particles">
+<h2>Particles</h2>
+<p>CPU-simulated billboard particles. An emitter has a rate, burst, spread cone, shape (point, box…), gravity scale, drag, size and colour over life, emission brightness and optional texture/additive blending. Presets: <b>Fire, Smoke, Sparks, Magic, Dust, Embers</b>. Emitters preview live in Edit mode.</p>
+<pre><code class="lua">self:add_particles("Fire")
+scene.spawn_particles(self.position, { preset = "Sparks", count = 40 })   -- one-shot, removes itself</code></pre>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-physics">
+<h2>Physics</h2>
+<p>Jolt Physics, during Play only, at a fixed 60 Hz with interpolated transforms.</p>
+<ul>
+  <li><b>Body types</b>: Static, Dynamic, Kinematic. Any body can be a <b>trigger</b> (sensor).</li>
+  <li><b>Shapes</b>: Box, Sphere, Capsule (size.x diameter, size.y height), Convex hull, Mesh (static/kinematic), None.</li>
+  <li><b>Compound colliders</b>: Collider components on children add shapes to the nearest body above them.</li>
+  <li><b>Events</b>: exactly one begin and one end per touching pair; removed bodies end their contacts.</li>
+  <li><code>add_force</code> lasts the frame; <code>add_impulse</code> applies once. Moving a static body from a script teleports it.</li>
+  <li>Raycasts (closest, all hits, static only). <b>T</b> in the editor throws a ball.</li>
+</ul>
+<pre><code class="lua">self:add_body{ type = "dynamic", shape = "sphere", size = 0.5, mass = 2, bounciness = 0.6 }
+function on_collision_begin(self, other, hit)
+    log("hit " .. other.name .. " at " .. tostring(hit.point))
+end</code></pre>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-audio">
+<h2>Audio</h2>
+<p>miniaudio. One-shots (2D or positioned), and one voice per Audio Source that follows its entity (loop, volume, pitch, min/max distance). The listener follows the camera being drawn. Decoded clips are cached; Pause pauses the device, Stop stops all.</p>
+<pre><code class="lua">audio.play("Sounds/coin.wav")
+audio.play_at("Sounds/thud.wav", self.position, { volume = 0.8, pitch = 1.2 })
+self:add_audio("Sounds/lava_loop.wav", { loop = true, min_distance = 2, max_distance = 14 })</code></pre>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-navigation">
+<h2>Navigation (NavGrid)</h2>
+<p>A <b>layered walkability grid</b> baked from static physics bodies. One grid serves both free movement (exploring) and grid movement (turn-based combat).</p>
+<ul>
+  <li><b>Bake</b>: a ray down every column keeps each upward surface with head room and no wall within the agent radius. A column can hold several cells (ground under a bridge, and the deck).</li>
+  <li><b>Links</b> to 8 neighbours when the height difference is a step and nothing blocks the way (a thin fence cuts the link). No corner cutting.</li>
+  <li><b>Free paths</b>: A*, then straightened (any angle), ending exactly at the target.</li>
+  <li><b>Grid paths</b>: cell centres with step costs (orthogonal 1, diagonal configurable).</li>
+  <li><b>Blocked cells</b> for units and doors; <b>reachable</b> sets for movement ranges.</li>
+</ul>
+<p>Baked lazily on first use (3.8 ms Release for the tactics level). Viewport &gt; View &gt; Navigation Grid draws it during Play. See <a href="#script-nav">Scripting › Navigation</a>.</p>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-session">
+<h2>Game session &amp; play mode</h2>
+<p><code>GameSession</code> runs a scene as a game: <code>Start</code> (bodies, then scripts), <code>Update</code>, <code>Stop</code>. Both apps use it.</p>
+<ul>
+  <li><code>NewGame(level)</code> starts a fresh campaign on the live scene.</li>
+  <li>Loads, level changes and restarts are requested during a frame and done by <code>ApplyPending</code> at the start of the next one.</li>
+  <li>Restart (<code>scene.restart()</code>, the pause menu) enters the current level again as it was entered.</li>
+  <li>The game camera is the primary Camera component (looks along local −Z).</li>
+</ul>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-saves">
+<h2>Save games &amp; levels</h2>
+<p>A level is saved as its <b>differences from its scene file</b>: changed and added entities in full, removed ones by ID. Saves are small (a few KB).</p>
+<ul>
+  <li><b>Transient</b> entities (markers, particle bursts) are never saved.</li>
+  <li>Scripts save their variables with <code>on_save</code> / <code>on_load</code>.</li>
+  <li><code>game</code> (campaign data) is kept across levels and saved; <code>shared</code> is per level.</li>
+  <li><b>Level changes</b> keep the level you leave exactly as left; returning restores it. Entities can be carried along.</li>
+  <li>A <b>save slot</b> holds the current level, every visited level, <code>game</code> and play time; written safely (temp file, then rename).</li>
+  <li>Save folders: the game uses <code>%APPDATA%\&lt;title&gt;\Saves</code> (or <code>--save-dir</code>); the editor uses <code>%APPDATA%\MDB Engine\Editor Saves</code> (or <code>MDB_SAVE_DIR</code>).</li>
+</ul>
+<p>Not saved: physics velocities, live particles, the nav grid, Lua locals without <code>on_save</code>. See <a href="#script-saves">Scripting › Save games</a>.</p>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-events">
+<h2>Events, data files &amp; Lua libraries</h2>
+<ul>
+  <li><b>Event bus</b>: <code>events.emit(name, data)</code> reaches every script's <code>on_event</code> after the frame's <code>on_update</code> (events emitted inside handlers are delivered in the same pass, up to 8 rounds).</li>
+  <li><b>Data files</b>: <code>data.load(path)</code> reads any JSON under Assets as a Lua table.</li>
+  <li><b>Libraries</b>: every <code>Assets/Scripts/Lib/*.lua</code> runs once in the shared globals when scripts start (the dialogue runner lives there).</li>
+</ul>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-ui">
+<h2>Script UI rendering</h2>
+<p>Scripts produce a list of UI items each frame; the app draws them over the view with ImGui's draw list. Two layers build that list:</p>
+<ul>
+  <li><b>Positioned UI</b> (<code>ui.text/rect/bar/image/button</code> with 0..1 coordinates).</li>
+  <li><b>Laid-out UI</b> (<code>UILayout</code>): panels, rows, columns and scroll regions place widgets automatically. Sizes are in <i>units</i> (pixels at 720p), so the UI scales with resolution.</li>
+</ul>
+<p>Item kinds: text (bold or regular font, optional shadow), rect, border, image (optionally 9-slice), button, clip push/pop. Fonts are Segoe UI Bold and Regular at 64 px.</p>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-dialogue">
+<h2>Dialogue format</h2>
+<p>Dialogues are JSON files in <code>Assets/Dialogues</code>, edited visually in the editor's <a href="#editor-dialogue">Dialogue Editor</a> and played by <code>Scripts/Lib/dialogue.lua</code>.</p>
+<table>
+<tr><th>Node type</th><th>Fields</th><th>Behaviour</th></tr>
+<tr><td>line</td><td>speaker, text, action, event, choices, next</td><td>Shows text; the player picks a choice or continues to <code>next</code></td></tr>
+<tr><td>branch</td><td>cond, next, else</td><td>Goes to <code>next</code> if the condition is true, else to <code>else</code></td></tr>
+<tr><td>action</td><td>action, event, next</td><td>Runs Lua and/or sends an event, then continues</td></tr>
+</table>
+<p>Choices: text, cond, show (<code>hidden</code> or <code>disabled</code>), why (tooltip when disabled), action, event, next. <code>next = 0</code> ends the conversation.</p>
+<pre><code class="json">{ "version": 1, "start": 1, "nodes": [
+  { "id": 1, "type": "line", "speaker": "Sage", "text": "You have {=game.gold or 0} gold.", "next": 0,
+    "choices": [ { "text": "Buy a potion", "cond": "(game.gold or 0) >= 25", "show": "disabled",
+                   "why": "You need 25 gold.", "action": "game.gold = game.gold - 25\ngive(\"potion\")", "next": 2 } ] },
+  { "id": 2, "type": "action", "event": "potion_bought", "next": 0 } ] }</code></pre>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-game">
+<h2>The standalone Game</h2>
+<p><code>Game.exe</code> plays one scene full screen or windowed, with no editor. It looks for an <code>Assets</code> folder next to the exe first (a packaged game), then the source tree.</p>
+<pre><code class="json">// Assets/game.json (all optional)
+{ "title": "My Game", "scene": "coin_rush.json", "width": 1600, "height": 900, "fullscreen": true, "vsync": true }</code></pre>
+<table>
+<tr><th>Argument</th><th>Effect</th></tr>
+<tr><td><code>--scene file</code></td><td>Start scene (in Assets/Scenes)</td></tr>
+<tr><td><code>--fullscreen</code> / <code>--windowed</code></td><td>Window mode</td></tr>
+<tr><td><code>--width N</code> <code>--height N</code></td><td>Window size</td></tr>
+<tr><td><code>--no-vsync</code></td><td>Uncapped frame rate</td></tr>
+<tr><td><code>--save-dir folder</code></td><td>Where save slots go</td></tr>
+<tr><td><code>--quit-after s</code></td><td>Close after s seconds (tests)</td></tr>
+</table>
+<p>Keys: <b>Esc</b> pause menu (Resume / Restart / Quit; R and Q work too), <b>F11</b> or <b>Alt+Enter</b> full screen. Release builds have no console window. <code>package_game</code> builds a ready-to-zip folder.</p>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-testing">
+<h2>Testing &amp; test hooks</h2>
+<p>Test scripts run unattended in the editor and print PASS/FAIL lines to the log:</p>
+<table>
+<tr><th>Script</th><th>Checks</th></tr>
+<tr><td><code>nav_test.lua</code></td><td>Navigation grid (22 checks)</td></tr>
+<tr><td><code>save_test.lua</code></td><td>Saves, loads, level changes, restart (46)</td></tr>
+<tr><td><code>ui_test.lua</code></td><td>Laid-out UI with a simulated pointer (19)</td></tr>
+<tr><td><code>dialogue_test.lua</code></td><td>Dialogue runner on the Sage's dialogue (31)</td></tr>
+<tr><td><code>transform_test.lua</code></td><td>Rotations through Euler angles near gimbal lock (4)</td></tr>
+</table>
+<pre><code class="sh">set MDB_WINDOWED=1 &amp; set MDB_SCENE=tactics_test.json &amp; set MDB_AUTOPLAY=1
+set MDB_TEST_SCRIPT=Scripts/nav_test.lua &amp; set MDB_QUIT_AFTER=8
+MDBEditor.exe &gt; log.txt</code></pre>
+<table>
+<tr><th>Variable</th><th>Effect</th></tr>
+<tr><td><code>MDB_WINDOWED=1</code></td><td>Start windowed</td></tr>
+<tr><td><code>MDB_DEMO=script|coinrush|tactics|cellar</code></td><td>Build an example level</td></tr>
+<tr><td><code>MDB_SCENE</code> / <code>MDB_SAVE_SCENE</code></td><td>Load a scene first / save last</td></tr>
+<tr><td><code>MDB_AUTOPLAY=1</code></td><td>Press Play</td></tr>
+<tr><td><code>MDB_TEST_SCRIPT=Scripts/x.lua</code></td><td>Add a "Test" entity running it</td></tr>
+<tr><td><code>MDB_QUIT_AFTER=s</code></td><td>Close after s seconds</td></tr>
+<tr><td><code>MDB_SAVE_DIR</code></td><td>Save slot folder while play-testing</td></tr>
+<tr><td><code>MDB_OPEN_DIALOGUE=Dialogues/x.json[#node]</code></td><td>Open the Dialogue Editor on a file (and select a node)</td></tr>
+<tr><td><code>MDB_SAVE_DIALOGUE=1</code></td><td>Re-save that dialogue through the editor</td></tr>
+</table>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-limits">
+<h2>Known limitations</h2>
+<ul>
+  <li>Only the first sun and 4 point lights are used.</li>
+  <li>Transparency is sorted per entity, not per triangle; glass boxes show front faces only.</li>
+  <li>SSAO darkens direct light too; its blur is not depth-aware.</li>
+  <li>Animation: no blend trees or full-body IK.</li>
+  <li>Compound bodies don't rebuild when parts move during Play; Inspector body changes apply on the next Play.</li>
+  <li>Navigation bakes once, single-threaded, from static bodies only.</li>
+  <li>Saves: no thumbnails or file versioning.</li>
+  <li>UI: no keyboard/gamepad focus, no text input, Latin glyphs only.</li>
+  <li>Dialogue: no voice, portraits or localization; Lua errors appear at run time.</li>
+</ul>
+</section>
+
+<!-- ===================================================================================================== EDITOR -->
+<div class="part Editor" id="part-editor" data-part="Editor">
+  <h1>Editor</h1>
+  <p>MDBEditor: build levels, edit components and prefabs, play-test, browse assets and write dialogue.</p>
+</div>
+
+<section class="doc" data-group="Editor" id="editor-layout">
+<h2>Layout &amp; panels</h2>
+<p>A Unity/Godot-style docking layout that starts full screen:</p>
+<ul>
+  <li><b>Hierarchy</b> (left) — the entity tree.</li>
+  <li><b>Viewport</b> (centre) — the scene, with its own menu and a stats overlay.</li>
+  <li><b>Inspector</b> and <b>Scene Settings</b> (right, as tabs).</li>
+  <li><b>Console</b> and <b>Assets</b> (bottom, as tabs).</li>
+  <li><b>Dialogue Editor</b> (a tab beside the Viewport, when opened).</li>
+</ul>
+<p>The layout is saved in <code>editor.ini</code> next to the exe. <b>Window &gt; Reset Layout</b> rebuilds it; <b>F1</b> hides the side panels.</p>
+</section>
+
+<section class="doc" data-group="Editor" id="editor-menus">
+<h2>Menu bar &amp; toolbar</h2>
+<table>
+<tr><th>Menu</th><th>Items</th></tr>
+<tr><td>File</td><td>New (Ctrl+N), Open Scene, Save (Ctrl+S), Save As (Ctrl+Shift+S), Example Levels, Exit</td></tr>
+<tr><td>Edit</td><td>Undo / Redo (named after the step), Duplicate, Delete, Frame Selected, Reload Shaders</td></tr>
+<tr><td>Create</td><td>Empty Entity, Cube, Sphere, Plane, Point Light, Sun, Camera, Physics Box, Physics Ball, Material Grid, Prefab</td></tr>
+<tr><td>Play</td><td>Play/Stop (Ctrl+P), Pause/Resume, Step One Frame, Play Through Game Camera</td></tr>
+<tr><td>Window</td><td>Show panels, Dialogue Editor, Hide Panels (F1), Full Screen (F11), VSync, Reset Layout</td></tr>
+<tr><td>Help</td><td>Controls, About</td></tr>
+</table>
+<p>The <b>toolbar</b> has Select / Move / Rotate / Scale, Local / World, Snap, the Play / Pause / Step buttons in the centre, and the status plus the <i>Game camera</i> switch on the right. The right of the menu bar shows the scene file (<code>*</code> = unsaved) and FPS.</p>
+</section>
+
+<section class="doc" data-group="Editor" id="editor-viewport">
+<h2>Viewport &amp; camera controls</h2>
+<p>Maya-style navigation (there is no WASD fly camera):</p>
+<table>
+<tr><th>Input</th><th>Action</th></tr>
+<tr><td>Alt + left drag</td><td>Orbit</td></tr>
+<tr><td>Alt + middle drag</td><td>Pan</td></tr>
+<tr><td>Alt + right drag, or wheel</td><td>Dolly (zoom)</td></tr>
+<tr><td>F</td><td>Frame the selection</td></tr>
+<tr><td>Click</td><td>Select the entity under the mouse (entity-ID picking)</td></tr>
+</table>
+<p>Viewport menus: <b>View</b> (Stats, Colliders, Camera Frustums, Navigation Grid), <b>Debug</b> (Ambient Occlusion Only, Shadow Cascades), <b>Camera</b> (Frame Selected, orbit speed). Colliders draw as outlines (triggers in magenta); cameras draw as frustums.</p>
+</section>
+
+<section class="doc" data-group="Editor" id="editor-gizmo">
+<h2>Selection &amp; gizmos</h2>
+<ul>
+  <li><b>Q</b> select tool, <b>W</b> move, <b>E</b> rotate, <b>R</b> scale.</li>
+  <li><b>Local / World</b> space (Scale is always local), <b>Snap</b> (0.5 m, 15°, 0.1).</li>
+  <li>The gizmo works in world space; children keep their local transforms.</li>
+  <li><b>N</b> spawns a cube, <b>G</b> deletes the last spawned one, <b>Delete</b> removes the selection, <b>Ctrl+D</b> duplicates it.</li>
+</ul>
+</section>
+
+<section class="doc" data-group="Editor" id="editor-hierarchy">
+<h2>Hierarchy panel</h2>
+<p>A tree of entities with a <b>+</b> button, search, and right-click Create. Row menu: Duplicate, Delete, Unparent, Frame.</p>
+<ul>
+  <li><b>Drag</b> an entity onto another to parent it, or onto empty space to make it a root (world placement is kept).</li>
+  <li>Prefab instances are shown in blue.</li>
+  <li>Drop assets on a row: a model or prefab becomes its child; textures, scripts and sounds are applied to it.</li>
+</ul>
+</section>
+
+<section class="doc" data-group="Editor" id="editor-inspector">
+<h2>Inspector</h2>
+<p>Shows the selected entity's components as collapsible sections: Transform (local values, "Relative to &lt;parent&gt;", Unparent), Mesh Renderer, lights, Spin, Orbit, Rigid Body, Collider, Particle Emitter, Animator (clip, layers, events, IK), Script, Camera, Audio Source.</p>
+<ul>
+  <li><b>Add Component</b> at the bottom; each section can be removed.</li>
+  <li>Asset fields (Geometry, Texture, Script, Clip) accept drag and drop from the Assets panel.</li>
+  <li>The <b>prefab section</b> lists overrides (each with Revert), Apply to prefab, Revert all and Unpack — or <i>Save as prefab…</i> for a plain entity.</li>
+  <li>During Play, Rigid Body changes apply on the next Play.</li>
+</ul>
+</section>
+
+<section class="doc" data-group="Editor" id="editor-scenesettings">
+<h2>Scene Settings</h2>
+<table>
+<tr><th>Section</th><th>Contents</th></tr>
+<tr><td>Environment</td><td>Sky map (.hdr), show sky, blur, rotation, ambient intensity</td></tr>
+<tr><td>Shadows</td><td>On/off, cascades, shadow distance, split, biases, sun extent</td></tr>
+<tr><td>Post Processing</td><td>Exposure, tone map, gamma, FXAA, AO, bloom</td></tr>
+<tr><td>Physics</td><td>Gravity</td></tr>
+<tr><td>Audio</td><td>Audio status and volume</td></tr>
+<tr><td>Scripts</td><td>Script status and recent errors</td></tr>
+</table>
+<p>These are saved in the scene file. They are not part of undo.</p>
+</section>
+
+<section class="doc" data-group="Editor" id="editor-console">
+<h2>Console</h2>
+<p>Every log line (engine, game and Lua <code>log()</code>/<code>print()</code>) with level filters, search and auto-scroll. Script errors appear here with the file and callback that failed; the failing script is switched off.</p>
+</section>
+
+<section class="doc" data-group="Editor" id="editor-assets">
+<h2>Assets panel</h2>
+<p>Browse <code>Assets/</code> with a folder tree, breadcrumb, search over all assets, and tiles (texture thumbnails, typed badges) or a list.</p>
+<table>
+<tr><th>Double-click on</th><th>Does</th></tr>
+<tr><td>Folder</td><td>Opens it</td></tr>
+<tr><td>Scene</td><td>Opens the scene</td></tr>
+<tr><td>Model / prefab</td><td>Places it in front of the camera</td></tr>
+<tr><td>Sound</td><td>Plays it</td></tr>
+<tr><td>.hdr</td><td>Sets it as the sky</td></tr>
+<tr><td>Dialogue</td><td>Opens it in the Dialogue Editor</td></tr>
+<tr><td>Anything else</td><td>Opens it with its Windows program</td></tr>
+</table>
+<p><b>Drag</b> files onto the viewport (models/prefabs land on the surface under the mouse; textures/scripts/sounds go to the object under the mouse; .hdr becomes the sky), onto Hierarchy rows, or onto Inspector fields. <b>Right-click</b>: New Script (from a template), New Folder, Rename, Delete (to the Recycle Bin), Show in Explorer, Copy Path.</p>
+<div class="note">Renames and deletes do not update references in scenes or scripts.</div>
+</section>
+
+<section class="doc" data-group="Editor" id="editor-undo">
+<h2>Undo &amp; redo</h2>
+<p>Every scene edit is undoable without per-feature code: after each interaction the editor compares the scene with the last state and stores a new whole-scene snapshot if anything changed (up to 100). A whole drag or a typed name is one step, labelled like "Move Player" or "Delete Lava".</p>
+<p><b>Ctrl+Z</b> undo, <b>Ctrl+Y</b> or <b>Ctrl+Shift+Z</b> redo (Edit mode only). Scene settings and the editor camera are not tracked. Quitting or loading with unsaved changes asks first.</p>
+</section>
+
+<section class="doc" data-group="Editor" id="editor-play">
+<h2>Play mode</h2>
+<ul>
+  <li><b>Ctrl+P</b> or the toolbar starts Play: the scene is snapshotted and physics, scripts, animation and audio run.</li>
+  <li><b>Pause</b> and <b>Step One Frame</b>; <b>Stop</b> restores the snapshot (changes are discarded).</li>
+  <li><b>Play Through Game Camera</b>: the viewport shows the primary Camera entity. Gizmos, picking and editor shortcuts are off then (except Esc, Ctrl+P, F1, F5), so games can use those keys.</li>
+  <li><b>F5</b> reloads shaders, and scripts too while playing.</li>
+  <li><b>Esc</b> stops Play; in Edit mode it quits (asking about unsaved changes).</li>
+  <li>Level changes during Play bring their own render settings; Stop puts yours back.</li>
+</ul>
+</section>
+
+<section class="doc" data-group="Editor" id="editor-prefabs">
+<h2>Prefabs in the editor</h2>
+<ol>
+  <li>Select an entity (with children if you like) and click <b>Save as prefab…</b> in the Inspector.</li>
+  <li>Place instances with <b>Create &gt; Prefab</b>, the Hierarchy <b>+</b>, or by dragging the prefab from Assets.</li>
+  <li>Edit an instance; its overrides are listed in the Inspector. <b>Apply to prefab</b> updates the prefab and every other instance (they keep their own overrides).</li>
+</ol>
+</section>
+
+<section class="doc" data-group="Editor" id="editor-examples">
+<h2>Example levels</h2>
+<table>
+<tr><th>Level</th><th>Shows</th></tr>
+<tr><td><b>Script Demo</b> (<code>demo.json</code>)</td><td>Scripting playground: an animated fox (<code>wander.lua</code>), coins, a pad, a spawner, a cutout fence and stained glass</td></tr>
+<tr><td><b>Coin Rush</b> (<code>coin_rush.json</code>)</td><td>A small game: title screen, collect 8 coins in 2 minutes, lava, sweeper, bounce pad, HUD</td></tr>
+<tr><td><b>Tactics Test</b> (<code>tactics_test.json</code>)</td><td>CRPG prototype: click-to-move, turn-based grid combat, inventory (I), the Sage dialogue (T), save slots (F6/F9), chests, a pad to the cellar</td></tr>
+<tr><td><b>Tactics Cellar</b> (<code>tactics_cellar.json</code>)</td><td>The second level, reached from the yard's glowing pad</td></tr>
+</table>
+<p>File &gt; Example Levels builds them in code (undoable); the saved scene files can also be opened directly.</p>
+</section>
+
+<section class="doc" data-group="Editor" id="editor-dialogue">
+<h2>Dialogue Editor</h2>
+<p>A node-graph editor for dialogue trees. Open it with <b>Window &gt; Dialogue Editor</b> or by double-clicking a file in <code>Assets/Dialogues</code>.</p>
+<h3>Canvas</h3>
+<table>
+<tr><th>Input</th><th>Action</th></tr>
+<tr><td>Drag a node</td><td>Move it</td></tr>
+<tr><td>Drag from an output pin onto a node</td><td>Link (the line or choice leads there)</td></tr>
+<tr><td>Drag from a pin onto empty space</td><td>Create a new linked node</td></tr>
+<tr><td>Right-click a pin</td><td>Unlink</td></tr>
+<tr><td>Right-click a node / empty space</td><td>Node menu (Start Here, Add Choice, Duplicate, Delete) / Add node</td></tr>
+<tr><td>Double-click empty space</td><td>New line node</td></tr>
+<tr><td>Wheel / right or middle drag</td><td>Zoom / pan</td></tr>
+<tr><td>F</td><td>Frame everything</td></tr>
+<tr><td>Ctrl+S, Ctrl+Z / Ctrl+Y, Delete, Ctrl+D</td><td>Save, undo/redo, delete node, duplicate</td></tr>
+</table>
+<h3>Properties panel</h3>
+<p>Edit the selected node: type, speaker (with a list of names already used), text (with a wrapped preview), the action/event run when shown, and each choice's text, target, condition, "show greyed out" with its reason, and the action/event run when picked. With nothing selected it shows the start node and a <b>problems list</b> (broken links, unreachable nodes, empty text) — click one to jump to it.</p>
+<p>Node headers are coloured by type (line blue, branch purple, action orange); the start node has a green START badge. Unsaved changes are asked about before New, Open or quitting.</p>
+</section>
+
+<section class="doc" data-group="Editor" id="editor-shortcuts">
+<h2>Keyboard shortcuts</h2>
+<table>
+<tr><th>Keys</th><th>Action</th></tr>
+<tr><td>Ctrl+N / Ctrl+S / Ctrl+Shift+S</td><td>New / Save / Save As scene</td></tr>
+<tr><td>Ctrl+Z / Ctrl+Y, Ctrl+Shift+Z</td><td>Undo / Redo</td></tr>
+<tr><td>Ctrl+D / Delete</td><td>Duplicate / delete selection</td></tr>
+<tr><td>Ctrl+P</td><td>Play / Stop</td></tr>
+<tr><td>Q / W / E / R</td><td>Select / Move / Rotate / Scale</td></tr>
+<tr><td>F</td><td>Frame selected</td></tr>
+<tr><td>N / G</td><td>Spawn a cube / delete the last spawned</td></tr>
+<tr><td>T (Play)</td><td>Throw a ball</td></tr>
+<tr><td>F1 / F11</td><td>Hide panels / full screen</td></tr>
+<tr><td>F5</td><td>Reload shaders (and scripts while playing)</td></tr>
+<tr><td>Esc</td><td>Stop Play, or quit in Edit mode</td></tr>
+<tr><td>Alt + mouse, wheel</td><td>Orbit, pan, dolly</td></tr>
+</table>
+</section>
+
+<!-- ===================================================================================================== SCRIPTING -->
+<div class="part Scripting" id="part-scripting" data-part="Scripting">
+  <h1>Scripting</h1>
+  <p>Lua 5.4. Every entity with a Script component runs its file during Play, in its own environment.</p>
+</div>
+
+<section class="doc" data-group="Scripting" id="script-start">
+<h2>Getting started</h2>
+<ol>
+  <li>Assets panel &gt; right-click &gt; <b>New Script</b> (or create <code>Assets/Scripts/spin_up.lua</code>).</li>
+  <li>Drag it onto an entity (or Inspector &gt; Add Component &gt; Script).</li>
+  <li>Press Play. Edit and press <b>F5</b> to reload while playing.</li>
+</ol>
+<pre><code class="lua">-- spin_up.lua: rises and turns
+local speed = 1.5
+
+function on_create(self)
+    log("hello from " .. self.name)
+end
+
+function on_update(self, dt)
+    local p = self.position
+    self.position = vec3(p.x, p.y + 0.2 * dt, p.z)
+    self.rotation = self.rotation + vec3(0, speed * dt, 0)
+end</code></pre>
+<p>Each entity gets its own copy of the script's globals. A script that errors is switched off and the error appears in the Console.</p>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-callbacks">
+<h2>Callbacks</h2>
+<table>
+<tr><th>Callback</th><th>When</th></tr>
+<tr><td><code>on_create(self)</code></td><td>Once, when Play starts or the entity appears</td></tr>
+<tr><td><code>on_update(self, dt)</code></td><td>Every simulated frame</td></tr>
+<tr><td><code>on_destroy(self)</code></td><td>On Stop, reload, or when a script destroys it</td></tr>
+<tr><td><code>on_collision_begin(self, other, hit)</code></td><td>Started touching (<code>hit.point</code>, <code>hit.normal</code>)</td></tr>
+<tr><td><code>on_collision_end(self, other)</code></td><td>Stopped touching (<code>other</code> may be gone: <code>other:valid()</code>)</td></tr>
+<tr><td><code>on_trigger_enter / exit(self, other)</code></td><td>A trigger overlap started / ended</td></tr>
+<tr><td><code>on_anim_event(self, name, clip)</code></td><td>An animation event fired (or <code>"end"</code>)</td></tr>
+<tr><td><code>on_event(self, name, data)</code></td><td>Someone called <code>events.emit</code></td></tr>
+<tr><td><code>on_save(self)</code> → table</td><td>A save or level change stores what it returns</td></tr>
+<tr><td><code>on_load(self, data)</code></td><td>Right after <code>on_create</code> when the level is restored</td></tr>
+</table>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-vec3">
+<h2>vec3</h2>
+<p>Values are copies: change one and assign it back.</p>
+<pre><code class="lua">local v = vec3(1, 2, 3) + vec3(0, 1, 0) * 2      -- + - * / and unary -
+local len = v:length()
+local dir = v:normalize()
+local d = dir:dot(vec3(0, 1, 0))
+local side = dir:cross(vec3(0, 1, 0))
+
+local p = self.position
+p.y = 2
+self.position = p                                 -- assign back</code></pre>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-entity">
+<h2>Entities</h2>
+<table>
+<tr><th>Member</th><th>Meaning</th></tr>
+<tr><td><code>e.name</code>, <code>e.position</code>, <code>e.rotation</code>, <code>e.scale</code></td><td>Read/write, local to the parent (rotation in radians)</td></tr>
+<tr><td><code>e.world_position</code></td><td>Read/write, world space</td></tr>
+<tr><td><code>e.forward</code>, <code>e.right</code>, <code>e.up</code></td><td>World directions (read-only)</td></tr>
+<tr><td><code>e:look_at(target [, up])</code></td><td>Turn to face a point (local −Z forward)</td></tr>
+<tr><td><code>e.parent</code>, <code>e:children()</code></td><td>Hierarchy (setting <code>parent</code> keeps the world placement)</td></tr>
+<tr><td><code>e:valid()</code>, <code>e:destroy()</code>, <code>e:clone()</code></td><td>Lifetime</td></tr>
+<tr><td><code>e.uid</code>, <code>e.id</code></td><td>Stable ID (kept by saves) / runtime handle</td></tr>
+<tr><td><code>e.transient</code></td><td>True: never saved (markers, effects)</td></tr>
+<tr><td><code>e:has(kind)</code>, <code>e:remove(kind)</code></td><td>Kinds: mesh body collider light sun script spin orbit camera audio animator particles</td></tr>
+</table>
+<pre><code class="lua">local target = scene.find("Player")
+if target and target:valid() then
+    self:look_at(target.world_position + vec3(0, 1, 0))
+end
+local copy = self:clone()
+copy.position = self.position + self.right * 2</code></pre>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-mesh">
+<h2>Mesh &amp; lights</h2>
+<pre><code class="lua">self:add_mesh{ geometry = "model:Models/Fox.glb", fit = 1.6 }      -- scaled to 1.6 m, standing on the origin
+self:add_mesh{ geometry = "cube", texture = "checker", color = vec3(0.3, 0.6, 1),
+               metallic = 0, roughness = 0.4, emissive = vec3(0, 0, 0), cast_shadows = true, static = false }
+
+local m = self.mesh                 -- nil without a Mesh Renderer
+m.color = vec3(1, 0.2, 0.2)
+m.opacity = 0.5                     -- below 1: see-through ("blend")
+m.alpha_mode = "cutout"; m.alpha_cutoff = 0.4
+m.geometry = "sphere"
+
+self:add_light{ color = vec3(1, 0.8, 0.5), intensity = 2, shadows = true }
+self.light.intensity = 0.5</code></pre>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-physics">
+<h2>Physics bodies</h2>
+<pre><code class="lua">self:add_body{ type = "dynamic", shape = "box", size = vec3(1, 1, 1), mass = 3,
+               friction = 0.6, bounciness = 0.2, velocity = vec3(0, 5, 0) }
+self:add_body{ type = "kinematic", shape = "capsule", size = vec3(0.6, 1.8, 0) }   -- diameter, height
+self:add_body{ type = "static", shape = "box", trigger = true }                      -- a trigger volume
+child:add_collider{ shape = "sphere", size = 0.5, center = vec3(0, 1, 0) }         -- compound part
+
+local b = self.body
+b.velocity = vec3(0, 6, 0)
+b:add_force(vec3(0, 0, 20))         -- newtons, this frame only: call every frame
+b:add_impulse(vec3(0, 5, 0))        -- once
+
+local hit = scene.raycast(self.position, vec3(0, -1, 0), 10, self)
+if hit then log("ground at " .. hit.distance .. " m: " .. hit.entity.name) end</code></pre>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-camera-audio">
+<h2>Camera &amp; audio</h2>
+<pre><code class="lua">self:add_camera{ fov = 50, near = 0.1, far = 500, primary = true }
+self.camera.fov = 60
+
+audio.play("Sounds/coin.wav", { volume = 0.8 })                     -- 2D one-shot
+audio.play_at("Sounds/thud.wav", self.position, { pitch = 1.1 })   -- 3D one-shot
+self:add_audio("Sounds/lava_loop.wav", { loop = true, spatial = true, min_distance = 2, max_distance = 14 })
+self.audio.volume = 0.5; self.audio:stop(); self.audio:play()</code></pre>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-particles">
+<h2>Particles</h2>
+<pre><code class="lua">self:add_particles("Fire")                         -- presets: Fire Smoke Sparks Magic Dust Embers
+self:add_particles{ preset = "Smoke", rate = 10, additive = false, texture = "texture:Textures/x.png" }
+
+local p = self.particles
+p.rate = 40; p.emitting = false; p:burst(25); p:clear(); p:preset("Magic")
+p.start_color = vec3(1, 0.8, 0.2); p.end_color = vec3(1, 0, 0)
+
+scene.spawn_particles(self.position, "Sparks")    -- one-shot effect, removes itself</code></pre>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-animation">
+<h2>Animation</h2>
+<pre><code class="lua">self:add_animator{ clip = "Walk", speed = 1, loop = true, blend = 0.25 }
+local a = self.animator
+a:play("Run", 0.3)                       -- cross-fade over 0.3 s
+log(table.concat(a:clips(), ", "), a:duration("Run"))
+a.speed = 1.5; a.time = 0
+
+-- events: on_anim_event fires when playback crosses them
+a:add_event("Walk", 0.45, "step")
+a:add_event("Walk", 0.10, "sound:Sounds/step.wav")      -- plays the sound instead
+function on_anim_event(self, name, clip) if name == "step" then log("step") end end
+
+-- layers: another clip on a bone and its children
+a:set_layer(1, { clip = "Survey", mask = "b_Neck_04", weight = 0, additive = true })
+a:layer_weight(1, 1, 0.5)                -- fade to 1 over 0.5 s
+
+-- IK
+a:set_ik(1, { type = "look", bone = "b_Head_05", target = scene.find("Player"), max_angle = 70, chain = 2 })
+a:set_ik(2, { type = "limb", bone = "b_RightHand", target = vec3(1, 1, 0), pole = vec3(0, 0, 1) })
+a:ik_weight(1, 0.5)
+local head = a:bone_position("b_Head_05")</code></pre>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-scene">
+<h2>Scene functions</h2>
+<table>
+<tr><th>Function</th><th>Result</th></tr>
+<tr><td><code>scene.find(name)</code> / <code>scene.find_all(name)</code></td><td>First entity / all entities with that name</td></tr>
+<tr><td><code>scene.find_uid(uid)</code></td><td>The entity with that stable ID</td></tr>
+<tr><td><code>scene.spawn(name [, pos])</code></td><td>A new empty entity</td></tr>
+<tr><td><code>scene.spawn_prefab(name [, pos])</code></td><td>A prefab instance (nil if missing)</td></tr>
+<tr><td><code>scene.raycast(origin, dir, dist [, ignore])</code></td><td>nil or <code>{ entity, point, normal, distance }</code></td></tr>
+<tr><td><code>scene.screen_ray(x, y)</code></td><td>Ray origin, direction through the game camera</td></tr>
+<tr><td><code>scene.pick(x, y [, dist])</code></td><td>What is under a screen point</td></tr>
+<tr><td><code>scene.time()</code></td><td>Seconds since Play started</td></tr>
+<tr><td><code>scene.restart()</code> / <code>scene.quit()</code></td><td>Restart the level / close the game (the editor stops Play)</td></tr>
+<tr><td><code>scene.is_loading()</code></td><td>True while a restored level runs on_create / on_load</td></tr>
+<tr><td><code>scene.render_stats()</code></td><td>draw_calls, triangles, instances, culled, shadow_skipped, particles, static_batches, static_merged</td></tr>
+</table>
+<pre><code class="lua">-- click the ground to place a marker
+local mx, my, inside = ui.mouse()
+if inside and not ui.wants_mouse() and input.mouse_pressed(Mouse.Left) then
+    local hit = scene.pick(mx, my)
+    if hit then scene.spawn("Marker", hit.point):add_mesh{ geometry = "sphere" } end
+end</code></pre>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-input">
+<h2>Input</h2>
+<pre><code class="lua">if input.key_down(Key.W) then ... end            -- held
+if input.key_pressed(Key.Space) then ... end     -- this frame only
+if input.key_released(Key.E) then ... end
+if input.mouse_pressed(Mouse.Left) then ... end
+local x, y = input.mouse_position()              -- window pixels
+local ux, uy, inside = ui.mouse()                -- 0..1 over the game view</code></pre>
+<p>Keys: <code>Key.A</code>…<code>Key.Z</code>, <code>Key.Num0</code>…<code>Key.Num9</code>, <code>Key.F1</code>…<code>Key.F12</code>, <code>Key.Space</code>, <code>Key.Enter</code>, <code>Key.Escape</code>, <code>Key.Tab</code>, arrows (<code>Key.Left</code>…), <code>Key.LeftShift</code>, <code>Key.LeftCtrl</code>, <code>Key.LeftAlt</code>. Mouse: <code>Mouse.Left</code>, <code>Mouse.Right</code>, <code>Mouse.Middle</code>.</p>
+<div class="note">Key state is sampled once per frame; keys must be held across a frame to be seen.</div>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-shared">
+<h2>shared, game &amp; logging</h2>
+<ul>
+  <li><code>shared</code>: one table every script in the level sees (saved with the level).</li>
+  <li><code>game</code>: campaign data kept across level changes and saved (party, quests, gold).</li>
+  <li><code>log(...)</code> / <code>print(...)</code>: to the Console.</li>
+</ul>
+<pre><code class="lua">shared.score = (shared.score or 0) + 10
+game.gold = (game.gold or 0) + 25
+log("score", shared.score, "gold", game.gold)</code></pre>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-ui-positioned">
+<h2>UI: positioned</h2>
+<p>Immediate mode: call every frame. Coordinates are 0..1 of the view (top left origin); sizes are pixels at 720p.</p>
+<pre><code class="lua">ui.text("Score: " .. shared.score, 0.02, 0.03, { size = 28, color = vec3(1, 0.85, 0.4), align = "left" })
+ui.rect(0.01, 0.01, 0.3, 0.1, { color = vec3(0, 0, 0), alpha = 0.5, rounding = 8 })
+ui.bar(0.02, 0.9, 0.3, 0.03, hp / max_hp, { color = vec3(0.8, 0.2, 0.2), back = vec3(0.1, 0.1, 0.1) })
+ui.image("Textures/coin_icon.png", 0.02, 0.12, 0.03)             -- no height: keep aspect
+if ui.button("Play", 0.4, 0.5, 0.2, 0.08) then start_game() end    -- clicks on press</code></pre>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-ui-layout">
+<h2>UI: panels &amp; layout</h2>
+<p>Panels place their contents automatically. Sizes are in <b>units</b> (pixels at 720p). Every <code>begin_*</code> needs its <code>end_*</code>.</p>
+<pre><code class="lua">if not ui.begin_panel("quest", { x = 0.5, y = 0.5, anchor = "center", w = 420, title = "Quest", close = true }) then
+    show_quest = false                                    -- its x was clicked
+end
+ui.label("Find the {#ffcc66}old key{/} in the cellar.")
+ui.begin_row(8)
+    ui.image("Textures/Icons/scroll.png", { w = 32 })
+    ui.label("Reward: 50 gold", { muted = true })
+ui.end_row()
+ui.begin_scroll("log", 120)                               -- wheel / bar scrolling, clipped
+    for _, line in ipairs(entries) do ui.label(line) end
+ui.end_scroll()
+ui.end_panel()</code></pre>
+<table>
+<tr><th>Option</th><th>Meaning</th></tr>
+<tr><td><code>x, y</code> + <code>anchor</code></td><td>Where the panel sits: center, top, bottom, left, right, topleft, topright, bottomleft, bottomright</td></tr>
+<tr><td><code>w, h</code></td><td>Size in units; 0 = fit the content (auto-width panels don't wrap text)</td></tr>
+<tr><td><code>title, close, padding</code></td><td>Header, an x button, inner padding</td></tr>
+<tr><td><code>color, alpha, image, slice</code></td><td>Flat panel colour, or a 9-slice frame image</td></tr>
+</table>
+<p>Containers: <code>ui.begin_row([spacing])</code> (side by side, centred vertically), <code>ui.begin_column([width])</code> (a stack, e.g. inside a row), <code>ui.begin_scroll(id, height)</code>.</p>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-ui-widgets">
+<h2>UI: widgets</h2>
+<pre><code class="lua">ui.label("Plain, {#7fd27f}green{/}, {b}bold{/b}\nsecond line", { size = 18, align = "left", muted = false })
+if ui.button("Save", { w = 90, tooltip = "Save the game" }) then save() end   -- clicks on release
+ui.button("Locked", { disabled = true })
+ui.button("Selected", { selected = true, fill = true })
+ui.image("Textures/Icons/gem.png", { w = 48, h = 48 })
+ui.bar(0.7, { w = 200, h = 20, color = vec3(0.3, 0.5, 1), text = "Mana 7/10" })
+tab = ui.tabs("tabs", { "Items", "Quests" }, tab)
+ui.separator(); ui.space(10)
+ui.tooltip("Explains the widget just placed")</code></pre>
+<h3>Slots &amp; drag and drop</h3>
+<pre><code class="lua">-- a bag slot whose item can be dragged to another slot
+local clicked, dropped, right = ui.slot("bag" .. i, {
+    icon = item and item.icon, count = item and item.count or 0, tooltip = item and item.name,
+    drag = item and { from = "bag", index = i } or nil,      -- the value carried while dragging
+    accept = true })
+if dropped then move(dropped, { from = "bag", index = i }) end   -- the dragged slot's value
+if right then use(i) end</code></pre>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-ui-theme">
+<h2>UI: theme &amp; helpers</h2>
+<pre><code class="lua">ui.theme{ panel_color = vec3(0.06, 0.07, 0.1), panel_alpha = 0.9, panel_image = "Textures/panel_frame.png",
+          panel_slice = 20, title_color = vec3(1, 0.85, 0.4), text_size = 18, button_color = vec3(0.16, 0.2, 0.3),
+          accent_color = vec3(0.25, 0.45, 0.85), padding = 14, spacing = 8, rounding = 8, slot_size = 64 }
+
+if ui.wants_mouse() then return end          -- the pointer is over UI: not a world click
+local held = ui.dragging()                    -- the dragged value, or nil
+local x, y, w, h = ui.last_rect()             -- the widget just placed (0..1)
+local width = ui.text_width("Hello", 18, true)
+ui.simulate_pointer(0.5, 0.5, true)           -- tests: fake the pointer (call with no args to stop)</code></pre>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-nav">
+<h2>Navigation</h2>
+<pre><code class="lua">nav.bake{ cell_size = 1, agent_radius = 0.3, agent_height = 1.8, max_step = 0.4, max_slope = 40 }
+
+-- exploring: a free (any-angle) path to the exact point
+local path = nav.find_path(hero.position, target)
+if path then follow(path.points) end            -- path.complete is false if it only got close
+
+-- combat: grid path with step costs, cut at the movement budget
+local p = nav.find_path(from, to, { grid = true, diagonal = 1.5, max_cost = 6 })
+
+-- every cell within 6 points, for a movement range overlay
+for _, r in ipairs(nav.reachable(hero.position, 6, { diagonal = 1.5 })) do
+    draw_tile(r.position, r.cost)
+end
+
+local cell = nav.cell_at(pos)                   -- the cell under pos (right floor of a column)
+nav.set_blocked(cell, true)                     -- a unit stands here; paths go around
+local y = nav.height(pos)
+local ok = nav.line_clear(a, b)</code></pre>
+<p>Other: <code>nav.baked()</code>, <code>nav.cell_size()</code>, <code>nav.nearest(pos [, max_dist [, free]])</code>, <code>nav.cell_position(cell)</code>, <code>nav.is_blocked(cell)</code>, <code>nav.clear_blocked()</code>.</p>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-saves">
+<h2>Save games</h2>
+<pre><code class="lua">local ok, err = saves.save("slot1", "Cellar, 50 gold")   -- slot: letters, digits, _ and -
+if saves.exists("quick") then saves.load("quick") end      -- loads at the start of the next frame
+for _, s in ipairs(saves.list()) do                      -- newest first
+    log(s.slot, s.name, s.level, s.time, s.play_time)
+end
+saves.delete("slot1")
+
+-- a script's own variables
+local opened = false
+function on_save(self) return { opened = opened } end
+function on_load(self, data) opened = data.opened end
+
+-- don't spawn level content again when a saved level is restored
+function on_create(self)
+    if not scene.is_loading() then spawn_enemies() end
+end</code></pre>
+<p>Saved tables may hold nil, booleans, numbers, strings, <code>vec3</code>, entities (restored by uid) and nested tables.</p>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-levels">
+<h2>Levels</h2>
+<pre><code class="lua">-- go to another level; this one is kept as it is
+level.change("tactics_cellar.json", "From Yard", { carry = { companion } })
+
+-- in the new level: put the party at the entry (after a load it stands where it was saved)
+function on_create(self)
+    local entry = level.entry()
+    if level.arrived() and entry then
+        local spot = scene.find("Entry: " .. entry)
+        if spot then hero.position = spot.position end
+    end
+end
+
+log(level.current(), level.play_time())</code></pre>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-events">
+<h2>Events, data files &amp; libraries</h2>
+<pre><code class="lua">events.emit("door_opened", { door = self, by = "player" })   -- every script hears it this frame
+
+function on_event(self, name, data)
+    if name == "door_opened" then log("a door opened: " .. data.door.name) end
+end
+
+local items = data.load("Data/items.json")      -- any JSON under Assets, as a table (nil, error on failure)</code></pre>
+<p>Files in <code>Assets/Scripts/Lib/</code> run once in the shared globals when scripts start: put shared functions and tables there.</p>
+<pre><code class="lua">-- Assets/Scripts/Lib/util.lua
+util = {}
+function util.clamp(x, a, b) return math.max(a, math.min(b, x)) end</code></pre>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-dialogue">
+<h2>Dialogue</h2>
+<p>Dialogues are made in the <a href="#editor-dialogue">Dialogue Editor</a>. Play one from any script:</p>
+<pre><code class="lua">local talk
+function on_update(self, dt)
+    if not talk and input.key_pressed(Key.T) then
+        talk = dialogue.open("sage", { speaker = self })      -- Dialogues/sage.json
+    end
+    if talk and not talk:update() then talk = nil end        -- draws the default box until it ends
+end</code></pre>
+<p>Or give an entity <code>npc.lua</code>: it plays <code>Dialogues/&lt;its name in lower case&gt;.json</code> when the hero is close and presses T.</p>
+<h3>Inside a dialogue</h3>
+<ul>
+  <li><b>Conditions</b> are Lua expressions: <code>game.gold &gt;= 25</code>, <code>has_item("gem")</code>, <code>not game.met_sage</code>.</li>
+  <li><b>Actions</b> are Lua statements: <code>game.gold = game.gold - 25; give("potion")</code>.</li>
+  <li>They see the globals, <code>speaker</code> (the entity talking) and every function in <code>dialogue.helpers</code>.</li>
+  <li><b>Text</b> takes UI markup and <code>{=expr}</code>: <code>You have {=game.gold or 0} gold.</code></li>
+  <li><b>Events</b> go to every script's <code>on_event</code> with <code>{ dialogue, node, speaker }</code>; the runner also sends <code>dialogue_started</code> and <code>dialogue_ended</code>.</li>
+</ul>
+<pre><code class="lua">-- add your own helpers for dialogue code
+dialogue.helpers.reputation = function(faction) return (game.rep or {})[faction] or 0 end
+
+-- react to a dialogue event
+function on_event(self, name, data)
+    if name == "magic" and data.speaker == self then scene.spawn_particles(self.position, "Magic") end
+end
+
+-- draw it yourself instead of talk:update()
+ui.label(talk.speaker .. ": " .. talk.text)
+for i, o in ipairs(talk.options) do
+    if ui.button(o.text, { disabled = not o.enabled, tooltip = o.why }) then talk:choose(i) end
+end
+if #talk.options == 0 and ui.button("Continue") then talk:continue() end</code></pre>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-examples">
+<h2>Example scripts in the project</h2>
+<table>
+<tr><th>Script</th><th>What it does</th></tr>
+<tr><td><code>tactics.lua</code></td><td>Tactics controller: click-to-move, turn-based combat, HUD, toolbar, save slots</td></tr>
+<tr><td><code>tactics_camera.lua</code></td><td>Tactical follow camera, Q / E turn 45°</td></tr>
+<tr><td><code>inventory.lua</code></td><td>Bag and equipment in <code>game</code>, drag and drop, dialogue helpers</td></tr>
+<tr><td><code>npc.lua</code></td><td>Talk to an entity (plays its dialogue file)</td></tr>
+<tr><td><code>chest.lua</code></td><td>Opens when the hero is close: gold and an item; stays open in saves</td></tr>
+<tr><td><code>exit.lua</code></td><td>A pad that changes level (target in its name)</td></tr>
+<tr><td><code>Lib/dialogue.lua</code></td><td>The dialogue runner</td></tr>
+<tr><td><code>game.lua</code>, <code>player.lua</code>, <code>coin.lua</code>, <code>follow.lua</code>…</td><td>Coin Rush</td></tr>
+<tr><td><code>wander.lua</code></td><td>The animated fox: clip changes, layers and look-at IK</td></tr>
+<tr><td><code>*_test.lua</code></td><td>Automated tests (see <a href="#engine-testing">Testing</a>)</td></tr>
+</table>
+</section>
+
+<footer>MDB Engine documentation · generated from the source and CLAUDE.md · works offline (single file, no external resources).</footer>
+</main>
+<a class="toTop" href="#" title="Back to top">↑</a>
+
+<script>
+(function () {
+  "use strict";
+  const sections = Array.from(document.querySelectorAll("section.doc"));
+  const groups = ["Engine", "Editor", "Scripting"];
+  const nav = document.getElementById("nav");
+
+  // ---- sidebar, built from the sections
+  const links = new Map();
+  for (const g of groups) {
+    const box = document.createElement("div");
+    box.className = "group";
+    const t = document.createElement("div");
+    t.className = "gtitle";
+    t.innerHTML = '<span class="dot" style="background:var(--' + g.toLowerCase() + ')"></span>' + g + '<span class="arrow">▾</span>';
+    t.addEventListener("click", () => box.classList.toggle("closed"));
+    box.appendChild(t);
+    const ul = document.createElement("ul");
+    const first = document.createElement("li");
+    first.innerHTML = '<a href="#part-' + g.toLowerCase() + '"><b>' + g + ' overview</b></a>';
+    ul.appendChild(first);
+    for (const s of sections.filter(s => s.dataset.group === g)) {
+      const li = document.createElement("li");
+      const a = document.createElement("a");
+      a.href = "#" + s.id;
+      a.textContent = s.querySelector("h2").textContent;
+      li.appendChild(a);
+      ul.appendChild(li);
+      links.set(s.id, a);
+    }
+    box.appendChild(ul);
+    nav.appendChild(box);
+  }
+
+  // ---- anchors on headings
+  for (const s of sections) {
+    const h = s.querySelector("h2");
+    const a = document.createElement("a");
+    a.className = "anchor"; a.href = "#" + s.id; a.textContent = "#";
+    h.appendChild(a);
+  }
+
+  // ---- code: highlighting and copy buttons
+  const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const luaKw = /^(and|break|do|else|elseif|end|false|for|function|if|in|local|nil|not|or|repeat|return|then|true|until|while)$/;
+  const cppKw = /^(auto|const|float|int|bool|void|return|struct|class|if|else|for|true|false|nullptr|namespace|using)$/;
+  function highlight(code, lang) {
+    const text = code.textContent;
+    let re;
+    if (lang === "lua") re = /(--[^\n]*)|("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')|(\b\d+(?:\.\d+)?\b)|([A-Za-z_][A-Za-z0-9_]*)(\s*(?=\())?/g;
+    else if (lang === "cpp") re = /(\/\/[^\n]*)|("(?:[^"\\\n]|\\.)*")|(\b\d+(?:\.\d+)?f?\b)|([A-Za-z_][A-Za-z0-9_]*)(\s*(?=\())?/g;
+    else if (lang === "json") re = /(\/\/[^\n]*)|("(?:[^"\\\n]|\\.)*")|(\b-?\d+(?:\.\d+)?\b)|(\btrue\b|\bfalse\b|\bnull\b)()/g;
+    else if (lang === "sh") re = /(#[^\n]*)|("(?:[^"\n])*")|()()()/g;
+    else return;
+    let out = "", last = 0, m;
+    while ((m = re.exec(text)) !== null) {
+      if (m[0] === "") { re.lastIndex++; continue; }
+      out += esc(text.slice(last, m.index));
+      if (m[1]) out += '<span class="tk-c">' + esc(m[1]) + "</span>";
+      else if (m[2]) out += '<span class="tk-s">' + esc(m[2]) + "</span>";
+      else if (m[3]) out += '<span class="tk-n">' + esc(m[3]) + "</span>";
+      else if (m[4]) {
+        const kw = lang === "lua" ? luaKw : lang === "cpp" ? cppKw : /^(true|false|null)$/;
+        if (kw.test(m[4])) out += '<span class="tk-k">' + esc(m[4]) + "</span>" + esc(m[5] || "");
+        else if (m[5] !== undefined)                 // a name followed by "(": a call
+          out += '<span class="tk-f">' + esc(m[4]) + "</span>" + esc(m[5]);
+        else out += esc(m[0]);
+      }
+      else out += esc(m[0]);
+      last = re.lastIndex;
+    }
+    out += esc(text.slice(last));
+    code.innerHTML = out;
+  }
+  for (const code of document.querySelectorAll("pre code")) {
+    highlight(code, code.className);
+    const b = document.createElement("button");
+    b.className = "copy"; b.textContent = "Copy";
+    b.addEventListener("click", () => {
+      const done = () => { b.textContent = "Copied"; setTimeout(() => b.textContent = "Copy", 1200); };
+      if (navigator.clipboard) navigator.clipboard.writeText(code.textContent).then(done, () => {});
+      else { const r = document.createRange(); r.selectNodeContents(code); const s = getSelection(); s.removeAllRanges(); s.addRange(r); document.execCommand("copy"); done(); }
+    });
+    code.parentElement.appendChild(b);
+  }
+
+  // ---- search
+  const index = sections.map(s => ({
+    id: s.id, group: s.dataset.group, title: s.querySelector("h2").firstChild.textContent.trim(),
+    text: s.textContent.replace(/\s+/g, " ").trim(),
+  }));
+  const input = document.getElementById("search");
+  const box = document.getElementById("results");
+  let hits = [], sel = 0;
+
+  function score(entry, terms) {
+    const t = entry.title.toLowerCase(), b = entry.text.toLowerCase();
+    let total = 0;
+    for (const term of terms) {
+      let sc = 0;
+      if (t === term) sc += 120;
+      else if (t.startsWith(term)) sc += 60;
+      else if (t.includes(term)) sc += 40;
+      let i = b.indexOf(term), n = 0;
+      while (i !== -1 && n < 20) { n++; i = b.indexOf(term, i + term.length); }
+      sc += Math.min(n, 20) * 3;
+      if (sc === 0) return 0;          // every term must appear somewhere
+      total += sc;
+    }
+    return total;
+  }
+  function snippet(text, terms) {
+    const low = text.toLowerCase();
+    let at = -1;
+    for (const term of terms) { at = low.indexOf(term); if (at !== -1) break; }
+    const start = Math.max(0, at - 50);
+    let s = (start > 0 ? "…" : "") + text.slice(start, start + 150) + (start + 150 < text.length ? "…" : "");
+    s = esc(s);
+    for (const term of terms) {
+      const re = new RegExp("(" + term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")", "ig");
+      s = s.replace(re, "<mark>$1</mark>");
+    }
+    return s;
+  }
+  function render() {
+    const q = input.value.trim().toLowerCase();
+    if (!q) { box.style.display = "none"; return; }
+    const terms = q.split(/\s+/).filter(Boolean);
+    hits = index.map(e => ({ e, s: score(e, terms) })).filter(h => h.s > 0).sort((a, b) => b.s - a.s).slice(0, 30);
+    sel = 0;
+    if (!hits.length) { box.innerHTML = '<div class="none">Nothing matches “' + esc(q) + '”</div>'; box.style.display = "block"; return; }
+    box.innerHTML = hits.map((h, i) =>
+      '<a href="#' + h.e.id + '" data-i="' + i + '"' + (i === 0 ? ' class="sel"' : "") + '>' +
+      '<span class="badge b-' + h.e.group + '">' + h.e.group + '</span><span class="rt">' + esc(h.e.title) + '</span>' +
+      '<span class="rs">' + snippet(h.e.text, terms) + '</span></a>').join("");
+    box.style.display = "block";
+  }
+  function go(id) {
+    box.style.display = "none";
+    const s = document.getElementById(id);
+    if (!s) return;
+    location.hash = id;
+    s.classList.remove("flash"); void s.offsetWidth; s.classList.add("flash");
+    markIn(s, input.value.trim().toLowerCase().split(/\s+/).filter(Boolean));
+    document.body.classList.remove("navOpen");
+  }
+  // highlight the search terms inside the section (cleared on the next search)
+  function clearMarks() {
+    for (const m of document.querySelectorAll("main mark.hit")) m.replaceWith(document.createTextNode(m.textContent));
+    for (const s of sections) s.normalize();
+  }
+  function markIn(section, terms) {
+    clearMarks();
+    if (!terms.length) return;
+    const re = new RegExp("(" + terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")", "ig");
+    const walker = document.createTreeWalker(section, NodeFilter.SHOW_TEXT, {
+      acceptNode: n => n.parentElement.closest("button, .anchor") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    for (const n of nodes) {
+      if (!re.test(n.nodeValue)) continue;
+      re.lastIndex = 0;
+      const span = document.createElement("span");
+      span.innerHTML = esc(n.nodeValue).replace(re, '<mark class="hit">$1</mark>');
+      n.replaceWith(...span.childNodes);
+    }
+  }
+  input.addEventListener("input", render);
+  input.addEventListener("focus", render);
+  input.addEventListener("keydown", e => {
+    const items = box.querySelectorAll("a");
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      if (!items.length) return;
+      e.preventDefault();
+      items[sel] && items[sel].classList.remove("sel");
+      sel = (sel + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length;
+      items[sel].classList.add("sel");
+      items[sel].scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Enter") {
+      if (hits[sel]) { e.preventDefault(); go(hits[sel].e.id); }
+    } else if (e.key === "Escape") {
+      input.value = ""; box.style.display = "none"; clearMarks(); input.blur();
+    }
+  });
+  box.addEventListener("click", e => {
+    const a = e.target.closest("a");
+    if (a) { e.preventDefault(); go(a.getAttribute("href").slice(1)); }
+  });
+  document.addEventListener("click", e => { if (!e.target.closest(".searchWrap")) box.style.display = "none"; });
+  document.addEventListener("keydown", e => {
+    if ((e.key === "/" || (e.key === "k" && (e.ctrlKey || e.metaKey))) && document.activeElement !== input) {
+      e.preventDefault(); input.focus(); input.select();
+    }
+  });
+
+  // ---- the section being read is highlighted in the sidebar
+  const observer = new IntersectionObserver(entries => {
+    for (const en of entries) {
+      if (!en.isIntersecting) continue;
+      for (const a of links.values()) a.classList.remove("active");
+      const a = links.get(en.target.id);
+      if (a) { a.classList.add("active"); a.scrollIntoView({ block: "nearest" }); }
+    }
+  }, { rootMargin: "-70px 0px -70% 0px" });
+  sections.forEach(s => observer.observe(s));
+
+  // ---- small screens
+  document.getElementById("menuBtn").addEventListener("click", () => document.body.classList.toggle("navOpen"));
+  nav.addEventListener("click", e => { if (e.target.closest("a")) document.body.classList.remove("navOpen"); });
+})();
+</script>
+</body>
+</html>

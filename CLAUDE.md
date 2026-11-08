@@ -69,6 +69,7 @@ Assets/{Shaders,Models,Scenes,Environments,Scripts,Sounds,Prefabs,Textures}
 Assets/Models/Fox.glb       the animated sample (CC0 / CC BY 4.0, see Assets/Models/CREDITS.md)
 Tools/generate_sounds.ps1    synthesizes the example sounds in Assets/Sounds (deterministic; step.wav is the fox footstep)
 Tools/generate_ui_images.ps1 draws the example images in Assets/Textures (coin_icon, fence, window, Icons/*.png item icons, panel_frame and slot_frame 9-slice frames)
+Docs/index.html              the documentation (one offline page: Engine, Editor, Scripting; update it with new features)
 vendor/{glad,stb,imguizmo}
 ```
 
