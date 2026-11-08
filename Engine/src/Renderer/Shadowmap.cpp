@@ -42,8 +42,8 @@ namespace Engine {
 
     // ------------------------------------------------------------ sun
     DirectionalShadowMap::DirectionalShadowMap(uint32_t size) : m_Size(size) {
-        glCreateTextures(GL_TEXTURE_2D, 1, &m_Tex);
-        glTextureStorage2D(m_Tex, 1, GL_DEPTH_COMPONENT32F, (GLsizei)size, (GLsizei)size);
+        glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &m_Tex);
+        glTextureStorage3D(m_Tex, 1, GL_DEPTH_COMPONENT32F, (GLsizei)size, (GLsizei)size, (GLsizei)MaxCascades);
         glTextureParameteri(m_Tex, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTextureParameteri(m_Tex, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         // Outside the sun's area counts as "nothing in the way" = lit
@@ -53,7 +53,7 @@ namespace Engine {
         glTextureParameterfv(m_Tex, GL_TEXTURE_BORDER_COLOR, border);
 
         glCreateFramebuffers(1, &m_FBO);
-        glNamedFramebufferTexture(m_FBO, GL_DEPTH_ATTACHMENT, m_Tex, 0);
+        glNamedFramebufferTextureLayer(m_FBO, GL_DEPTH_ATTACHMENT, m_Tex, 0, 0);
         glNamedFramebufferDrawBuffer(m_FBO, GL_NONE);
         glNamedFramebufferReadBuffer(m_FBO, GL_NONE);
 
@@ -66,7 +66,8 @@ namespace Engine {
         glDeleteTextures(1, &m_Tex);
     }
 
-    void DirectionalShadowMap::Bind() const {
+    void DirectionalShadowMap::Bind(uint32_t cascade) const {
+        glNamedFramebufferTextureLayer(m_FBO, GL_DEPTH_ATTACHMENT, m_Tex, 0, (GLint)cascade);
         glBindFramebuffer(GL_FRAMEBUFFER, m_FBO);
         glViewport(0, 0, (GLsizei)m_Size, (GLsizei)m_Size);
         const float one = 1.0f;

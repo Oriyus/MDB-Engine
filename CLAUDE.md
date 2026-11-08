@@ -92,7 +92,7 @@ Dependencies: GLFW, glad, GLM, spdlog, EnTT, Dear ImGui (docking), ImGuizmo, ass
 ## Render pipeline (per frame, `SceneRenderer::Render`)
 
 0. `Scene::BuildDrawList`: every part that the camera or a light can see goes into a `DrawList` once, with its per-object data. Each view (the camera, every point-light cube face, the sun) gets its own index list into it, sorted into batches. Both are uploaded as storage buffers.
-1. Shadow passes: up to 4 point lights (cubemap array, 6 faces each) and one sun (ortho 2D map).
+1. Shadow passes: up to 4 point lights (cubemap array, 6 faces each) and one sun (cascaded, below) (ortho 2D map).
 2. Scene into an **HDR framebuffer** (RGBA16F color, an `R32I` entity-ID attachment used for click picking, and a depth texture).
    The shader is **PBR metallic-roughness** (Cook-Torrance GGX), with normal, metal/rough and emissive maps.
    Ambient comes from **IBL**: irradiance and prefiltered cubemaps baked from an HDR panorama, or a procedural sky if none is loaded.
@@ -134,5 +134,5 @@ Color spaces: lighting is done in linear space. Color pickers and albedo colors 
 - SSAO is a post-multiply (darkens direct light too), and its blur is not depth-aware.
 - Skeletal animation: one clip at a time plus a cross-fade (no layers, masks, root motion or IK), at most 128 bones and 4 weights per vertex, skinned on the GPU every pass. Static models are flattened, so they have no node hierarchy.
 - Transparency is sorted per entity (bounds centre), not per triangle: intersecting or concave see-through objects can show order errors. Back faces are culled, so a glass box shows only its front faces. Blended surfaces write no depth, so SSAO ignores them. They do write the entity ID, so clicking glass selects it.
-- The sun shadow area is fixed around the origin (no cascades).
+- **Cascaded sun shadows** (`ShadowSettings`: `SunCascades`, `CascadeCount` 1-4, `ShadowDistance`, `CascadeSplit`). `GatherShadowViews` splits the camera view from its near plane to the shadow distance (a blend of even and logarithmic slices), fits each slice with a bounding sphere (its size depends only on the lens, so it is stable while the camera turns) and snaps it to whole texels (`FitSunView`), so shadows do not shimmer. The views, splits and count live in the `DrawList`, so the shadow pass and the lit pass use the same ones. The sun map is a 2D array texture, one layer per cascade (2048, at most 4). `lit.frag` picks the cascade by view depth (`u_ViewRow`, row 2 of the view matrix), blends over the last 10% of a cascade into the next, and fades out at the shadow distance. Bias is a few texels of each cascade (`SunBias` scales it; 0.002 is the default). With `SunCascades` off, one view covers `SunExtent` around the origin, as before. Tools > "Show cascades" tints them (not saved). Cascade splits are a `float[]` uniform: indexing a `vec4` with a loop variable read wrong values on this NVIDIA driver.
 - Candidate next steps: cascaded sun shadows, static mesh merging, animation events/layers, a Vulkan backend.

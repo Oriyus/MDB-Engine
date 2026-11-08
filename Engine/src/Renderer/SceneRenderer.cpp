@@ -84,7 +84,7 @@ namespace Engine {
         I.HDR->Resize(width, height);
 
         // 1) Depth passes (all point lights + sun)
-        scene.BuildDrawList(*I.Draws, camera, I.Shadows.Settings.Enabled ? &I.Shadows.Settings : nullptr);
+        scene.BuildDrawList(*I.Draws, camera, &I.Shadows);
         scene.RenderShadows(I.Shadows, *I.Draws);
 
         // 2) Scene into the HDR framebuffer, then the sky behind it
@@ -181,6 +181,7 @@ namespace Engine {
         s.SkyRotation = I.Env->RotationDegrees;
         s.Post = Post;
         s.Post.AODebug = false;                  // a debug view, not part of the level
+        s.Shadows.CascadeDebug = false;          // likewise
         s.Shadows = I.Shadows.Settings;
         s.AORadius = I.AO->Radius;
         s.AOBias = I.AO->Bias;

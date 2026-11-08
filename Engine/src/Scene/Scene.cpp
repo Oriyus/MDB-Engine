@@ -18,6 +18,7 @@
 #include <random>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/matrix_access.hpp>
 #include <vector>
 
 namespace Engine {
@@ -371,14 +372,6 @@ namespace Engine {
         return false;
     }
 
-    // Orthographic camera looking along the sun direction at the origin
-    static glm::mat4 SunViewProjection(const glm::vec3& dir, const ShadowSettings& s) {
-        glm::vec3 up = std::abs(dir.y) > 0.99f ? glm::vec3(0, 0, 1) : glm::vec3(0, 1, 0);
-        glm::mat4 view = glm::lookAt(-dir * s.SunDistance, glm::vec3(0.0f), up);
-        glm::mat4 proj = glm::ortho(-s.SunExtent, s.SunExtent, -s.SunExtent, s.SunExtent, 0.1f, s.SunDistance * 2.0f);
-        return proj * view;
-    }
-
     // ---------------------------------------------------------------- draw list (batching + instancing)
     namespace {
         // The six planes of a view-projection matrix (Gribb/Hartmann); a point p is inside when
@@ -429,16 +422,35 @@ namespace Engine {
         return (an && !an->Palette.empty()) ? &an->Palette : &model->RestPalette();
     }
 
-    // The shadow views of this frame, in the order BuildDrawList fills DrawList::ShadowViews and
-    // RenderShadows draws them: the 6 cube faces of each shadowed point light, then the sun
-    struct ShadowView {
-        glm::mat4 ViewProj{ 1.0f };
-        int Light = -1;                     // index into GatherPointLights, -1 = the sun
-        int Face = 0;
-    };
+    constexpr float kSunBiasTexels = 3.0f;    // sun depth bias at the default SunBias, in shadow-map texels
 
+    // An orthographic sun view around a sphere (center, radius), looking along dir. Casters up to
+    // `back` behind the sphere still count. The centre is snapped to whole texels so shadows don't
+    // shimmer while the camera moves.
+    static ShadowView FitSunView(const glm::vec3& dir, glm::vec3 center, float radius, float back, uint32_t size, int cascade) {
+        const glm::vec3 up = std::abs(dir.y) > 0.99f ? glm::vec3(0, 0, 1) : glm::vec3(0, 1, 0);
+        const glm::mat4 rot = glm::lookAt(glm::vec3(0.0f), dir, up);
+        const float texel = 2.0f * radius / (float)size;
+        glm::vec3 lc = glm::vec3(rot * glm::vec4(center, 1.0f));
+        lc.x = std::floor(lc.x / texel) * texel;
+        lc.y = std::floor(lc.y / texel) * texel;
+        center = glm::vec3(glm::inverse(rot) * glm::vec4(lc, 1.0f));
+
+        ShadowView v;
+        const glm::vec3 eye = center - dir * (radius + back);
+        v.ViewProj = glm::ortho(-radius, radius, -radius, radius, 0.0f, 2.0f * radius + back) * glm::lookAt(eye, center, up);
+        v.Light = -1;
+        v.Face = cascade;
+        v.TexelWorld = texel;
+        v.DepthRange = 2.0f * radius + back;
+        return v;
+    }
+
+    // The shadow views of this frame, in the order BuildDrawList fills DrawList::ShadowViews and
+    // RenderShadows draws them: the 6 cube faces of each shadowed point light, then the sun cascades.
+    // Also sets list.CascadeSplits / CascadeCount.
     static std::vector<ShadowView> GatherShadowViews(Scene& scene, const ShadowSettings& s,
-        const std::vector<PointLightData>& lights) {
+        const std::vector<PointLightData>& lights, const Camera& camera, uint32_t sunSize, DrawList& list) {
         std::vector<ShadowView> views;
         if (!s.Enabled) return views;
         static const glm::vec3 dirs[6] = {
@@ -448,23 +460,68 @@ namespace Engine {
         const glm::mat4 proj = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, s.PointFar);
         for (int i = 0; i < (int)lights.size(); i++) {
             if (!lights[i].Shadows) continue;
-            for (int f = 0; f < 6; f++)
-                views.push_back({ proj * glm::lookAt(lights[i].Pos, lights[i].Pos + dirs[f], ups[f]), i, f });
+            for (int f = 0; f < 6; f++) {
+                ShadowView v;
+                v.ViewProj = proj * glm::lookAt(lights[i].Pos, lights[i].Pos + dirs[f], ups[f]);
+                v.Light = i;
+                v.Face = f;
+                views.push_back(v);
+            }
         }
+
         glm::vec3 sunDir, sunColor;
         bool sunShadows = false;
-        if (FindSun(scene, sunDir, sunColor, sunShadows) && sunShadows)
-            views.push_back({ SunViewProjection(sunDir, s), -1, 0 });
+        if (!FindSun(scene, sunDir, sunColor, sunShadows) || !sunShadows) return views;
+
+        if (!s.SunCascades) {
+            // The old fixed area: a box of SunExtent around the origin, never fading out
+            views.push_back(FitSunView(sunDir, glm::vec3(0.0f), s.SunExtent, s.SunDistance, sunSize, 0));
+            list.CascadeSplits = glm::vec4(1e9f);
+            list.CascadeCount = 1;
+            return views;
+        }
+
+        // Split the view from the near plane to ShadowDistance: a blend of even and logarithmic slices
+        const int count = std::clamp(s.CascadeCount, 1, (int)DirectionalShadowMap::MaxCascades);
+        const float n = std::max(camera.GetNear(), 0.05f);
+        const float f = std::max(std::min(s.ShadowDistance, camera.GetFar()), n + 1.0f);
+        const float lambda = std::clamp(s.CascadeSplit, 0.0f, 1.0f);
+        const float tanV = std::tan(glm::radians(camera.GetFov()) * 0.5f);
+        const float tanH = tanV * camera.GetAspect();
+        const glm::mat4 toWorld = glm::inverse(camera.GetView());
+
+        float sliceNear = n;
+        for (int c = 0; c < count; c++) {
+            const float t = (float)(c + 1) / (float)count;
+            const float sliceFar = lambda * n * std::pow(f / n, t) + (1.0f - lambda) * (n + (f - n) * t);
+            list.CascadeSplits[c] = sliceFar;
+
+            // A bounding sphere of the slice. Its size depends only on the lens and the depths, not on
+            // where the camera looks, so the cascade keeps its texel size while the camera turns.
+            const float zc = 0.5f * (sliceNear + sliceFar);
+            const float rNear = glm::length(glm::vec3(sliceNear * tanH, sliceNear * tanV, sliceNear - zc));
+            const float rFar = glm::length(glm::vec3(sliceFar * tanH, sliceFar * tanV, sliceFar - zc));
+            float radius = std::max(rNear, rFar);
+            radius = std::ceil(radius * 16.0f) / 16.0f;
+            const glm::vec3 center = glm::vec3(toWorld * glm::vec4(0.0f, 0.0f, -zc, 1.0f));
+
+            views.push_back(FitSunView(sunDir, center, radius, s.SunDistance, sunSize, c));
+            sliceNear = sliceFar;
+        }
+        list.CascadeCount = count;
         return views;
     }
 
-    void Scene::BuildDrawList(DrawList& list, const Camera& camera, const ShadowSettings* shadowSettings) {
+    void Scene::BuildDrawList(DrawList& list, const Camera& camera, const ShadowContext* shadows) {
+        const ShadowSettings* shadowSettings = (shadows && shadows->Settings.Enabled) ? &shadows->Settings : nullptr;
+        const uint32_t sunSize = (shadows && shadows->Sun) ? shadows->Sun->GetSize() : 2048u;
         list.Clear();
         const Frustum frustum(camera.GetViewProjection());
 
         // Shadow views: a frustum each, plus the light's reach as a sphere for a quick first test
         const auto lights = GatherPointLights(*this);
-        const auto views = shadowSettings ? GatherShadowViews(*this, *shadowSettings, lights) : std::vector<ShadowView>{};
+        list.Views = shadowSettings ? GatherShadowViews(*this, *shadowSettings, lights, camera, sunSize, list) : std::vector<ShadowView>{};
+        const auto& views = list.Views;
         std::vector<Frustum> viewFrusta;
         viewFrusta.reserve(views.size());
         for (const auto& v : views) viewFrusta.emplace_back(v.ViewProj);
@@ -573,7 +630,7 @@ namespace Engine {
         const ShadowSettings& s = ctx.Settings;
         if (!s.Enabled) return;
         const auto lights = GatherPointLights(*this);
-        const auto views = GatherShadowViews(*this, s, lights);
+        const auto& views = list.Views;                         // fitted by BuildDrawList
         if (views.size() != list.ShadowViews.size()) return;   // the list was built without shadows
         list.Bind();
 
@@ -611,7 +668,7 @@ namespace Engine {
                 if (!ctx.Sun || !ctx.SunDepth) continue;
                 Shader& sh = *ctx.SunDepth;
                 sh.Bind();
-                ctx.Sun->Bind();
+                ctx.Sun->Bind((uint32_t)view.Face);              // this cascade's layer
                 sh.SetMat4("u_LightVP", view.ViewProj);
                 drawCasters(sh, list.ShadowViews[v]);
             }
@@ -673,13 +730,24 @@ namespace Engine {
             shader.SetVec3("u_SunDir", sunDir);
             shader.SetVec3("u_SunColor", sunColor);
 
-            const bool useSunShadow = shadowsOn && ctx->Sun && sunShadows;
+            // The cascades were fitted by BuildDrawList; the shader picks one by view depth
+            const bool useSunShadow = shadowsOn && ctx->Sun && sunShadows && list.CascadeCount > 0;
             shader.SetInt("u_SunShadow", useSunShadow ? 1 : 0);
             if (useSunShadow) {
                 ctx->Sun->BindTexture(2);
-                shader.SetMat4("u_SunVP", SunViewProjection(sunDir, ctx->Settings));
-                shader.SetFloat("u_SunBias", ctx->Settings.SunBias);
-                shader.SetFloat("u_SunTexel", 2.0f * ctx->Settings.SunExtent / (float)ctx->Sun->GetSize());
+                shader.SetInt("u_CascadeCount", list.CascadeCount);
+                for (int c = 0; c < 4; c++) shader.SetFloat("u_CascadeSplits[" + std::to_string(c) + "]", list.CascadeSplits[c]);
+                shader.SetVec4("u_ViewRow", glm::row(camera.GetView(), 2));
+                shader.SetInt("u_CascadeDebug", ctx->Settings.CascadeDebug ? 1 : 0);
+                const float biasScale = ctx->Settings.SunBias / 0.002f;
+                for (const ShadowView& v : list.Views) {
+                    if (v.Light >= 0) continue;
+                    const std::string idx = "[" + std::to_string(v.Face) + "]";
+                    shader.SetMat4("u_SunVP" + idx, v.ViewProj);
+                    shader.SetFloat("u_SunTexel" + idx, v.TexelWorld);
+                    // Depth bias: a few texels of the cascade, in that cascade's depth units
+                    shader.SetFloat("u_SunBias" + idx, biasScale * kSunBiasTexels * v.TexelWorld / v.DepthRange);
+                }
             }
         }
 

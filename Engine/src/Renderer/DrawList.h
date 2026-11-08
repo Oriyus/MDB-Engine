@@ -45,6 +45,15 @@ namespace Engine {
         bool operator<(const DrawBatch& o) const;   // groups equal states together
     };
 
+    // One shadow view of the frame: a point-light cube face, or a sun cascade (Light = -1, Face = cascade)
+    struct ShadowView {
+        glm::mat4 ViewProj{ 1.0f };
+        int Light = -1;                     // index into the point lights, -1 = the sun
+        int Face = 0;                       // cube face, or the sun cascade
+        float TexelWorld = 0.0f;            // sun: size of one shadow-map texel in world units
+        float DepthRange = 1.0f;            // sun: world distance covered by depth 0..1
+    };
+
     // Everything one frame draws, built by Scene::BuildDrawList and uploaded once:
     //   Opaque       opaque and cutout parts inside the camera's view, grouped into instanced batches
     //   Transparent  see-through parts inside the view, back to front (equal neighbours still merge)
@@ -70,7 +79,10 @@ namespace Engine {
         std::vector<InstanceData> Instances;
         std::vector<uint32_t> Indices;
         std::vector<DrawBatch> Opaque, Transparent;
-        std::vector<std::vector<DrawBatch>> ShadowViews;
+        std::vector<std::vector<DrawBatch>> ShadowViews;    // the casters in each of Views
+        std::vector<ShadowView> Views;      // this frame's shadow views (each point-light face, then the sun cascades)
+        glm::vec4 CascadeSplits{ 0.0f };    // view depth where each sun cascade ends
+        int CascadeCount = 0;               // 0: no sun shadows this frame
         uint32_t Culled = 0;                // objects outside the camera view
         uint32_t ShadowSkipped = 0;         // (caster, shadow view) pairs skipped: outside that light's view
 

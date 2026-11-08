@@ -19,6 +19,9 @@ namespace Engine {
         Opaque.clear();
         Transparent.clear();
         for (auto& v : ShadowViews) v.clear();
+        Views.clear();
+        CascadeSplits = glm::vec4(0.0f);
+        CascadeCount = 0;
         Culled = 0;
         ShadowSkipped = 0;
     }

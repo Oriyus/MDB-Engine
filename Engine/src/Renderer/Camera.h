@@ -35,6 +35,10 @@ namespace Engine {
         // Roll is kept. Refresh/Orbit/Pan would go back to yaw/pitch, so don't mix the two.
         void SetPose(const glm::vec3& position, const glm::quat& rotation);
         void SetLens(float fovDegrees, float nearPlane, float farPlane);
+        float GetFov() const { return m_Fov; }          // vertical, degrees
+        float GetAspect() const { return m_Aspect; }
+        float GetNear() const { return m_Near; }
+        float GetFar() const { return m_Far; }
 
         glm::vec3 Position{ 0.0f, 0.0f, 4.0f };
         float OrbitSensitivity = 0.3f;   // degrees per pixel

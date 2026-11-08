@@ -884,7 +884,15 @@ private:
         ImGui::SliderFloat("Point bias", &s.PointBias, 0.005f, 0.3f);
         ImGui::SliderFloat("Point range", &s.PointFar, 5.0f, 100.0f);
         ImGui::SliderFloat("Sun bias", &s.SunBias, 0.0002f, 0.01f, "%.4f");
-        ImGui::SliderFloat("Sun area", &s.SunExtent, 4.0f, 40.0f);
+        ImGui::Checkbox("Sun cascades (follow the camera)", &s.SunCascades);
+        if (s.SunCascades) {
+            ImGui::SliderInt("Cascades", &s.CascadeCount, 1, 4);
+            ImGui::SliderFloat("Shadow distance", &s.ShadowDistance, 10.0f, 300.0f, "%.0f m");
+            ImGui::SliderFloat("Cascade split", &s.CascadeSplit, 0.0f, 1.0f, "%.2f");
+            ImGui::SetItemTooltip("0 = even slices, 1 = logarithmic (sharper near the camera)");
+            ImGui::Checkbox("Show cascades", &s.CascadeDebug);
+        }
+        else ImGui::SliderFloat("Sun area", &s.SunExtent, 4.0f, 40.0f);
         ImGui::SliderFloat("Ambient (sky)", &m_Scene.AmbientIntensity, 0.0f, 4.0f);
 
         ImGui::Separator();

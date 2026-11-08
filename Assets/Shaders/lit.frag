@@ -18,7 +18,7 @@ const float kUnlitGlow = 4.0;   // unlit objects (light markers) are drawn as ho
 
 uniform sampler2D        u_Texture;          // unit 0: albedo
 uniform samplerCubeArray u_PointShadowMaps;  // unit 1
-uniform sampler2D        u_SunShadowMap;     // unit 2
+uniform sampler2DArray   u_SunShadowMap;     // unit 2: one layer per cascade
 uniform sampler2D        u_NormalMap;        // unit 3
 uniform sampler2D        u_MetalRoughMap;    // unit 4
 uniform sampler2D        u_EmissiveMap;      // unit 5
@@ -47,9 +47,15 @@ uniform int   u_HasSun;
 uniform vec3  u_SunDir;
 uniform vec3  u_SunColor;
 uniform int   u_SunShadow;
-uniform mat4  u_SunVP;
-uniform float u_SunBias;
-uniform float u_SunTexel;
+// Cascaded sun shadows: cascade c covers view depth up to u_CascadeSplits[c]
+const int MAX_CASCADES = 4;
+uniform int   u_CascadeCount;
+uniform float u_CascadeSplits[MAX_CASCADES];   // a float array: indexing a vec4 by a loop variable misbehaves on some drivers
+uniform vec4  u_ViewRow;      // row 2 of the camera view matrix: view depth = -dot(u_ViewRow, (p, 1))
+uniform mat4  u_SunVP[MAX_CASCADES];
+uniform float u_SunBias[MAX_CASCADES];      // depth units of that cascade
+uniform float u_SunTexel[MAX_CASCADES];     // world size of one texel, for the normal offset
+uniform int   u_CascadeDebug;
 
 const vec3 kOffsets[20] = vec3[](
     vec3( 1,  1,  1), vec3( 1, -1,  1), vec3(-1, -1,  1), vec3(-1,  1,  1),
@@ -77,22 +83,49 @@ float PointShadow(int i, vec3 N, vec3 L) {
     return shadow / 20.0;
 }
 
-float SunShadow(vec3 N, vec3 L) {
-    vec4 lp = u_SunVP * vec4(v_WorldPos + N * u_SunTexel * 2.0, 1.0);
+float ViewDepth() { return -dot(u_ViewRow, vec4(v_WorldPos, 1.0)); }
+
+// The cascade covering this pixel, or u_CascadeCount when it is beyond the shadow distance
+int SunCascade(float depth) {
+    int c = 0;
+    while (c < u_CascadeCount && depth > u_CascadeSplits[c]) c++;
+    return c;
+}
+
+float SampleCascade(int c, vec3 N, vec3 L) {
+    vec4 lp = u_SunVP[c] * vec4(v_WorldPos + N * u_SunTexel[c] * 2.0, 1.0);
     vec3 p = lp.xyz / lp.w * 0.5 + 0.5;
     if (p.z > 1.0 || p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) return 0.0;
 
-    float bias = max(u_SunBias * (1.0 - dot(N, L)), u_SunBias * 0.1);
-    vec2 texel = 1.0 / vec2(textureSize(u_SunShadowMap, 0));
+    float bias = max(u_SunBias[c] * (1.0 - dot(N, L)), u_SunBias[c] * 0.1);
+    vec2 texel = 1.0 / vec2(textureSize(u_SunShadowMap, 0).xy);
 
     float shadow = 0.0;
     for (int x = -1; x <= 1; x++) {
         for (int y = -1; y <= 1; y++) {
-            float closest = textureLod(u_SunShadowMap, p.xy + vec2(x, y) * texel, 0.0).r;
+            float closest = textureLod(u_SunShadowMap, vec3(p.xy + vec2(x, y) * texel, float(c)), 0.0).r;
             shadow += (p.z - bias > closest) ? 1.0 : 0.0;
         }
     }
     return shadow / 9.0;
+}
+
+float SunShadow(vec3 N, vec3 L) {
+    float depth = ViewDepth();
+    int c = SunCascade(depth);
+    if (c >= u_CascadeCount) return 0.0;
+    float shadow = SampleCascade(c, N, L);
+
+    // The last 10% of a cascade blends into the next one; the last cascade fades out instead
+    float end = u_CascadeSplits[c];
+    float start = c == 0 ? 0.0 : u_CascadeSplits[c - 1];
+    float band = 0.1 * (end - start);
+    float t = clamp((depth - (end - band)) / max(band, 1e-4), 0.0, 1.0);
+    if (t > 0.0) {
+        if (c + 1 < u_CascadeCount) shadow = mix(shadow, SampleCascade(c + 1, N, L), t);
+        else shadow *= 1.0 - t;
+    }
+    return shadow;
 }
 
 // ------------------------------------------------------------ PBR building blocks
@@ -259,6 +292,13 @@ void main() {
     color += emissive * alpha;
     // Fade the reflections out too near alpha 0, so a fully faded object disappears
     if (blend) color *= min(1.0, alpha * 8.0);
+
+    // Debug view: tint each sun cascade (red, green, blue, yellow)
+    if (u_CascadeDebug == 1 && u_SunShadow == 1) {
+        const vec3 tints[4] = vec3[](vec3(1.0, 0.45, 0.45), vec3(0.45, 1.0, 0.45), vec3(0.45, 0.6, 1.0), vec3(1.0, 1.0, 0.4));
+        int c = SunCascade(ViewDepth());
+        if (c < u_CascadeCount) color *= tints[c];
+    }
 
     FragColor = vec4(color, alpha);
 }

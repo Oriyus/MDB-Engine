@@ -29,7 +29,9 @@ namespace Engine {
                              { "threshold", s.BloomThreshold },{ "knee", s.BloomKnee },
                              { "radius", s.BloomRadius },{ "maxBrightness", s.BloomMaxBrightness } } },
                 { "shadows", { { "enabled", sh.Enabled },{ "pointBias", sh.PointBias },{ "pointFar", sh.PointFar },
-                               { "sunBias", sh.SunBias },{ "sunExtent", sh.SunExtent },{ "sunDistance", sh.SunDistance } } },
+                               { "sunBias", sh.SunBias },{ "sunExtent", sh.SunExtent },{ "sunDistance", sh.SunDistance },
+                               { "sunCascades", sh.SunCascades },{ "cascadeCount", sh.CascadeCount },
+                               { "shadowDistance", sh.ShadowDistance },{ "cascadeSplit", sh.CascadeSplit } } },
                 { "physics", { { "gravity", s.Gravity } } },
                 { "camera", { { "position", s.CameraPosition },{ "yaw", s.CameraYaw },{ "pitch", s.CameraPitch },
                               { "focusDistance", s.CameraFocusDistance } } },
@@ -79,6 +81,10 @@ namespace Engine {
                 sh.SunBias = e->value("sunBias", sh.SunBias);
                 sh.SunExtent = e->value("sunExtent", sh.SunExtent);
                 sh.SunDistance = e->value("sunDistance", sh.SunDistance);
+                sh.SunCascades = e->value("sunCascades", sh.SunCascades);
+                sh.CascadeCount = std::clamp(e->value("cascadeCount", sh.CascadeCount), 1, 4);
+                sh.ShadowDistance = e->value("shadowDistance", sh.ShadowDistance);
+                sh.CascadeSplit = e->value("cascadeSplit", sh.CascadeSplit);
             }
             if (auto* e = section("physics"))
                 s.Gravity = e->value("gravity", s.Gravity);

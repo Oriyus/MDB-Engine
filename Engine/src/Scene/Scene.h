@@ -69,8 +69,8 @@ namespace Engine {
         void Clear();
         void OnUpdate(float dt);
         // Collect everything to draw this frame (camera-culled, batched for instancing) and upload it.
-        // shadows: also sort the casters into each shadow view (null: no shadows). The render calls below draw from it.
-        void BuildDrawList(DrawList& list, const Camera& camera, const ShadowSettings* shadows);
+        // shadows: also fit the shadow views (sun cascades follow the camera) and sort the casters into them (null: none). The render calls below draw from it.
+        void BuildDrawList(DrawList& list, const Camera& camera, const ShadowContext* shadows);
         void RenderShadows(ShadowContext& ctx, const DrawList& list);
         // Opaque: opaque and cutout surfaces. Transparent: see-through (Blend) ones, sorted back to front,
         // drawn after the sky.
