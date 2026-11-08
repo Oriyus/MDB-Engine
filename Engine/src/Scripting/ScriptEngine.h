@@ -56,13 +56,13 @@ namespace Engine {
     //   e:has(kind), e:remove(kind)     kind = "mesh" "body" "collider" "light" "sun" "script" "spin" "orbit" "camera" "audio" "animator"
     //   e.mesh   -> nil or { color, emissive, metallic, roughness, unlit, geometry ("cube" "sphere" ...),
     //               opacity (0..1; below 1 makes an opaque mesh "blend"), alpha_mode ("opaque" "cutout" "blend"),
-    //               alpha_cutoff, cast_shadows }
+    //               alpha_cutoff, cast_shadows, static (merged when Play starts; read-only in effect during Play) }
     //   e.light  -> nil or { color, intensity, shadows }
     //   e.body   -> nil or { velocity, angular_velocity, type, trigger, mass,
     //                         add_force(v) (newtons, lasts this frame: call each frame), add_impulse(v) }
     //   e:add_mesh{ geometry="cube"|"sphere"|"plane"|"model:Models/x.glb", texture="checker", color=vec3,
     //               metallic, roughness, emissive, unlit, fit=metres (models: scaled to that size, standing on the origin),
-    //               opacity, alpha_mode, alpha_cutoff, cast_shadows }
+    //               opacity, alpha_mode, alpha_cutoff, cast_shadows, static }
     //   e:add_body{ type="dynamic"|"static"|"kinematic", shape="box"|"sphere"|"capsule"|"convex"|"mesh"|"none", size=number|vec3,
     //               center=vec3, mass, friction, bounciness, trigger=bool, velocity=vec3 }
     //   e:add_collider{ shape="box"|"sphere"|"capsule"|"convex"|"mesh", size, center }   an extra shape for the
@@ -85,7 +85,7 @@ namespace Engine {
     //   audio.play(clip [, { volume, pitch }])             2D one-shot, e.g. "Sounds/coin.wav"
     //   audio.play_at(clip, position [, { volume, pitch }]) 3D one-shot, quieter with distance
     //   scene.quit()                         the game closes (in the editor: Play stops)
-    //   scene.render_stats() -> { draw_calls, triangles, instances, culled, shadow_skipped }   (the last frame; a debug HUD)
+    //   scene.render_stats() -> { draw_calls, triangles, instances, culled, shadow_skipped, static_batches, static_merged }   (the last frame; a debug HUD)
     //   ---- ui: drawn this frame only, in call order. x, y, w, h are 0..1 of the view (top left origin).
     //   ui.text(text, x, y [, { size=24, color=vec3, alpha=1, align="left"|"center"|"right" }])
     //   ui.rect(x, y, w, h [, { color, alpha, rounding }])                 rounding in px at 720p

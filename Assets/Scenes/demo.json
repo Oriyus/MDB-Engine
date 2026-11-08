@@ -1,7 +1,7 @@
 {
   "entities": [
     {
-      "id": 35481362186837795,
+      "id": 13926116220483895134,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "blend",
@@ -38,6 +38,7 @@
         "metallic": 0.0,
         "opacity": 1.0,
         "roughness": 0.10000000149011612,
+        "static": true,
         "texture": "texture:Textures/window.png",
         "unlit": false,
         "useModelMaterials": false
@@ -80,7 +81,7 @@
       }
     },
     {
-      "id": 5652116072840036271,
+      "id": 5959381812372998351,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
@@ -117,6 +118,7 @@
         "metallic": 0.0,
         "opacity": 1.0,
         "roughness": 0.699999988079071,
+        "static": true,
         "texture": "texture:Textures/fence.png",
         "unlit": false,
         "useModelMaterials": false
@@ -159,7 +161,7 @@
       }
     },
     {
-      "id": 1151051393917703386,
+      "id": 1170812030479318117,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
@@ -196,6 +198,7 @@
         "metallic": 0.0,
         "opacity": 1.0,
         "roughness": 0.699999988079071,
+        "static": true,
         "texture": "texture:Textures/fence.png",
         "unlit": false,
         "useModelMaterials": false
@@ -238,7 +241,7 @@
       }
     },
     {
-      "id": 14612852061361426084,
+      "id": 12539808020008748108,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
@@ -275,6 +278,7 @@
         "metallic": 0.0,
         "opacity": 1.0,
         "roughness": 0.699999988079071,
+        "static": true,
         "texture": "texture:Textures/fence.png",
         "unlit": false,
         "useModelMaterials": false
@@ -317,7 +321,7 @@
       }
     },
     {
-      "id": 10236373061391030267,
+      "id": 5575050000333861539,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
@@ -354,6 +358,7 @@
         "metallic": 0.0,
         "opacity": 1.0,
         "roughness": 0.699999988079071,
+        "static": true,
         "texture": "texture:Textures/fence.png",
         "unlit": false,
         "useModelMaterials": false
@@ -396,7 +401,7 @@
       }
     },
     {
-      "id": 320361112500212025,
+      "id": 6642842055450367142,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
@@ -433,6 +438,7 @@
         "metallic": 0.0,
         "opacity": 1.0,
         "roughness": 0.699999988079071,
+        "static": true,
         "texture": "texture:Textures/fence.png",
         "unlit": false,
         "useModelMaterials": false
@@ -482,7 +488,7 @@
         "playing": true,
         "speed": 1.0
       },
-      "id": 4197725490182956972,
+      "id": 2402384301254043289,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -519,6 +525,7 @@
         "metallic": 0.0,
         "opacity": 1.0,
         "roughness": 0.5,
+        "static": false,
         "texture": "",
         "unlit": false,
         "useModelMaterials": true
@@ -546,7 +553,7 @@
       }
     },
     {
-      "id": 10846429129367989677,
+      "id": 4786422138099196414,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -583,6 +590,7 @@
         "metallic": 0.0,
         "opacity": 1.0,
         "roughness": 0.3499999940395355,
+        "static": false,
         "texture": "checker",
         "unlit": false,
         "useModelMaterials": false
@@ -628,7 +636,7 @@
       }
     },
     {
-      "id": 6600830685034855180,
+      "id": 16708463769139852653,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -650,7 +658,7 @@
       }
     },
     {
-      "id": 11764757742829581494,
+      "id": 15976270203269050719,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -672,7 +680,7 @@
       }
     },
     {
-      "id": 13412061889902241292,
+      "id": 9347422335351496976,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -694,7 +702,7 @@
       }
     },
     {
-      "id": 13488819806461190494,
+      "id": 5376619853858077890,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -716,7 +724,7 @@
       }
     },
     {
-      "id": 5918866337200507839,
+      "id": 3646728212158446403,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -738,7 +746,7 @@
       }
     },
     {
-      "id": 8330148939711173997,
+      "id": 2298204316617293192,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -760,7 +768,7 @@
       }
     },
     {
-      "id": 18220330145778622126,
+      "id": 10649524381402071417,
       "name": "Spawner",
       "script": {
         "path": "Scripts/spawner.lua"
@@ -784,7 +792,7 @@
       }
     },
     {
-      "id": 3486216839903715399,
+      "id": 16633843256830805988,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -821,6 +829,7 @@
         "metallic": 0.0,
         "opacity": 1.0,
         "roughness": 0.5,
+        "static": false,
         "texture": "",
         "unlit": false,
         "useModelMaterials": false
@@ -875,7 +884,7 @@
         ],
         "intensity": 1.2000000476837158
       },
-      "id": 477345528638960398,
+      "id": 16451638299010232210,
       "name": "Sun",
       "transform": {
         "position": [
@@ -896,7 +905,7 @@
       }
     },
     {
-      "id": 5700653114623965596,
+      "id": 1718302887452480235,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -933,6 +942,7 @@
         "metallic": 0.0,
         "opacity": 1.0,
         "roughness": 0.8500000238418579,
+        "static": true,
         "texture": "checker",
         "unlit": false,
         "useModelMaterials": false
@@ -1018,10 +1028,14 @@
       "toneMap": 2
     },
     "shadows": {
+      "cascadeCount": 4,
+      "cascadeSplit": 0.75,
       "enabled": true,
       "pointBias": 0.05000000074505806,
       "pointFar": 30.0,
+      "shadowDistance": 60.0,
       "sunBias": 0.0020000000949949026,
+      "sunCascades": true,
       "sunDistance": 30.0,
       "sunExtent": 12.0
     }

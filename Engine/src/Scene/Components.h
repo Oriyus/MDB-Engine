@@ -92,6 +92,10 @@ namespace Engine {
         float Opacity = 1.0f;                     // 0..1, multiplies the texture's alpha
         float AlphaCutoff = 0.5f;                 // Cutout: drop pixels below this alpha
         bool  CastShadows = true;                 // see-through parts cast where alpha >= 0.5
+        // Static: never moves or changes while playing. Static parts with the same material are merged
+        // into a few big meshes when Play starts (Scene::BuildStaticBatches), saving per-object work.
+        bool  Static = false;
+        bool  Merged = false;                     // runtime: drawn by a static batch, not on its own (not saved)
     };
 
     struct PointLightComponent {

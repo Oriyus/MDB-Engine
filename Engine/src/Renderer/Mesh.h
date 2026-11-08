@@ -38,6 +38,7 @@ namespace Engine {
         void GetLocalBounds(glm::vec3& mn, glm::vec3& mx) const override { mn = m_Min; mx = m_Max; }
         void GetCollisionGeometry(std::vector<glm::vec3>& positions, std::vector<uint32_t>& indices) const override;
         uint32_t TriangleCount() const override { return (uint32_t)(m_Indices.size() / 3); }
+        bool GetPartVertices(int32_t part, std::vector<Vertex>& vertices, std::vector<uint32_t>& indices) const override;
 
         // Unit cube centered on the origin (1x1x1)
         static std::shared_ptr<Mesh> CreateCube();
@@ -49,6 +50,7 @@ namespace Engine {
         glm::vec3 m_Min{ -0.5f }, m_Max{ 0.5f };
         std::vector<glm::vec3> m_Positions;   // a CPU copy for physics colliders
         std::vector<uint32_t> m_Indices;
+        std::vector<Vertex> m_Vertices;       // a CPU copy for static merging (empty for skinned meshes)
     };
 
 } // namespace Engine

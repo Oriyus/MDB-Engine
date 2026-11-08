@@ -7,6 +7,7 @@
 #include "Renderer/Material.h"
 #include "Renderer/Environment.h"
 #include "Renderer/Model.h"
+#include "Renderer/Mesh.h"
 #include "Renderer/DrawList.h"
 #include "Renderer/RenderStats.h"
 #include "Core/Log.h"
@@ -15,6 +16,8 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <map>
+#include <tuple>
 #include <random>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -28,6 +31,8 @@ namespace Engine {
         m_Registry.on_construct<IDComponent>().connect<&Scene::OnIDChanged>(this);
         m_Registry.on_update<IDComponent>().connect<&Scene::OnIDChanged>(this);
         m_Registry.on_destroy<IDComponent>().connect<&Scene::OnIDChanged>(this);
+        // A merged static object going away (destroyed, or its Mesh Renderer removed) rebuilds the batches
+        m_Registry.on_destroy<MeshRendererComponent>().connect<&Scene::OnMeshRendererGone>(this);
     }
 
     Entity Scene::CreateEntity(const std::string& name) {
@@ -148,7 +153,10 @@ namespace Engine {
         m_Registry.get<TransformComponent>(e).Rotation = glm::eulerAngles(glm::normalize(glm::inverse(parentRot) * rotation));
     }
 
-    void Scene::Clear() { m_Registry.clear(); }
+    void Scene::Clear() {
+        m_Registry.clear();
+        ClearStaticBatches();        // merged meshes belong to the entities that are gone
+    }
 
     // ---------------------------------------------------------------- update systems
     void Scene::UpdateOrbitPositions() {
@@ -249,7 +257,10 @@ namespace Engine {
         m_Registry.emplace<IDComponent>(e, IDComponent{ s.ID != 0 ? s.ID : NewID() });
         m_Registry.emplace<TransformComponent>(e, s.Transform);
         if (s.Parent)           m_Registry.emplace<ParentComponent>(e, *s.Parent);
-        if (s.MeshRenderer)     m_Registry.emplace<MeshRendererComponent>(e, *s.MeshRenderer);
+        if (s.MeshRenderer) {
+            auto& mr = m_Registry.emplace<MeshRendererComponent>(e, *s.MeshRenderer);
+            mr.Merged = false;                 // a copy is drawn on its own (not part of any static batch)
+        }
         if (s.PointLight)       m_Registry.emplace<PointLightComponent>(e, *s.PointLight);
         if (s.DirectionalLight) m_Registry.emplace<DirectionalLightComponent>(e, *s.DirectionalLight);
         if (s.Spin)             m_Registry.emplace<SpinComponent>(e, *s.Spin);
@@ -301,7 +312,7 @@ namespace Engine {
     }
 
     entt::entity Scene::Restore(const SceneSnapshot& snap, int selectedIndex) {
-        m_Registry.clear();
+        Clear();                       // entities and any merged static meshes
         entt::entity selected = entt::null;
 
         // The registry iterates newest-first, and Capture stored them in that order.
@@ -512,6 +523,164 @@ namespace Engine {
         return views;
     }
 
+    // ---------------------------------------------------------------- static mesh merging
+    namespace {
+        constexpr float kStaticCell = 8.0f;        // merged meshes are split into cells this big (metres), for culling
+
+        // What a merged mesh shares: textures, alpha settings, the per-object material values and a cell
+        struct StaticKey {
+            const Texture2D* Albedo = nullptr; const Texture2D* Normal = nullptr;
+            const Texture2D* MetalRough = nullptr; const Texture2D* Emissive = nullptr;
+            int Mode = 0; float Cutoff = 0.5f;
+            glm::vec3 Color{ 1.0f }; float Alpha = 1.0f, Metallic = 0.0f, Roughness = 0.5f;
+            glm::vec3 EmissiveColor{ 0.0f };
+            int Unlit = 0, CastShadows = 1;
+            glm::ivec3 Cell{ 0 };
+            auto Tie() const {
+                return std::tie(Albedo, Normal, MetalRough, Emissive, Mode, Cutoff, Color.x, Color.y, Color.z, Alpha,
+                    Metallic, Roughness, EmissiveColor.x, EmissiveColor.y, EmissiveColor.z, Unlit, CastShadows,
+                    Cell.x, Cell.y, Cell.z);
+            }
+            bool operator<(const StaticKey& o) const { return Tie() < o.Tie(); }
+        };
+    }
+
+    void Scene::ClearStaticBatches() {
+        m_StaticBatches.clear();
+        m_StaticActive = false;
+        m_StaticDirty = false;
+        m_StaticMerged = 0;
+        for (auto [e, mr] : m_Registry.view<MeshRendererComponent>().each()) mr.Merged = false;
+    }
+
+    void Scene::OnMeshRendererGone(entt::registry& reg, entt::entity e) {
+        if (m_StaticActive && reg.get<MeshRendererComponent>(e).Merged) m_StaticDirty = true;
+    }
+
+    void Scene::BuildStaticBatches() {
+        ClearStaticBatches();
+        m_StaticActive = true;
+
+        struct Group { std::vector<Vertex> Vertices; std::vector<uint32_t> Indices; };
+        std::map<StaticKey, Group> groups;
+        std::vector<Vertex> partV;
+        std::vector<uint32_t> partI;
+
+        // Only unique meshes are merged. Copies of one mesh are already a single instanced draw, and each
+        // copy is still culled on its own, while a merged chunk goes into every light view it touches.
+        // Measured: 2500 static cubes and spheres took 4.3 ms a frame instanced against 5.0 ms merged
+        // (8 m cells) or 5.5 ms (16 m), and 6 copies of one model made 59 draws merged against 39.
+        std::map<const Renderable*, uint32_t> uses;
+        for (auto [e, mr] : m_Registry.view<MeshRendererComponent>().each())
+            if (mr.Static && mr.Geometry) uses[mr.Geometry.get()]++;
+
+        struct Part { StaticKey Key; std::vector<Vertex> V; std::vector<uint32_t> I; };
+        struct Candidate { MeshRendererComponent* MR; std::vector<Part> Parts; bool Keep = true; };
+        std::vector<Candidate> candidates;
+
+        for (auto [e, mr] : m_Registry.view<MeshRendererComponent>().each()) {
+            if (!mr.Static || !mr.Geometry || GetBonePalette(e, mr)) continue;
+            if (uses[mr.Geometry.get()] > 1) continue;                   // repeated: instancing handles it better
+            const uint32_t parts = mr.UseModelMaterials ? mr.Geometry->SubmeshCount() : 1;
+
+            // All or nothing: an entity with a see-through part (sorted per object) is drawn on its own
+            bool mergeable = true;
+            for (uint32_t i = 0; i < parts && mergeable; i++) mergeable = GetSurfaceAlpha(mr, i).Mode != AlphaMode::Blend;
+            if (!mergeable) continue;
+
+            const glm::mat4 world = GetWorldMatrix(e) * mr.LocalOffset;
+            const glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(world)));
+            const bool mirrored = glm::determinant(glm::mat3(world)) < 0.0f;   // flip winding to keep faces outward
+            glm::vec3 mn, mx;
+            mr.Geometry->GetLocalBounds(mn, mx);
+            const glm::vec3 center = glm::vec3(world * glm::vec4((mn + mx) * 0.5f, 1.0f));
+
+            // Collect every part first, so a part without CPU geometry leaves the entity unmerged
+            std::vector<Part> collected;
+            for (uint32_t i = 0; i < parts && mergeable; i++) {
+                const Material* mat = mr.UseModelMaterials ? mr.Geometry->GetSubmeshMaterial(i) : nullptr;
+                partV.clear(); partI.clear();
+                if (!mr.Geometry->GetPartVertices(mat ? (int32_t)i : -1, partV, partI) || partI.empty()) { mergeable = false; break; }
+                const SurfaceAlpha s = GetSurfaceAlpha(mr, i);
+
+                Part p;
+                p.Key.Albedo = s.Albedo;
+                p.Key.Normal = mat ? mat->Normal.get() : nullptr;
+                p.Key.MetalRough = mat ? mat->MetalRough.get() : nullptr;
+                p.Key.Emissive = mat ? mat->Emissive.get() : nullptr;
+                p.Key.Mode = (int)s.Mode;
+                p.Key.Cutoff = s.Mode == AlphaMode::Cutout ? s.Cutoff : 0.5f;
+                p.Key.Color = mat ? mat->Color * mr.Color : mr.Color;
+                p.Key.Alpha = s.Alpha;
+                p.Key.Metallic = mat ? mat->Metallic : mr.Metallic;
+                p.Key.Roughness = mat ? mat->Roughness : mr.Roughness;
+                p.Key.EmissiveColor = mat ? mat->EmissiveColor : mr.Emissive;
+                p.Key.Unlit = mr.Unlit ? 1 : 0;
+                p.Key.CastShadows = mr.CastShadows ? 1 : 0;
+                p.Key.Cell = glm::ivec3(glm::floor(center / kStaticCell));
+                p.V.reserve(partV.size());
+                for (const Vertex& v : partV) {
+                    Vertex w = v;
+                    w.Position = glm::vec3(world * glm::vec4(v.Position, 1.0f));
+                    w.Normal = glm::normalize(normalMatrix * v.Normal);
+                    p.V.push_back(w);
+                }
+                p.I = partI;
+                if (mirrored)
+                    for (size_t t = 0; t + 2 < p.I.size(); t += 3) std::swap(p.I[t + 1], p.I[t + 2]);
+                collected.push_back(std::move(p));
+            }
+            if (!mergeable) continue;
+            candidates.push_back({ &mr, std::move(collected) });
+        }
+
+        // A group needs at least two objects: one alone gains nothing and loses click-picking. Dropping an
+        // object can leave another one alone, so repeat until nothing changes.
+        for (bool changed = true; changed;) {
+            changed = false;
+            std::map<StaticKey, uint32_t> members;
+            for (const auto& c : candidates)
+                if (c.Keep) for (const auto& p : c.Parts) members[p.Key]++;
+            for (auto& c : candidates) {
+                if (!c.Keep) continue;
+                for (const auto& p : c.Parts)
+                    if (members[p.Key] < 2) { c.Keep = false; changed = true; break; }
+            }
+        }
+
+        for (auto& c : candidates) {
+            if (!c.Keep) continue;
+            for (auto& p : c.Parts) {
+                Group& g = groups[p.Key];
+                const uint32_t base = (uint32_t)g.Vertices.size();
+                g.Vertices.insert(g.Vertices.end(), p.V.begin(), p.V.end());
+                for (uint32_t i : p.I) g.Indices.push_back(base + i);
+            }
+            c.MR->Merged = true;
+            m_StaticMerged++;
+        }
+
+        for (auto& [key, g] : groups) {
+            StaticBatch sb;
+            sb.Geometry = std::make_shared<Mesh>(g.Vertices, g.Indices);
+            sb.Geometry->GetLocalBounds(sb.Min, sb.Max);
+            sb.CastShadows = key.CastShadows != 0 && key.Unlit == 0;
+            sb.State.Geometry = sb.Geometry.get();
+            sb.State.Part = -1;
+            sb.State.Albedo = key.Albedo;
+            sb.State.Normal = key.Normal;
+            sb.State.MetalRough = key.MetalRough;
+            sb.State.Emissive = key.Emissive;
+            sb.State.Mode = (AlphaMode)key.Mode;
+            sb.State.Cutoff = key.Cutoff;
+            sb.Instance.Color = glm::vec4(key.Color, key.Alpha);
+            sb.Instance.Surface = glm::vec4(key.Metallic, key.Roughness, 0.0f, 0.0f);
+            sb.Instance.Emissive = glm::vec4(key.EmissiveColor, 0.0f);
+            sb.Instance.Info = glm::ivec4(-1, key.Unlit, 0, 0);       // no single entity: click-picking finds nothing
+            m_StaticBatches.push_back(std::move(sb));
+        }
+    }
+
     void Scene::BuildDrawList(DrawList& list, const Camera& camera, const ShadowContext* shadows) {
         const ShadowSettings* shadowSettings = (shadows && shadows->Settings.Enabled) ? &shadows->Settings : nullptr;
         const uint32_t sunSize = (shadows && shadows->Sun) ? shadows->Sun->GetSize() : 2048u;
@@ -534,10 +703,51 @@ namespace Engine {
         for (auto& v : shadow) v.clear();
         std::vector<uint8_t> inView(views.size());
 
+        // Which shadow views a caster (a box under a transform) can show up in: fills inView
+        auto classifyShadows = [&](const glm::mat4& world, const glm::vec3& mn, const glm::vec3& mx) {
+            bool any = false;
+            const glm::vec3 center = glm::vec3(world * glm::vec4((mn + mx) * 0.5f, 1.0f));
+            const float radius = glm::length(glm::vec3(world * glm::vec4((mx - mn) * 0.5f, 0.0f)));
+            int lastLight = -2;
+            bool lightReaches = true;
+            for (size_t v = 0; v < views.size(); v++) {
+                if (views[v].Light != lastLight) {   // new light: is the caster within its range at all?
+                    lastLight = views[v].Light;
+                    lightReaches = lastLight < 0 ||
+                        glm::length(center - lights[lastLight].Pos) - radius < shadowSettings->PointFar;
+                }
+                inView[v] = lightReaches && viewFrusta[v].Visible(world, mn, mx);
+                if (!inView[v]) list.ShadowSkipped++;
+                any = any || inView[v];
+            }
+            return any;
+        };
+
+        // Merged static geometry (during Play): one object per batch, in world space
+        if (m_StaticActive && m_StaticDirty) BuildStaticBatches();   // a merged object went away
+        const glm::mat4 identity(1.0f);
+        for (const StaticBatch& sb : m_StaticBatches) {
+            const bool visible = frustum.Visible(identity, sb.Min, sb.Max);
+            if (!visible) list.Culled++;
+            const bool anyShadow = !views.empty() && sb.CastShadows && classifyShadows(identity, sb.Min, sb.Max);
+            if (!visible && !anyShadow) continue;
+
+            DrawList::Item item;
+            item.Instance = list.AddInstance(sb.Instance);
+            item.State = sb.State;
+            if (anyShadow) {
+                DrawList::Item sh = item;
+                sh.State.Normal = sh.State.MetalRough = sh.State.Emissive = nullptr;
+                if (sb.State.Mode == AlphaMode::Opaque) { sh.State.Albedo = nullptr; sh.State.Cutoff = 0.5f; }
+                for (size_t v = 0; v < views.size(); v++) if (inView[v]) shadow[v].push_back(sh);
+            }
+            if (visible) opaque.push_back(item);
+        }
+
         auto drawables = m_Registry.view<TransformComponent, MeshRendererComponent>();
         for (auto entity : drawables) {
             const auto& mr = drawables.get<MeshRendererComponent>(entity);
-            if (!mr.Geometry) continue;
+            if (!mr.Geometry || mr.Merged) continue;    // merged: drawn by its static batch
 
             const glm::mat4 world = GetWorldMatrix(entity) * mr.LocalOffset;
             const auto* bones = GetBonePalette(entity, mr);
@@ -551,23 +761,7 @@ namespace Engine {
             if (!visible) list.Culled++;
 
             // Which shadow views this caster can show up in (light markers must not block light)
-            bool anyShadow = false;
-            if (!views.empty() && mr.CastShadows && !mr.Unlit) {
-                const glm::vec3 center = glm::vec3(world * glm::vec4((mn + mx) * 0.5f, 1.0f));
-                const float radius = glm::length(glm::vec3(world * glm::vec4((mx - mn) * 0.5f, 0.0f)));
-                int lastLight = -2;
-                bool lightReaches = true;
-                for (size_t v = 0; v < views.size(); v++) {
-                    if (views[v].Light != lastLight) {   // new light: is the caster within its range at all?
-                        lastLight = views[v].Light;
-                        lightReaches = lastLight < 0 ||
-                            glm::length(center - lights[lastLight].Pos) - radius < shadowSettings->PointFar;
-                    }
-                    inView[v] = lightReaches && viewFrusta[v].Visible(world, mn, mx);
-                    if (!inView[v]) list.ShadowSkipped++;
-                    anyShadow = anyShadow || inView[v];
-                }
-            }
+            const bool anyShadow = !views.empty() && mr.CastShadows && !mr.Unlit && classifyShadows(world, mn, mx);
             if (!visible && !anyShadow) continue;
 
             InstanceData base;
@@ -623,6 +817,8 @@ namespace Engine {
         list.Upload();
         RenderStats::Culled += list.Culled;
         RenderStats::ShadowSkipped += list.ShadowSkipped;
+        RenderStats::StaticBatches = (uint32_t)m_StaticBatches.size();
+        RenderStats::StaticMerged = m_StaticMerged;
     }
 
     // ---------------------------------------------------------------- shadows

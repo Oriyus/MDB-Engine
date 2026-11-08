@@ -19,6 +19,7 @@ namespace Engine {
         void Draw() const override;                       // everything, ignoring materials
         void DrawInstanced(uint32_t count) const override;
         void DrawSubmeshInstanced(uint32_t i, uint32_t count) const override;
+        bool GetPartVertices(int32_t part, std::vector<Vertex>& vertices, std::vector<uint32_t>& indices) const override;
         bool IsValid() const { return !m_Submeshes.empty(); }
 
         uint32_t SubmeshCount() const override { return (uint32_t)m_Submeshes.size(); }

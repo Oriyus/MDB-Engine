@@ -21,6 +21,7 @@ namespace Engine {
         m_VAO->AddVertexBuffer(vb);
         m_VAO->SetIndexBuffer(std::make_shared<IndexBuffer>(indices.data(), (uint32_t)indices.size()));
 
+        m_Vertices = vertices;
         m_Positions.reserve(vertices.size());
         for (const auto& v : vertices) m_Positions.push_back(v.Position);
         m_Indices = indices;
@@ -66,6 +67,14 @@ namespace Engine {
         const uint32_t base = (uint32_t)positions.size();
         positions.insert(positions.end(), m_Positions.begin(), m_Positions.end());
         for (uint32_t i : m_Indices) indices.push_back(base + i);
+    }
+
+    bool Mesh::GetPartVertices(int32_t, std::vector<Vertex>& vertices, std::vector<uint32_t>& indices) const {
+        if (m_Vertices.empty()) return false;
+        const uint32_t base = (uint32_t)vertices.size();
+        vertices.insert(vertices.end(), m_Vertices.begin(), m_Vertices.end());
+        for (uint32_t i : m_Indices) indices.push_back(base + i);
+        return true;
     }
 
     void Mesh::Draw() const {

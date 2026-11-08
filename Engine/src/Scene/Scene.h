@@ -2,6 +2,7 @@
 #include <entt/entt.hpp>
 #include <string>
 #include "Scene/Components.h"
+#include "Renderer/DrawList.h"
 #include <cstdint>
 #include <optional>
 #include <unordered_map>
@@ -12,6 +13,7 @@ namespace Engine {
     class Entity;
     class Camera;
     class Shader;
+    class Mesh;
     struct ShadowContext;
     struct ShadowSettings;
     class Environment;
@@ -70,6 +72,14 @@ namespace Engine {
         void OnUpdate(float dt);
         // Collect everything to draw this frame (camera-culled, batched for instancing) and upload it.
         // shadows: also fit the shadow views (sun cascades follow the camera) and sort the casters into them (null: none). The render calls below draw from it.
+        // Static mesh merging: merge every Static Mesh Renderer part (same material and 16 m cell) into a few
+        // world-space meshes, drawn instead of the entities. GameSession::Start builds them; Clear and Restore
+        // (Stop) drop them. A merged entity being destroyed rebuilds them. Moving or recolouring one does not.
+        void BuildStaticBatches();
+        void ClearStaticBatches();
+        uint32_t StaticBatchCount() const { return (uint32_t)m_StaticBatches.size(); }
+        uint32_t StaticMergedCount() const { return m_StaticMerged; }   // entities drawn by the batches
+
         void BuildDrawList(DrawList& list, const Camera& camera, const ShadowContext* shadows);
         void RenderShadows(ShadowContext& ctx, const DrawList& list);
         // Opaque: opaque and cutout surfaces. Transparent: see-through (Blend) ones, sorted back to front,
@@ -99,11 +109,24 @@ namespace Engine {
 
     private:
         void OnIDChanged(entt::registry&, entt::entity) { m_IDMapDirty = true; }
+        void OnMeshRendererGone(entt::registry& reg, entt::entity e);
         const std::vector<glm::mat4>* GetBonePalette(entt::entity e, const MeshRendererComponent& mr) const;   // null: not skinned
 
         entt::registry m_Registry;
         std::unordered_map<uint64_t, entt::entity> m_IDMap;   // rebuilt lazily when IDs change
         bool m_IDMapDirty = true;
+
+        // Static mesh merging: built on Play (BuildStaticBatches), dropped on Clear / ClearStaticBatches
+        struct StaticBatch {
+            std::shared_ptr<Mesh> Geometry;  // world-space vertices of every merged part
+            DrawBatch State;
+            InstanceData Instance;           // identity transform + the shared material values
+            glm::vec3 Min{ 0.0f }, Max{ 0.0f };
+            bool CastShadows = true;
+        };
+        std::vector<StaticBatch> m_StaticBatches;
+        bool m_StaticActive = false, m_StaticDirty = false;
+        uint32_t m_StaticMerged = 0;
     };
 
 } // namespace Engine

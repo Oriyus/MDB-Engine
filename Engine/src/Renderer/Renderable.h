@@ -6,6 +6,7 @@
 namespace Engine {
 
     struct Material;
+    struct Vertex;
 
     class Renderable {
     public:
@@ -31,6 +32,10 @@ namespace Engine {
         // Appends to the vectors; indices count from the positions already there.
         virtual void GetCollisionGeometry(std::vector<glm::vec3>& positions, std::vector<uint32_t>& indices) const {}
         virtual uint32_t TriangleCount() const { return 0; }
+
+        // Full vertices (position, normal, uv) of one part (-1: all of them), for static mesh merging.
+        // Appends; indices count from the vertices already there. False if not available (skinned).
+        virtual bool GetPartVertices(int32_t part, std::vector<Vertex>& vertices, std::vector<uint32_t>& indices) const { return false; }
     };
 
 } // namespace Engine

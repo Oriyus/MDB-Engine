@@ -1,6 +1,7 @@
 {
   "entities": [
     {
+      "id": 7429387662764926460,
       "name": "Game",
       "script": {
         "path": "Scripts/game.lua"
@@ -30,6 +31,7 @@
         "near": 0.10000000149011612,
         "primary": true
       },
+      "id": 3236318402956030908,
       "name": "Main Camera",
       "script": {
         "path": "Scripts/follow.lua"
@@ -53,7 +55,11 @@
       }
     },
     {
+      "id": 3972587043803773915,
       "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
         "color": [
           0.30000001192092896,
           0.550000011920929,
@@ -84,7 +90,9 @@
           1.0
         ],
         "metallic": 0.0,
+        "opacity": 1.0,
         "roughness": 0.3499999940395355,
+        "static": false,
         "texture": "checker",
         "unlit": false,
         "useModelMaterials": false
@@ -130,6 +138,7 @@
       }
     },
     {
+      "id": 18160518447942152053,
       "name": "Platform Light",
       "pointLight": {
         "castShadows": true,
@@ -159,6 +168,7 @@
       }
     },
     {
+      "id": 7730993230439261854,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -180,6 +190,7 @@
       }
     },
     {
+      "id": 14722484725841107172,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -201,6 +212,7 @@
       }
     },
     {
+      "id": 4224677754344740413,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -222,6 +234,7 @@
       }
     },
     {
+      "id": 2767852266759641620,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -243,6 +256,7 @@
       }
     },
     {
+      "id": 15165350373066272404,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -264,6 +278,7 @@
       }
     },
     {
+      "id": 11070202781833344926,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -285,6 +300,7 @@
       }
     },
     {
+      "id": 3680284466355140382,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -306,6 +322,7 @@
       }
     },
     {
+      "id": 3461992559876285085,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -327,7 +344,11 @@
       }
     },
     {
+      "id": 13427228180298961385,
       "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
         "color": [
           0.8999999761581421,
           0.8999999761581421,
@@ -358,7 +379,9 @@
           1.0
         ],
         "metallic": 0.0,
+        "opacity": 1.0,
         "roughness": 0.5,
+        "static": false,
         "texture": "",
         "unlit": false,
         "useModelMaterials": false
@@ -404,7 +427,11 @@
       }
     },
     {
+      "id": 17358425872216112668,
       "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
         "color": [
           0.20000000298023224,
           0.6000000238418579,
@@ -435,7 +462,9 @@
           1.0
         ],
         "metallic": 0.0,
+        "opacity": 1.0,
         "roughness": 0.5,
+        "static": false,
         "texture": "",
         "unlit": false,
         "useModelMaterials": false
@@ -491,7 +520,11 @@
         "spatial": true,
         "volume": 0.6000000238418579
       },
+      "id": 14614880354298120281,
       "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
         "color": [
           0.3499999940395355,
           0.029999999329447746,
@@ -522,7 +555,9 @@
           1.0
         ],
         "metallic": 0.0,
+        "opacity": 1.0,
         "roughness": 0.5,
+        "static": false,
         "texture": "",
         "unlit": false,
         "useModelMaterials": false
@@ -578,7 +613,11 @@
         "spatial": true,
         "volume": 0.6000000238418579
       },
+      "id": 10590157572823714217,
       "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
         "color": [
           0.3499999940395355,
           0.029999999329447746,
@@ -609,7 +648,9 @@
           1.0
         ],
         "metallic": 0.0,
+        "opacity": 1.0,
         "roughness": 0.5,
+        "static": false,
         "texture": "",
         "unlit": false,
         "useModelMaterials": false
@@ -655,7 +696,11 @@
       }
     },
     {
+      "id": 1924707787391141397,
       "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
         "color": [
           0.8999999761581421,
           0.30000001192092896,
@@ -686,7 +731,9 @@
           1.0
         ],
         "metallic": 0.0,
+        "opacity": 1.0,
         "roughness": 0.699999988079071,
+        "static": false,
         "texture": "",
         "unlit": false,
         "useModelMaterials": false
@@ -736,7 +783,11 @@
       }
     },
     {
+      "id": 2924432592644716311,
       "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
         "color": [
           0.8500000238418579,
           0.7200000286102295,
@@ -767,7 +818,9 @@
           1.0
         ],
         "metallic": 0.0,
+        "opacity": 1.0,
         "roughness": 0.699999988079071,
+        "static": true,
         "texture": "",
         "unlit": false,
         "useModelMaterials": false
@@ -810,7 +863,11 @@
       }
     },
     {
+      "id": 8689473251215727225,
       "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
         "color": [
           0.8500000238418579,
           0.7200000286102295,
@@ -841,7 +898,9 @@
           1.0
         ],
         "metallic": 0.0,
+        "opacity": 1.0,
         "roughness": 0.699999988079071,
+        "static": true,
         "texture": "",
         "unlit": false,
         "useModelMaterials": false
@@ -884,7 +943,11 @@
       }
     },
     {
+      "id": 4635644566701083789,
       "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
         "color": [
           0.3499999940395355,
           0.4000000059604645,
@@ -915,7 +978,9 @@
           1.0
         ],
         "metallic": 0.0,
+        "opacity": 1.0,
         "roughness": 0.699999988079071,
+        "static": true,
         "texture": "",
         "unlit": false,
         "useModelMaterials": false
@@ -958,7 +1023,11 @@
       }
     },
     {
+      "id": 2841165796989085624,
       "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
         "color": [
           0.3499999940395355,
           0.4000000059604645,
@@ -989,7 +1058,9 @@
           1.0
         ],
         "metallic": 0.0,
+        "opacity": 1.0,
         "roughness": 0.699999988079071,
+        "static": true,
         "texture": "",
         "unlit": false,
         "useModelMaterials": false
@@ -1032,7 +1103,11 @@
       }
     },
     {
+      "id": 6104172050926943904,
       "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
         "color": [
           0.3499999940395355,
           0.4000000059604645,
@@ -1063,7 +1138,9 @@
           1.0
         ],
         "metallic": 0.0,
+        "opacity": 1.0,
         "roughness": 0.699999988079071,
+        "static": true,
         "texture": "",
         "unlit": false,
         "useModelMaterials": false
@@ -1106,7 +1183,11 @@
       }
     },
     {
+      "id": 2042860151123231344,
       "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
         "color": [
           0.3499999940395355,
           0.4000000059604645,
@@ -1137,7 +1218,9 @@
           1.0
         ],
         "metallic": 0.0,
+        "opacity": 1.0,
         "roughness": 0.699999988079071,
+        "static": true,
         "texture": "",
         "unlit": false,
         "useModelMaterials": false
@@ -1189,6 +1272,7 @@
         ],
         "intensity": 1.2999999523162842
       },
+      "id": 15784361662662144530,
       "name": "Sun",
       "transform": {
         "position": [
@@ -1209,7 +1293,11 @@
       }
     },
     {
+      "id": 13057892535831901076,
       "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
         "color": [
           0.800000011920929,
           0.800000011920929,
@@ -1240,7 +1328,9 @@
           1.0
         ],
         "metallic": 0.0,
+        "opacity": 1.0,
         "roughness": 0.8500000238418579,
+        "static": true,
         "texture": "checker",
         "unlit": false,
         "useModelMaterials": false
@@ -1326,10 +1416,14 @@
       "toneMap": 2
     },
     "shadows": {
+      "cascadeCount": 4,
+      "cascadeSplit": 0.75,
       "enabled": true,
       "pointBias": 0.05000000074505806,
       "pointFar": 30.0,
+      "shadowDistance": 60.0,
       "sunBias": 0.0020000000949949026,
+      "sunCascades": true,
       "sunDistance": 30.0,
       "sunExtent": 12.0
     }

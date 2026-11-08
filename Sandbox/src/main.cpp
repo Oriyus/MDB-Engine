@@ -814,6 +814,8 @@ private:
             RenderStats::DrawCalls ? (float)RenderStats::Instances / RenderStats::DrawCalls : 0.0f);
         ImGui::Text("Culled:     %u  (outside the view)", RenderStats::Culled);
         ImGui::Text("Shadow skipped: %u  (caster x light views)", RenderStats::ShadowSkipped);
+        if (m_Scene.StaticBatchCount() > 0)
+            ImGui::Text("Static batches: %u  (from %u objects)", m_Scene.StaticBatchCount(), m_Scene.StaticMergedCount());
         ImGui::Text("Entities:   %zu", m_Scene.Registry().view<TagComponent>().size());
         ImGui::TextDisabled("%s", (const char*)glGetString(GL_RENDERER));
 
@@ -1424,6 +1426,9 @@ private:
             ImGui::Checkbox("Unlit", &mr.Unlit);
             ImGui::SameLine();
             ImGui::Checkbox("Cast shadows", &mr.CastShadows);
+            ImGui::Checkbox("Static", &mr.Static);
+            ImGui::SetItemTooltip("Never moves or changes during Play: merged with other static\n"
+                "parts of the same material when Play starts (fewer draws)");
             {
                 // Transparency
                 static const char* modes[] = { "Opaque", "Cutout (alpha test)", "Blend (see-through)" };

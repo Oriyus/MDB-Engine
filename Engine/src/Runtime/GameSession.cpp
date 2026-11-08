@@ -29,12 +29,14 @@ namespace Engine {
         m_Physics->Reset();
         m_Physics->Sync(m_Scene);
         m_Scripts->Start(m_Scene);
+        m_Scene.BuildStaticBatches();    // after on_create, which may build or change the level
         m_Running = true;
     }
 
     void GameSession::Stop() {
         m_Scripts->Stop(m_Scene);        // first: on_destroy still sees the scene and its bodies
         m_Audio->StopAll();
+        m_Scene.ClearStaticBatches();
         m_Physics->Reset();
         m_Running = false;
     }

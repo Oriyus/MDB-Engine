@@ -33,6 +33,7 @@ namespace Engine {
                 { "opacity", mr.Opacity },
                 { "alphaCutoff", mr.AlphaCutoff },
                 { "castShadows", mr.CastShadows },
+                { "static", mr.Static },
             };
         }
         if (e.Has<PointLightComponent>()) {
@@ -98,6 +99,7 @@ namespace Engine {
             mr.Opacity = jm.value("opacity", 1.0f);
             mr.AlphaCutoff = jm.value("alphaCutoff", 0.5f);
             mr.CastShadows = jm.value("castShadows", true);
+            mr.Static = jm.value("static", false);
             e.Add<MeshRendererComponent>(mr);
         }
         if (j.contains("pointLight")) {

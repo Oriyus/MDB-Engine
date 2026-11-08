@@ -155,6 +155,24 @@ namespace {
         scene.DestroyEntity(e);
     }
 
+
+    // Level geometry that never moves or changes is marked Static, so Play merges it: a Mesh Renderer
+    // whose entity and ancestors have no script, spin, orbit, animator or moving (non-static) body
+    void MarkStatic(Scene& scene) {
+        auto& reg = scene.Registry();
+        auto keepsStill = [&](entt::entity e) {
+            if (reg.any_of<ScriptComponent, SpinComponent, OrbitComponent, AnimatorComponent>(e)) return false;
+            if (const auto* rb = reg.try_get<RigidBodyComponent>(e))
+                if (rb->Type != BodyType::Static || rb->IsTrigger) return false;
+            return true;
+        };
+        for (auto [e, mr] : reg.view<MeshRendererComponent>().each()) {
+            bool still = true;
+            for (entt::entity x = e; still && x != entt::null; x = scene.GetParent(x)) still = keepsStill(x);
+            mr.Static = still;
+        }
+    }
+
 } // namespace
 
 void BuildScriptDemo(Scene& scene, const LevelAssets& a, PrefabLibrary& prefabs) {
@@ -205,6 +223,7 @@ void BuildScriptDemo(Scene& scene, const LevelAssets& a, PrefabLibrary& prefabs)
         mr.Alpha = AlphaMode::Blend;
         mr.Roughness = 0.1f;
     }
+    MarkStatic(scene);
     LOG_INFO("Script demo built. Press Play (Ctrl+P).");
 }
 
@@ -284,5 +303,6 @@ void BuildCoinRush(Scene& scene, const LevelAssets& a, PrefabLibrary& prefabs) {
         Entity e = scene.CreateEntity("Game");
         e.Add<ScriptComponent>().Path = "Scripts/game.lua";
     }
+    MarkStatic(scene);
     LOG_INFO("Coin Rush built. Press Play (Ctrl+P).");
 }

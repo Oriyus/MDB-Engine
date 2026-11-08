@@ -196,6 +196,14 @@ namespace Engine {
         for (const auto& s : m_Submeshes) s.Geometry->DrawInstanced(count);
     }
 
+    bool Model::GetPartVertices(int32_t part, std::vector<Vertex>& vertices, std::vector<uint32_t>& indices) const {
+        if (IsSkinned()) return false;
+        if (part >= 0) return part < (int32_t)m_Submeshes.size() && m_Submeshes[part].Geometry->GetPartVertices(-1, vertices, indices);
+        bool ok = !m_Submeshes.empty();
+        for (const auto& s : m_Submeshes) ok = s.Geometry->GetPartVertices(-1, vertices, indices) && ok;
+        return ok;
+    }
+
     void Model::DrawSubmeshInstanced(uint32_t i, uint32_t count) const {
         if (i < m_Submeshes.size()) m_Submeshes[i].Geometry->DrawInstanced(count);
     }

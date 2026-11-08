@@ -183,6 +183,10 @@ namespace Engine {
             "alpha_cutoff", sol::property(
                 [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().AlphaCutoff; },
                 [](const MeshRef& m, float v) { m.E.Get<MeshRendererComponent>().AlphaCutoff = v; }),
+            // static: merged with other static parts of the same material when Play starts (set it before Play)
+            "static", sol::property(
+                [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().Static; },
+                [](const MeshRef& m, bool v) { m.E.Get<MeshRendererComponent>().Static = v; }),
             "cast_shadows", sol::property(
                 [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().CastShadows; },
                 [](const MeshRef& m, bool v) { m.E.Get<MeshRendererComponent>().CastShadows = v; }),
@@ -416,6 +420,7 @@ namespace Engine {
                     }
                     mr.AlphaCutoff = opts->get<sol::optional<float>>("alpha_cutoff").value_or(mr.AlphaCutoff);
                     mr.CastShadows = opts->get<sol::optional<bool>>("cast_shadows").value_or(mr.CastShadows);
+                    mr.Static = opts->get<sol::optional<bool>>("static").value_or(mr.Static);
                     // fit = metres: a model file is scaled and centred to that size (models come in any units)
                     if (const auto fit = opts->get<sol::optional<float>>("fit")) {
                         if (const auto* model = dynamic_cast<const Model*>(mr.Geometry.get())) {
@@ -540,7 +545,8 @@ namespace Engine {
         scene.set_function("render_stats", [this]() {
             const auto& c = RenderStats::LastFrame;
             return Lua->create_table_with("draw_calls", c.DrawCalls, "triangles", c.Triangles,
-                "instances", c.Instances, "culled", c.Culled, "shadow_skipped", c.ShadowSkipped);
+                "instances", c.Instances, "culled", c.Culled, "shadow_skipped", c.ShadowSkipped,
+                "static_batches", c.StaticBatches, "static_merged", c.StaticMerged);
         });
         scene.set_function("raycast", [this](const glm::vec3& origin, const glm::vec3& dir, float maxDist,
             sol::optional<ScriptEntity> ignore) -> sol::object {
