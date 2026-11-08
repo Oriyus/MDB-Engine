@@ -1,8 +1,11 @@
 {
-  "title": "Coin Rush",
+  "title": "MDB Examples",
   "scene": "coin_rush.json",
   "width": 1280,
   "height": 720,
   "fullscreen": false,
-  "vsync": true
+  "vsync": true,
+  "exclude": [
+    "Scripts/*_test.lua"
+  ]
 }

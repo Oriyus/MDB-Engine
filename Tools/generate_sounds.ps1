@@ -1,9 +1,9 @@
-# Synthesizes the engine's example sound effects into Assets/Sounds (16-bit mono WAV, 44.1 kHz).
+# Synthesizes the engine's example sound effects into Examples/Assets/Sounds (16-bit mono WAV, 44.1 kHz).
 # Deterministic (fixed random seed), so re-running gives the same files.
 #   powershell -ExecutionPolicy Bypass -File Tools/generate_sounds.ps1
 $ErrorActionPreference = 'Stop'
 $rate = 44100
-$out = Join-Path $PSScriptRoot '..\Assets\Sounds'
+$out = Join-Path $PSScriptRoot '..\Examples\Assets\Sounds'
 New-Item -ItemType Directory -Force $out | Out-Null
 $rng = New-Object System.Random 1234
 $TwoPi = 2.0 * [Math]::PI

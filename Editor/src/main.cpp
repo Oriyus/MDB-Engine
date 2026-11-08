@@ -34,6 +34,8 @@
 #include "AssetBrowser.h"
 #include "DialogueEditor.h"
 #include "Platform.h"
+#include "Projects.h"
+#include "GameBuilder.h"
 
 #include <cfloat>
 #include <glad/glad.h>
@@ -67,12 +69,15 @@ public:
         using namespace Engine;
 
         // Shared engine pieces: named resources, the render pipeline, and the play-mode systems
-        m_Resources = std::make_unique<ResourceLibrary>(std::string(ASSET_DIR));
-        m_Renderer = std::make_unique<SceneRenderer>(std::string(ASSET_DIR));
-        m_Session = std::make_unique<GameSession>(m_Scene, std::string(ASSET_DIR), m_Resources->Registry());
-        {   // save slots while play-testing: MDB_SAVE_DIR, else %APPDATA%/MDB Engine/Editor Saves
+        m_Resources = std::make_unique<ResourceLibrary>(Projects::Current().AssetDir(), Projects::EngineDir());
+        m_Renderer = std::make_unique<SceneRenderer>(Projects::EngineDir(), Projects::Current().AssetDir());
+        m_Session = std::make_unique<GameSession>(m_Scene, Projects::Current().AssetDir(), Projects::EngineDir(), m_Resources->Registry());
+        {   // save slots while play-testing: MDB_SAVE_DIR, else %APPDATA%/MDB Engine/Editor Saves/<project title>
             std::string dir = EnvVar("MDB_SAVE_DIR");
-            if (dir.empty()) { const std::string app = EnvVar("APPDATA"); dir = app.empty() ? std::string("Saves") : app + "/MDB Engine/Editor Saves"; }
+            if (dir.empty()) {
+                const std::string app = EnvVar("APPDATA"), title = GameBuilder::SafeName(Projects::Current().Title);
+                dir = app.empty() ? std::string("Saves") : app + "/MDB Engine/Editor Saves/" + title;
+            }
             m_Session->SetSaveDirectory(dir);
         }
 
@@ -105,7 +110,8 @@ public:
             mr.Geometry = m_Cube;
             mr.Texture = m_Checker;
             e.Add<SpinComponent>().Speed = glm::vec3(0.0f, 0.6f, 0.0f);
-            e.Add<ScriptComponent>().Path = "Scripts/bob.lua";   // hops up and down while playing
+            if (std::filesystem::exists(std::filesystem::u8path(Projects::Current().AssetDir() + "Scripts/bob.lua")))
+                e.Add<ScriptComponent>().Path = "Scripts/bob.lua";   // hops up and down while playing (the Examples project)
 
             auto& rb = e.Add<RigidBodyComponent>();
             rb.Type = BodyType::Kinematic;
@@ -199,6 +205,13 @@ public:
         //   MDB_DEMO=script|coinrush builds that example level, MDB_AUTOPLAY=1 presses Play, MDB_QUIT_AFTER=<s> closes
         //   MDB_TEST_SCRIPT=Scripts/x.lua adds an entity "Test" running that script
         //   MDB_SCENE=<file> loads Assets/Scenes/<file> first, MDB_SAVE_SCENE=<file> saves after the rest
+        // Without test hooks the project's start scene opens (project.json "scene"); if it doesn't exist yet
+        // (a new project), the built-in scene above takes its name, so Ctrl+S creates it.
+        const std::string startScene = Projects::Current().Scene;
+        if (EnvVar("MDB_SCENE").empty() && EnvVar("MDB_DEMO").empty() && !startScene.empty()) {
+            if (std::filesystem::exists(std::filesystem::u8path(ScenePath(startScene)))) LoadScene(startScene);
+            else m_SceneFile = startScene;
+        }
         if (auto sc = EnvVar("MDB_SCENE"); !sc.empty()) LoadScene(sc);
         if (auto demo = EnvVar("MDB_DEMO"); demo == "1" || demo == "script") BuildLevel(BuildScriptDemo);
         else if (demo == "coinrush") BuildLevel(BuildCoinRush);
@@ -213,6 +226,12 @@ public:
             if (hash != std::string::npos) m_Dialogue.Select(std::atoi(dl.c_str() + hash + 1));
             if (EnvVar("MDB_SAVE_DIALOGUE") == "1") m_Dialogue.SaveIfNamed();   // re-save it through the editor
             m_ShowDialogue = true;
+        }
+        if (EnvVar("MDB_TEST_PICK_FOLDER") == "1")                 // test hook: the folder picker must show (it once hung)
+            LOG_INFO("Picked: '{}'", Platform::PickFolder("Test: pick a folder", Projects::Current().Root));
+        if (auto out = EnvVar("MDB_BUILD_GAME"); !out.empty()) {   // File > Build Game into <out> (the editor waits for it on quit)
+            m_Builder.Start(Projects::Current(), Projects::EngineDir(), out);
+            m_ShowBuildGame = true;
         }
         if (EnvVar("MDB_AUTOPLAY") == "1") m_PlayCmd = PlayCmd::Play;
         if (auto q = EnvVar("MDB_QUIT_AFTER"); !q.empty()) m_QuitAfter = std::strtof(q.c_str(), nullptr);
@@ -439,6 +458,7 @@ public:
         }
         DrawDialogueQuitModal();
         DrawUnsavedChangesModal();
+        DrawBuildGameWindow();
         DrawDialogs();
 
         // Anything that may have changed the scene: check it once the interaction is over
@@ -472,9 +492,9 @@ public:
         m_History.Track(m_Scene, m_Selected, m_Resources->Registry(), "Duplicate " + copy.Get<Engine::TagComponent>().Tag);
     }
 
-    // "MDB Editor - coin_rush.json *": the star means unsaved changes
+    // "MDB Editor - My Game - level.json *": the project, the scene, and a star for unsaved changes
     void UpdateTitle() {
-        std::string title = "MDB Editor - " + m_SceneFile + (m_History.IsDirty() ? " *" : "");
+        std::string title = "MDB Editor - " + Projects::Current().Title + " - " + m_SceneFile + (m_History.IsDirty() ? " *" : "");
         if (title != m_Title) { m_Title = title; SetTitle(title); }
     }
 
@@ -483,6 +503,129 @@ public:
         if (m_Dialogue.IsDirty() && !m_DialogueDiscarded) { m_AskDialogueQuit = true; m_ShowDialogue = true; return; }
         if (m_History.IsDirty()) m_Confirm = ConfirmAction::Quit;
         else Close();
+    }
+
+    // ------------------------------------------------------------------ projects
+    // Another project: the editor restarts with --project <folder> (after the usual unsaved-changes questions)
+    void OpenProject(const std::string& folder) {
+        if (!Engine::Project::IsProject(folder)) {
+            LOG_ERROR("{} is not a project (it has no project.json). File > New Project makes one.", folder);
+            Projects::RemoveRecent(folder);
+            return;
+        }
+        if (Engine::Project::Normalize(folder) == Projects::Current().Root) return;
+        m_SwitchProject = Engine::Project::Normalize(folder);
+        RequestQuit();
+    }
+
+    // Pick a folder (an empty one, or one to put the project in), make the project there and open it
+    void NewProject() {
+        const std::string folder = Platform::PickFolder("New project: pick or create an empty folder for it");
+        if (folder.empty()) return;
+        if (Engine::Project::IsProject(folder)) { LOG_INFO("{} already holds a project; opening it", folder); OpenProject(folder); return; }
+        Engine::Project p;
+        std::string error;
+        if (!Engine::Project::Create(folder, "", p, &error)) { LOG_ERROR("New project: {}", error); return; }
+        LOG_INFO("Created the project {} in {}", p.Title, p.Root);
+        Projects::AddRecent(p.Root);
+        OpenProject(p.Root);
+    }
+
+    void OnShutdown() override {
+        if (!m_SwitchProject.empty() && !Platform::LaunchSelf({ "--project", m_SwitchProject }))
+            LOG_ERROR("Could not restart the editor for {}", m_SwitchProject);
+    }
+
+    // File > Build Game: the project's game settings (saved to project.json) and the build with its log
+    void DrawBuildGameWindow() {
+        if (!m_ShowBuildGame) return;
+        Engine::Project& project = Projects::CurrentMutable();
+        if (m_BuildOutput.empty()) m_BuildOutput = project.Root + "Build";
+        if (m_BuildExclude.empty() && !m_BuildExcludeLoaded) {
+            for (const auto& e : project.Exclude) m_BuildExclude += e + "\n";
+            m_BuildExcludeLoaded = true;
+        }
+        ImGui::SetNextWindowSize(ImVec2(640, 560), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+        if (!ImGui::Begin("Build Game", &m_ShowBuildGame, ImGuiWindowFlags_NoDocking)) { ImGui::End(); return; }
+
+        const bool running = m_Builder.Running();
+        ImGui::BeginDisabled(running);
+        ImGui::TextDisabled("Project: %s", project.Root.c_str());
+        bool changed = false;
+        char title[128];
+        std::snprintf(title, sizeof(title), "%s", project.Title.c_str());
+        if (ImGui::InputText("Title", title, sizeof(title))) { project.Title = title; changed = true; }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("The window title, the exe's name and the save folder (%%APPDATA%%/<title>/Saves)");
+        if (ImGui::BeginCombo("Start scene", project.Scene.c_str())) {
+            for (const auto& f : ListSceneFiles())
+                if (ImGui::Selectable(f.c_str(), f == project.Scene)) { project.Scene = f; changed = true; }
+            ImGui::EndCombo();
+        }
+        int size[2] = { (int)project.Width, (int)project.Height };
+        if (ImGui::InputInt2("Window size", size)) { project.Width = (uint32_t)std::max(320, size[0]); project.Height = (uint32_t)std::max(240, size[1]); changed = true; }
+        changed |= ImGui::Checkbox("Full screen", &project.Fullscreen);
+        ImGui::SameLine();
+        changed |= ImGui::Checkbox("VSync", &project.VSync);
+        ImGui::Text("Leave out (files under Assets, one per line, * matches anything):");
+        char excludeBuf[2048];
+        std::snprintf(excludeBuf, sizeof(excludeBuf), "%s", m_BuildExclude.c_str());
+        if (ImGui::InputTextMultiline("##exclude", excludeBuf, sizeof(excludeBuf), ImVec2(-1, 70))) {
+            m_BuildExclude = excludeBuf;
+            project.Exclude.clear();
+            size_t start = 0;
+            while (start <= m_BuildExclude.size()) {
+                size_t end = m_BuildExclude.find('\n', start);
+                if (end == std::string::npos) end = m_BuildExclude.size();
+                std::string line = m_BuildExclude.substr(start, end - start);
+                while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+                if (!line.empty()) project.Exclude.push_back(line);
+                start = end + 1;
+            }
+            changed = true;
+        }
+        if (changed) { std::string error; if (!project.Save(&error)) LOG_ERROR("{}", error); }
+
+        char outBuf[512];
+        std::snprintf(outBuf, sizeof(outBuf), "%s", m_BuildOutput.c_str());
+        if (ImGui::InputText("Output folder", outBuf, sizeof(outBuf))) m_BuildOutput = outBuf;
+        ImGui::SameLine();
+        if (ImGui::Button("...")) { const std::string f = Platform::PickFolder("Where to put the built game", m_BuildOutput); if (!f.empty()) m_BuildOutput = f; }
+        const std::string target = Engine::Project::Normalize(m_BuildOutput) + GameBuilder::SafeName(project.Title) + "/";
+        ImGui::TextDisabled("The game goes to %s", target.c_str());
+        ImGui::EndDisabled();
+
+        ImGui::Spacing();
+        ImGui::BeginDisabled(running);
+        if (ImGui::Button(running ? "Building..." : "Build", ImVec2(140, 0))) {
+            if (m_History.IsDirty()) LOG_WARN("The scene has unsaved changes: the game uses the saved file. Save first (Ctrl+S) to include them.");
+            m_Builder.Start(project, Projects::EngineDir(), m_BuildOutput);
+        }
+        ImGui::EndDisabled();
+        if (m_Builder.Done() && m_Builder.Succeeded()) {
+            ImGui::SameLine();
+            if (ImGui::Button("Play it")) Platform::OpenWithSystem(m_Builder.ExePath());
+            ImGui::SameLine();
+            if (ImGui::Button("Show in Explorer")) Platform::ShowInExplorer(m_Builder.GameFolder());
+        }
+        if (running) { ImGui::SameLine(); ImGui::TextDisabled("compiling and copying, the editor keeps working"); }
+
+        ImGui::Separator();
+        if (m_MonoFont) ImGui::PushFont(m_MonoFont);
+        ImGui::BeginChild("##buildlog", ImVec2(0, 0), ImGuiChildFlags_Border, ImGuiWindowFlags_HorizontalScrollbar);
+        const auto lines = m_Builder.Lines();
+        for (const auto& line : lines) {
+            const bool bad = line.rfind("FAILED", 0) == 0 || line.find("error") != std::string::npos;
+            const bool good = line.rfind("Done", 0) == 0;
+            if (bad) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.45f, 0.4f, 1.0f));
+            else if (good) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.9f, 0.5f, 1.0f));
+            ImGui::TextUnformatted(line.c_str());
+            if (bad || good) ImGui::PopStyleColor();
+        }
+        if (lines.size() != m_BuildLogLines) { m_BuildLogLines = lines.size(); ImGui::SetScrollHereY(1.0f); }
+        ImGui::EndChild();
+        if (m_MonoFont) ImGui::PopFont();
+        ImGui::End();
     }
 
     bool OnCloseRequested() override {
@@ -514,7 +657,7 @@ public:
             RequestQuit();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(110, 0))) { m_AskDialogueQuit = false; ImGui::CloseCurrentPopup(); }
+        if (ImGui::Button("Cancel", ImVec2(110, 0))) { m_AskDialogueQuit = false; m_SwitchProject.clear(); ImGui::CloseCurrentPopup(); }
         ImGui::EndPopup();
     }
 
@@ -529,7 +672,7 @@ public:
         if (!ImGui::BeginPopupModal("Unsaved changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
 
         ImGui::Text("%s has unsaved changes.", m_SceneFile.c_str());
-        ImGui::TextDisabled(m_Confirm == ConfirmAction::Quit ? "Save them before quitting?"
+        ImGui::TextDisabled(m_Confirm == ConfirmAction::Quit ? (m_SwitchProject.empty() ? "Save them before quitting?" : "Save them before opening the other project?")
             : m_Confirm == ConfirmAction::New ? "Save them before starting a new scene?" : "Save them before loading %s?",
             m_ConfirmFile.c_str());
         ImGui::Spacing();
@@ -546,6 +689,7 @@ public:
         ImGui::SameLine();
         if (ImGui::Button("Cancel", ImVec2(110, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             m_Confirm = ConfirmAction::None;
+            m_SwitchProject.clear();
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
@@ -674,7 +818,7 @@ public:
     static std::vector<std::string> ListSoundFiles() {
         std::vector<std::string> files;
         std::error_code ec;
-        for (const auto& f : std::filesystem::directory_iterator(std::filesystem::path(ASSET_DIR) / "Sounds", ec)) {
+        for (const auto& f : std::filesystem::directory_iterator(std::filesystem::u8path(Projects::Current().AssetDir()) / "Sounds", ec)) {
             const auto ext = f.path().extension().string();
             if (ext == ".wav" || ext == ".mp3" || ext == ".flac") files.push_back("Sounds/" + f.path().filename().string());
         }
@@ -683,12 +827,12 @@ public:
     }
 
     // ------------------------------------------------------------ scene files
-    static std::string ScenePath(const std::string& file) { return std::string(ASSET_DIR) + "Scenes/" + file; }
+    static std::string ScenePath(const std::string& file) { return Projects::Current().AssetDir() + "Scenes/" + file; }
 
     std::vector<std::string> ListSceneFiles() const {
         std::vector<std::string> files;
         std::error_code ec;
-        for (const auto& f : std::filesystem::directory_iterator(std::filesystem::path(ASSET_DIR) / "Scenes", ec))
+        for (const auto& f : std::filesystem::directory_iterator(std::filesystem::u8path(Projects::Current().AssetDir()) / "Scenes", ec))
             if (f.path().extension() == ".json") files.push_back(f.path().filename().string());
         std::sort(files.begin(), files.end());
         return files;
@@ -1055,17 +1199,38 @@ private:
             ImGui::Separator();
             if (ImGui::MenuItem("Save", "Ctrl+S")) SaveScene(m_SceneFile);
             if (ImGui::MenuItem("Save As...", "Ctrl+Shift+S")) m_OpenSaveAs = true;
+            if (Projects::IsExamples(Projects::Current())) {     // built from code, with the Examples project's scripts
+                ImGui::Separator();
+                if (ImGui::BeginMenu("Example Levels")) {
+                    ImGui::TextDisabled("Replaces the current scene");
+                    if (ImGui::MenuItem("Script Demo")) BuildLevel(BuildScriptDemo);
+                    if (ImGui::MenuItem("Coin Rush")) BuildLevel(BuildCoinRush);
+                    if (ImGui::MenuItem("Tactics Test (navigation)")) BuildLevel(BuildTacticsTest);
+                    if (ImGui::MenuItem("Tactics Cellar (second level)")) BuildLevel(BuildTacticsCellar);
+                    ImGui::EndMenu();
+                }
+            }
             ImGui::Separator();
-            if (ImGui::BeginMenu("Example Levels")) {
-                ImGui::TextDisabled("Replaces the current scene");
-                if (ImGui::MenuItem("Script Demo")) BuildLevel(BuildScriptDemo);
-                if (ImGui::MenuItem("Coin Rush")) BuildLevel(BuildCoinRush);
-                if (ImGui::MenuItem("Tactics Test (navigation)")) BuildLevel(BuildTacticsTest);
-                if (ImGui::MenuItem("Tactics Cellar (second level)")) BuildLevel(BuildTacticsCellar);
+            if (ImGui::MenuItem("New Project...")) NewProject();
+            if (ImGui::MenuItem("Open Project...")) {
+                const std::string folder = Platform::PickFolder("Open a project (a folder with project.json)", Projects::Current().Root);
+                if (!folder.empty()) OpenProject(folder);
+            }
+            if (ImGui::BeginMenu("Recent Projects")) {
+                for (const auto& r : Projects::Recent()) {
+                    Engine::Project p;
+                    const bool current = Engine::Project::Normalize(r) == Projects::Current().Root;
+                    const std::string label = (Engine::Project::Load(r, p) ? p.Title : r) + "##" + r;
+                    if (ImGui::MenuItem(label.c_str(), nullptr, current, !current)) OpenProject(r);
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", r.c_str());
+                }
                 ImGui::EndMenu();
             }
+            if (ImGui::MenuItem("Show Project in Explorer")) Platform::ShowInExplorer(Projects::Current().Root);
             ImGui::EndDisabled();
-            if (playing) ImGui::TextDisabled("Stop Play to change scenes");
+            if (playing) ImGui::TextDisabled("Stop Play to change scenes or projects");
+            ImGui::Separator();
+            if (ImGui::MenuItem("Build Game...")) m_ShowBuildGame = true;
             ImGui::Separator();
             if (ImGui::MenuItem("Exit", "Esc")) RequestQuit();
             ImGui::EndMenu();
@@ -2233,7 +2398,7 @@ private:
                     ImGui::Separator();
                     std::error_code ec;
                     std::vector<std::string> files;
-                    for (const auto& f : std::filesystem::directory_iterator(std::filesystem::path(ASSET_DIR) / "Models", ec)) {
+                    for (const auto& f : std::filesystem::directory_iterator(std::filesystem::u8path(Projects::Current().AssetDir()) / "Models", ec)) {
                         std::string ext = f.path().extension().string();
                         std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return (char)std::tolower(c); });
                         if (ext == ".glb" || ext == ".gltf" || ext == ".fbx" || ext == ".obj") files.push_back("Models/" + f.path().filename().string());
@@ -2303,7 +2468,7 @@ private:
                     ImGui::Separator();
                     std::error_code ec;
                     std::vector<std::string> files;
-                    for (const auto& f : std::filesystem::directory_iterator(std::filesystem::path(ASSET_DIR) / "Textures", ec)) {
+                    for (const auto& f : std::filesystem::directory_iterator(std::filesystem::u8path(Projects::Current().AssetDir()) / "Textures", ec)) {
                         std::string ext = f.path().extension().string();
                         std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return (char)std::tolower(c); });
                         if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp")
@@ -2430,7 +2595,7 @@ private:
                 if (ImGui::BeginCombo("Texture##particles", current.c_str())) {
                     if (ImGui::Selectable("(soft dot)", !pe.Texture)) pe.Texture = nullptr;
                     std::error_code ec;
-                    for (const auto& file : std::filesystem::directory_iterator(std::filesystem::path(ASSET_DIR) / "Textures", ec)) {
+                    for (const auto& file : std::filesystem::directory_iterator(std::filesystem::u8path(Projects::Current().AssetDir()) / "Textures", ec)) {
                         const std::string rel = "Textures/" + file.path().filename().string();
                         if (AssetBrowser::KindOf(rel) != AssetBrowser::Kind::Texture) continue;
                         if (ImGui::Selectable(rel.c_str(), current == rel))
@@ -2630,7 +2795,7 @@ private:
                 // Rescanned while the list is open, so new files show up without a restart
                 std::vector<std::string> files;
                 std::error_code ec;
-                const std::filesystem::path dir = std::filesystem::path(ASSET_DIR) / "Scripts";
+                const std::filesystem::path dir = std::filesystem::u8path(Projects::Current().AssetDir()) / "Scripts";
                 for (const auto& f : std::filesystem::directory_iterator(dir, ec))
                     if (f.path().extension() == ".lua") files.push_back("Scripts/" + f.path().filename().string());
                 std::sort(files.begin(), files.end());
@@ -2642,7 +2807,7 @@ private:
             char buf[256];
             std::snprintf(buf, sizeof(buf), "%s", sc.Path.c_str());
             if (ImGui::InputText("Path", buf, sizeof(buf))) sc.Path = buf;
-            const bool exists = !sc.Path.empty() && std::filesystem::exists(std::string(ASSET_DIR) + sc.Path);
+            const bool exists = !sc.Path.empty() && std::filesystem::exists(Projects::Current().AssetDir() + sc.Path);
             if (!exists) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "File not found in Assets/");
             ImGui::TextDisabled("Relative to Assets/. Loads on Play; F5 reloads while playing.");
             if (ImGui::Button("Remove##script")) e.Remove<ScriptComponent>();
@@ -2871,9 +3036,9 @@ private:
     // Editor shell (menu bar, toolbar, panels)
     bool  m_ShowHierarchy = true, m_ShowInspector = true, m_ShowSceneSettings = true, m_ShowConsole = true;
     bool  m_ShowStatsOverlay = true, m_ShowFrustums = true, m_ShowControls = false;
-    AssetBrowser m_Assets{ std::string(ASSET_DIR) };   // the Assets panel
+    AssetBrowser m_Assets{ Projects::Current().AssetDir() };   // the Assets panel
     bool  m_ShowAssets = true;
-    DialogueEditor m_Dialogue{ std::string(ASSET_DIR) };   // the Dialogue Editor window (Window menu, or a dialogue in Assets)
+    DialogueEditor m_Dialogue{ Projects::Current().AssetDir() };   // the Dialogue Editor window (Window menu, or a dialogue in Assets)
     bool  m_ShowDialogue = false;
     bool  m_AskDialogueQuit = false, m_DialogueDiscarded = false;   // quitting with an unsaved dialogue
     struct AssetDrop { std::string Path; entt::entity Target = entt::null; bool Pending = false; };
@@ -2897,13 +3062,18 @@ private:
     ConfirmAction m_Confirm = ConfirmAction::None;   // the "unsaved changes" dialog is open for this
     std::string m_ConfirmFile;            // the scene to load after the dialog
     bool m_QuitConfirmed = false;
+    std::string m_SwitchProject;                 // File > Open Project: restart with --project <this> when quitting
+    GameBuilder m_Builder;                       // File > Build Game
+    bool m_ShowBuildGame = false, m_BuildExcludeLoaded = false;
+    std::string m_BuildOutput, m_BuildExclude;
+    size_t m_BuildLogLines = 0;
 
     ImGuizmo::OPERATION m_GizmoOp = ImGuizmo::TRANSLATE;
 
     ImVec2 m_ViewportSize{ 0.0f, 0.0f };
     ImVec2 m_ViewportOrigin{ 0.0f, 0.0f };            // the viewport image's top left on screen
     bool m_ViewportHovered = false;
-    Engine::UITextureCache m_UITextures{ std::string(ASSET_DIR) };   // images for ui.image                  
+    Engine::UITextureCache m_UITextures{ Projects::Current().AssetDir() };   // images for ui.image                  
     bool m_LayoutChecked = false;      
     bool m_GizmoLocal = false;
     bool m_Snap = false;

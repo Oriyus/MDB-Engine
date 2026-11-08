@@ -19,7 +19,8 @@
 namespace Engine {
 
     struct SceneRenderer::Impl {
-        std::string AssetDir;
+        std::string AssetDir;                    // the project's Assets (Environments)
+        std::string EngineDir;                   // the engine's files (Shaders)
         std::unique_ptr<Shader> Lit, PointDepth, SunDepth, Post, SSAOShader, SSAOBlur, BloomDown, BloomUp, FXAA, ParticleShader, DecalShader;
         std::unique_ptr<DecalRenderer> Decals;
         uint32_t DepthCopy = 0, DepthCopyW = 0, DepthCopyH = 0;   // the scene depth, for decals to sample
@@ -116,7 +117,7 @@ namespace Engine {
         bool EnvPending = false;
         std::string EnvRequested;                // "" = procedural
 
-        std::string ShaderPath(const char* name) const { return AssetDir + "Shaders/" + name; }
+        std::string ShaderPath(const char* name) const { return EngineDir + "Shaders/" + name; }
 
         void BakePendingEnvironment() {
             if (!EnvPending) return;
@@ -129,10 +130,11 @@ namespace Engine {
         }
     };
 
-    SceneRenderer::SceneRenderer(const std::string& assetDir, uint32_t width, uint32_t height)
+    SceneRenderer::SceneRenderer(const std::string& engineDir, const std::string& assetDir, uint32_t width, uint32_t height)
         : m_Impl(std::make_unique<Impl>()) {
         Impl& I = *m_Impl;
         I.AssetDir = assetDir;
+        I.EngineDir = engineDir;
         I.Lit = std::make_unique<Shader>(I.ShaderPath("lit.vert"), I.ShaderPath("lit.frag"));
         I.PointDepth = std::make_unique<Shader>(I.ShaderPath("shadow.vert"), I.ShaderPath("shadow.frag"));
         I.SunDepth = std::make_unique<Shader>(I.ShaderPath("shadow.vert"), I.ShaderPath("sun_shadow.frag"));
@@ -148,7 +150,7 @@ namespace Engine {
         I.BloomUp = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("bloom_up.frag"));
         I.FXAA = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("fxaa.frag"));
 
-        I.Env = std::make_unique<Environment>(assetDir + "Shaders/");
+        I.Env = std::make_unique<Environment>(engineDir + "Shaders/");
         I.Env->UseProcedural();
 
         I.PointShadows = std::make_unique<PointShadowArray>(1024);

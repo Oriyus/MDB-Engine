@@ -237,7 +237,7 @@ namespace Engine {
     //   log(...), print(...)
     class ScriptEngine {
     public:
-        ScriptEngine(std::string assetDir, PhysicsWorld* physics, AudioEngine* audio);
+        ScriptEngine(std::string assetDir, std::string engineDir, PhysicsWorld* physics, AudioEngine* audio);
         ~ScriptEngine();
         ScriptEngine(const ScriptEngine&) = delete;
         ScriptEngine& operator=(const ScriptEngine&) = delete;

@@ -101,7 +101,8 @@ namespace Engine {
     };
 
     struct ScriptEngine::Impl {
-        std::string AssetDir;
+        std::string AssetDir;                   // the project's Assets
+        std::string EngineDir;                  // the engine's files (Scripts/Lib)
         PhysicsWorld* Physics = nullptr;
         AudioEngine* Audio = nullptr;
         PrefabLibrary* Prefabs = nullptr;
@@ -1695,21 +1696,25 @@ namespace Engine {
     }
 
     // Scripts/Lib/*.lua (in name order) run once in the shared globals when scripts start: code every
-    // script can call, without each one loading it.
+    // script can call, without each one loading it. The engine's libraries first (EngineAssets/Scripts/Lib:
+    // the dialogue runner), then the project's own (Assets/Scripts/Lib), which may build on them.
     void ScriptEngine::Impl::LoadLibraries() {
         namespace fs = std::filesystem;
-        std::error_code ec;
-        const fs::path dir = fs::path(AssetDir) / "Scripts" / "Lib";
-        if (!fs::is_directory(dir, ec)) return;
-        std::vector<fs::path> files;
-        for (const auto& f : fs::directory_iterator(dir, ec))
-            if (f.path().extension() == ".lua") files.push_back(f.path());
-        std::sort(files.begin(), files.end());
-        for (const fs::path& f : files) {
-            auto r = Lua->safe_script_file(f.string(), sol::script_pass_on_error);
-            if (!r.valid()) {
-                sol::error err = r;
-                ReportError("[script] Scripts/Lib/" + f.filename().string() + " (load): " + err.what());
+        for (const std::string& root : { EngineDir, AssetDir }) {
+            std::error_code ec;
+            if (root.empty()) continue;
+            const fs::path dir = fs::u8path(root) / "Scripts" / "Lib";
+            if (!fs::is_directory(dir, ec)) continue;
+            std::vector<fs::path> files;
+            for (const auto& f : fs::directory_iterator(dir, ec))
+                if (f.path().extension() == ".lua") files.push_back(f.path());
+            std::sort(files.begin(), files.end());
+            for (const fs::path& f : files) {
+                auto r = Lua->safe_script_file(f.string(), sol::script_pass_on_error);
+                if (!r.valid()) {
+                    sol::error err = r;
+                    ReportError("[script] Scripts/Lib/" + f.filename().string() + " (load): " + err.what());
+                }
             }
         }
     }
@@ -1817,7 +1822,8 @@ namespace Engine {
     }
 
     // ---------------------------------------------------------------- ScriptEngine
-    ScriptEngine::ScriptEngine(std::string assetDir, PhysicsWorld* physics, AudioEngine* audio) : m_Impl(std::make_unique<Impl>()) {
+    ScriptEngine::ScriptEngine(std::string assetDir, std::string engineDir, PhysicsWorld* physics, AudioEngine* audio) : m_Impl(std::make_unique<Impl>()) {
+        m_Impl->EngineDir = std::move(engineDir);
         m_Impl->AssetDir = std::move(assetDir);
         m_Impl->Physics = physics;
         m_Impl->Audio = audio;

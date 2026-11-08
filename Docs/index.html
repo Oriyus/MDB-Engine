@@ -157,9 +157,9 @@ footer { color: var(--muted); font-size: 13px; margin-top: 40px; }
 <p>CMake with the Visual Studio 2026 generator. Dependencies download automatically (FetchContent).</p>
 <pre><code class="sh">cmake -S . -B build -G "Visual Studio 18 2026" -Wno-dev
 cmake --build build --config Debug
-.\build\bin\Debug\MDBEditor.exe                  # the editor
-.\build\bin\Debug\Game.exe --scene coin_rush.json # the game
-cmake --build build --config Release --target package_game   # build/dist/Release: Game.exe + Assets</code></pre>
+.\build\bin\Debug\MDBEditor.exe [--project folder]              # the editor (the last project, else Examples)
+.\build\bin\Debug\Game.exe [--project folder] [--scene x.json]   # the game (default: Examples)
+cmake --build build --config Release --target package_game   # build/dist/Release: the Examples game</code></pre>
 <ul>
   <li>After <b>adding or deleting</b> a source file, run the configure line again (engine sources are collected with a glob; editor sources are listed in <code>Editor/CMakeLists.txt</code>).</li>
   <li>Shaders are read at run time: <b>F5</b> reloads them without rebuilding.</li>
@@ -182,7 +182,8 @@ cmake --build build --config Release --target package_game   # build/dist/Releas
 <tr><td><code>Engine/src/Audio</code></td><td>AudioEngine (miniaudio)</td></tr>
 <tr><td><code>Editor/src</code></td><td>The editor, example level builders, undo history, Assets panel, Dialogue Editor</td></tr>
 <tr><td><code>Game/src</code></td><td>The standalone game</td></tr>
-<tr><td><code>Assets/</code></td><td>Shaders, Models, Scenes, Environments, Scripts (and <code>Scripts/Lib</code>), Sounds, Prefabs, Textures, Dialogues, <code>game.json</code></td></tr>
+<tr><td><code>EngineAssets/</code></td><td>The engine's own files: Shaders, <code>Scripts/Lib</code> (the dialogue runner), the built-in sample model</td></tr>
+<tr><td><code>Examples/</code></td><td>The example project: <code>project.json</code> and <code>Assets/</code> with every example level, script and test</td></tr>
 <tr><td><code>Tools/</code></td><td>Scripts that generate the example sounds and UI images</td></tr>
 </table>
 </section>
@@ -488,13 +489,43 @@ self:add_audio("Sounds/lava_loop.wav", { loop = true, min_distance = 2, max_dist
   { "id": 2, "type": "action", "event": "potion_bought", "next": 0 } ] }</code></pre>
 </section>
 
+<section class="doc" data-group="Engine" id="engine-projects">
+<h2>Projects</h2>
+<p>A game is a <b>project</b>: a folder of its own (its own git repo too) with <code>project.json</code> and <code>Assets/</code>. The engine repo stays separate; its shaders and Lua libraries (<code>EngineAssets/</code>) are shared by every project.</p>
+<pre><code class="sh">MyCRPG/
+  project.json        the game's settings
+  .gitignore          ignores Build/
+  Assets/  Scenes/ Scripts/ Models/ Textures/ Sounds/ Prefabs/ Dialogues/ Environments/
+  Build/              File &gt; Build Game puts the shippable game here</code></pre>
+<pre><code class="json">// project.json (every field optional)
+{ "title": "My Game", "scene": "main.json", "width": 1600, "height": 900, "fullscreen": true, "vsync": true,
+  "exclude": ["Scripts/*_test.lua"] }</code></pre>
+<ul>
+  <li><b>File › New Project</b>: pick an empty folder; the project is made there and opened.</li>
+  <li><b>File › Open Project / Recent Projects</b>: the editor restarts on that project (asking about unsaved changes first). It reopens the last project next time; the window title shows which one is open.</li>
+  <li>The editor opens the project's start scene. A new project starts with a simple scene named after it: Ctrl+S saves it.</li>
+  <li>Lua libraries: <code>EngineAssets/Scripts/Lib</code> loads first, then your project's <code>Assets/Scripts/Lib</code>.</li>
+  <li>Play-testing save slots are kept per project (<code>%APPDATA%/MDB Engine/Editor Saves/&lt;title&gt;</code>).</li>
+  <li><code>Examples/</code> in the engine repo is a project with every example level and test (File › Example Levels appears only there).</li>
+</ul>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-build-game">
+<h2>Build Game (shipping)</h2>
+<p><b>File › Build Game…</b> makes a folder you can zip and ship. Set the title, start scene, window size, full screen, VSync and files to leave out (saved to <code>project.json</code>), pick the output folder, press <b>Build</b>.</p>
+<ol>
+  <li>Compiles <code>Game.exe</code> in Release (the first time takes a few minutes; the editor keeps working, the log shows progress).</li>
+  <li>Fills <code>&lt;output&gt;/&lt;title&gt;/</code> with <code>&lt;title&gt;.exe</code>, <code>EngineAssets/</code>, your <code>Assets/</code> (minus <code>exclude</code>) and <code>project.json</code>.</li>
+</ol>
+<p><b>Play it</b> runs the result and <b>Show in Explorer</b> opens the folder. The game uses the <i>saved</i> scene files, so save first. Players need the Microsoft Visual C++ Redistributable (x64), which most PCs have. A rebuild replaces the earlier build (only a folder that holds a <code>project.json</code> is ever replaced).</p>
+</section>
+
 <section class="doc" data-group="Engine" id="engine-game">
 <h2>The standalone Game</h2>
-<p><code>Game.exe</code> plays one scene full screen or windowed, with no editor. It looks for an <code>Assets</code> folder next to the exe first (a packaged game), then the source tree.</p>
-<pre><code class="json">// Assets/game.json (all optional)
-{ "title": "My Game", "scene": "coin_rush.json", "width": 1600, "height": 900, "fullscreen": true, "vsync": true }</code></pre>
+<p><code>Game.exe</code> plays a project full screen or windowed, with no editor. It uses <code>--project</code>, else a <code>project.json</code> next to the exe (a built game), else the source tree's Examples. Its settings come from <code>project.json</code>.</p>
 <table>
 <tr><th>Argument</th><th>Effect</th></tr>
+<tr><td><code>--project folder</code></td><td>The project to play</td></tr>
 <tr><td><code>--scene file</code></td><td>Start scene (in Assets/Scenes)</td></tr>
 <tr><td><code>--fullscreen</code> / <code>--windowed</code></td><td>Window mode</td></tr>
 <tr><td><code>--width N</code> <code>--height N</code></td><td>Window size</td></tr>
@@ -502,7 +533,7 @@ self:add_audio("Sounds/lava_loop.wav", { loop = true, min_distance = 2, max_dist
 <tr><td><code>--save-dir folder</code></td><td>Where save slots go</td></tr>
 <tr><td><code>--quit-after s</code></td><td>Close after s seconds (tests)</td></tr>
 </table>
-<p>Keys: <b>Esc</b> pause menu (Resume / Restart / Quit; R and Q work too), <b>F11</b> or <b>Alt+Enter</b> full screen. Release builds have no console window. <code>package_game</code> builds a ready-to-zip folder.</p>
+<p>Keys: <b>Esc</b> pause menu (Resume / Restart / Quit; R and Q work too), <b>F11</b> or <b>Alt+Enter</b> full screen. Release builds have no console window. File › Build Game (or the <code>package_game</code> target, for Examples) builds a ready-to-zip folder.</p>
 </section>
 
 <section class="doc" data-group="Engine" id="engine-testing">
@@ -518,12 +549,14 @@ self:add_audio("Sounds/lava_loop.wav", { loop = true, min_distance = 2, max_dist
 <tr><td><code>engine_features_test.lua</code></td><td>world_to_screen, decals, line of sight, cover, primitives, flash (22)</td></tr>
 <tr><td><code>fog_test.lua</code></td><td>Fog of war: reveal, explore, save / load, e.visible (17)</td></tr>
 </table>
-<pre><code class="sh">set MDB_WINDOWED=1 &amp; set MDB_SCENE=tactics_test.json &amp; set MDB_AUTOPLAY=1
+<pre><code class="sh">set MDB_PROJECT=Examples &amp; set MDB_WINDOWED=1 &amp; set MDB_SCENE=tactics_test.json &amp; set MDB_AUTOPLAY=1
 set MDB_TEST_SCRIPT=Scripts/nav_test.lua &amp; set MDB_QUIT_AFTER=8
 MDBEditor.exe &gt; log.txt</code></pre>
 <table>
 <tr><th>Variable</th><th>Effect</th></tr>
-<tr><td><code>MDB_WINDOWED=1</code></td><td>Start windowed</td></tr>
+<tr><td><code>MDB_PROJECT=Examples</code></td><td>The project to open (a folder, or a folder name in the engine repo). Set it for test runs: otherwise the editor opens the last project used</td></tr>
+<tr><td><code>MDB_BUILD_GAME=folder</code></td><td>Run File › Build Game into the folder (the editor waits for it when quitting)</td></tr>
+<tr><td><code>MDB_WINDOWED=1</code></td><td>A plain 1600 × 900 window instead of maximized</td></tr>
 <tr><td><code>MDB_DEMO=script|coinrush|tactics|cellar</code></td><td>Build an example level</td></tr>
 <tr><td><code>MDB_SCENE</code> / <code>MDB_SAVE_SCENE</code></td><td>Load a scene first / save last</td></tr>
 <tr><td><code>MDB_AUTOPLAY=1</code></td><td>Press Play</td></tr>
@@ -573,7 +606,7 @@ MDBEditor.exe &gt; log.txt</code></pre>
 <h2>Menu bar &amp; toolbar</h2>
 <table>
 <tr><th>Menu</th><th>Items</th></tr>
-<tr><td>File</td><td>New (Ctrl+N), Open Scene, Save (Ctrl+S), Save As (Ctrl+Shift+S), Example Levels, Exit</td></tr>
+<tr><td>File</td><td>New (Ctrl+N), Open Scene, Save (Ctrl+S), Save As (Ctrl+Shift+S), Example Levels (Examples project), New Project, Open Project, Recent Projects, Show Project in Explorer, Build Game, Exit</td></tr>
 <tr><td>Edit</td><td>Undo / Redo (named after the step), Duplicate, Delete, Frame Selected, Reload Shaders</td></tr>
 <tr><td>Create</td><td>Empty Entity, Cube, Sphere, Plane, Capsule, Cylinder, Cone, Point Light, Sun, Camera, Physics Box, Physics Ball, Material Grid, Prefab</td></tr>
 <tr><td>Play</td><td>Play/Stop (Ctrl+P), Pause/Resume, Step One Frame, Play Through Game Camera</td></tr>

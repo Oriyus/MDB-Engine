@@ -24,7 +24,8 @@ namespace Engine {
     // Owns every shader, render target and the environment (IBL). Needs a GL context.
     class SceneRenderer {
     public:
-        explicit SceneRenderer(const std::string& assetDir, uint32_t width = 1280, uint32_t height = 720);
+        // engineDir: the engine's files (Shaders/); assetDir: the project's Assets (Environments/). Both end in '/'.
+        SceneRenderer(const std::string& engineDir, const std::string& assetDir, uint32_t width = 1280, uint32_t height = 720);
         ~SceneRenderer();
         SceneRenderer(const SceneRenderer&) = delete;
         SceneRenderer& operator=(const SceneRenderer&) = delete;

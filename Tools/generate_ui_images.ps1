@@ -1,9 +1,9 @@
-# Draws the example images into Assets/Textures (PNG with transparency): the UI coin icon, and a
+# Draws the example images into Examples/Assets/Textures (PNG with transparency): the UI coin icon, and a
 # fence (Cutout) and a stained-glass window (Blend) for see-through surfaces.
 #   powershell -ExecutionPolicy Bypass -File Tools/generate_ui_images.ps1
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
-$out = Join-Path $PSScriptRoot '..\Assets\Textures'
+$out = Join-Path $PSScriptRoot '..\Examples\Assets\Textures'
 New-Item -ItemType Directory -Force $out | Out-Null
 
 function New-Canvas([int]$w, [int]$h) {

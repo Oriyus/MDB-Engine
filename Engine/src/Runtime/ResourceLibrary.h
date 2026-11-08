@@ -19,7 +19,8 @@ namespace Engine {
     // Sphere and model are created on first use. Needs a GL context.
     class ResourceLibrary {
     public:
-        explicit ResourceLibrary(std::string assetDir);
+        // assetDir: the project's Assets (textures, models by path); engineDir: the engine's files (the sample model)
+        ResourceLibrary(std::string assetDir, std::string engineDir);
         ~ResourceLibrary();
         ResourceLibrary(const ResourceLibrary&) = delete;
         ResourceLibrary& operator=(const ResourceLibrary&) = delete;
@@ -44,7 +45,7 @@ namespace Engine {
         ResourceRegistry Registry();
 
     private:
-        std::string m_AssetDir;
+        std::string m_AssetDir, m_EngineDir;
         std::shared_ptr<Mesh> m_Cube, m_Plane, m_Sphere, m_Capsule, m_Cylinder, m_Cone;
         std::shared_ptr<Model> m_Model;
         std::unordered_map<std::string, std::shared_ptr<Model>> m_Models;   // by path, for "model:<path>"

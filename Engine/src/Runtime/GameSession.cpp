@@ -86,14 +86,14 @@ namespace Engine {
         }
     };
 
-    GameSession::GameSession(Scene& scene, const std::string& assetDir, const ResourceRegistry& resources)
+    GameSession::GameSession(Scene& scene, const std::string& assetDir, const std::string& engineDir, const ResourceRegistry& resources)
         : m_Scene(scene) {
         m_Physics = std::make_unique<PhysicsWorld>();
         m_Nav = std::make_unique<NavGrid>();
         m_Fog = std::make_unique<FogOfWar>();
         m_Audio = std::make_unique<AudioEngine>(assetDir);
         m_Prefabs = std::make_unique<PrefabLibrary>(assetDir, resources);
-        m_Scripts = std::make_unique<ScriptEngine>(assetDir, m_Physics.get(), m_Audio.get());
+        m_Scripts = std::make_unique<ScriptEngine>(assetDir, engineDir, m_Physics.get(), m_Audio.get());
         m_Scripts->SetResources(resources);
         m_Scripts->SetPrefabs(m_Prefabs.get());
         m_Scripts->SetNavigation(m_Nav.get());

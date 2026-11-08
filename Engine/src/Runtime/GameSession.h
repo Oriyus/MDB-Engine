@@ -34,7 +34,8 @@ namespace Engine {
     //     "visited": { "<scene file>": { "diff", "shared", "scripts" }... } }   levels left earlier
     class GameSession : public ScriptHost {
     public:
-        GameSession(Scene& scene, const std::string& assetDir, const ResourceRegistry& resources);
+        // assetDir: the project's Assets; engineDir: the engine's files (Scripts/Lib). Both end in '/'.
+        GameSession(Scene& scene, const std::string& assetDir, const std::string& engineDir, const ResourceRegistry& resources);
         ~GameSession() override;
         GameSession(const GameSession&) = delete;
         GameSession& operator=(const GameSession&) = delete;

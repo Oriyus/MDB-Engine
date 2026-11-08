@@ -1,11 +1,13 @@
 // The standalone game: plays one scene full screen (or in a window) with no editor.
 //
-// Settings come from Assets/game.json, and the command line can override them:
-//   Game.exe [--scene <file in Assets/Scenes>] [--fullscreen | --windowed] [--width N] [--height N]
-//            [--no-vsync] [--quit-after <seconds>] [--save-dir <folder>]
+// The game is a project (a folder with project.json and Assets/, see Core/Project.h). Settings come from
+// project.json, and the command line can override them:
+//   Game.exe [--project <folder>] [--scene <file in Assets/Scenes>] [--fullscreen | --windowed] [--width N]
+//            [--height N] [--no-vsync] [--quit-after <seconds>] [--save-dir <folder>]
 // Save slots go to %APPDATA%/<title>/Saves unless --save-dir says otherwise.
-// The Assets folder is looked for next to the executable first (a packaged build, see the
-// package_game target), then at the source tree's Assets (ASSET_DIR, for running from the build).
+// Where things are: a packaged game (File > Build Game in the editor, or the package_game target) has
+// project.json, Assets and EngineAssets next to the exe. Otherwise (running from the build) the project is
+// --project or the source tree's Examples, and the engine files are the source tree's EngineAssets.
 //
 // Keys: Esc pauses (a menu with Resume / Restart / Quit buttons; Esc, R and Q work too),
 // F11 or Alt+Enter toggles full screen.
@@ -15,6 +17,7 @@
 #include "Core/EntryPoint.h"
 #include "Core/Input.h"
 #include "Core/Log.h"
+#include "Core/Project.h"
 #include "Renderer/Camera.h"
 #include "Renderer/SceneRenderer.h"
 #include "Scene/Scene.h"
@@ -39,8 +42,9 @@ namespace fs = std::filesystem;
 namespace {
 
     struct GameConfig {
-        std::string AssetDir;                 // absolute, with a trailing slash
-        std::string Scene = "coin_rush.json"; // in Assets/Scenes
+        std::string AssetDir;                 // the project's Assets: absolute, with a trailing slash
+        std::string EngineDir;                // the engine's files (shaders, Scripts/Lib): the same
+        std::string Scene = "main.json";      // in Assets/Scenes
         Engine::WindowProps Window;
         float QuitAfter = 0.0f;               // test hook: close after this many seconds (0 = never)
         std::string SaveDir;                  // save slots: %APPDATA%/<title>/Saves unless --save-dir is given
@@ -51,34 +55,35 @@ namespace {
         GameConfig c;
         c.Window.Title = "MDB Game";
 
-        // Assets next to the executable (a packaged game), else the source tree's
+        // The project: --project, else project.json next to the executable (a packaged game), else the
+        // source tree's Examples. The engine files: EngineAssets next to the executable, else the source tree's.
         std::error_code ec;
         const fs::path exeDir = args.empty() ? fs::current_path(ec) : fs::absolute(args[0], ec).parent_path();
-        if (fs::exists(exeDir / "Assets" / "Shaders", ec)) c.AssetDir = (exeDir / "Assets").generic_string() + "/";
-        else c.AssetDir = ASSET_DIR;
-        LOG_INFO("Assets: {}", c.AssetDir);
-
-        // game.json: { "title", "scene", "width", "height", "fullscreen", "vsync" }, all optional
-        if (std::ifstream in(c.AssetDir + "game.json"); in) {
-            try {
-                nlohmann::json j;
-                in >> j;
-                c.Window.Title = j.value("title", c.Window.Title);
-                c.Scene = j.value("scene", c.Scene);
-                c.Window.Width = j.value("width", c.Window.Width);
-                c.Window.Height = j.value("height", c.Window.Height);
-                c.Window.Fullscreen = j.value("fullscreen", c.Window.Fullscreen);
-                c.Window.VSync = j.value("vsync", c.Window.VSync);
-            }
-            catch (const std::exception& ex) {
-                LOG_WARN("game.json is malformed ({}), using defaults", ex.what());
-            }
+        std::string projectDir;
+        for (size_t i = 1; i + 1 < args.size(); i++) if (args[i] == "--project") projectDir = args[i + 1];
+        if (projectDir.empty()) projectDir = Engine::Project::IsProject(Engine::Project::PathString(exeDir)) ? Engine::Project::PathString(exeDir) : std::string(EXAMPLES_DIR);
+        Engine::Project project;
+        std::string error;
+        if (!Engine::Project::Load(projectDir, project, &error)) {
+            LOG_WARN("{} - using defaults", error);
+            project.Root = Engine::Project::Normalize(projectDir);
         }
+        c.AssetDir = project.AssetDir();
+        c.EngineDir = fs::is_directory(exeDir / "EngineAssets" / "Shaders", ec) ? Engine::Project::Normalize(Engine::Project::PathString(exeDir / "EngineAssets"))
+                                                                                   : std::string(ENGINE_ASSET_DIR);
+        c.Window.Title = project.Title;
+        c.Scene = project.Scene;
+        c.Window.Width = project.Width;
+        c.Window.Height = project.Height;
+        c.Window.Fullscreen = project.Fullscreen;
+        c.Window.VSync = project.VSync;
+        LOG_INFO("Project: {} ({})  Engine files: {}", project.Title, project.Root, c.EngineDir);
 
         for (size_t i = 1; i < args.size(); i++) {
             const std::string& a = args[i];
             const bool hasValue = i + 1 < args.size();
-            if (a == "--scene" && hasValue) c.Scene = args[++i];
+            if (a == "--project" && hasValue) i++;       // read above
+            else if (a == "--scene" && hasValue) c.Scene = args[++i];
             else if (a == "--fullscreen") c.Window.Fullscreen = true;
             else if (a == "--windowed") c.Window.Fullscreen = false;
             else if (a == "--no-vsync") c.Window.VSync = false;      // uncapped frame rate (benchmarks)
@@ -116,9 +121,9 @@ public:
         glClearColor(0.02f, 0.02f, 0.03f, 1.0f);   // only visible if the scene can't be shown
         m_Fonts = LoadGameFonts();
 
-        m_Resources = std::make_unique<ResourceLibrary>(m_Cfg.AssetDir);
-        m_Renderer = std::make_unique<SceneRenderer>(m_Cfg.AssetDir, GetWindow().GetWidth(), GetWindow().GetHeight());
-        m_Session = std::make_unique<GameSession>(m_Scene, m_Cfg.AssetDir, m_Resources->Registry());
+        m_Resources = std::make_unique<ResourceLibrary>(m_Cfg.AssetDir, m_Cfg.EngineDir);
+        m_Renderer = std::make_unique<SceneRenderer>(m_Cfg.EngineDir, m_Cfg.AssetDir, GetWindow().GetWidth(), GetWindow().GetHeight());
+        m_Session = std::make_unique<GameSession>(m_Scene, m_Cfg.AssetDir, m_Cfg.EngineDir, m_Resources->Registry());
         m_Session->Scripts().SetUIFonts(m_Fonts.Bold, m_Fonts.Regular);   // ui.label measures with them
 
         SceneSettings settings;
@@ -211,7 +216,7 @@ public:
             lines[0].Text = m_Error;
             lines[0].X = 0.5f; lines[0].Y = 0.42f; lines[0].Size = 36.0f; lines[0].Align = 1;
             lines[0].Color = glm::vec3(1.0f, 0.45f, 0.35f);
-            lines[1].Text = "Check game.json or the --scene argument.  Esc quits.";
+            lines[1].Text = "Check project.json or the --scene argument.  Esc quits.";
             lines[1].X = 0.5f; lines[1].Y = 0.52f; lines[1].Size = 24.0f; lines[1].Align = 1;
             lines[1].Color = glm::vec3(0.8f);
             DrawScriptText(dl, m_Fonts.Bold, lines, ImVec2(0, 0), size);

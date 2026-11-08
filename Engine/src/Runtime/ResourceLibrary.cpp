@@ -23,7 +23,8 @@ namespace Engine {
         }
     }
 
-    ResourceLibrary::ResourceLibrary(std::string assetDir) : m_AssetDir(std::move(assetDir)) {
+    ResourceLibrary::ResourceLibrary(std::string assetDir, std::string engineDir)
+        : m_AssetDir(std::move(assetDir)), m_EngineDir(std::move(engineDir)) {
         m_Cube = Mesh::CreateCube();
         m_Plane = Mesh::CreatePlane(12.0f, 6.0f);
         m_Checker = MakeChecker();
@@ -45,7 +46,7 @@ namespace Engine {
     std::shared_ptr<Mesh> ResourceLibrary::Cone() { if (!m_Cone) m_Cone = Mesh::CreateCone(40); return m_Cone; }
 
     std::shared_ptr<Model> ResourceLibrary::SampleModel() {
-        if (!m_Model) m_Model = std::make_shared<Model>(m_AssetDir + "Models/BoomBox.glb");
+        if (!m_Model) m_Model = std::make_shared<Model>(m_EngineDir + "Models/BoomBox.glb");   // built in: "model"
         return m_Model;
     }
 

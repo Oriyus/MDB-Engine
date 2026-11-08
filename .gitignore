@@ -60,3 +60,11 @@ editor.ini
 Thumbs.db
 Desktop.ini
 .DS_Store
+# ---------------------------------------------------------------
+# Projects
+# ---------------------------------------------------------------
+# model files are not compiled objects
+!/Examples/Assets/**/*.obj
+!/EngineAssets/**/*.obj
+# File > Build Game output
+/Examples/Build/
