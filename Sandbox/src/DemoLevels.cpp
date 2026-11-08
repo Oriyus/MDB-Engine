@@ -203,7 +203,17 @@ void BuildScriptDemo(Scene& scene, const LevelAssets& a, PrefabLibrary& prefabs)
         mr.LocalOffset = a.Fox->GetGroundedMatrix(1.6f);
         mr.UseModelMaterials = a.Fox->HasTexturedMaterials();
         mr.Color = glm::vec3(1.0f);
-        e.Add<AnimatorComponent>().Clip = "Walk";
+        auto& an = e.Add<AnimatorComponent>();
+        an.Clip = "Walk";
+        // Footsteps: a sound event on each paw strike (two per Walk cycle, two per Run stride)
+        for (float t : { 0.10f, 0.45f }) an.Events.push_back({ "Walk", t, "sound:Sounds/step.wav" });
+        for (float t : { 0.20f, 0.75f }) an.Events.push_back({ "Run", t, "sound:Sounds/step.wav" });
+        // A layer that plays Survey on the neck and head only: wander.lua fades it in to look around
+        AnimLayer look;
+        look.Clip = "Survey";
+        look.Mask = "b_Neck_04";
+        look.Weight = 0.0f;
+        an.Layers.push_back(look);
         e.Add<ScriptComponent>().Path = "Scripts/wander.lua";
     }
     // See-through pieces: a cutout fence along the back edge and a stained-glass panel (both solid)

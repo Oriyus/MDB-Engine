@@ -44,6 +44,7 @@ namespace Engine {
     //   on_collision_end(self, other)           stopped touching (other may already be destroyed: other:valid())
     //   on_trigger_enter(self, other)           one of the two is a trigger (sensor) body
     //   on_trigger_exit(self, other)
+    //   on_anim_event(self, name, clip)         an Animator event fired (see e.animator), or "end" of a non-looping clip
     //
     // ---- Entity (self, other, results of scene.find / spawn / clone)
     //   e.name, e.position, e.rotation (radians), e.scale     read/write, LOCAL (relative to the parent);
@@ -74,7 +75,13 @@ namespace Engine {
     //   e.audio -> nil or { clip, volume, pitch, loop, playing, play(), stop() }
     //   e:add_audio(clip [, { volume, pitch, loop=true, spatial=true, play=true, min_distance, max_distance }])
     //   e.animator -> nil or { clip (set = cross-fade), speed, loop, playing, time, blend_time,
-    //                          play(name [, blend_seconds]), stop(), duration([name]), clips() }
+    //                          play(name [, blend_seconds]), stop(), duration([name]), clips(), bones(),
+    //                          add_event(clip, time, name), clear_events([clip]), events(),
+    //                          set_layer(n, { clip, mask = bone name, weight, speed, loop }), layer(n),
+    //                          layer_weight(n, weight [, fade_seconds]), remove_layer(n), layer_count() }
+    //     Layers play another clip over the base one on a bone and everything below it (mask "" = all).
+    //     Events fire on_anim_event(self, name, clip) when playback crosses their time; a non-looping clip
+    //     also fires "end". An event named "sound:Sounds/x.wav" plays that sound at the entity instead.
     //   e:add_animator{ clip, speed=1, loop=true, blend=0.25 }   needs a Mesh Renderer with an animated model
     //
     // ---- Globals
@@ -112,6 +119,7 @@ namespace Engine {
         void Start(Scene& scene);              // call when Play starts (after PhysicsWorld::Sync)
         void Update(Scene& scene, float dt);   // call once per simulated frame, before the physics step
         void DispatchCollisions(Scene& scene); // call after the physics step: delivers its contact events
+        void DispatchAnimationEvents(Scene& scene);  // call after Scene::OnUpdate: on_anim_event and "sound:" events
         void Stop(Scene& scene);               // call before the scene is restored on Stop
         void Reload(Scene& scene);             // Stop + Start, keeping the scene as it is (hot reload)
 

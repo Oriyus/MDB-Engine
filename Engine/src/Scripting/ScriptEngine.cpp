@@ -13,6 +13,7 @@
 
 #define SOL_ALL_SAFETIES_ON 1
 #define SOL_PRINT_ERRORS 0          // errors are reported through the engine log instead
+#include <tuple>
 #include <sol/sol.hpp>
 
 #include <glm/glm.hpp>
@@ -85,7 +86,7 @@ namespace Engine {
         sol::environment Env;
         sol::object Self;
         sol::protected_function OnUpdate, OnDestroy;
-        sol::protected_function OnCollisionBegin, OnCollisionEnd, OnTriggerEnter, OnTriggerExit;
+        sol::protected_function OnCollisionBegin, OnCollisionEnd, OnTriggerEnter, OnTriggerExit, OnAnimEvent;
         bool Enabled = true;
     };
 
@@ -683,6 +684,63 @@ namespace Engine {
                 an.Playing = true;
             },
             "stop", [](const AnimatorRef& a) { a.E.Get<AnimatorComponent>().Playing = false; },
+            // ---- events: add_event(clip, time, name), clear_events([clip]), events() -> { {clip, time, name}, ... }
+            "add_event", [](const AnimatorRef& a, const std::string& clip, float time, const std::string& name) {
+                a.E.Get<AnimatorComponent>().Events.push_back({ clip, time, name });
+            },
+            "clear_events", [](const AnimatorRef& a, sol::optional<std::string> clip) {
+                auto& evs = a.E.Get<AnimatorComponent>().Events;
+                if (!clip) { evs.clear(); return; }
+                evs.erase(std::remove_if(evs.begin(), evs.end(), [&](const AnimEvent& e) { return e.Clip == *clip; }), evs.end());
+            },
+            "events", [this](const AnimatorRef& a) {
+                sol::table out = Lua->create_table();
+                int n = 1;
+                for (const auto& ev : a.E.Get<AnimatorComponent>().Events)
+                    out[n++] = Lua->create_table_with("clip", ev.Clip, "time", ev.Time, "name", ev.Name);
+                return out;
+            },
+            // ---- layers (1-based): set_layer(n, { clip, mask, weight, speed, loop }) creates or changes one
+            "set_layer", [](const AnimatorRef& a, int n, sol::table opts) {
+                auto& layers = a.E.Get<AnimatorComponent>().Layers;
+                if (n < 1 || n > 8) throw std::runtime_error("layer number must be 1..8");
+                if ((int)layers.size() < n) layers.resize(n);
+                AnimLayer& L = layers[n - 1];
+                if (const auto c = opts.get<sol::optional<std::string>>("clip")) { if (*c != L.Clip) L.Time = 0.0f; L.Clip = *c; }
+                L.Mask = opts.get<sol::optional<std::string>>("mask").value_or(L.Mask);
+                if (const auto w = opts.get<sol::optional<float>>("weight")) { L.Weight = std::clamp(*w, 0.0f, 1.0f); L.TargetWeight = -1.0f; }
+                L.Speed = opts.get<sol::optional<float>>("speed").value_or(L.Speed);
+                L.Loop = opts.get<sol::optional<bool>>("loop").value_or(L.Loop);
+            },
+            // layer_weight(n, weight [, seconds]): set it now, or fade to it over that many seconds
+            "layer_weight", [](const AnimatorRef& a, int n, float w, sol::optional<float> seconds) {
+                auto& layers = a.E.Get<AnimatorComponent>().Layers;
+                if (n < 1 || n > (int)layers.size()) throw std::runtime_error("no layer " + std::to_string(n));
+                AnimLayer& L = layers[n - 1];
+                w = std::clamp(w, 0.0f, 1.0f);
+                if (seconds && *seconds > 0.0f) { L.TargetWeight = w; L.FadeRate = std::abs(w - L.Weight) / *seconds; }
+                else { L.Weight = w; L.TargetWeight = -1.0f; }
+            },
+            "layer", [this](const AnimatorRef& a, int n) -> sol::object {
+                const auto& layers = a.E.Get<AnimatorComponent>().Layers;
+                if (n < 1 || n > (int)layers.size()) return sol::lua_nil;
+                const AnimLayer& L = layers[n - 1];
+                return sol::make_object(*Lua, Lua->create_table_with("clip", L.Clip, "mask", L.Mask, "weight", L.Weight,
+                    "speed", L.Speed, "loop", L.Loop, "time", L.Time));
+            },
+            "remove_layer", [](const AnimatorRef& a, int n) {
+                auto& layers = a.E.Get<AnimatorComponent>().Layers;
+                if (n >= 1 && n <= (int)layers.size()) layers.erase(layers.begin() + (n - 1));
+            },
+            "layer_count", [](const AnimatorRef& a) { return (int)a.E.Get<AnimatorComponent>().Layers.size(); },
+            // the skeleton's bone (node) names, for layer masks
+            "bones", [this](const AnimatorRef& a) {
+                sol::table out = Lua->create_table();
+                const auto* mr = a.E.Owner->Registry().try_get<MeshRendererComponent>(a.E.Handle);
+                const Model* model = mr ? dynamic_cast<const Model*>(mr->Geometry.get()) : nullptr;
+                if (model) { int n = 1; for (const auto& name : model->NodeNames()) out[n++] = name; }
+                return out;
+            },
             // clip length in seconds (0 if unknown); no argument: the current clip
             "duration", [](const AnimatorRef& a, sol::optional<std::string> clip) {
                 const auto& an = a.E.Get<AnimatorComponent>();
@@ -814,6 +872,7 @@ namespace Engine {
         inst.OnCollisionEnd = inst.Env["on_collision_end"];
         inst.OnTriggerEnter = inst.Env["on_trigger_enter"];
         inst.OnTriggerExit = inst.Env["on_trigger_exit"];
+        inst.OnAnimEvent = inst.Env["on_anim_event"];
 
         sol::protected_function onCreate = inst.Env["on_create"];
         auto& stored = Instances.emplace(handle, std::move(inst)).first->second;
@@ -980,6 +1039,30 @@ namespace Engine {
         for (const auto& ev : events) {
             deliver(ev.A, ev.B, ev, true);
             deliver(ev.B, ev.A, ev, false);
+        }
+        m.FlushDestroys(scene);
+    }
+
+    void ScriptEngine::DispatchAnimationEvents(Scene& scene) {
+        Impl& m = *m_Impl;
+        if (!m.Lua) return;
+        m.ActiveScene = &scene;
+
+        // Copy first: a callback may change animators (play another clip, add events)
+        std::vector<std::tuple<entt::entity, std::string, std::string>> fired;
+        for (auto [e, an] : scene.Registry().view<AnimatorComponent>().each())
+            for (const auto& [name, clip] : an.Fired) fired.emplace_back(e, name, clip);
+
+        for (const auto& [e, name, clip] : fired) {
+            if (!scene.Registry().valid(e)) continue;
+            if (name.rfind("sound:", 0) == 0) {           // a sound at the entity, no script needed
+                if (m.Audio) m.Audio->PlayAt(name.substr(6), glm::vec3(scene.GetWorldMatrix(e)[3]), 1.0f, 1.0f);
+                continue;
+            }
+            auto it = m.Instances.find(e);
+            if (it == m.Instances.end() || !it->second.Enabled || !it->second.OnAnimEvent.valid()) continue;
+            ScriptInstance& inst = it->second;
+            m.Check(inst.OnAnimEvent(inst.Self, name, clip), inst, "on_anim_event");
         }
         m.FlushDestroys(scene);
     }

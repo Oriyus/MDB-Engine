@@ -391,6 +391,25 @@ namespace Engine {
         m_Max = mx;
     }
 
+    std::vector<std::string> Model::NodeNames() const {
+        std::vector<std::string> out;
+        out.reserve(m_Nodes.size());
+        for (const auto& n : m_Nodes) out.push_back(n.Name);
+        return out;
+    }
+
+    int Model::FindNode(const std::string& name) const {
+        for (size_t i = 0; i < m_Nodes.size(); i++) if (m_Nodes[i].Name == name) return (int)i;
+        return -1;
+    }
+
+    void Model::SubtreeMask(int root, std::vector<uint8_t>& mask) const {
+        mask.assign(m_Nodes.size(), root < 0 ? 1 : 0);     // no root: everything
+        if (root < 0 || root >= (int)m_Nodes.size()) return;
+        for (size_t i = 0; i < m_Nodes.size(); i++)          // parents come first
+            mask[i] = ((int)i == root || (m_Nodes[i].Parent >= 0 && mask[m_Nodes[i].Parent])) ? 1 : 0;
+    }
+
     int Model::FindAnimation(const std::string& name) const {
         for (size_t i = 0; i < m_ClipNames.size(); i++) if (m_ClipNames[i] == name) return (int)i;
         return -1;

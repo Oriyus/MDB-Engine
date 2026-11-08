@@ -66,6 +66,18 @@ namespace Engine {
             auto& a = e.Get<AnimatorComponent>();
             j["animator"] = { { "clip", a.Clip },{ "speed", a.Speed },{ "loop", a.Loop },{ "playing", a.Playing },
                               { "blendTime", a.BlendTime } };
+            // Only when present, so animators without them keep their old JSON (no prefab overrides appear)
+            if (!a.Layers.empty()) {
+                json layers = json::array();
+                for (const auto& L : a.Layers)
+                    layers.push_back({ { "clip", L.Clip },{ "mask", L.Mask },{ "weight", L.Weight },{ "speed", L.Speed },{ "loop", L.Loop } });
+                j["animator"]["layers"] = layers;
+            }
+            if (!a.Events.empty()) {
+                json events = json::array();
+                for (const auto& ev : a.Events) events.push_back({ { "clip", ev.Clip },{ "time", ev.Time },{ "name", ev.Name } });
+                j["animator"]["events"] = events;
+            }
         }
         if (e.Has<ScriptComponent>())
             j["script"] = { { "path", e.Get<ScriptComponent>().Path } };
@@ -158,6 +170,19 @@ namespace Engine {
             a.Loop = ja.value("loop", true);
             a.Playing = ja.value("playing", true);
             a.BlendTime = ja.value("blendTime", 0.25f);
+            if (ja.contains("layers"))
+                for (const auto& jl : ja["layers"]) {
+                    AnimLayer L;
+                    L.Clip = jl.value("clip", std::string());
+                    L.Mask = jl.value("mask", std::string());
+                    L.Weight = jl.value("weight", 1.0f);
+                    L.Speed = jl.value("speed", 1.0f);
+                    L.Loop = jl.value("loop", true);
+                    a.Layers.push_back(L);
+                }
+            if (ja.contains("events"))
+                for (const auto& je : ja["events"])
+                    a.Events.push_back({ je.value("clip", std::string()), je.value("time", 0.0f), je.value("name", std::string()) });
             e.Add<AnimatorComponent>(a);
         }
         if (j.contains("script"))

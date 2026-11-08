@@ -60,6 +60,10 @@ namespace Engine {
         // Bone matrices for the shader (u_Bones): model space, one per bone
         void PoseToPalette(const std::vector<NodePose>& pose, std::vector<glm::mat4>& palette) const;
         const std::vector<glm::mat4>& RestPalette() const { return m_RestPalette; }   // for a model nobody animates
+        // Skeleton nodes, for animation layer masks: names (parents first), lookup, and a node's subtree
+        std::vector<std::string> NodeNames() const;
+        int FindNode(const std::string& name) const;      // -1 if missing
+        void SubtreeMask(int root, std::vector<uint8_t>& mask) const;   // 1 for root and its descendants
 
     private:
         struct Submesh {

@@ -1,7 +1,7 @@
 {
   "entities": [
     {
-      "id": 13926116220483895134,
+      "id": 1982304427216301764,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "blend",
@@ -81,7 +81,7 @@
       }
     },
     {
-      "id": 5959381812372998351,
+      "id": 2607269261562989107,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
@@ -161,7 +161,7 @@
       }
     },
     {
-      "id": 1170812030479318117,
+      "id": 9931408500611331547,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
@@ -241,7 +241,7 @@
       }
     },
     {
-      "id": 12539808020008748108,
+      "id": 10437135081157724284,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
@@ -321,7 +321,7 @@
       }
     },
     {
-      "id": 5575050000333861539,
+      "id": 13869004651649890317,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
@@ -401,7 +401,7 @@
       }
     },
     {
-      "id": 6642842055450367142,
+      "id": 17434576951616572107,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
@@ -484,11 +484,42 @@
       "animator": {
         "blendTime": 0.25,
         "clip": "Walk",
+        "events": [
+          {
+            "clip": "Walk",
+            "name": "sound:Sounds/step.wav",
+            "time": 0.10000000149011612
+          },
+          {
+            "clip": "Walk",
+            "name": "sound:Sounds/step.wav",
+            "time": 0.44999998807907104
+          },
+          {
+            "clip": "Run",
+            "name": "sound:Sounds/step.wav",
+            "time": 0.20000000298023224
+          },
+          {
+            "clip": "Run",
+            "name": "sound:Sounds/step.wav",
+            "time": 0.75
+          }
+        ],
+        "layers": [
+          {
+            "clip": "Survey",
+            "loop": true,
+            "mask": "b_Neck_04",
+            "speed": 1.0,
+            "weight": 0.0
+          }
+        ],
         "loop": true,
         "playing": true,
         "speed": 1.0
       },
-      "id": 2402384301254043289,
+      "id": 12943063163935737987,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -553,7 +584,7 @@
       }
     },
     {
-      "id": 4786422138099196414,
+      "id": 9015399602175686628,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -636,7 +667,7 @@
       }
     },
     {
-      "id": 16708463769139852653,
+      "id": 8733348797617232099,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -658,7 +689,7 @@
       }
     },
     {
-      "id": 15976270203269050719,
+      "id": 5521960742702316902,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -680,7 +711,7 @@
       }
     },
     {
-      "id": 9347422335351496976,
+      "id": 16367734463840147843,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -702,7 +733,7 @@
       }
     },
     {
-      "id": 5376619853858077890,
+      "id": 5203746992961010796,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -724,7 +755,7 @@
       }
     },
     {
-      "id": 3646728212158446403,
+      "id": 8619472494404404702,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -746,7 +777,7 @@
       }
     },
     {
-      "id": 2298204316617293192,
+      "id": 18353143012545703312,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -768,7 +799,7 @@
       }
     },
     {
-      "id": 10649524381402071417,
+      "id": 10255065206957614888,
       "name": "Spawner",
       "script": {
         "path": "Scripts/spawner.lua"
@@ -792,7 +823,7 @@
       }
     },
     {
-      "id": 16633843256830805988,
+      "id": 1786722182190792025,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -884,7 +915,7 @@
         ],
         "intensity": 1.2000000476837158
       },
-      "id": 16451638299010232210,
+      "id": 1080564887312738600,
       "name": "Sun",
       "transform": {
         "position": [
@@ -905,7 +936,7 @@
       }
     },
     {
-      "id": 1718302887452480235,
+      "id": 14599297711359536994,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",

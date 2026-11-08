@@ -127,3 +127,13 @@ Add-Tone $s 0.00 0.35 392 380 6 1.0 0.5
 Add-Tone $s 0.30 0.35 330 318 6 1.0 0.5
 Add-Tone $s 0.60 0.60 262 240 4 1.0 0.5
 Save-Wav $s 'lose.wav'
+
+# ---- step: a soft padded footfall (low-passed noise puff over a short low knock), quiet
+$s = New-Buffer 0.14; $lp = 0.0
+for ($i = 0; $i -lt $s.Length; $i++) {
+    $t = $i / $rate
+    $lp += 0.08 * (($rng.NextDouble() * 2 - 1) - $lp)        # one-pole low-pass: a muffled "pff"
+    $s[$i] = $lp * [Math]::Min(1.0, $t / 0.003) * [Math]::Exp(-$t * 38) * 3.0
+}
+Add-Tone $s 0 0.12 140 70 45 0.6
+Save-Wav $s 'step.wav' 0.45

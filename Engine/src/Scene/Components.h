@@ -155,14 +155,40 @@ namespace Engine {
         uint64_t Node = 0;
     };
 
+    // A named moment in a clip. It fires when playback crosses Time (also across a loop), for the base
+    // clip and for layers. Scripts get on_anim_event(self, name, clip); a name "sound:Sounds/x.wav"
+    // plays that sound at the entity instead.
+    struct AnimEvent {
+        std::string Clip;
+        float Time = 0.0f;                // seconds into the clip
+        std::string Name;
+    };
+
+    // Another clip played over the base clip on part of the skeleton: Mask is a bone (node) name and
+    // everything below it ("" = the whole skeleton). Weight 0..1 blends it in over the base pose.
+    struct AnimLayer {
+        std::string Clip;
+        std::string Mask;
+        float Weight = 1.0f;
+        float Speed = 1.0f;
+        bool  Loop = true;
+
+        // Runtime state (not saved)
+        float Time = 0.0f;
+        float TargetWeight = -1.0f;       // >= 0: Weight is fading towards it
+        float FadeRate = 0.0f;            // weight per second
+    };
+
     // Plays a skeletal animation on this entity's Mesh Renderer model (one with bones). Changing
-    // Clip cross-fades from the old clip over BlendTime seconds.
+    // Clip cross-fades from the old clip over BlendTime seconds. Layers go on top, in order.
     struct AnimatorComponent {
         std::string Clip;                 // animation name ("" = the rest pose)
         float Speed = 1.0f;
         bool  Loop = true;
         bool  Playing = true;
         float BlendTime = 0.25f;          // seconds
+        std::vector<AnimLayer> Layers;
+        std::vector<AnimEvent> Events;
 
         // Runtime state (not saved)
         float Time = 0.0f;                // seconds into ActiveClip
@@ -171,6 +197,9 @@ namespace Engine {
         float FadeFromTime = 0.0f;
         float Fade = 1.0f;                // 0 = all FadeFrom, 1 = all ActiveClip
         std::vector<glm::mat4> Palette;   // bone matrices for the renderer (empty: not posed yet)
+        // Events that fired this frame as (name, clip), plus "end" when a non-looping clip finishes.
+        // Filled by Scene::UpdateAnimations, delivered by ScriptEngine::DispatchAnimationEvents.
+        std::vector<std::pair<std::string, std::string>> Fired;
     };
 
     // A Lua script driving this entity while playing (see Scripting/ScriptEngine.h).

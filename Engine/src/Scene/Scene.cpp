@@ -181,9 +181,55 @@ namespace Engine {
     }
 
     // ---------------------------------------------------------------- skeletal animation
+    // Advance a clip's time by `step` seconds and report the events it crossed into an.Fired.
+    // Looping clips wrap (either direction); others hold the end and fire "end" once when they reach it.
+    static float AdvanceClip(AnimatorComponent& an, const Model& model, int clip, const std::string& clipName,
+        float time, float step, bool loop) {
+        const float d = model.AnimationDuration(clip);
+        if (d <= 0.0f) return 0.0f;
+        if (step == 0.0f) return loop ? time : std::clamp(time, 0.0f, d);
+
+        // Fire every event of this clip with a time in the half-open range (a, b]
+        auto fire = [&](float a, float b) {
+            for (const auto& ev : an.Events)
+                if (ev.Clip == clipName && ev.Time > a && ev.Time <= b) an.Fired.emplace_back(ev.Name, clipName);
+        };
+        const float raw = time + step;
+        if (!loop) {
+            const float t = std::clamp(raw, 0.0f, d);
+            if (step > 0.0f) {
+                fire(time, t);
+                if (time < d && t >= d) an.Fired.emplace_back("end", clipName);
+            }
+            else {
+                fire(t - 1e-6f, time - 1e-6f);   // backwards: crossing from above
+                if (time > 0.0f && t <= 0.0f) an.Fired.emplace_back("end", clipName);
+            }
+            return t;
+        }
+        // Looping: walk the range one lap at a time (a big step can cross several laps)
+        float t = raw;
+        if (step > 0.0f) {
+            float from = time;
+            int guard = 0;
+            while (t > d && guard++ < 8) { fire(from, d); from = -1e-6f; t -= d; }   // -1e-6: an event at 0 fires on wrap
+            fire(from, t);
+        }
+        else {
+            float to = time;
+            int guard = 0;
+            while (t < 0.0f && guard++ < 8) { fire(-1e-6f, to - 1e-6f); to = d + 1e-6f; t += d; }
+            fire(t - 1e-6f, to - 1e-6f);
+        }
+        t = std::fmod(t, d);
+        return t < 0.0f ? t + d : t;
+    }
+
     void Scene::UpdateAnimations(float dt) {
-        static thread_local std::vector<Model::NodePose> pose, from;   // reused: no allocations per frame
+        static thread_local std::vector<Model::NodePose> pose, from, layer;   // reused: no allocations per frame
+        static thread_local std::vector<uint8_t> mask;
         for (auto [e, an, mr] : m_Registry.view<AnimatorComponent, MeshRendererComponent>().each()) {
+            an.Fired.clear();
             const Model* model = dynamic_cast<const Model*>(mr.Geometry.get());
             if (!model || !model->IsSkinned()) { an.Palette.clear(); continue; }
 
@@ -198,23 +244,21 @@ namespace Engine {
             const int clip = model->FindAnimation(an.ActiveClip);
             const int fromClip = an.Fade < 1.0f ? model->FindAnimation(an.FadeFrom) : -1;
 
-            if (an.Playing && dt != 0.0f) {
-                an.Time += dt * an.Speed;
-                an.FadeFromTime += dt * an.Speed;
+            const bool advancing = an.Playing && dt != 0.0f;
+            const float step = advancing ? dt * an.Speed : 0.0f;
+            if (advancing) {
                 if (an.Fade < 1.0f) an.Fade = std::min(1.0f, an.Fade + std::abs(dt) / std::max(an.BlendTime, 1e-4f));
             }
             else if (dt == 0.0f) {
                 an.Fade = 1.0f;                                  // no time passing (editor): no fade, just the clip
             }
-            // Loop (either direction) or hold the last frame
-            auto wrap = [&](float t, int c) {
-                const float d = model->AnimationDuration(c);
-                if (d <= 0.0f) return 0.0f;
-                if (an.Loop) { t = std::fmod(t, d); return t < 0.0f ? t + d : t; }
-                return std::clamp(t, 0.0f, d);
-            };
-            an.Time = wrap(an.Time, clip);
-            an.FadeFromTime = wrap(an.FadeFromTime, fromClip);
+            an.Time = AdvanceClip(an, *model, clip, an.ActiveClip, an.Time, step, an.Loop);
+            if (fromClip >= 0) {                                 // the clip fading out keeps running, silently
+                const float d = model->AnimationDuration(fromClip);
+                float t = an.FadeFromTime + step;
+                if (d > 0.0f) { t = an.Loop ? std::fmod(t, d) : std::clamp(t, 0.0f, d); if (t < 0.0f) t += d; }
+                an.FadeFromTime = t;
+            }
 
             model->SamplePose(clip, an.Time, pose);
             if (fromClip >= 0 && an.Fade < 1.0f) {
@@ -223,6 +267,35 @@ namespace Engine {
                     pose[i].T = glm::mix(from[i].T, pose[i].T, an.Fade);
                     pose[i].R = glm::slerp(from[i].R, pose[i].R, an.Fade);
                     pose[i].S = glm::mix(from[i].S, pose[i].S, an.Fade);
+                }
+            }
+
+            // Layers, in order: each replaces the pose of its masked nodes by its own clip, by Weight
+            for (auto& L : an.Layers) {
+                if (L.TargetWeight >= 0.0f && dt != 0.0f) {      // fading towards a target weight
+                    const float delta = L.FadeRate * std::abs(dt);
+                    L.Weight = L.Weight < L.TargetWeight ? std::min(L.TargetWeight, L.Weight + delta)
+                                                         : std::max(L.TargetWeight, L.Weight - delta);
+                    if (L.Weight == L.TargetWeight) L.TargetWeight = -1.0f;
+                }
+                const int lclip = model->FindAnimation(L.Clip);
+                if (lclip < 0) continue;
+                L.Time = AdvanceClip(an, *model, lclip, L.Clip, L.Time, an.Playing && dt != 0.0f ? dt * L.Speed : 0.0f, L.Loop);
+                const float w = std::clamp(L.Weight, 0.0f, 1.0f);
+                if (w <= 0.0f) continue;
+
+                int root = -1;
+                if (!L.Mask.empty()) {
+                    root = model->FindNode(L.Mask);
+                    if (root < 0) continue;                      // an unknown bone masks nothing
+                }
+                model->SubtreeMask(root, mask);
+                model->SamplePose(lclip, L.Time, layer);
+                for (size_t i = 0; i < pose.size(); i++) {
+                    if (!mask[i]) continue;
+                    pose[i].T = glm::mix(pose[i].T, layer[i].T, w);
+                    pose[i].R = glm::slerp(pose[i].R, layer[i].R, w);
+                    pose[i].S = glm::mix(pose[i].S, layer[i].S, w);
                 }
             }
             model->PoseToPalette(pose, an.Palette);

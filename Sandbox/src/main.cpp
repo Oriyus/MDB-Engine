@@ -1559,6 +1559,69 @@ private:
                 if (duration > 0.0f) ImGui::SliderFloat("Time##anim", &an.Time, 0.0f, duration, "%.2f s");
                 ImGui::TextDisabled("%u bones, %d animations. Plays during Play; drag Time to preview.",
                     model->BoneCount(), (int)model->AnimationNames().size());
+
+                auto clipCombo = [&](const char* label, std::string& clip) {
+                    if (ImGui::BeginCombo(label, clip.empty() ? "(none)" : clip.c_str())) {
+                        for (const auto& name : model->AnimationNames())
+                            if (ImGui::Selectable(name.c_str(), clip == name)) clip = name;
+                        ImGui::EndCombo();
+                    }
+                };
+
+                // Layers: another clip over the base one, on a bone and everything below it
+                if (ImGui::TreeNode("Layers", "Layers (%d)", (int)an.Layers.size())) {
+                    const auto bones = model->NodeNames();
+                    int removeLayer = -1;
+                    for (int i = 0; i < (int)an.Layers.size(); i++) {
+                        auto& L = an.Layers[i];
+                        ImGui::PushID(i);
+                        ImGui::SeparatorText(("Layer " + std::to_string(i + 1)).c_str());
+                        clipCombo("Clip##layer", L.Clip);
+                        if (ImGui::BeginCombo("Mask", L.Mask.empty() ? "(whole skeleton)" : L.Mask.c_str())) {
+                            if (ImGui::Selectable("(whole skeleton)", L.Mask.empty())) L.Mask.clear();
+                            for (const auto& b : bones)
+                                if (ImGui::Selectable(b.c_str(), L.Mask == b)) L.Mask = b;
+                            ImGui::EndCombo();
+                        }
+                        ImGui::SetItemTooltip("The layer moves this bone and everything below it");
+                        ImGui::SliderFloat("Weight", &L.Weight, 0.0f, 1.0f);
+                        ImGui::SliderFloat("Speed##layer", &L.Speed, -2.0f, 3.0f);
+                        ImGui::Checkbox("Loop##layer", &L.Loop);
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("Remove layer")) removeLayer = i;
+                        ImGui::PopID();
+                    }
+                    if (removeLayer >= 0) an.Layers.erase(an.Layers.begin() + removeLayer);
+                    if (an.Layers.size() < 8 && ImGui::Button("Add layer")) {
+                        AnimLayer L;
+                        L.Clip = an.Clip;
+                        an.Layers.push_back(L);
+                    }
+                    ImGui::TreePop();
+                }
+
+                // Events: on_anim_event(self, name, clip) in scripts; "sound:Sounds/x.wav" plays a sound
+                if (ImGui::TreeNode("Events", "Events (%d)", (int)an.Events.size())) {
+                    int removeEvent = -1;
+                    for (int i = 0; i < (int)an.Events.size(); i++) {
+                        auto& ev = an.Events[i];
+                        ImGui::PushID(1000 + i);
+                        ImGui::SeparatorText(("Event " + std::to_string(i + 1)).c_str());
+                        char buf[128];
+                        std::snprintf(buf, sizeof(buf), "%s", ev.Name.c_str());
+                        if (ImGui::InputText("Name##event", buf, sizeof(buf))) ev.Name = buf;
+                        clipCombo("Clip##event", ev.Clip);
+                        const float d = model->AnimationDuration(model->FindAnimation(ev.Clip));
+                        ImGui::SliderFloat("Time##event", &ev.Time, 0.0f, std::max(d, 0.01f), "%.2f s");
+                        if (ImGui::SmallButton("Remove event")) removeEvent = i;
+                        ImGui::PopID();
+                    }
+                    if (removeEvent >= 0) an.Events.erase(an.Events.begin() + removeEvent);
+                    if (ImGui::Button("Add event at current time"))
+                        an.Events.push_back({ an.ActiveClip.empty() ? an.Clip : an.ActiveClip, an.Time, "event" });
+                    ImGui::TextDisabled("Scripts: on_anim_event(self, name, clip).\nName \"sound:Sounds/x.wav\" plays that sound.");
+                    ImGui::TreePop();
+                }
             }
             if (ImGui::Button("Remove##animator")) e.Remove<AnimatorComponent>();
         }
