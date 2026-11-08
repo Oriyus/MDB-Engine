@@ -1,4 +1,5 @@
-add_executable(Sandbox src/main.cpp src/DemoLevels.cpp src/DemoLevels.h src/EditorHistory.cpp src/EditorHistory.h)
+add_executable(Sandbox src/main.cpp src/DemoLevels.cpp src/DemoLevels.h src/EditorHistory.cpp src/EditorHistory.h
+    src/AssetBrowser.cpp src/AssetBrowser.h src/Platform.cpp src/Platform.h)
 target_link_libraries(Sandbox PRIVATE Engine)
 target_compile_definitions(Sandbox PRIVATE
     ASSET_DIR="${CMAKE_SOURCE_DIR}/Assets/"

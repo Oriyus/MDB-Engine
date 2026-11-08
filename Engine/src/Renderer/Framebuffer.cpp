@@ -94,4 +94,13 @@ namespace Engine {
         return id;
     }
 
+    float Framebuffer::ReadDepth(int x, int y) const {
+        if (x < 0 || y < 0 || x >= (int)m_Width || y >= (int)m_Height) return 1.0f;
+        float depth = 1.0f;
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, m_FBO);
+        glReadPixels(x, y, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+        return depth;
+    }
+
 } // namespace Engine

@@ -18,6 +18,7 @@ namespace Engine {
 
         // Entity ID under a pixel (origin bottom-left), or -1 for background / out of bounds
         int ReadEntityID(int x, int y) const;
+        float ReadDepth(int x, int y) const;    // 0..1 depth at a pixel (1 = nothing drawn: the sky)
 
         uint32_t GetColorAttachment() const { return m_ColorTex; }
         uint32_t GetWidth()  const { return m_Width; }

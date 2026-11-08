@@ -29,6 +29,8 @@
 #include "Runtime/GameUI.h"
 #include "DemoLevels.h"
 #include "EditorHistory.h"
+#include "AssetBrowser.h"
+#include "Platform.h"
 
 #include <cfloat>
 #include <glad/glad.h>
@@ -386,6 +388,15 @@ public:
             if (m_ShowInspector) DrawInspectorPanel();
             if (m_ShowSceneSettings) DrawSceneSettingsPanel();
             if (m_ShowConsole) DrawConsolePanel();
+            if (m_ShowAssets) {
+                // A new panel: dock it with the Console the first time (saved layouts don't know it yet)
+                if (ImGuiWindow* console = ImGui::FindWindowByName("Console"); console && console->DockId)
+                    ImGui::SetNextWindowDockID(console->DockId, ImGuiCond_FirstUseEver);
+                HandleAssetActions(m_Assets.Draw(&m_ShowAssets, [this](const std::string& p) -> uint32_t {
+                    auto t = m_Resources->LoadTexture(p);
+                    return t ? t->GetID() : 0;
+                }));
+            }
         }
         DrawUnsavedChangesModal();
         DrawDialogs();
@@ -984,6 +995,7 @@ private:
             ImGui::MenuItem("Inspector", nullptr, &m_ShowInspector);
             ImGui::MenuItem("Scene Settings", nullptr, &m_ShowSceneSettings);
             ImGui::MenuItem("Console", nullptr, &m_ShowConsole);
+            ImGui::MenuItem("Assets", nullptr, &m_ShowAssets);
             ImGui::Separator();
             if (ImGui::MenuItem("Hide Panels", "F1", !m_ShowUI)) m_ShowUI = !m_ShowUI;
             if (ImGui::MenuItem("Full Screen", "F11", GetWindow().IsFullscreen())) m_ToggleFullscreen = true;
@@ -1195,6 +1207,7 @@ private:
                     if (ImGui::Selectable(f.c_str(), current == f)) m_Renderer->RequestEnvironment(f);
                 ImGui::EndCombo();
             }
+            if (auto drop = AssetBrowser::AcceptDrop({ AssetBrowser::Kind::Environment }); !drop.empty()) m_Renderer->RequestEnvironment(std::filesystem::path(drop).filename().string());
             ImGui::Checkbox("Show sky", &m_Renderer->GetEnvironment().Show);
             ImGui::SliderFloat("Sky blur", &m_Renderer->GetEnvironment().Blur, 0.0f, 6.0f);
             ImGui::SliderFloat("Sky rotation", &m_Renderer->GetEnvironment().RotationDegrees, -180.0f, 180.0f, "%.0f deg");
@@ -1441,6 +1454,146 @@ private:
         LOG_INFO("New scene (File > Save As to name it)");
     }
 
+    // ------------------------------------------------------------------ assets (the Assets panel's actions)
+    // A model file on a Mesh Renderer: 2 m across, standing on the entity's origin, its own materials
+    bool AssignModel(Engine::MeshRendererComponent& mr, const std::string& path) {
+        auto model = m_Resources->LoadModel(path);
+        if (!model) { LOG_WARN("Can't load the model {}", path); return false; }
+        mr.Geometry = model;
+        mr.LocalOffset = model->GetGroundedMatrix(2.0f);
+        mr.UseModelMaterials = model->HasTexturedMaterials();
+        if (mr.UseModelMaterials) mr.Color = glm::vec3(1.0f);
+        return true;
+    }
+
+    // Put a model or prefab into the scene at a world position (as a child of `parent` if given)
+    void PlaceAsset(const std::string& path, const glm::vec3& position, entt::entity parent = entt::null) {
+        using namespace Engine;
+        Entity e;
+        if (AssetBrowser::KindOf(path) == AssetBrowser::Kind::Prefab) {
+            e = m_Session->Prefabs().Instantiate(m_Scene, path);
+            if (!e) { LOG_WARN("Can't load the prefab {}", path); return; }
+        }
+        else {
+            e = m_Scene.CreateEntity(std::filesystem::path(path).stem().string());
+            auto& mr = e.Add<MeshRendererComponent>();
+            if (!AssignModel(mr, path)) { m_Scene.DestroyEntity(e); return; }
+            // An animated model gets an Animator playing its first clip
+            if (const auto* model = dynamic_cast<const Model*>(mr.Geometry.get()); model && model->IsSkinned()) {
+                auto& an = e.Add<AnimatorComponent>();
+                if (!model->AnimationNames().empty()) an.Clip = model->AnimationNames().front();
+            }
+        }
+        m_Scene.SetWorldPosition(e.GetHandle(), position);
+        if (parent != entt::null && m_Scene.Registry().valid(parent)) m_Scene.SetParent(e.GetHandle(), parent, true);
+        m_Selected = e.GetHandle();
+        m_MaybeChanged = true;
+    }
+
+    // A texture, script or sound dropped on an entity
+    void ApplyAssetToEntity(const std::string& path, entt::entity target) {
+        using namespace Engine;
+        if (target == entt::null || !m_Scene.Registry().valid(target)) return;
+        Entity e(target, &m_Scene);
+        const std::string& name = e.Get<TagComponent>().Tag;
+        switch (AssetBrowser::KindOf(path)) {
+        case AssetBrowser::Kind::Texture:
+            if (!e.Has<MeshRendererComponent>()) { LOG_WARN("{} has no Mesh Renderer to put {} on", name, path); return; }
+            if (auto tex = m_Resources->LoadTexture(path)) {
+                auto& mr = e.Get<MeshRendererComponent>();
+                mr.Texture = tex;
+                mr.UseModelMaterials = false;            // the texture replaces the model's own materials
+                LOG_INFO("{}: texture {}", name, path);
+            }
+            break;
+        case AssetBrowser::Kind::Script:
+            if (e.Has<ScriptComponent>()) e.Get<ScriptComponent>().Path = path;
+            else e.Add<ScriptComponent>().Path = path;
+            LOG_INFO("{}: script {}", name, path);
+            break;
+        case AssetBrowser::Kind::Sound:
+            if (e.Has<AudioSourceComponent>()) e.Get<AudioSourceComponent>().Clip = path;
+            else e.Add<AudioSourceComponent>().Clip = path;
+            LOG_INFO("{}: sound {}", name, path);
+            break;
+        default: return;
+        }
+        m_Selected = target;
+        m_MaybeChanged = true;
+    }
+
+    void HandleAssetActions(const std::vector<AssetBrowser::Action>& actions) {
+        const bool playing = m_PlayState != PlayState::Edit;
+        for (const auto& a : actions) {
+            switch (a.What) {
+            case AssetBrowser::Action::OpenScene:
+                if (playing) { LOG_WARN("Stop Play before opening another scene"); break; }
+                if (a.Path.rfind("Scenes/", 0) == 0) RequestLoad(a.Path.substr(7));
+                else LOG_WARN("Scenes open from Assets/Scenes ({} is elsewhere)", a.Path);
+                break;
+            case AssetBrowser::Action::Place:
+                PlaceAsset(a.Path, m_Camera->Position + m_Camera->GetFront() * 4.0f);
+                break;
+            case AssetBrowser::Action::PlaySound:
+                m_Session->Audio().Play(a.Path);
+                break;
+            case AssetBrowser::Action::SetSky:
+                if (a.Path.rfind("Environments/", 0) == 0) m_Renderer->RequestEnvironment(a.Path.substr(13));
+                else LOG_WARN("Sky maps load from Assets/Environments ({} is elsewhere)", a.Path);
+                break;
+            case AssetBrowser::Action::OpenExternal:
+                if (!Platform::OpenWithSystem(m_Assets.Absolute(a.Path))) LOG_WARN("No program opens {}", a.Path);
+                break;
+            }
+        }
+    }
+
+    // Where the mouse points in the scene: the surface under it (from last frame's depth buffer), or
+    // a few metres along the ray when it is over the sky. Also the entity under it, if any.
+    glm::vec3 PointUnderMouse(const ImVec2& origin, const ImVec2& size, entt::entity* hit = nullptr) {
+        return PointAt(ImGui::GetMousePos(), origin, size, hit);
+    }
+    glm::vec3 PointAt(const ImVec2& mouse, const ImVec2& origin, const ImVec2& size, entt::entity* hit = nullptr) {
+        const float u = (mouse.x - origin.x) / std::max(size.x, 1.0f), v = (mouse.y - origin.y) / std::max(size.y, 1.0f);
+        const int px = (int)(mouse.x - origin.x);
+        const int py = (int)m_Renderer->GetFramebuffer().GetHeight() - 1 - (int)(mouse.y - origin.y);
+        if (hit) {
+            const int id = m_Renderer->GetFramebuffer().ReadEntityID(px, py);
+            const entt::entity e = id < 0 ? entt::null : static_cast<entt::entity>(id);
+            *hit = (e != entt::null && m_Scene.Registry().valid(e)) ? e : entt::null;
+        }
+        const Engine::Camera& cam = ViewCamera();
+        const glm::mat4 inv = glm::inverse(cam.GetViewProjection());
+        const float depth = m_Renderer->GetFramebuffer().ReadDepth(px, py);
+        const glm::vec2 ndc(u * 2.0f - 1.0f, 1.0f - v * 2.0f);
+        if (depth < 0.99999f) {
+            const glm::vec4 p = inv * glm::vec4(ndc, depth * 2.0f - 1.0f, 1.0f);
+            return glm::vec3(p) / p.w;
+        }
+        const glm::vec4 far = inv * glm::vec4(ndc, 1.0f, 1.0f);
+        const glm::vec3 dir = glm::normalize(glm::vec3(far) / far.w - cam.Position);
+        return cam.Position + dir * 6.0f;
+    }
+
+    // An asset dropped on the viewport image (call right after the image item)
+    void AcceptViewportDrop(const ImVec2& origin, const ImVec2& size) {
+        using K = AssetBrowser::Kind;
+        const std::string path = AssetBrowser::AcceptDrop({ K::Model, K::Prefab, K::Texture, K::Script, K::Sound, K::Environment });
+        if (path.empty()) return;
+        entt::entity hit = entt::null;
+        const glm::vec3 point = PointUnderMouse(origin, size, &hit);
+        switch (AssetBrowser::KindOf(path)) {
+        case K::Model: case K::Prefab: PlaceAsset(path, point); break;
+        case K::Environment:
+            if (path.rfind("Environments/", 0) == 0) m_Renderer->RequestEnvironment(path.substr(13));
+            break;
+        default:
+            if (hit == entt::null) LOG_WARN("Drop {} on an object to give it to that object", path);
+            else ApplyAssetToEntity(path, hit);
+            break;
+        }
+    }
+
     void DeleteSelected() {
         if (m_Selected == entt::null || !m_Scene.Registry().valid(m_Selected)) return;
         m_Scene.DestroyEntity(Engine::Entity(m_Selected, &m_Scene));
@@ -1523,6 +1676,11 @@ private:
                 m_Reparent = { *(const entt::entity*)p->Data, entt::null, true };
             ImGui::EndDragDropTarget();
         }
+        {   // a model or prefab dropped below the list: a new root entity in front of the camera
+            using K = AssetBrowser::Kind;
+            const std::string asset = AssetBrowser::AcceptDrop({ K::Model, K::Prefab });
+            if (!asset.empty()) m_AssetDrop = { asset, entt::null, true };
+        }
         if (ImGui::IsItemClicked()) m_Selected = entt::null;           // a click on empty space deselects
         if (ImGui::BeginPopupContextWindow("HierarchyEmpty", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
             DrawCreateMenuItems();
@@ -1535,6 +1693,18 @@ private:
         if (m_Reparent.Pending && reg.valid(m_Reparent.Child)) {
             if (!m_Scene.SetParent(m_Reparent.Child, m_Reparent.Parent, true))
                 LOG_WARN("Can't parent an entity to itself or to one of its own children");
+        }
+        if (m_AssetDrop.Pending) {
+            m_AssetDrop.Pending = false;
+            const auto kind = AssetBrowser::KindOf(m_AssetDrop.Path);
+            if (kind == AssetBrowser::Kind::Model || kind == AssetBrowser::Kind::Prefab) {
+                // On a row: a child of that entity, at its position. Below the list: in front of the camera.
+                const bool onRow = m_AssetDrop.Target != entt::null && reg.valid(m_AssetDrop.Target);
+                const glm::vec3 at = onRow ? glm::vec3(m_Scene.GetWorldMatrix(m_AssetDrop.Target)[3])
+                                           : m_Camera->Position + m_Camera->GetFront() * 4.0f;
+                PlaceAsset(m_AssetDrop.Path, at, onRow ? m_AssetDrop.Target : entt::null);
+            }
+            else ApplyAssetToEntity(m_AssetDrop.Path, m_AssetDrop.Target);
         }
         if (m_RowAction.Kind != RowAction::None && reg.valid(m_RowAction.Target)) {
             m_Selected = m_RowAction.Target;
@@ -1590,6 +1760,11 @@ private:
             if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload("MDB_ENTITY"))
                 m_Reparent = { *(const entt::entity*)p->Data, e, true };
             ImGui::EndDragDropTarget();
+        }
+        {   // an asset dropped on this row (applied after the tree)
+            using K = AssetBrowser::Kind;
+            const std::string asset = AssetBrowser::AcceptDrop({ K::Model, K::Prefab, K::Texture, K::Script, K::Sound });
+            if (!asset.empty()) m_AssetDrop = { asset, e, true };
         }
 
         if (open && !children.empty()) {
@@ -1734,6 +1909,7 @@ private:
         m_ViewportOrigin = ImGui::GetItemRectMin();
         const ImVec2 origin = ImGui::GetItemRectMin();
         const ImVec2 size = ImGui::GetItemRectSize();
+        AcceptViewportDrop(origin, size);              // assets dragged from the Assets panel
         if (m_PlayState != PlayState::Edit) {
             const ImU32 col = m_PlayState == PlayState::Play ? IM_COL32(255, 140, 0, 255) : IM_COL32(255, 215, 0, 255);
             ImGui::GetWindowDrawList()->AddRect(ImVec2(origin.x + 1.5f, origin.y + 1.5f),
@@ -1831,7 +2007,7 @@ private:
         m_LayoutChecked = true;
         m_ResetLayout = false;
         if (!force && std::filesystem::exists("editor.ini")) return;
-        m_ShowHierarchy = m_ShowInspector = m_ShowSceneSettings = m_ShowConsole = m_ShowUI = true;
+        m_ShowHierarchy = m_ShowInspector = m_ShowSceneSettings = m_ShowConsole = m_ShowAssets = m_ShowUI = true;
 
         ImGui::DockBuilderRemoveNode(dockspace);
         ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
@@ -1846,6 +2022,7 @@ private:
         ImGui::DockBuilderDockWindow("Scene Settings", right);
         ImGui::DockBuilderDockWindow("Inspector", right);
         ImGui::DockBuilderDockWindow("Console", bottom);
+        ImGui::DockBuilderDockWindow("Assets", bottom);
         ImGui::DockBuilderDockWindow("Viewport", center);
         ImGui::DockBuilderFinish(dockspace);
         m_FocusInspector = true;           // the Inspector tab in front of Scene Settings
@@ -1931,6 +2108,7 @@ private:
                     }
                     ImGui::EndCombo();
                 }
+                if (auto drop = AssetBrowser::AcceptDrop({ AssetBrowser::Kind::Model }); !drop.empty()) AssignModel(mr, drop);   // dragged from Assets
             }
             ImGui::ColorEdit3("Color", &mr.Color.x);
             if (!mr.UseModelMaterials) {
@@ -1995,6 +2173,7 @@ private:
                             if (auto tex = m_Resources->LoadTexture(file)) mr.Texture = tex;
                     ImGui::EndCombo();
                 }
+                if (auto drop = AssetBrowser::AcceptDrop({ AssetBrowser::Kind::Texture }); !drop.empty()) { if (auto t = m_Resources->LoadTexture(drop)) mr.Texture = t; }
             }
         }
 
@@ -2241,6 +2420,7 @@ private:
                     if (ImGui::Selectable(f.c_str(), f == sc.Path)) sc.Path = f;
                 ImGui::EndCombo();
             }
+            if (auto drop = AssetBrowser::AcceptDrop({ AssetBrowser::Kind::Script }); !drop.empty()) sc.Path = drop;   // dragged from Assets
             char buf[256];
             std::snprintf(buf, sizeof(buf), "%s", sc.Path.c_str());
             if (ImGui::InputText("Path", buf, sizeof(buf))) sc.Path = buf;
@@ -2267,6 +2447,7 @@ private:
                     if (ImGui::Selectable(f.c_str(), f == a.Clip)) a.Clip = f;
                 ImGui::EndCombo();
             }
+            if (auto drop = AssetBrowser::AcceptDrop({ AssetBrowser::Kind::Sound }); !drop.empty()) a.Clip = drop;   // dragged from Assets
             ImGui::SameLine();
             if (ImGui::SmallButton("Preview")) m_Session->Audio().Play(a.Clip, a.Volume, a.Pitch);
             ImGui::SliderFloat("Volume##audio", &a.Volume, 0.0f, 2.0f);
@@ -2469,6 +2650,10 @@ private:
     // Editor shell (menu bar, toolbar, panels)
     bool  m_ShowHierarchy = true, m_ShowInspector = true, m_ShowSceneSettings = true, m_ShowConsole = true;
     bool  m_ShowStatsOverlay = true, m_ShowFrustums = true, m_ShowControls = false;
+    AssetBrowser m_Assets{ std::string(ASSET_DIR) };   // the Assets panel
+    bool  m_ShowAssets = true;
+    struct AssetDrop { std::string Path; entt::entity Target = entt::null; bool Pending = false; };
+    AssetDrop m_AssetDrop;                           // an asset dropped on the Hierarchy, applied after the tree
     bool  m_OpenSaveAs = false, m_OpenAbout = false, m_ResetLayout = false, m_FocusInspector = false;
     bool  m_PendingNewScene = false, m_ToggleFullscreen = false, m_F11Down = false;
     char  m_HierarchyFilter[64] = {};
