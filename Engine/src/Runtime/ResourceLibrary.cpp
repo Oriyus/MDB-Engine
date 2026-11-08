@@ -40,6 +40,10 @@ namespace Engine {
         return m_Sphere;
     }
 
+    std::shared_ptr<Mesh> ResourceLibrary::Capsule() { if (!m_Capsule) m_Capsule = Mesh::CreateCapsule(40); return m_Capsule; }
+    std::shared_ptr<Mesh> ResourceLibrary::Cylinder() { if (!m_Cylinder) m_Cylinder = Mesh::CreateCylinder(40); return m_Cylinder; }
+    std::shared_ptr<Mesh> ResourceLibrary::Cone() { if (!m_Cone) m_Cone = Mesh::CreateCone(40); return m_Cone; }
+
     std::shared_ptr<Model> ResourceLibrary::SampleModel() {
         if (!m_Model) m_Model = std::make_shared<Model>(m_AssetDir + "Models/BoomBox.glb");
         return m_Model;
@@ -66,6 +70,9 @@ namespace Engine {
             if (g == m_Cube) return "cube";
             if (g == m_Plane) return "plane";
             if (g == m_Sphere) return "sphere";
+            if (g == m_Capsule) return "capsule";
+            if (g == m_Cylinder) return "cylinder";
+            if (g == m_Cone) return "cone";
             if (g == m_Model) return "model";
             for (const auto& [path, m] : m_Models) if (m && g == m) return "model:" + path;
             return "";
@@ -74,6 +81,9 @@ namespace Engine {
             if (n == "cube") return m_Cube;
             if (n == "plane") return m_Plane;
             if (n == "sphere") return Sphere();
+            if (n == "capsule") return Capsule();
+            if (n == "cylinder") return Cylinder();
+            if (n == "cone") return Cone();
             if (n == "model") return SampleModel();
             if (n.rfind("model:", 0) == 0) return LoadModel(n.substr(6));
             return nullptr;

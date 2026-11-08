@@ -3,6 +3,7 @@
 #include <string>
 #include "Scene/Components.h"
 #include "Renderer/DrawList.h"
+#include "Scene/Decal.h"
 #include <cstdint>
 #include <optional>
 #include <unordered_map>
@@ -96,6 +97,7 @@ namespace Engine {
             const Environment* env = nullptr, RenderPass pass = RenderPass::Opaque);
 
         float AmbientIntensity = 0.6f;     // strength of the environment light
+        std::vector<Decal> Decals;         // this frame's decals (scripts add them with decal.draw; drawn by SceneRenderer)
         entt::registry& Registry() { return m_Registry; }
 
         void UpdateOrbitPositions();   // place orbiting entities from their current angle, without advancing it

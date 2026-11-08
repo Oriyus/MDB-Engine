@@ -162,4 +162,64 @@ namespace Engine {
         return std::make_shared<Mesh>(vertices, indices);
     }
 
+    namespace {
+        // One ring of a surface of revolution: radius and height, and the normal in the (radius, up) plane
+        struct ProfilePoint { float R, Y, NR, NY; };
+
+        // Spin a profile (top to bottom) around +Y, like CreateSphere (same angle and index order, so the same
+        // counter-clockwise winding). Repeat a point with a different normal for a hard edge.
+        std::shared_ptr<Mesh> Lathe(const std::vector<ProfilePoint>& profile, uint32_t segments) {
+            std::vector<Vertex> vertices;
+            std::vector<uint32_t> indices;
+            const uint32_t rows = (uint32_t)profile.size();
+            for (uint32_t r = 0; r < rows; r++) {
+                const ProfilePoint& p = profile[r];
+                const float v = rows > 1 ? (float)r / (rows - 1) : 0.0f;
+                for (uint32_t x = 0; x <= segments; x++) {
+                    const float u = (float)x / segments;
+                    const float theta = u * glm::two_pi<float>();
+                    const float c = std::cos(theta), s = std::sin(theta);
+                    vertices.push_back({ glm::vec3(c * p.R, p.Y, s * p.R), glm::normalize(glm::vec3(c * p.NR, p.NY, s * p.NR)), glm::vec2(u, v) });
+                }
+            }
+            for (uint32_t r = 0; r + 1 < rows; r++)
+                for (uint32_t x = 0; x < segments; x++) {
+                    const uint32_t a = r * (segments + 1) + x, b = a + segments + 1;
+                    indices.insert(indices.end(), { a, a + 1, b,   a + 1, b + 1, b });
+                }
+            return std::make_shared<Mesh>(vertices, indices);
+        }
+    }
+
+    // 1 wide, 2 tall (two half-spheres of radius 0.5 around a 1 m middle), centred on the origin
+    std::shared_ptr<Mesh> Mesh::CreateCapsule(uint32_t segments) {
+        segments = std::max(segments, 8u);
+        const uint32_t half = segments / 4;
+        std::vector<ProfilePoint> profile;
+        for (uint32_t i = 0; i <= half; i++) {                       // top half-sphere, pole to equator
+            const float phi = (float)i / half * glm::half_pi<float>();
+            profile.push_back({ 0.5f * std::sin(phi), 0.5f + 0.5f * std::cos(phi), std::sin(phi), std::cos(phi) });
+        }
+        for (uint32_t i = 0; i <= half; i++) {                       // bottom half-sphere, equator to pole
+            const float phi = glm::half_pi<float>() + (float)i / half * glm::half_pi<float>();
+            profile.push_back({ 0.5f * std::sin(phi), -0.5f + 0.5f * std::cos(phi), std::sin(phi), std::cos(phi) });
+        }
+        return Lathe(profile, segments);
+    }
+
+    // 1 wide, 1 tall, centred on the origin, with flat caps
+    std::shared_ptr<Mesh> Mesh::CreateCylinder(uint32_t segments) {
+        return Lathe({ { 0.0f, 0.5f, 0, 1 }, { 0.5f, 0.5f, 0, 1 },          // top cap
+                       { 0.5f, 0.5f, 1, 0 }, { 0.5f, -0.5f, 1, 0 },         // side
+                       { 0.5f, -0.5f, 0, -1 }, { 0.0f, -0.5f, 0, -1 } },    // bottom cap
+                     std::max(segments, 8u));
+    }
+
+    // 1 wide at the base (y = -0.5), tip at y = +0.5, with a flat base
+    std::shared_ptr<Mesh> Mesh::CreateCone(uint32_t segments) {
+        return Lathe({ { 0.0f, 0.5f, 1.0f, 0.5f }, { 0.5f, -0.5f, 1.0f, 0.5f },   // side (normal tilted up by the slope)
+                       { 0.5f, -0.5f, 0, -1 }, { 0.0f, -0.5f, 0, -1 } },        // base
+                     std::max(segments, 8u));
+    }
+
 } // namespace Engine

@@ -32,6 +32,9 @@ namespace Engine {
         Mesh(const std::vector<SkinnedVertex>& vertices, const std::vector<uint32_t>& indices,
             const std::vector<glm::vec3>& restPositions);
         static std::shared_ptr<Mesh> CreateSphere(uint32_t segments = 32);
+        static std::shared_ptr<Mesh> CreateCapsule(uint32_t segments = 32);    // 1 wide, 2 tall
+        static std::shared_ptr<Mesh> CreateCylinder(uint32_t segments = 32);   // 1 wide, 1 tall
+        static std::shared_ptr<Mesh> CreateCone(uint32_t segments = 32);       // 1 wide base, 1 tall
 
         void Draw() const override;
         void DrawInstanced(uint32_t count) const override;

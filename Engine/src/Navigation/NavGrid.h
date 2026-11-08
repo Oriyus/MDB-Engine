@@ -73,6 +73,24 @@ namespace Engine {
         // Can an agent walk straight from a to b (both on the grid)? Blocked cells stop it.
         bool LineClear(const glm::vec3& a, const glm::vec3& b) const;
 
+        // ---- line of sight and cover, against the static level (the same bodies the grid was baked from)
+        enum class Cover { None = 0, Half = 1, Full = 2 };
+        struct SightOptions {
+            float EyeHeight = 1.5f;            // above `from` (the looker's eyes)
+            float TargetHeight = 1.0f;         // above `to` (the target's chest)
+        };
+        // Nothing static between the two points (at those heights). hit receives where the view is blocked.
+        bool LineOfSight(const PhysicsWorld& physics, const glm::vec3& from, const glm::vec3& to,
+            const SightOptions& o, glm::vec3* hit = nullptr) const;
+        // How well something standing at `at` is covered from an attacker at `from`: an obstacle within
+        // about a cell towards the attacker that blocks waist height (CoverLow) is Half, one that also
+        // blocks head height (CoverHigh) is Full. Probed at three points across the body (AgentRadius apart).
+        Cover CoverAt(const PhysicsWorld& physics, const glm::vec3& at, const glm::vec3& from) const;
+        // Every cell within `range` (metres, flat) that `from` can see
+        void VisibleCells(const PhysicsWorld& physics, const glm::vec3& from, float range, const SightOptions& o,
+            std::vector<int>& out) const;
+        float CoverLow = 0.6f, CoverHigh = 1.5f;   // heights above the ground probed for cover
+
         float LastBakeMs() const { return m_BakeMs; }
 
     private:

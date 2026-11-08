@@ -230,7 +230,7 @@ e.Add&lt;RigidBodyComponent&gt;().Type = BodyType::Static;</code></pre>
 <p>Scenes are JSON files in <code>Assets/Scenes</code>. Entities store their name, ID, parent, transform and components; resources are stored by <b>name</b> and resolved on load.</p>
 <table>
 <tr><th>Resource name</th><th>Meaning</th></tr>
-<tr><td><code>"cube"</code>, <code>"sphere"</code>, <code>"plane"</code></td><td>Built-in meshes</td></tr>
+<tr><td><code>"cube"</code>, <code>"sphere"</code>, <code>"plane"</code>, <code>"capsule"</code>, <code>"cylinder"</code>, <code>"cone"</code></td><td>Built-in meshes (capsule 1×2, cylinder 1×1, cone 1 wide × 1 tall)</td></tr>
 <tr><td><code>"model:Models/Fox.glb"</code></td><td>Any model file (loaded once, on demand)</td></tr>
 <tr><td><code>"checker"</code>, <code>"texture:Textures/fence.png"</code></td><td>Built-in or any image texture</td></tr>
 </table>
@@ -261,7 +261,7 @@ e.Add&lt;RigidBodyComponent&gt;().Type = BodyType::Static;</code></pre>
 <ol>
   <li><b>Draw list</b>: everything the camera or a light can see, culled and batched for instancing.</li>
   <li><b>Shadows</b>: up to 4 point lights (cube maps) and one sun with cascades.</li>
-  <li><b>Scene</b> into an HDR framebuffer (colour, entity-ID for click picking, depth). PBR shading, then the sky, then see-through surfaces back to front.</li>
+  <li><b>Scene</b> into an HDR framebuffer (colour, entity-ID for click picking, depth). PBR shading, then the sky, then <b>decals</b> (projected from a copy of the depth), then see-through surfaces back to front.</li>
   <li><b>SSAO</b>, then <b>bloom</b>.</li>
   <li><b>Post</b>: AO, bloom, exposure, tone mapping (ACES by default), gamma.</li>
   <li><b>FXAA</b>. The result is a texture shown by the app.</li>
@@ -352,6 +352,18 @@ self.animator:set_ik(1, { type = "look", bone = "b_Head_05", target = player, ma
 scene.spawn_particles(self.position, { preset = "Sparks", count = 40 })   -- one-shot, removes itself</code></pre>
 </section>
 
+<section class="doc" data-group="Engine" id="engine-decals">
+<h2>Decals</h2>
+<p>Shapes projected down onto whatever is under them — floor, steps, ramps — for target circles, area templates, movement ranges and path markers. Scripts add them every frame (immediate mode, like the UI) into <code>Scene::Decals</code>.</p>
+<ul>
+  <li>Drawn after the opaque scene and the sky, before glass. The renderer copies the depth buffer, draws each decal as a box, rebuilds each pixel's world position and keeps the ones inside.</li>
+  <li>Fade on steep surfaces (walls, step risers) and towards the top and bottom of the box, so rings don't smear up walls.</li>
+  <li>Shapes: circle, ring (an outlined circle), square (grid cells), texture. Outline thickness, inside fill, softness, emission (above 1 glows).</li>
+  <li>Not clickable and not saved; one instanced draw per texture. <code>scene.render_stats().decals</code> counts them.</li>
+</ul>
+<pre><code class="lua">decal.draw(target, { size = 3, shape = "ring", color = vec3(1, 0.3, 0.2), thickness = 0.08, fill = 0.25 })</code></pre>
+</section>
+
 <section class="doc" data-group="Engine" id="engine-physics">
 <h2>Physics</h2>
 <p>Jolt Physics, during Play only, at a fixed 60 Hz with interpolated transforms.</p>
@@ -388,6 +400,17 @@ self:add_audio("Sounds/lava_loop.wav", { loop = true, min_distance = 2, max_dist
   <li><b>Blocked cells</b> for units and doors; <b>reachable</b> sets for movement ranges.</li>
 </ul>
 <p>Baked lazily on first use (3.8 ms Release for the tactics level). Viewport &gt; View &gt; Navigation Grid draws it during Play. See <a href="#script-nav">Scripting › Navigation</a>.</p>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-sight">
+<h2>Line of sight &amp; cover</h2>
+<p>Queries against the static level (the same bodies the nav grid is baked from):</p>
+<ul>
+  <li><b>Line of sight</b>: a ray from the looker's eyes (1.5 m) to the target's chest (1.0 m). Units don't block it (they have no bodies).</li>
+  <li><b>Cover</b> at a position against an attacker: three rays across the body (agent radius apart) about a cell towards the attacker. Blocked at waist height (0.6 m) is <b>half</b> cover (crates, fences); blocked at head height (1.5 m) too is <b>full</b> (walls, terraces).</li>
+  <li><b>Visible cells</b>: every nav cell within a range that a point can see.</li>
+</ul>
+<p>Measured on the tactics yard: half behind the crate and the fence, full against the terrace wall, none with the crate behind you. See <a href="#script-sight">Scripting › Line of sight</a>.</p>
 </section>
 
 <section class="doc" data-group="Engine" id="engine-session">
@@ -478,6 +501,7 @@ self:add_audio("Sounds/lava_loop.wav", { loop = true, min_distance = 2, max_dist
 <tr><td><code>ui_test.lua</code></td><td>Laid-out UI with a simulated pointer (19)</td></tr>
 <tr><td><code>dialogue_test.lua</code></td><td>Dialogue runner on the Sage's dialogue (31)</td></tr>
 <tr><td><code>transform_test.lua</code></td><td>Rotations through Euler angles near gimbal lock (4)</td></tr>
+<tr><td><code>engine_features_test.lua</code></td><td>world_to_screen, decals, line of sight, cover, primitives, flash (22)</td></tr>
 </table>
 <pre><code class="sh">set MDB_WINDOWED=1 &amp; set MDB_SCENE=tactics_test.json &amp; set MDB_AUTOPLAY=1
 set MDB_TEST_SCRIPT=Scripts/nav_test.lua &amp; set MDB_QUIT_AFTER=8
@@ -536,7 +560,7 @@ MDBEditor.exe &gt; log.txt</code></pre>
 <tr><th>Menu</th><th>Items</th></tr>
 <tr><td>File</td><td>New (Ctrl+N), Open Scene, Save (Ctrl+S), Save As (Ctrl+Shift+S), Example Levels, Exit</td></tr>
 <tr><td>Edit</td><td>Undo / Redo (named after the step), Duplicate, Delete, Frame Selected, Reload Shaders</td></tr>
-<tr><td>Create</td><td>Empty Entity, Cube, Sphere, Plane, Point Light, Sun, Camera, Physics Box, Physics Ball, Material Grid, Prefab</td></tr>
+<tr><td>Create</td><td>Empty Entity, Cube, Sphere, Plane, Capsule, Cylinder, Cone, Point Light, Sun, Camera, Physics Box, Physics Ball, Material Grid, Prefab</td></tr>
 <tr><td>Play</td><td>Play/Stop (Ctrl+P), Pause/Resume, Step One Frame, Play Through Game Camera</td></tr>
 <tr><td>Window</td><td>Show panels, Dialogue Editor, Hide Panels (F1), Full Screen (F11), VSync, Reset Layout</td></tr>
 <tr><td>Help</td><td>Controls, About</td></tr>
@@ -773,6 +797,7 @@ self.position = p                                 -- assign back</code></pre>
 <tr><td><code>e:look_at(target [, up])</code></td><td>Turn to face a point (local −Z forward)</td></tr>
 <tr><td><code>e.parent</code>, <code>e:children()</code></td><td>Hierarchy (setting <code>parent</code> keeps the world placement)</td></tr>
 <tr><td><code>e:valid()</code>, <code>e:destroy()</code>, <code>e:clone()</code></td><td>Lifetime</td></tr>
+<tr><td><code>e:flash([color [, seconds [, strength]]])</code></td><td>A hit flash on the entity and every mesh below it (white, 0.25 s, 3)</td></tr>
 <tr><td><code>e.uid</code>, <code>e.id</code></td><td>Stable ID (kept by saves) / runtime handle</td></tr>
 <tr><td><code>e.transient</code></td><td>True: never saved (markers, effects)</td></tr>
 <tr><td><code>e:has(kind)</code>, <code>e:remove(kind)</code></td><td>Kinds: mesh body collider light sun script spin orbit camera audio animator particles</td></tr>
@@ -788,6 +813,7 @@ copy.position = self.position + self.right * 2</code></pre>
 <section class="doc" data-group="Scripting" id="script-mesh">
 <h2>Mesh &amp; lights</h2>
 <pre><code class="lua">self:add_mesh{ geometry = "model:Models/Fox.glb", fit = 1.6 }      -- scaled to 1.6 m, standing on the origin
+self:add_mesh{ geometry = "capsule" }        -- also "cube" "sphere" "plane" "cylinder" "cone"
 self:add_mesh{ geometry = "cube", texture = "checker", color = vec3(0.3, 0.6, 1),
                metallic = 0, roughness = 0.4, emissive = vec3(0, 0, 0), cast_shadows = true, static = false }
 
@@ -887,6 +913,60 @@ if inside and not ui.wants_mouse() and input.mouse_pressed(Mouse.Left) then
     local hit = scene.pick(mx, my)
     if hit then scene.spawn("Marker", hit.point):add_mesh{ geometry = "sphere" } end
 end</code></pre>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-world-to-screen">
+<h2>World to screen</h2>
+<p><code>scene.world_to_screen(pos)</code> → <code>x, y, visible, depth</code>: where a world point is on the view (0..1, top left origin), the exact inverse of <code>scene.screen_ray</code>. <code>visible</code> is false behind the camera (then x and y are nil) or outside the view. Use it for health bars, names and floating text.</p>
+<pre><code class="lua">-- a name plate and a health bar over a unit (positioned UI)
+local x, y, visible = scene.world_to_screen(unit.position + vec3(0, 2, 0))
+if visible then
+    ui.text(unit.name, x, y - 0.03, { size = 16, align = "center" })
+    ui.bar(x - 0.03, y, 0.06, 0.008, hp / max_hp, { color = vec3(0.8, 0.2, 0.2) })
+end
+
+-- floating damage text, rising over a second
+local fx, fy = scene.world_to_screen(target.position + vec3(0, 1.6 + t, 0))
+if fx then ui.text("-7", fx, fy, { size = 26, align = "center", color = vec3(1, 0.4, 0.3), alpha = 1 - t }) end</code></pre>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-decals">
+<h2>Decals</h2>
+<p>Drawn for <b>this frame only</b>: call every frame, like <code>ui.*</code>.</p>
+<pre><code class="lua">decal.draw(pos, { size = 1.2, shape = "ring", color = vec3(0.3, 0.7, 1), alpha = 0.9, thickness = 0.2 })
+-- an area template with a soft fill and a bright edge
+decal.draw(center, { size = 6, color = vec3(1, 0.3, 0.2), alpha = 0.6, thickness = 0.05, fill = 0.3 })
+-- grid cells for a movement range
+for _, r in ipairs(nav.reachable(hero.position, 6)) do
+    decal.draw(r.position, { size = 0.92, shape = "square", color = vec3(0.2, 0.5, 1), thickness = 0.14, fill = 0.45 })
+end
+-- an image (its alpha is the shape), turned and stretched
+decal.draw(pos, { size = vec3(2, 1, 1), texture = "Textures/coin_icon.png", rotation = math.pi / 4 })
+log(decal.count())</code></pre>
+<table>
+<tr><th>Option</th><th>Meaning</th></tr>
+<tr><td><code>size</code></td><td>A number (width and depth) or <code>vec3(width, height, depth)</code></td></tr>
+<tr><td><code>shape</code></td><td><code>"circle"</code> (default), <code>"ring"</code>, <code>"square"</code>, <code>"texture"</code></td></tr>
+<tr><td><code>color, alpha</code></td><td>Colour (sRGB) and opacity (default 0.6)</td></tr>
+<tr><td><code>thickness, fill</code></td><td>0 = filled; else an outline this wide (0..1), with the inside at <code>fill</code> × alpha</td></tr>
+<tr><td><code>softness, emission</code></td><td>Edge blur (0.04), brightness (1; above 1 glows)</td></tr>
+<tr><td><code>rotation, height</code></td><td>Yaw in radians; how far up/down the box reaches (1 m)</td></tr>
+<tr><td><code>texture</code></td><td><code>"Textures/x.png"</code></td></tr>
+</table>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-sight">
+<h2>Line of sight &amp; cover</h2>
+<pre><code class="lua">local visible, blocked_at = nav.line_of_sight(archer.position, target.position)
+local low = nav.line_of_sight(a, b, { eye = 0.4, target = 0.4 })        -- crouching: crates block it
+
+local cover, level = nav.cover(target.position, archer.position)       -- "none" | "half" | "full", 0 | 1 | 2
+if cover == "half" then hit_chance = hit_chance - 25 end
+
+for _, c in ipairs(nav.visible_cells(archer.position, 8)) do           -- what the archer can see within 8 m
+    decal.draw(c.position, { size = 0.9, shape = "square", color = vec3(1, 0.8, 0.2), alpha = 0.3 })
+end</code></pre>
+<p>Only static level geometry blocks sight and gives cover. In the tactics demo, hovering a reachable cell in combat shows how many enemies see it and the cover it gives.</p>
 </section>
 
 <section class="doc" data-group="Scripting" id="script-input">

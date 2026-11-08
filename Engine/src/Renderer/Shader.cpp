@@ -108,6 +108,7 @@ namespace Engine {
     // These use glProgramUniform*, so the shader doesn't need to be bound first
     void Shader::SetInt(const std::string& name, int v) { glProgramUniform1i(m_Program, GetUniformLocation(name), v); }
     void Shader::SetFloat(const std::string& name, float v) { glProgramUniform1f(m_Program, GetUniformLocation(name), v); }
+    void Shader::SetVec2(const std::string& name, const glm::vec2& v) { glProgramUniform2fv(m_Program, GetUniformLocation(name), 1, glm::value_ptr(v)); }
     void Shader::SetVec3(const std::string& name, const glm::vec3& v) { glProgramUniform3fv(m_Program, GetUniformLocation(name), 1, glm::value_ptr(v)); }
     void Shader::SetVec4(const std::string& name, const glm::vec4& v) { glProgramUniform4fv(m_Program, GetUniformLocation(name), 1, glm::value_ptr(v)); }
     void Shader::SetMat4(const std::string& name, const glm::mat4& v) { glProgramUniformMatrix4fv(m_Program, GetUniformLocation(name), 1, GL_FALSE, glm::value_ptr(v)); }

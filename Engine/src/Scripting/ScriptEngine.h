@@ -106,6 +106,7 @@ namespace Engine {
     //   e.forward, e.right, e.up                              world-space directions (read-only)
     //   e:look_at(target [, up]) and e.forward... work in world space
     //   e.id, e:valid(), e:destroy(), e:clone()
+    //   e:flash([color = white [, seconds = 0.25 [, strength = 3]]])   a hit flash on the entity and every mesh below it
     //   e:has(kind), e:remove(kind)     kind = "mesh" "body" "collider" "light" "sun" "script" "spin" "orbit" "camera" "audio" "animator" "particles"
     //   e.mesh   -> nil or { color, emissive, metallic, roughness, unlit, geometry ("cube" "sphere" ...),
     //               opacity (0..1; below 1 makes an opaque mesh "blend"), alpha_mode ("opaque" "cutout" "blend"),
@@ -113,7 +114,7 @@ namespace Engine {
     //   e.light  -> nil or { color, intensity, shadows }
     //   e.body   -> nil or { velocity, angular_velocity, type, trigger, mass,
     //                         add_force(v) (newtons, lasts this frame: call each frame), add_impulse(v) }
-    //   e:add_mesh{ geometry="cube"|"sphere"|"plane"|"model:Models/x.glb", texture="checker", color=vec3,
+    //   e:add_mesh{ geometry="cube"|"sphere"|"plane"|"capsule"|"cylinder"|"cone"|"model:Models/x.glb", texture="checker", color=vec3,
     //               metallic, roughness, emissive, unlit, fit=metres (models: scaled to that size, standing on the origin),
     //               opacity, alpha_mode, alpha_cutoff, cast_shadows, static }
     //   e:add_body{ type="dynamic"|"static"|"kinematic", shape="box"|"sphere"|"capsule"|"convex"|"mesh"|"none", size=number|vec3,
@@ -156,7 +157,7 @@ namespace Engine {
     //   audio.play(clip [, { volume, pitch }])             2D one-shot, e.g. "Sounds/coin.wav"
     //   audio.play_at(clip, position [, { volume, pitch }]) 3D one-shot, quieter with distance
     //   scene.quit()                         the game closes (in the editor: Play stops)
-    //   scene.render_stats() -> { draw_calls, triangles, instances, culled, shadow_skipped, particles, static_batches, static_merged }
+    //   scene.render_stats() -> { draw_calls, triangles, instances, culled, shadow_skipped, particles, decals, static_batches, static_merged }
     //                                        (the last frame; a debug HUD)
     //   scene.spawn_particles(pos, "Sparks" | { preset, count })   a one-shot burst entity that removes itself when done
     //   ---- ui: drawn this frame only, in call order. x, y, w, h are 0..1 of the view (top left origin).
@@ -192,6 +193,13 @@ namespace Engine {
     //   scene.raycast(origin, dir, max_dist [, ignore_entity]) -> nil or { entity, point, normal, distance }
     //   scene.screen_ray(x, y) -> origin, dir          through the game camera, x, y 0..1 of the view (ui.mouse())
     //   scene.pick(x, y [, max_dist = 500]) -> nil or a raycast result along screen_ray (what is under the mouse)
+    //   scene.world_to_screen(pos) -> x, y, visible, depth     where a world point is on the view (0..1; the inverse
+    //       of screen_ray): health bars, names, floating text. Behind the camera x, y are nil and visible false
+    //   ---- decal: shapes projected onto the ground (floor, steps, ramps) for this frame only (call every frame)
+    //   decal.draw(pos [, { size = 1 or vec3(w, height, d), shape = "circle"|"ring"|"square"|"texture", color, alpha = 0.6,
+    //                       rotation (radians), thickness (0 filled, else outline width 0..1), fill (inside alpha of an
+    //                       outline), softness = 0.04, emission = 1, height = 1, texture = "Textures/x.png" }])
+    //       targets, area templates, movement ranges, path markers. They fade on steep surfaces. decal.count()
     //   ---- nav: a layered walkability grid (Navigation/NavGrid.h), baked from the STATIC bodies on first use.
     //   Cells are integer ids. Costs count steps: 1 per orthogonal step, `diagonal` per diagonal one.
     //   nav.bake([{ cell_size=1, agent_radius=0.3, agent_height=1.8, max_step=0.4, max_slope=40, min=vec3, max=vec3 }])
@@ -209,6 +217,11 @@ namespace Engine {
     //   nav.nearest(pos [, max_dist=2 [, free=true]]) -> cell or nil   free: skip blocked cells
     //   nav.cell_position(cell) -> vec3, nav.height(pos) -> y or nil, nav.line_clear(a, b) -> bool
     //   nav.set_blocked(cell, bool), nav.is_blocked(cell), nav.clear_blocked()   units, closed doors (paths avoid them)
+    //   nav.line_of_sight(from, to [, { eye = 1.5, target = 1.0 }]) -> visible, hit_point   static level only (heights
+    //       above the points: the looker's eyes, the target's chest)
+    //   nav.cover(at, from) -> "none"|"half"|"full", 0|1|2   an obstacle next to `at` towards `from`: blocks waist height
+    //       (half) or head height too (full)
+    //   nav.visible_cells(from, range [, { eye, target }]) -> { { cell, position }... }   what `from` can see within range
     //   input.key_down(k), input.key_pressed(k), input.key_released(k)    Key.A..Key.Z, Key.Num0..9, Key.F1..12,
     //   input.mouse_down(b), input.mouse_pressed(b), input.mouse_position()  Key.Space, Key.Left ... Mouse.Left ...
     //   shared                                  a table all scripts see (score, game state...)

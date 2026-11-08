@@ -102,6 +102,10 @@ namespace Engine {
         // into a few big meshes when Play starts (Scene::BuildStaticBatches), saving per-object work.
         bool  Static = false;
         bool  Merged = false;                     // runtime: drawn by a static batch, not on its own (not saved)
+        // Runtime hit flash (e:flash in Lua, not saved): FlashColor glows on top of the emissive colour, fading
+        // out over FlashDuration seconds. Merged static parts don't flash.
+        glm::vec3 FlashColor{ 0.0f };
+        float FlashTime = 0.0f, FlashDuration = 0.0f;
     };
 
     struct PointLightComponent {

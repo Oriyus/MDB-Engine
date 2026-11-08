@@ -164,6 +164,8 @@ namespace {
         auto& reg = scene.Registry();
         auto keepsStill = [&](entt::entity e) {
             if (reg.any_of<ScriptComponent, SpinComponent, OrbitComponent, AnimatorComponent>(e)) return false;
+            const std::string& tag = reg.get<TagComponent>(e).Tag;   // units: moved by tactics.lua, not by their own script
+            if (tag == "Enemy" || tag == "Hero") return false;
             if (const auto* rb = reg.try_get<RigidBodyComponent>(e))
                 if (rb->Type != BodyType::Static || rb->IsTrigger) return false;
             return true;
@@ -202,14 +204,36 @@ namespace {
         }
     }
 
+    // A part of a placeholder figure: a primitive under `parent`, placed in its space
+    Entity AddPart(Scene& scene, Entity parent, const char* name, const std::shared_ptr<Renderable>& geometry,
+        const glm::vec3& pos, const glm::vec3& scale, const glm::vec3& color, float roughness = 0.5f, float metallic = 0.0f) {
+        Entity e = scene.CreateEntity(name);
+        auto& t = e.Get<TransformComponent>();
+        t.Position = pos;
+        t.Scale = scale;
+        auto& mr = e.Add<MeshRendererComponent>();
+        mr.Geometry = geometry;
+        mr.Color = color;
+        mr.Roughness = roughness;
+        mr.Metallic = metallic;
+        e.Add<ParentComponent>(ParentComponent{ parent.Get<IDComponent>().ID });
+        return e;
+    }
+
+    // A placeholder enemy (until there is art): a capsule body, a head with eyes on its +Z side (the way
+    // it faces) and a pointed hat, all children of the "Enemy" entity, which stands on its origin.
+    // e:flash() on the root flashes every part.
     void AddEnemy(Scene& scene, const LevelAssets& a, const glm::vec3& pos) {
         Entity e = scene.CreateEntity("Enemy");
         e.Get<TransformComponent>().Position = pos;
-        auto& mr = e.Add<MeshRendererComponent>();     // a red block
-        mr.Geometry = a.Cube;
-        mr.Color = glm::vec3(0.85f, 0.18f, 0.12f);
-        mr.Roughness = 0.5f;
-        mr.LocalOffset = BlockOffset(0.7f, 1.6f);
+        const glm::vec3 red(0.78f, 0.16f, 0.12f), dark(0.35f, 0.08f, 0.07f);
+        const auto& body = a.Capsule ? a.Capsule : a.Cube;
+        AddPart(scene, e, "Body", body, glm::vec3(0.0f, 0.62f, 0.0f), glm::vec3(0.56f, 0.32f, 0.56f), red, 0.55f);
+        AddPart(scene, e, "Head", a.Sphere, glm::vec3(0.0f, 1.3f, 0.0f), glm::vec3(0.42f), dark, 0.5f);
+        for (float side : { -1.0f, 1.0f })
+            AddPart(scene, e, "Eye", a.Sphere, glm::vec3(0.09f * side, 1.35f, 0.17f), glm::vec3(0.09f), glm::vec3(1.0f, 0.9f, 0.4f), 0.2f)
+                .Get<MeshRendererComponent>().Emissive = glm::vec3(1.2f, 0.9f, 0.2f);
+        if (a.Cone) AddPart(scene, e, "Hat", a.Cone, glm::vec3(0.0f, 1.62f, 0.0f), glm::vec3(0.36f, 0.32f, 0.36f), glm::vec3(0.25f, 0.22f, 0.3f), 0.6f, 0.3f);
     }
 
     // The camera (tactics_camera.lua) and the entity running tactics.lua

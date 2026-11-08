@@ -392,6 +392,58 @@ namespace Engine {
         return true;
     }
 
+    bool NavGrid::LineOfSight(const PhysicsWorld& physics, const glm::vec3& from, const glm::vec3& to,
+        const SightOptions& o, glm::vec3* hitPoint) const {
+        const glm::vec3 a = from + glm::vec3(0.0f, o.EyeHeight, 0.0f), b = to + glm::vec3(0.0f, o.TargetHeight, 0.0f);
+        const glm::vec3 d = b - a;
+        const float len = glm::length(d);
+        if (len < 1e-4f) return true;
+        RayHit hit;
+        if (!physics.Raycast(a, d, len, hit, entt::null, true)) return true;
+        if (hitPoint) *hitPoint = hit.Point;
+        return false;
+    }
+
+    NavGrid::Cover NavGrid::CoverAt(const PhysicsWorld& physics, const glm::vec3& at, const glm::vec3& from) const {
+        glm::vec3 dir = from - at;
+        dir.y = 0.0f;
+        const float dist = glm::length(dir);
+        if (dist < 1e-3f) return Cover::None;
+        dir /= dist;
+        const glm::vec3 side(-dir.z, 0.0f, dir.x);
+        const float reach = std::min(dist, m_Settings.CellSize * 1.1f);   // obstacles right next to the defender
+        auto blocked = [&](float height) {
+            int hits = 0;
+            for (float s : { -1.0f, 0.0f, 1.0f }) {                       // across the body, so a post doesn't count as a wall
+                const glm::vec3 o = at + side * (s * m_Settings.AgentRadius) + glm::vec3(0.0f, height, 0.0f);
+                RayHit hit;
+                if (physics.Raycast(o, dir, reach, hit, entt::null, true)) hits++;
+            }
+            return hits >= 2;
+        };
+        if (!blocked(CoverLow)) return Cover::None;
+        return blocked(CoverHigh) ? Cover::Full : Cover::Half;
+    }
+
+    void NavGrid::VisibleCells(const PhysicsWorld& physics, const glm::vec3& from, float range, const SightOptions& o,
+        std::vector<int>& out) const {
+        out.clear();
+        if (!m_Baked) return;
+        const float cs = m_Settings.CellSize;
+        const int cx = (int)std::floor((from.x - m_Origin.x) / cs), cz = (int)std::floor((from.z - m_Origin.y) / cs);
+        const int r = (int)std::ceil(range / cs);
+        for (int iz = std::max(cz - r, 0); iz <= std::min(cz + r, m_D - 1); iz++)
+            for (int ix = std::max(cx - r, 0); ix <= std::min(cx + r, m_W - 1); ix++) {
+                const int column = iz * m_W + ix;
+                for (int i = m_ColumnStart[column]; i < m_ColumnStart[column + 1]; i++) {
+                    const glm::vec3 p = m_Cells[i].Pos;
+                    const float dx = p.x - from.x, dz = p.z - from.z;
+                    if (dx * dx + dz * dz > range * range) continue;
+                    if (LineOfSight(physics, from, p, o)) out.push_back(i);
+                }
+            }
+    }
+
     void NavGrid::Reachable(int start, float budget, float diagonal, std::vector<NavReach>& out) const {
         out.clear();
         if (!m_Baked || start < 0 || start >= (int)m_Cells.size()) return;

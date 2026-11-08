@@ -2,6 +2,7 @@
 #include "Renderer/Shader.h"
 #include "Renderer/DrawList.h"
 #include "Renderer/ParticleRenderer.h"
+#include "Renderer/DecalRenderer.h"
 #include "Renderer/Camera.h"
 #include "Renderer/Framebuffer.h"
 #include "Renderer/Environment.h"
@@ -11,6 +12,7 @@
 #include "Scene/SceneSerializer.h"
 #include "Core/Log.h"
 
+#include <glad/glad.h>
 #include <algorithm>
 #include <filesystem>
 
@@ -18,7 +20,29 @@ namespace Engine {
 
     struct SceneRenderer::Impl {
         std::string AssetDir;
-        std::unique_ptr<Shader> Lit, PointDepth, SunDepth, Post, SSAOShader, SSAOBlur, BloomDown, BloomUp, FXAA, ParticleShader;
+        std::unique_ptr<Shader> Lit, PointDepth, SunDepth, Post, SSAOShader, SSAOBlur, BloomDown, BloomUp, FXAA, ParticleShader, DecalShader;
+        std::unique_ptr<DecalRenderer> Decals;
+        uint32_t DepthCopy = 0, DepthCopyW = 0, DepthCopyH = 0;   // the scene depth, for decals to sample
+
+        ~Impl() { if (DepthCopy) glDeleteTextures(1, &DepthCopy); }
+
+        // Copy the HDR target's depth (decals read it while it is still attached for drawing)
+        uint32_t CopyDepth(uint32_t width, uint32_t height) {
+            if (!DepthCopy || DepthCopyW != width || DepthCopyH != height) {
+                if (DepthCopy) glDeleteTextures(1, &DepthCopy);
+                glCreateTextures(GL_TEXTURE_2D, 1, &DepthCopy);
+                glTextureStorage2D(DepthCopy, 1, GL_DEPTH24_STENCIL8, (GLsizei)width, (GLsizei)height);
+                glTextureParameteri(DepthCopy, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                glTextureParameteri(DepthCopy, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+                glTextureParameteri(DepthCopy, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                glTextureParameteri(DepthCopy, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                DepthCopyW = width;
+                DepthCopyH = height;
+            }
+            glCopyImageSubData(HDR->GetDepthAttachment(), GL_TEXTURE_2D, 0, 0, 0, 0,
+                DepthCopy, GL_TEXTURE_2D, 0, 0, 0, 0, (GLsizei)width, (GLsizei)height, 1);
+            return DepthCopy;
+        }
         std::unique_ptr<ParticleRenderer> Particles;
         std::vector<ParticleDraw> ParticleDraws;           // reused each frame
         std::unique_ptr<DrawList> Draws = std::make_unique<DrawList>();   // this frame's batches and instances
@@ -56,6 +80,8 @@ namespace Engine {
         I.SunDepth = std::make_unique<Shader>(I.ShaderPath("shadow.vert"), I.ShaderPath("sun_shadow.frag"));
         I.ParticleShader = std::make_unique<Shader>(I.ShaderPath("particle.vert"), I.ShaderPath("particle.frag"));
         I.Particles = std::make_unique<ParticleRenderer>();
+        I.DecalShader = std::make_unique<Shader>(I.ShaderPath("decal.vert"), I.ShaderPath("decal.frag"));
+        I.Decals = std::make_unique<DecalRenderer>();
         I.Post = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("tonemap.frag"));
         I.SSAOShader = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("ssao.frag"));
         I.SSAOBlur = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("ssao_blur.frag"));
@@ -97,6 +123,8 @@ namespace Engine {
         I.HDR->Clear(0.005f, 0.005f, 0.01f, 1.0f);
         scene.Render(camera, *I.Lit, *I.Draws, &I.Shadows, I.Env.get());
         I.Env->DrawSkybox(camera, scene.AmbientIntensity);
+        if (!scene.Decals.empty())                                     // projected onto the opaque scene, under glass
+            I.Decals->Render(scene.Decals, camera, I.CopyDepth(I.HDR->GetWidth(), I.HDR->GetHeight()), I.HDR->GetWidth(), I.HDR->GetHeight(), *I.DecalShader);
         scene.Render(camera, *I.Lit, *I.Draws, &I.Shadows, I.Env.get(), Scene::RenderPass::Transparent);   // glass etc. over the sky
         scene.GatherParticles(camera, I.ParticleDraws);                 // particles last: over glass and sky
         I.Particles->Render(I.ParticleDraws, camera, *I.ParticleShader);
@@ -133,7 +161,7 @@ namespace Engine {
     void SceneRenderer::ReloadShaders() {
         Impl& I = *m_Impl;
         for (auto* s : { I.Lit.get(), I.PointDepth.get(), I.SunDepth.get(), I.Post.get(), I.SSAOShader.get(),
-                         I.SSAOBlur.get(), I.BloomDown.get(), I.BloomUp.get(), I.FXAA.get(), I.ParticleShader.get() })
+                         I.SSAOBlur.get(), I.BloomDown.get(), I.BloomUp.get(), I.FXAA.get(), I.ParticleShader.get(), I.DecalShader.get() })
             s->Reload();
         I.Env->ReloadSkyShader();
     }

@@ -27,6 +27,9 @@ namespace Engine {
         std::shared_ptr<Mesh> Cube() const;
         std::shared_ptr<Mesh> Plane() const;
         std::shared_ptr<Mesh> Sphere();
+        std::shared_ptr<Mesh> Capsule();     // "capsule": 1 wide, 2 tall
+        std::shared_ptr<Mesh> Cylinder();    // "cylinder": 1 wide, 1 tall
+        std::shared_ptr<Mesh> Cone();        // "cone": 1 wide base, 1 tall
         std::shared_ptr<Model> SampleModel();          // may be invalid if the file is missing
         // Any model file under the asset folder, loaded once ("Models/Fox.glb"). Null if it can't be loaded.
         // In scene files its geometry name is "model:Models/Fox.glb".
@@ -42,7 +45,7 @@ namespace Engine {
 
     private:
         std::string m_AssetDir;
-        std::shared_ptr<Mesh> m_Cube, m_Plane, m_Sphere;
+        std::shared_ptr<Mesh> m_Cube, m_Plane, m_Sphere, m_Capsule, m_Cylinder, m_Cone;
         std::shared_ptr<Model> m_Model;
         std::unordered_map<std::string, std::shared_ptr<Model>> m_Models;   // by path, for "model:<path>"
         std::shared_ptr<Texture2D> m_Checker;

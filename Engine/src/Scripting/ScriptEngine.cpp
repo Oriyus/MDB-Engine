@@ -361,6 +361,21 @@ namespace Engine {
                 return CameraRef{ e };
             },
             // Turn so local -Z (forward) points at target. `up` defaults to world up.
+            // A hit flash: the entity and every mesh below it glow `color` and fade back over `seconds`
+            "flash", [](const ScriptEntity& e, sol::optional<glm::vec3> color, sol::optional<float> seconds, sol::optional<float> strength) {
+                if (!e.Valid()) return;
+                const glm::vec3 c = glm::pow(glm::clamp(color.value_or(glm::vec3(1.0f)), glm::vec3(0.0f), glm::vec3(1.0f)), glm::vec3(2.2f))
+                    * std::max(0.0f, strength.value_or(3.0f));
+                const float t = std::max(0.01f, seconds.value_or(0.25f));
+                std::vector<entt::entity> todo{ e.Handle };
+                for (size_t i = 0; i < todo.size(); i++) {
+                    if (auto* mr = e.Owner->Registry().try_get<MeshRendererComponent>(todo[i])) {
+                        mr->FlashColor = c;
+                        mr->FlashTime = mr->FlashDuration = t;
+                    }
+                    for (entt::entity child : e.Owner->GetChildren(todo[i])) todo.push_back(child);
+                }
+            },
             "look_at", [](const ScriptEntity& e, const glm::vec3& target, sol::optional<glm::vec3> up) {
                 e.Get<TransformComponent>();
                 const glm::vec3 d = target - glm::vec3(e.Owner->GetWorldMatrix(e.Handle)[3]);   // in world space
@@ -638,7 +653,7 @@ namespace Engine {
             const auto& c = RenderStats::LastFrame;
             return Lua->create_table_with("draw_calls", c.DrawCalls, "triangles", c.Triangles,
                 "instances", c.Instances, "culled", c.Culled, "shadow_skipped", c.ShadowSkipped, "particles", c.Particles,
-                "static_batches", c.StaticBatches, "static_merged", c.StaticMerged);
+                "static_batches", c.StaticBatches, "static_merged", c.StaticMerged, "decals", c.Decals);
         });
         scene.set_function("raycast", [this](const glm::vec3& origin, const glm::vec3& dir, float maxDist,
             sol::optional<ScriptEntity> ignore) -> sol::object {
@@ -1234,6 +1249,67 @@ namespace Engine {
             if (!ScreenRay(x, y, o, d)) return { sol::lua_nil, sol::lua_nil };
             return { sol::make_object(*Lua, o), sol::make_object(*Lua, d) };
         });
+        // Where a world point is on the view (the inverse of screen_ray): x, y (0..1, top left origin), whether it
+        // is in front of the camera and inside the view, and its depth (metres along the view direction).
+        // Behind the camera x, y are nil. Health bars and floating text follow units with it.
+        scene.set_function("world_to_screen", [this](const glm::vec3& world) -> std::tuple<sol::object, sol::object, bool, float> {
+            auto& reg = ActiveScene->Registry();
+            entt::entity chosen = entt::null;
+            for (auto [e, c] : reg.view<CameraComponent>().each()) {
+                if (chosen == entt::null) chosen = e;
+                if (c.Primary) { chosen = e; break; }
+            }
+            const sol::object none = sol::make_object(*Lua, sol::lua_nil);
+            if (chosen == entt::null) return { none, none, false, 0.0f };
+            glm::vec3 p, scale;
+            glm::quat q;
+            Scene::Decompose(ActiveScene->GetWorldMatrix(chosen), p, q, scale);
+            const glm::vec3 local = glm::inverse(q) * (world - p);       // camera space: looking along -Z
+            const float depth = -local.z;
+            if (depth <= 1e-4f) return { none, none, false, depth };
+            const float t = std::tan(glm::radians(reg.get<CameraComponent>(chosen).FOV) * 0.5f);
+            const float x = (local.x / depth) / (t * ViewAspect) * 0.5f + 0.5f;
+            const float y = 0.5f - (local.y / depth) / t * 0.5f;
+            const bool inside = x >= 0.0f && x <= 1.0f && y >= 0.0f && y <= 1.0f;
+            return { sol::make_object(*Lua, x), sol::make_object(*Lua, y), inside, depth };
+        });
+        // ---- decals: shapes projected onto the ground for this frame only (like ui.*)
+        sol::table decal = lua.create_named_table("decal");
+        decal.set_function("draw", [this](const glm::vec3& pos, sol::optional<sol::table> opts) {
+            if (ActiveScene->Decals.size() >= 4096) throw std::runtime_error("decal.draw: more than 4096 decals this frame");
+            Decal d;
+            d.Position = pos;
+            if (opts) {
+                const sol::table& t = *opts;
+                const sol::object size = t["size"];
+                if (size.is<glm::vec3>()) d.Size = size.as<glm::vec3>();
+                else if (size.get_type() == sol::type::number) { const float s = size.as<float>(); d.Size = glm::vec3(s, 1.0f, s); }
+                d.Size.y = t.get<sol::optional<float>>("height").value_or(d.Size.y);
+                const std::string shape = t.get<sol::optional<std::string>>("shape").value_or("circle");
+                if (shape == "circle") d.Kind = Decal::Shape::Circle;
+                else if (shape == "ring") { d.Kind = Decal::Shape::Circle; d.Thickness = 0.15f; }
+                else if (shape == "square") d.Kind = Decal::Shape::Square;
+                else if (shape == "texture") d.Kind = Decal::Shape::Texture;
+                else throw std::runtime_error("decal.draw: shape is \"circle\", \"ring\", \"square\" or \"texture\"");
+                d.Color = t.get<sol::optional<glm::vec3>>("color").value_or(d.Color);
+                d.Alpha = t.get<sol::optional<float>>("alpha").value_or(d.Alpha);
+                d.Yaw = t.get<sol::optional<float>>("rotation").value_or(d.Yaw);
+                d.Thickness = t.get<sol::optional<float>>("thickness").value_or(d.Thickness);
+                d.Fill = t.get<sol::optional<float>>("fill").value_or(d.Fill);
+                d.Softness = t.get<sol::optional<float>>("softness").value_or(d.Softness);
+                d.Emission = t.get<sol::optional<float>>("emission").value_or(d.Emission);
+                if (auto tex = t.get<sol::optional<std::string>>("texture")) {
+                    std::string name = *tex;
+                    if (name.rfind("texture:", 0) != 0 && name != "checker") name = "texture:" + name;
+                    d.Texture = Resources.FindTexture ? Resources.FindTexture(name) : nullptr;
+                    if (!d.Texture) throw std::runtime_error("decal.draw: can't load texture " + *tex);
+                    d.Kind = Decal::Shape::Texture;
+                }
+            }
+            ActiveScene->Decals.push_back(std::move(d));
+        });
+        decal.set_function("count", [this]() { return ActiveScene->Decals.size(); });
+
         scene.set_function("pick", [this](float x, float y, sol::optional<float> maxDist) -> sol::object {
             glm::vec3 o, d;
             RayHit hit;
@@ -1341,6 +1417,37 @@ namespace Engine {
         });
         nav.set_function("is_blocked", [this](int cell) { return EnsureNav() && Nav->IsBlocked(cell); });
         nav.set_function("clear_blocked", [this]() { if (EnsureNav()) Nav->ClearBlocked(); });
+
+        // ---- line of sight and cover (static level geometry)
+        auto sight = [](const sol::optional<sol::table>& opts) {
+            NavGrid::SightOptions o;
+            if (opts) {
+                o.EyeHeight = opts->get<sol::optional<float>>("eye").value_or(o.EyeHeight);
+                o.TargetHeight = opts->get<sol::optional<float>>("target").value_or(o.TargetHeight);
+            }
+            return o;
+        };
+        nav.set_function("line_of_sight", [this, sight](const glm::vec3& from, const glm::vec3& to, sol::optional<sol::table> opts)
+            -> std::tuple<bool, sol::object> {
+            if (!EnsureNav()) return { false, sol::make_object(*Lua, sol::lua_nil) };
+            glm::vec3 hit(0.0f);
+            const bool seen = Nav->LineOfSight(*Physics, from, to, sight(opts), &hit);
+            return { seen, seen ? sol::make_object(*Lua, sol::lua_nil) : sol::make_object(*Lua, hit) };
+        });
+        nav.set_function("cover", [this](const glm::vec3& at, const glm::vec3& from) -> std::tuple<std::string, int> {
+            if (!EnsureNav()) return { "none", 0 };
+            const NavGrid::Cover c = Nav->CoverAt(*Physics, at, from);
+            return { c == NavGrid::Cover::Full ? "full" : c == NavGrid::Cover::Half ? "half" : "none", (int)c };
+        });
+        nav.set_function("visible_cells", [this, sight](const glm::vec3& from, float range, sol::optional<sol::table> opts) {
+            sol::table out = Lua->create_table();
+            if (!EnsureNav()) return out;
+            std::vector<int> cells;
+            Nav->VisibleCells(*Physics, from, range, sight(opts), cells);
+            for (size_t i = 0; i < cells.size(); i++)
+                out[i + 1] = Lua->create_table_with("cell", cells[i], "position", Nav->CellPosition(cells[i]));
+            return out;
+        });
     }
 
     // ---------------------------------------------------------------- save games
@@ -1790,7 +1897,8 @@ namespace Engine {
         if (!m.Lua) return;
         m.ActiveScene = &scene;
         m.Time += dt;
-        m.UI.clear();               // a paused game keeps showing the last frame's UI
+        m.UI.clear();               // a paused game keeps showing the last frame's UI (and decals)
+        scene.Decals.clear();       // decal.draw is per frame too
         {
             UIPointerState p{ m.PtrX, m.PtrY, m.PtrInside, m.PtrDown, m.PtrRightDown, m.PtrWheel };
             if (m.SimPointer) p = m.Sim;                                  // ui.simulate_pointer (tests)
@@ -1894,6 +2002,7 @@ namespace Engine {
         if (!m.Lua) return;
         m.ActiveScene = &scene;
         m.DragPayload = sol::object();   // before the Lua state goes
+        scene.Decals.clear();
 
         std::vector<entt::entity> handles;
         for (auto& [h, inst] : m.Instances) handles.push_back(h);

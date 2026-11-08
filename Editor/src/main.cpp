@@ -756,7 +756,8 @@ public:
 
     // ------------------------------------------------------------ example levels (DemoLevels.cpp)
     LevelAssets MakeLevelAssets() { EnsureSphere(); return { m_Cube, m_Plane, m_Sphere, m_Checker, m_Resources->LoadModel("Models/Fox.glb"),
-        m_Resources->LoadTexture("Textures/fence.png"), m_Resources->LoadTexture("Textures/window.png") }; }
+        m_Resources->LoadTexture("Textures/fence.png"), m_Resources->LoadTexture("Textures/window.png"),
+        m_Resources->Capsule(), m_Resources->Cone() }; }
     void BuildLevel(void (*build)(Engine::Scene&, const LevelAssets&, Engine::PrefabLibrary&)) {
         m_Selected = entt::null;
         m_Spawned.clear();
@@ -1161,6 +1162,9 @@ private:
         if (ImGui::MenuItem("Cube")) shape("Cube", m_Cube, 1.0f);
         if (ImGui::MenuItem("Sphere")) { EnsureSphere(); shape("Sphere", m_Sphere, 1.0f); }
         if (ImGui::MenuItem("Plane")) shape("Plane", m_Plane, 0.25f);
+        if (ImGui::MenuItem("Capsule")) shape("Capsule", m_Resources->Capsule(), 1.0f);
+        if (ImGui::MenuItem("Cylinder")) shape("Cylinder", m_Resources->Cylinder(), 1.0f);
+        if (ImGui::MenuItem("Cone")) shape("Cone", m_Resources->Cone(), 1.0f);
         ImGui::SeparatorText("Lights");
         if (ImGui::MenuItem("Point Light")) {
             Entity e = m_Scene.CreateEntity("Point Light");
@@ -2219,7 +2223,7 @@ private:
                 std::string current = registry.GeometryName(mr.Geometry);
                 if (current.rfind("model:", 0) == 0) current = current.substr(6);
                 if (ImGui::BeginCombo("Geometry", current.empty() ? "(custom)" : current.c_str())) {
-                    for (const char* builtin : { "cube", "sphere", "plane" })
+                    for (const char* builtin : { "cube", "sphere", "plane", "capsule", "cylinder", "cone" })
                         if (ImGui::Selectable(builtin, current == builtin)) {
                             mr.Geometry = registry.FindGeometry(builtin);
                             mr.LocalOffset = glm::mat4(1.0f);

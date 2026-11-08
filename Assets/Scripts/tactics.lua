@@ -26,38 +26,39 @@ local armed = true           -- an ambush can start combat (re-armed once the he
 local message, message_time = nil, 0
 local destination            -- explore: where the hero is going (for the marker)
 local cs = 1
-local owner                  -- this script's entity (the tiles are its children)
+local owner                  -- this script's entity
 
 local function say(text)
     message, message_time = text, 2.5
     log(text)
 end
 
--- ---- overlay tiles: thin see-through boxes, pooled (spawned once, hidden below the level when unused).
--- Lit, with some emissive so they read in shade too (unlit meshes glow 4x: they would turn white).
-local tiles, used = {}, 0
-local function tile(pos, color, alpha, size, lift)
-    used = used + 1
-    local t = tiles[used]
-    if not t then
-        t = scene.spawn("Nav tile")
-        t:add_mesh{ geometry = "cube", color = color, opacity = alpha, cast_shadows = false,
-                    roughness = 1, metallic = 0 }   -- rough: no sky reflection washing the colour out
-        t.parent = owner                   -- grouped under this entity in the Hierarchy
-        t.transient = true                 -- never saved
-        tiles[used] = t
-    end
-    local s = (size or 0.9) * cs
-    t.position = pos + vec3(0, lift or 0.03, 0)
-    t.scale = vec3(s, 0.02, s)
-    local m = t.mesh
-    m.color = color
-    m.emissive = color * 0.35
-    m.opacity = alpha
+-- ---- ground markers: decals projected onto the floor, steps and ramps (decal.draw: this frame only)
+local function tile(pos, color, alpha, size)            -- a grid cell: a faint square with a brighter border
+    decal.draw(pos, { size = (size or 0.92) * cs, shape = "square", color = color, alpha = alpha,
+                      thickness = 0.14, fill = 0.45, softness = 0.08, height = 1.2 })
 end
-local function hide_unused_tiles()
-    for i = used + 1, #tiles do
-        if tiles[i].position.y > -50 then tiles[i].position = vec3(0, -100, 0) end
+local function ring(pos, color, alpha, size)
+    decal.draw(pos, { size = size, shape = "ring", color = color, alpha = alpha, thickness = 0.22, height = 1.2 })
+end
+local function dot(pos, color, alpha, size)
+    decal.draw(pos, { size = size, color = color, alpha = alpha, softness = 0.35, height = 1.2 })
+end
+
+-- ---- floating text over the world (scene.world_to_screen), rising and fading
+local floaters = {}
+local function float_text(text, pos, color)
+    table.insert(floaters, { text = text, pos = pos, color = color or vec3(1, 1, 1), time = 0 })
+end
+local function draw_floaters(dt)
+    for i = #floaters, 1, -1 do
+        local f = floaters[i]
+        f.time = f.time + dt
+        if f.time > 1.2 then table.remove(floaters, i)
+        else
+            local x, y, visible = scene.world_to_screen(f.pos + vec3(0, f.time * 0.8, 0))
+            if visible then ui.text(f.text, x, y, { size = 26, align = "center", color = f.color, alpha = math.min(1, 1.6 - f.time) }) end
+        end
     end
 end
 
@@ -203,7 +204,7 @@ local function update_explore(dt, mx, my, click)
             if not path.complete then say("Can't get there: going as close as possible") end
         end
     end
-    if destination and hero.moving then tile(destination, vec3(1, 0.85, 0.3), 0.7, 0.35, 0.04)
+    if destination and hero.moving then ring(destination, vec3(1, 0.85, 0.3), 0.9, 0.7)
     else destination = nil end
 end
 
@@ -213,7 +214,7 @@ local function update_hero_turn(dt, mx, my, click)
     if not reach then refresh_reach() end
 
     for cell, r in pairs(reach) do
-        if cell ~= u.cell then tile(r.position, vec3(0.1, 0.4, 1.0), 0.45) end
+        if cell ~= u.cell then tile(r.position, vec3(0.2, 0.5, 1.0), 0.6) end
     end
 
     local hit = scene.pick(mx, my)
@@ -221,8 +222,22 @@ local function update_hero_turn(dt, mx, my, click)
     local r = cell and reach[cell]
     if r and cell ~= u.cell then
         local cells = chain(cell)
-        for i = 2, #cells do tile(nav.cell_position(cells[i]), vec3(1, 0.5, 0.05), 0.8, 0.6, 0.045) end
-        ui.text(string.format("cost %.1f", r.cost), mx, my - 0.04, { size = 18, align = "center", color = vec3(1, 0.9, 0.5) })
+        for i = 2, #cells do dot(nav.cell_position(cells[i]), vec3(1, 0.55, 0.1), 0.9, 0.45) end
+        -- what standing there means against the enemies: who could see you, and the cover from each
+        local seen, half, full = 0, 0, 0
+        local here = nav.cell_position(cell)
+        for _, e in ipairs(units) do
+            if e.enemy and e.cell then
+                local from = nav.cell_position(e.cell)
+                if nav.line_of_sight(from, here) then seen = seen + 1 end
+                local c = nav.cover(here, from)
+                if c == "full" then full = full + 1 elseif c == "half" then half = half + 1 end
+            end
+        end
+        local info = string.format("cost %.1f   seen by %d", r.cost, seen)
+        if full > 0 then info = info .. string.format("   full cover x%d", full) end
+        if half > 0 then info = info .. string.format("   half cover x%d", half) end
+        ui.text(info, mx, my - 0.045, { size = 18, align = "center", color = vec3(1, 0.9, 0.5) })
         if click then
             local path_points = {}
             for i, c in ipairs(cells) do path_points[i] = nav.cell_position(c) end
@@ -258,7 +273,11 @@ local function update_enemy_turn(dt)
             say(u.name .. " waits")
         end
     else
-        if adjacent(u, hero) then say(u.name .. " attacks! (no damage in this test)") end
+        if adjacent(u, hero) then
+            say(u.name .. " attacks! (no damage in this test)")
+            hero.e:flash(vec3(1, 0.25, 0.15), 0.4)             -- the hit flash (e:flash)
+            float_text("Hit!", hero.e.position + vec3(0, 1.6, 0), vec3(1, 0.4, 0.3))
+        end
         end_turn()
     end
 end
@@ -400,7 +419,6 @@ end
 
 function on_update(self, dt)
     if not hero then return end
-    used = 0
     message_time = message_time - dt
 
     -- the panels first: a click on them must not also walk (ui.wants_mouse below)
@@ -432,11 +450,16 @@ function on_update(self, dt)
         for i, u in ipairs(units) do
             if u.cell then
                 local col = u.enemy and vec3(1, 0.25, 0.2) or vec3(0.3, 0.6, 1)
-                tile(nav.cell_position(u.cell), col, i == turn and 0.75 or 0.4, 0.95, 0.035)
+                ring(nav.cell_position(u.cell), col, i == turn and 0.95 or 0.6, 1.1)
+            end
+            -- a name plate over each unit (scene.world_to_screen)
+            local x, y, visible = scene.world_to_screen(u.e.position + vec3(0, 2.0, 0))
+            if visible then
+                ui.text(u.name, x, y, { size = 16, align = "center", color = u.enemy and vec3(1, 0.55, 0.5) or vec3(0.6, 0.8, 1) })
             end
         end
     end
-    hide_unused_tiles()
+    draw_floaters(dt)
 
     local active = mode == "combat" and units[turn] or hero
     shared.focus = active.e.position

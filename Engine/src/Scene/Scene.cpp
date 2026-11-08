@@ -175,6 +175,7 @@ namespace Engine {
     void Scene::Clear() {
         m_Registry.clear();
         ClearStaticBatches();        // merged meshes belong to the entities that are gone
+        Decals.clear();
     }
 
     // ---------------------------------------------------------------- update systems
@@ -198,6 +199,9 @@ namespace Engine {
         UpdateOrbitPositions();
         UpdateAnimations(dt);
         UpdateParticles(dt);
+        m_Registry.view<MeshRendererComponent>().each([dt](MeshRendererComponent& mr) {   // hit flashes fade out
+            if (mr.FlashTime > 0.0f) mr.FlashTime = std::max(0.0f, mr.FlashTime - dt);
+        });
     }
 
     // ---------------------------------------------------------------- skeletal animation
@@ -1098,7 +1102,9 @@ namespace Engine {
                 InstanceData inst = base;
                 inst.Color = glm::vec4(mat ? mat->Color * mr.Color : mr.Color, s.Alpha);
                 inst.Surface = glm::vec4(mat ? mat->Metallic : mr.Metallic, mat ? mat->Roughness : mr.Roughness, 0.0f, 0.0f);
-                inst.Emissive = glm::vec4(mat ? mat->EmissiveColor : mr.Emissive, 0.0f);
+                glm::vec3 emissive = mat ? mat->EmissiveColor : mr.Emissive;
+                if (mr.FlashTime > 0.0f && mr.FlashDuration > 0.0f) emissive += mr.FlashColor * (mr.FlashTime / mr.FlashDuration);
+                inst.Emissive = glm::vec4(emissive, 0.0f);
 
                 DrawList::Item item;
                 item.Instance = list.AddInstance(inst);
