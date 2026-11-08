@@ -1,7 +1,7 @@
 {
   "entities": [
     {
-      "id": 7429387662764926460,
+      "id": 2715350377071524533,
       "name": "Game",
       "script": {
         "path": "Scripts/game.lua"
@@ -31,7 +31,7 @@
         "near": 0.10000000149011612,
         "primary": true
       },
-      "id": 3236318402956030908,
+      "id": 7343934819925885666,
       "name": "Main Camera",
       "script": {
         "path": "Scripts/follow.lua"
@@ -55,7 +55,7 @@
       }
     },
     {
-      "id": 3972587043803773915,
+      "id": 10664798790237656537,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -138,7 +138,7 @@
       }
     },
     {
-      "id": 18160518447942152053,
+      "id": 2786229469075040039,
       "name": "Platform Light",
       "pointLight": {
         "castShadows": true,
@@ -168,7 +168,7 @@
       }
     },
     {
-      "id": 7730993230439261854,
+      "id": 3924575797530037551,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -190,7 +190,7 @@
       }
     },
     {
-      "id": 14722484725841107172,
+      "id": 5268021736921746251,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -212,7 +212,7 @@
       }
     },
     {
-      "id": 4224677754344740413,
+      "id": 2396768897305762989,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -234,7 +234,7 @@
       }
     },
     {
-      "id": 2767852266759641620,
+      "id": 11667303235569570064,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -256,7 +256,7 @@
       }
     },
     {
-      "id": 15165350373066272404,
+      "id": 9545713080811192738,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -278,7 +278,7 @@
       }
     },
     {
-      "id": 11070202781833344926,
+      "id": 14241531972621949909,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -300,7 +300,7 @@
       }
     },
     {
-      "id": 3680284466355140382,
+      "id": 15008223295409803579,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -322,7 +322,7 @@
       }
     },
     {
-      "id": 3461992559876285085,
+      "id": 2082491665178959082,
       "name": "Coin",
       "prefab": "Prefabs/coin.json",
       "transform": {
@@ -344,7 +344,7 @@
       }
     },
     {
-      "id": 13427228180298961385,
+      "id": 10908901780727585144,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -427,7 +427,7 @@
       }
     },
     {
-      "id": 17358425872216112668,
+      "id": 5028618033898311514,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -520,7 +520,7 @@
         "spatial": true,
         "volume": 0.6000000238418579
       },
-      "id": 14614880354298120281,
+      "id": 3356304021326368454,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -563,6 +563,60 @@
         "useModelMaterials": false
       },
       "name": "Lava",
+      "particles": {
+        "additive": true,
+        "burst": 0,
+        "destroyWhenDone": false,
+        "direction": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "drag": 0.30000001192092896,
+        "emission": 5.0,
+        "emitting": true,
+        "endColor": [
+          1.0,
+          0.15000000596046448,
+          0.019999999552965164,
+          0.0
+        ],
+        "endSize": 0.20000000298023224,
+        "gravityScale": -0.05000000074505806,
+        "lifetime": [
+          1.5,
+          3.0
+        ],
+        "maxParticles": 500,
+        "rate": 22.0,
+        "shape": 2,
+        "shapeSize": [
+          0.8999999761581421,
+          0.0,
+          0.8999999761581421
+        ],
+        "size": [
+          0.07000000029802322,
+          0.12999999523162842
+        ],
+        "speed": [
+          0.6000000238418579,
+          1.399999976158142
+        ],
+        "spinSpeed": [
+          0.0,
+          0.0
+        ],
+        "spread": 20.0,
+        "startColor": [
+          1.0,
+          0.550000011920929,
+          0.15000000596046448,
+          1.0
+        ],
+        "texture": "",
+        "worldSpace": true
+      },
       "rigidBody": {
         "center": [
           0.0,
@@ -613,7 +667,7 @@
         "spatial": true,
         "volume": 0.6000000238418579
       },
-      "id": 10590157572823714217,
+      "id": 9204740146422607839,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -656,6 +710,60 @@
         "useModelMaterials": false
       },
       "name": "Lava",
+      "particles": {
+        "additive": true,
+        "burst": 0,
+        "destroyWhenDone": false,
+        "direction": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "drag": 0.30000001192092896,
+        "emission": 5.0,
+        "emitting": true,
+        "endColor": [
+          1.0,
+          0.15000000596046448,
+          0.019999999552965164,
+          0.0
+        ],
+        "endSize": 0.20000000298023224,
+        "gravityScale": -0.05000000074505806,
+        "lifetime": [
+          1.5,
+          3.0
+        ],
+        "maxParticles": 500,
+        "rate": 22.0,
+        "shape": 2,
+        "shapeSize": [
+          0.8999999761581421,
+          0.0,
+          0.8999999761581421
+        ],
+        "size": [
+          0.07000000029802322,
+          0.12999999523162842
+        ],
+        "speed": [
+          0.6000000238418579,
+          1.399999976158142
+        ],
+        "spinSpeed": [
+          0.0,
+          0.0
+        ],
+        "spread": 20.0,
+        "startColor": [
+          1.0,
+          0.550000011920929,
+          0.15000000596046448,
+          1.0
+        ],
+        "texture": "",
+        "worldSpace": true
+      },
       "rigidBody": {
         "center": [
           0.0,
@@ -696,7 +804,7 @@
       }
     },
     {
-      "id": 1924707787391141397,
+      "id": 7966781069085620661,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -783,7 +891,7 @@
       }
     },
     {
-      "id": 2924432592644716311,
+      "id": 6864365817543789,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -863,7 +971,7 @@
       }
     },
     {
-      "id": 8689473251215727225,
+      "id": 8329051389420732393,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -943,7 +1051,7 @@
       }
     },
     {
-      "id": 4635644566701083789,
+      "id": 7177517801140908519,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -1023,7 +1131,7 @@
       }
     },
     {
-      "id": 2841165796989085624,
+      "id": 16416642517852303730,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -1103,7 +1211,7 @@
       }
     },
     {
-      "id": 6104172050926943904,
+      "id": 7608450646702261915,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -1183,7 +1291,7 @@
       }
     },
     {
-      "id": 2042860151123231344,
+      "id": 16451348399531482916,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -1272,7 +1380,7 @@
         ],
         "intensity": 1.2999999523162842
       },
-      "id": 15784361662662144530,
+      "id": 12293880347835922827,
       "name": "Sun",
       "transform": {
         "position": [
@@ -1293,7 +1401,7 @@
       }
     },
     {
-      "id": 13057892535831901076,
+      "id": 12882467192386845271,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",

@@ -178,6 +178,7 @@ namespace Engine {
             [dt](OrbitComponent& o) { o.Angle += o.Speed * dt; });
         UpdateOrbitPositions();
         UpdateAnimations(dt);
+        UpdateParticles(dt);
     }
 
     // ---------------------------------------------------------------- skeletal animation
@@ -542,6 +543,7 @@ namespace Engine {
         if (auto* c = m_Registry.try_get<CameraComponent>(handle))           s.Camera = *c;
         if (auto* c = m_Registry.try_get<AudioSourceComponent>(handle))      s.AudioSource = *c;
         if (auto* c = m_Registry.try_get<AnimatorComponent>(handle))         s.Animator = *c;
+        if (auto* c = m_Registry.try_get<ParticleEmitterComponent>(handle))  s.Particles = *c;
         if (auto* c = m_Registry.try_get<PrefabComponent>(handle))           s.Prefab = *c;
         return s;
     }
@@ -566,6 +568,7 @@ namespace Engine {
         if (s.Camera)           m_Registry.emplace<CameraComponent>(e, *s.Camera);
         if (s.AudioSource)      m_Registry.emplace<AudioSourceComponent>(e, *s.AudioSource);
         if (s.Animator)         m_Registry.emplace<AnimatorComponent>(e, *s.Animator);
+        if (s.Particles)        m_Registry.emplace<ParticleEmitterComponent>(e, *s.Particles);
         if (s.Prefab)           m_Registry.emplace<PrefabComponent>(e, *s.Prefab);
         return e;
     }

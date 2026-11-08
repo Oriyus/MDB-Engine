@@ -62,6 +62,17 @@ namespace Engine {
             auto& c = e.Get<ColliderComponent>();
             j["collider"] = { { "shape", (int)c.Shape },{ "size", c.Size },{ "center", c.Center } };
         }
+        if (e.Has<ParticleEmitterComponent>()) {
+            auto& p = e.Get<ParticleEmitterComponent>();
+            j["particles"] = {
+                { "emitting", p.Emitting },{ "rate", p.Rate },{ "burst", p.Burst },{ "maxParticles", p.MaxParticles },
+                { "lifetime", p.Lifetime },{ "speed", p.Speed },{ "direction", p.Direction },{ "spread", p.Spread },
+                { "shape", (int)p.Shape },{ "shapeSize", p.ShapeSize },{ "gravityScale", p.GravityScale },{ "drag", p.Drag },
+                { "size", p.Size },{ "endSize", p.EndSize },{ "startColor", p.StartColor },{ "endColor", p.EndColor },
+                { "emission", p.Emission },{ "spinSpeed", p.SpinSpeed },
+                { "texture", res.TextureName ? res.TextureName(p.Texture) : std::string() },
+                { "additive", p.Additive },{ "worldSpace", p.WorldSpace },{ "destroyWhenDone", p.DestroyWhenDone } };
+        }
         if (e.Has<AnimatorComponent>()) {
             auto& a = e.Get<AnimatorComponent>();
             j["animator"] = { { "clip", a.Clip },{ "speed", a.Speed },{ "loop", a.Loop },{ "playing", a.Playing },
@@ -175,6 +186,33 @@ namespace Engine {
             c.Center = jc.at("center").get<glm::vec3>();
             e.Add<ColliderComponent>(c);
         }
+        if (j.contains("particles")) {
+            const auto& jp = j["particles"];
+            ParticleEmitterComponent p;
+            p.Emitting = jp.value("emitting", p.Emitting);
+            p.Rate = jp.value("rate", p.Rate);
+            p.Burst = jp.value("burst", p.Burst);
+            p.MaxParticles = jp.value("maxParticles", p.MaxParticles);
+            if (jp.contains("lifetime")) p.Lifetime = jp["lifetime"].get<glm::vec2>();
+            if (jp.contains("speed")) p.Speed = jp["speed"].get<glm::vec2>();
+            if (jp.contains("direction")) p.Direction = jp["direction"].get<glm::vec3>();
+            p.Spread = jp.value("spread", p.Spread);
+            p.Shape = (EmitShape)jp.value("shape", (int)p.Shape);
+            if (jp.contains("shapeSize")) p.ShapeSize = jp["shapeSize"].get<glm::vec3>();
+            p.GravityScale = jp.value("gravityScale", p.GravityScale);
+            p.Drag = jp.value("drag", p.Drag);
+            if (jp.contains("size")) p.Size = jp["size"].get<glm::vec2>();
+            p.EndSize = jp.value("endSize", p.EndSize);
+            if (jp.contains("startColor")) p.StartColor = jp["startColor"].get<glm::vec4>();
+            if (jp.contains("endColor")) p.EndColor = jp["endColor"].get<glm::vec4>();
+            p.Emission = jp.value("emission", p.Emission);
+            if (jp.contains("spinSpeed")) p.SpinSpeed = jp["spinSpeed"].get<glm::vec2>();
+            if (res.FindTexture) p.Texture = res.FindTexture(jp.value("texture", std::string()));
+            p.Additive = jp.value("additive", p.Additive);
+            p.WorldSpace = jp.value("worldSpace", p.WorldSpace);
+            p.DestroyWhenDone = jp.value("destroyWhenDone", p.DestroyWhenDone);
+            e.Add<ParticleEmitterComponent>(p);
+        }
         if (j.contains("animator")) {
             const auto& ja = j["animator"];
             AnimatorComponent a;
@@ -252,6 +290,7 @@ namespace Engine {
         if (e.Has<CameraComponent>())           e.Remove<CameraComponent>();
         if (e.Has<AudioSourceComponent>())      e.Remove<AudioSourceComponent>();
         if (e.Has<AnimatorComponent>())         e.Remove<AnimatorComponent>();
+        if (e.Has<ParticleEmitterComponent>())  e.Remove<ParticleEmitterComponent>();
     }
 
     bool HasComponentKeys(const json& j) {

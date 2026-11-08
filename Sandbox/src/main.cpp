@@ -23,6 +23,7 @@
 #include "Scripting/ScriptEngine.h"
 #include "Audio/AudioEngine.h"
 #include "Scene/Prefab.h"
+#include "Scene/Particles.h"
 #include "Renderer/SceneRenderer.h"
 #include "Runtime/ResourceLibrary.h"
 #include "Runtime/GameSession.h"
@@ -360,6 +361,7 @@ public:
         else {
             m_Scene.UpdateOrbitPositions();
             m_Scene.UpdateAnimations(0.0f);   // pose animated models at their current time (scrubbing works)
+            if (m_PlayState == PlayState::Edit) m_Scene.UpdateParticles(dt);   // a live preview while editing (not while paused)
         }
         m_StepFrame = false;
 
@@ -1065,6 +1067,16 @@ private:
             mr.Unlit = true;
             place(e);
         }
+        if (ImGui::BeginMenu("Effects")) {
+            for (const auto& name : ParticlePresetNames()) {
+                if (!ImGui::MenuItem(name.c_str())) continue;
+                Entity e = m_Scene.CreateEntity(name);
+                auto& pe = e.Add<ParticleEmitterComponent>();
+                ApplyParticlePreset(pe, name);
+                place(e);
+            }
+            ImGui::EndMenu();
+        }
         ImGui::SeparatorText("Gameplay");
         if (ImGui::MenuItem("Camera")) {
             Entity e = m_Scene.CreateEntity("Camera");
@@ -1603,7 +1615,7 @@ private:
     // Stats drawn over the top-right corner of the viewport image
     void DrawStatsOverlay(const ImVec2& origin, const ImVec2& size) {
         using namespace Engine;
-        char lines[9][96];
+        char lines[10][96];
         int n = 0;
         std::snprintf(lines[n++], 96, "%.0f FPS  (%.2f ms)", ImGui::GetIO().Framerate, 1000.0f / std::max(ImGui::GetIO().Framerate, 1.0f));
         std::snprintf(lines[n++], 96, "Draw calls  %u", RenderStats::DrawCalls);
@@ -1613,6 +1625,7 @@ private:
         std::snprintf(lines[n++], 96, "Shadow skip %u", RenderStats::ShadowSkipped);
         if (m_Scene.StaticBatchCount() > 0)
             std::snprintf(lines[n++], 96, "Static      %u batches / %u objects", m_Scene.StaticBatchCount(), m_Scene.StaticMergedCount());
+        if (RenderStats::Particles > 0) std::snprintf(lines[n++], 96, "Particles   %u", RenderStats::Particles);
         std::snprintf(lines[n++], 96, "Entities    %zu", m_Scene.Registry().view<TagComponent>().size());
         std::snprintf(lines[n++], 96, "Camera      %.1f, %.1f, %.1f", m_Camera->Position.x, m_Camera->Position.y, m_Camera->Position.z);
 
@@ -2230,6 +2243,82 @@ private:
             if (m_PlayState != PlayState::Edit) ImGui::TextDisabled("Changes apply on the next Play");
         }
 
+        if (e.Has<ParticleEmitterComponent>() && ImGui::CollapsingHeader("Particle Emitter", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto& pe = e.Get<ParticleEmitterComponent>();
+            ImGui::PushID("particles");
+            // Presets and live controls
+            if (ImGui::BeginCombo("Preset", "Apply a preset...")) {
+                for (const auto& name : ParticlePresetNames())
+                    if (ImGui::Selectable(name.c_str())) ApplyParticlePreset(pe, name);
+                ImGui::EndCombo();
+            }
+            if (ImGui::Button("Burst")) pe.PendingBurst += pe.Burst > 0 ? pe.Burst : 20;
+            ImGui::SetItemTooltip("Emit a burst now (the Burst count, or 20)");
+            ImGui::SameLine();
+            if (ImGui::Button("Clear")) pe.Particles.clear();
+            ImGui::SameLine();
+            if (ImGui::Button("Restart")) { pe.Particles.clear(); pe.Started = false; pe.SpawnCarry = 0.0f; }
+            ImGui::SameLine();
+            ImGui::TextDisabled("%zu / %d alive", pe.Particles.size(), pe.MaxParticles);
+
+            ImGui::SeparatorText("Emission");
+            ImGui::Checkbox("Emitting", &pe.Emitting);
+            ImGui::SameLine();
+            ImGui::Checkbox("World space", &pe.WorldSpace);
+            ImGui::SetItemTooltip("On: particles stay where they were emitted. Off: they move with the entity.");
+            ImGui::DragFloat("Rate", &pe.Rate, 0.5f, 0.0f, 2000.0f, "%.1f / s");
+            ImGui::DragInt("Burst at start", &pe.Burst, 1.0f, 0, 5000);
+            ImGui::DragInt("Max particles", &pe.MaxParticles, 5.0f, 1, 20000);
+            static const char* shapes[] = { "Point", "Sphere", "Box" };
+            int shape = (int)pe.Shape;
+            if (ImGui::Combo("Shape", &shape, shapes, IM_ARRAYSIZE(shapes))) pe.Shape = (EmitShape)shape;
+            if (pe.Shape == EmitShape::Sphere) ImGui::DragFloat("Radius", &pe.ShapeSize.x, 0.01f, 0.0f, 100.0f);
+            else if (pe.Shape == EmitShape::Box) ImGui::DragFloat3("Box size", &pe.ShapeSize.x, 0.01f, 0.0f, 100.0f);
+
+            ImGui::SeparatorText("Motion");
+            ImGui::DragFloat2("Lifetime", &pe.Lifetime.x, 0.02f, 0.01f, 60.0f, "%.2f s");
+            ImGui::DragFloat2("Speed", &pe.Speed.x, 0.05f, 0.0f, 100.0f, "%.2f m/s");
+            ImGui::DragFloat3("Direction", &pe.Direction.x, 0.02f, -1.0f, 1.0f);
+            ImGui::SliderFloat("Spread", &pe.Spread, 0.0f, 180.0f, "%.0f deg");
+            ImGui::DragFloat("Gravity", &pe.GravityScale, 0.01f, -5.0f, 5.0f);
+            ImGui::SetItemTooltip("1 = falls like a dropped object, negative = rises");
+            ImGui::DragFloat("Drag", &pe.Drag, 0.01f, 0.0f, 20.0f);
+            ImGui::DragFloat2("Spin", &pe.SpinSpeed.x, 1.0f, -1000.0f, 1000.0f, "%.0f deg/s");
+
+            ImGui::SeparatorText("Look");
+            ImGui::DragFloat2("Size", &pe.Size.x, 0.005f, 0.0f, 50.0f, "%.3f m");
+            ImGui::DragFloat("End size", &pe.EndSize, 0.01f, 0.0f, 20.0f, "x %.2f");
+            ImGui::ColorEdit4("Start color", &pe.StartColor.x);
+            ImGui::ColorEdit4("End color", &pe.EndColor.x);
+            ImGui::DragFloat("Emission", &pe.Emission, 0.05f, 0.0f, 50.0f);
+            ImGui::SetItemTooltip("Brightness: above 1 glows with bloom");
+            ImGui::Checkbox("Additive", &pe.Additive);
+            ImGui::SetItemTooltip("Adds light (fire, sparks, magic). Off: covers what is behind (smoke, dust).");
+            {
+                const auto registry = m_Resources->Registry();
+                std::string current = pe.Texture ? registry.TextureName(pe.Texture) : "(soft dot)";
+                if (current.rfind("texture:", 0) == 0) current = current.substr(8);
+                if (ImGui::BeginCombo("Texture##particles", current.c_str())) {
+                    if (ImGui::Selectable("(soft dot)", !pe.Texture)) pe.Texture = nullptr;
+                    std::error_code ec;
+                    for (const auto& file : std::filesystem::directory_iterator(std::filesystem::path(ASSET_DIR) / "Textures", ec)) {
+                        const std::string rel = "Textures/" + file.path().filename().string();
+                        if (AssetBrowser::KindOf(rel) != AssetBrowser::Kind::Texture) continue;
+                        if (ImGui::Selectable(rel.c_str(), current == rel))
+                            if (auto t = m_Resources->LoadTexture(rel)) pe.Texture = t;
+                    }
+                    ImGui::EndCombo();
+                }
+                if (auto drop = AssetBrowser::AcceptDrop({ AssetBrowser::Kind::Texture }); !drop.empty()) {
+                    if (auto t = m_Resources->LoadTexture(drop)) pe.Texture = t;
+                }
+            }
+            ImGui::Checkbox("Destroy when done", &pe.DestroyWhenDone);
+            ImGui::SetItemTooltip("Remove the entity once it stops emitting and its particles are gone (one-shot effects)");
+            if (ImGui::Button("Remove##particles")) e.Remove<ParticleEmitterComponent>();
+            ImGui::PopID();
+        }
+
         if (e.Has<AnimatorComponent>() && ImGui::CollapsingHeader("Animator", ImGuiTreeNodeFlags_DefaultOpen)) {
             auto& an = e.Get<AnimatorComponent>();
             const auto* mr = e.Has<MeshRendererComponent>() ? &e.Get<MeshRendererComponent>() : nullptr;
@@ -2478,6 +2567,7 @@ private:
                 auto& rb = e.Add<RigidBodyComponent>();
                 if (e.Has<MeshRendererComponent>()) FitCollider(e.Get<MeshRendererComponent>(), rb);
             }
+            if (!e.Has<ParticleEmitterComponent>() && ImGui::MenuItem("Particle Emitter")) e.Add<ParticleEmitterComponent>();
             if (!e.Has<AnimatorComponent>() && ImGui::MenuItem("Animator")) {
                 auto& an = e.Add<AnimatorComponent>();
                 const auto* mr = e.Has<MeshRendererComponent>() ? &e.Get<MeshRendererComponent>() : nullptr;

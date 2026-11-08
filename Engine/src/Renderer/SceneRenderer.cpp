@@ -1,6 +1,7 @@
 #include "Renderer/SceneRenderer.h"
 #include "Renderer/Shader.h"
 #include "Renderer/DrawList.h"
+#include "Renderer/ParticleRenderer.h"
 #include "Renderer/Camera.h"
 #include "Renderer/Framebuffer.h"
 #include "Renderer/Environment.h"
@@ -17,7 +18,9 @@ namespace Engine {
 
     struct SceneRenderer::Impl {
         std::string AssetDir;
-        std::unique_ptr<Shader> Lit, PointDepth, SunDepth, Post, SSAOShader, SSAOBlur, BloomDown, BloomUp, FXAA;
+        std::unique_ptr<Shader> Lit, PointDepth, SunDepth, Post, SSAOShader, SSAOBlur, BloomDown, BloomUp, FXAA, ParticleShader;
+        std::unique_ptr<ParticleRenderer> Particles;
+        std::vector<ParticleDraw> ParticleDraws;           // reused each frame
         std::unique_ptr<DrawList> Draws = std::make_unique<DrawList>();   // this frame's batches and instances
         std::unique_ptr<Environment> Env;
         std::unique_ptr<PointShadowArray> PointShadows;
@@ -51,6 +54,8 @@ namespace Engine {
         I.Lit = std::make_unique<Shader>(I.ShaderPath("lit.vert"), I.ShaderPath("lit.frag"));
         I.PointDepth = std::make_unique<Shader>(I.ShaderPath("shadow.vert"), I.ShaderPath("shadow.frag"));
         I.SunDepth = std::make_unique<Shader>(I.ShaderPath("shadow.vert"), I.ShaderPath("sun_shadow.frag"));
+        I.ParticleShader = std::make_unique<Shader>(I.ShaderPath("particle.vert"), I.ShaderPath("particle.frag"));
+        I.Particles = std::make_unique<ParticleRenderer>();
         I.Post = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("tonemap.frag"));
         I.SSAOShader = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("ssao.frag"));
         I.SSAOBlur = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("ssao_blur.frag"));
@@ -93,6 +98,8 @@ namespace Engine {
         scene.Render(camera, *I.Lit, *I.Draws, &I.Shadows, I.Env.get());
         I.Env->DrawSkybox(camera, scene.AmbientIntensity);
         scene.Render(camera, *I.Lit, *I.Draws, &I.Shadows, I.Env.get(), Scene::RenderPass::Transparent);   // glass etc. over the sky
+        scene.GatherParticles(camera, I.ParticleDraws);                 // particles last: over glass and sky
+        I.Particles->Render(I.ParticleDraws, camera, *I.ParticleShader);
         Framebuffer::Unbind();
 
         // 3) Screen-space effects
@@ -126,7 +133,7 @@ namespace Engine {
     void SceneRenderer::ReloadShaders() {
         Impl& I = *m_Impl;
         for (auto* s : { I.Lit.get(), I.PointDepth.get(), I.SunDepth.get(), I.Post.get(), I.SSAOShader.get(),
-                         I.SSAOBlur.get(), I.BloomDown.get(), I.BloomUp.get(), I.FXAA.get() })
+                         I.SSAOBlur.get(), I.BloomDown.get(), I.BloomUp.get(), I.FXAA.get(), I.ParticleShader.get() })
             s->Reload();
         I.Env->ReloadSkyShader();
     }

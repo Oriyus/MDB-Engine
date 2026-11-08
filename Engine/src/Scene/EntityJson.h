@@ -8,6 +8,12 @@ namespace glm {
     inline void from_json(const nlohmann::json& j, vec3& v) {
         v = vec3(j.at(0).get<float>(), j.at(1).get<float>(), j.at(2).get<float>());
     }
+    inline void to_json(nlohmann::json& j, const vec2& v) { j = nlohmann::json::array({ v.x, v.y }); }
+    inline void from_json(const nlohmann::json& j, vec2& v) { v = vec2(j.at(0).get<float>(), j.at(1).get<float>()); }
+    inline void to_json(nlohmann::json& j, const vec4& v) { j = nlohmann::json::array({ v.x, v.y, v.z, v.w }); }
+    inline void from_json(const nlohmann::json& j, vec4& v) {
+        v = vec4(j.at(0).get<float>(), j.at(1).get<float>(), j.at(2).get<float>(), j.at(3).get<float>());
+    }
     inline void to_json(nlohmann::json& j, const mat4& m) {
         j = nlohmann::json::array();
         for (int c = 0; c < 4; c++) for (int r = 0; r < 4; r++) j.push_back(m[c][r]);

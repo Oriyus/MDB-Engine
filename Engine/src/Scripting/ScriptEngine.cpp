@@ -8,6 +8,7 @@
 #include "Scene/Prefab.h"
 #include "Renderer/Model.h"
 #include "Renderer/RenderStats.h"
+#include "Scene/Particles.h"
 #include "Core/Input.h"
 #include "Core/Log.h"
 
@@ -66,6 +67,7 @@ namespace Engine {
         struct CameraRef { ScriptEntity E; };
         struct AudioRef  { ScriptEntity E; };
         struct AnimatorRef { ScriptEntity E; };
+        struct ParticlesRef { ScriptEntity E; };
 
         constexpr int kKeyFirst = 32, kKeyCount = 349;   // GLFW_KEY_SPACE .. GLFW_KEY_LAST
         constexpr int kMouseCount = 8;
@@ -328,6 +330,31 @@ namespace Engine {
                 if (std::abs(glm::dot(dir, u)) > 0.999f) u = glm::vec3(0.0f, 0.0f, 1.0f);   // looking straight up/down
                 e.Owner->SetWorldRotation(e.Handle, glm::quatLookAt(dir, u));
             },
+            "particles", sol::readonly_property([](const ScriptEntity& e) -> sol::optional<ParticlesRef> {
+                if (e.Has<ParticleEmitterComponent>()) return ParticlesRef{ e };
+                return sol::nullopt;
+            }),
+            // add_particles("Fire") or add_particles{ preset = "Fire", rate, burst, texture, additive, emitting }
+            "add_particles", [this](const ScriptEntity& e, sol::object opts) {
+                if (!e.Valid()) throw std::runtime_error("entity no longer exists");
+                ParticleEmitterComponent pe;
+                if (opts.is<std::string>()) {
+                    if (!ApplyParticlePreset(pe, opts.as<std::string>())) throw std::runtime_error("unknown particle preset");
+                }
+                else if (opts.is<sol::table>()) {
+                    sol::table t = opts.as<sol::table>();
+                    if (auto pr = t.get<sol::optional<std::string>>("preset"); pr && !ApplyParticlePreset(pe, *pr))
+                        throw std::runtime_error("unknown particle preset \"" + *pr + "\"");
+                    pe.Rate = t.get<sol::optional<float>>("rate").value_or(pe.Rate);
+                    pe.Burst = t.get<sol::optional<int>>("burst").value_or(pe.Burst);
+                    pe.Emitting = t.get<sol::optional<bool>>("emitting").value_or(pe.Emitting);
+                    pe.Additive = t.get<sol::optional<bool>>("additive").value_or(pe.Additive);
+                    if (auto tex = t.get<sol::optional<std::string>>("texture"))
+                        pe.Texture = Resources.FindTexture ? Resources.FindTexture(*tex) : nullptr;
+                }
+                e.Owner->Registry().emplace_or_replace<ParticleEmitterComponent>(e.Handle, pe);
+                return ParticlesRef{ e };
+            },
             "animator", sol::readonly_property([](const ScriptEntity& e) -> sol::optional<AnimatorRef> {
                 if (e.Has<AnimatorComponent>()) return AnimatorRef{ e };
                 return sol::nullopt;
@@ -379,6 +406,7 @@ namespace Engine {
                 if (kind == "audio")  return e.Has<AudioSourceComponent>();
                 if (kind == "collider") return e.Has<ColliderComponent>();
                 if (kind == "animator") return e.Has<AnimatorComponent>();
+                if (kind == "particles") return e.Has<ParticleEmitterComponent>();
                 throw std::runtime_error("unknown component kind '" + kind + "'");
             },
             "remove", [](const ScriptEntity& e, const std::string& kind) {
@@ -395,6 +423,7 @@ namespace Engine {
                 else if (kind == "audio")  reg.remove<AudioSourceComponent>(e.Handle);
                 else if (kind == "collider") reg.remove<ColliderComponent>(e.Handle);
                 else if (kind == "animator") reg.remove<AnimatorComponent>(e.Handle);
+                else if (kind == "particles") reg.remove<ParticleEmitterComponent>(e.Handle);
                 else throw std::runtime_error("unknown component kind '" + kind + "'");
             },
 
@@ -532,6 +561,26 @@ namespace Engine {
             if (pos) e.Get<TransformComponent>().Position = *pos;
             return Wrap(e.GetHandle());
         });
+        // A one-shot effect: an entity with a preset emitter that bursts `count` particles and removes itself
+        // when they are gone. scene.spawn_particles(pos, "Sparks") or (pos, { preset = "Sparks", count = 30 })
+        scene.set_function("spawn_particles", [this](const glm::vec3& pos, sol::object opts) {
+            std::string preset = "Sparks";
+            int count = -1;
+            if (opts.is<std::string>()) preset = opts.as<std::string>();
+            else if (opts.is<sol::table>()) {
+                sol::table t = opts.as<sol::table>();
+                preset = t.get<sol::optional<std::string>>("preset").value_or(preset);
+                count = t.get<sol::optional<int>>("count").value_or(count);
+            }
+            Entity e = ActiveScene->CreateEntity(preset + " burst");
+            e.Get<TransformComponent>().Position = pos;
+            auto& pe = e.Add<ParticleEmitterComponent>();
+            if (!ApplyParticlePreset(pe, preset)) throw std::runtime_error("unknown particle preset \"" + preset + "\"");
+            pe.Emitting = false;
+            pe.Burst = count >= 0 ? count : (pe.Burst > 0 ? pe.Burst : 30);
+            pe.DestroyWhenDone = true;
+            return Wrap(e.GetHandle());
+        });
         // A prefab instance ("coin" or "Prefabs/coin.json"). nil (and a warning) if the prefab is missing.
         scene.set_function("spawn_prefab", [this](const std::string& name, sol::optional<glm::vec3> pos) -> sol::optional<ScriptEntity> {
             if (!Prefabs) return sol::nullopt;
@@ -547,7 +596,7 @@ namespace Engine {
         scene.set_function("render_stats", [this]() {
             const auto& c = RenderStats::LastFrame;
             return Lua->create_table_with("draw_calls", c.DrawCalls, "triangles", c.Triangles,
-                "instances", c.Instances, "culled", c.Culled, "shadow_skipped", c.ShadowSkipped,
+                "instances", c.Instances, "culled", c.Culled, "shadow_skipped", c.ShadowSkipped, "particles", c.Particles,
                 "static_batches", c.StaticBatches, "static_merged", c.StaticMerged);
         });
         scene.set_function("raycast", [this](const glm::vec3& origin, const glm::vec3& dir, float maxDist,
@@ -658,6 +707,37 @@ namespace Engine {
         });
 
         // ---- the Animator view handed out by e.animator
+        // ---- the Particle Emitter view handed out by e.particles
+        lua.new_usertype<ParticlesRef>("ParticleEmitter", sol::no_constructor,
+            "emitting", sol::property(
+                [](const ParticlesRef& p) { return p.E.Get<ParticleEmitterComponent>().Emitting; },
+                [](const ParticlesRef& p, bool v) { p.E.Get<ParticleEmitterComponent>().Emitting = v; }),
+            "rate", sol::property(
+                [](const ParticlesRef& p) { return p.E.Get<ParticleEmitterComponent>().Rate; },
+                [](const ParticlesRef& p, float v) { p.E.Get<ParticleEmitterComponent>().Rate = std::max(v, 0.0f); }),
+            "emission", sol::property(
+                [](const ParticlesRef& p) { return p.E.Get<ParticleEmitterComponent>().Emission; },
+                [](const ParticlesRef& p, float v) { p.E.Get<ParticleEmitterComponent>().Emission = std::max(v, 0.0f); }),
+            "gravity_scale", sol::property(
+                [](const ParticlesRef& p) { return p.E.Get<ParticleEmitterComponent>().GravityScale; },
+                [](const ParticlesRef& p, float v) { p.E.Get<ParticleEmitterComponent>().GravityScale = v; }),
+            // colours: rgb (sRGB-style, like the pickers) + a separate alpha
+            "start_color", sol::property(
+                [](const ParticlesRef& p) { return glm::vec3(p.E.Get<ParticleEmitterComponent>().StartColor); },
+                [](const ParticlesRef& p, const glm::vec3& v) { auto& c = p.E.Get<ParticleEmitterComponent>().StartColor; c = glm::vec4(v, c.a); }),
+            "end_color", sol::property(
+                [](const ParticlesRef& p) { return glm::vec3(p.E.Get<ParticleEmitterComponent>().EndColor); },
+                [](const ParticlesRef& p, const glm::vec3& v) { auto& c = p.E.Get<ParticleEmitterComponent>().EndColor; c = glm::vec4(v, c.a); }),
+            "count", sol::readonly_property([](const ParticlesRef& p) { return (int)p.E.Get<ParticleEmitterComponent>().Particles.size(); }),
+            "burst", [](const ParticlesRef& p, sol::optional<int> n) {
+                auto& pe = p.E.Get<ParticleEmitterComponent>();
+                pe.PendingBurst += std::max(0, n.value_or(pe.Burst > 0 ? pe.Burst : 20));
+            },
+            "clear", [](const ParticlesRef& p) { p.E.Get<ParticleEmitterComponent>().Particles.clear(); },
+            "preset", [](const ParticlesRef& p, const std::string& name) {
+                if (!ApplyParticlePreset(p.E.Get<ParticleEmitterComponent>(), name))
+                    throw std::runtime_error("unknown particle preset \"" + name + "\"");
+            });
         lua.new_usertype<AnimatorRef>("Animator", sol::no_constructor,
             "clip", sol::property(                                // setting it cross-fades to that clip
                 [](const AnimatorRef& a) { return a.E.Get<AnimatorComponent>().Clip; },

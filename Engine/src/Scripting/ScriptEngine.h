@@ -54,7 +54,7 @@ namespace Engine {
     //   e.forward, e.right, e.up                              world-space directions (read-only)
     //   e:look_at(target [, up]) and e.forward... work in world space
     //   e.id, e:valid(), e:destroy(), e:clone()
-    //   e:has(kind), e:remove(kind)     kind = "mesh" "body" "collider" "light" "sun" "script" "spin" "orbit" "camera" "audio" "animator"
+    //   e:has(kind), e:remove(kind)     kind = "mesh" "body" "collider" "light" "sun" "script" "spin" "orbit" "camera" "audio" "animator" "particles"
     //   e.mesh   -> nil or { color, emissive, metallic, roughness, unlit, geometry ("cube" "sphere" ...),
     //               opacity (0..1; below 1 makes an opaque mesh "blend"), alpha_mode ("opaque" "cutout" "blend"),
     //               alpha_cutoff, cast_shadows, static (merged when Play starts; read-only in effect during Play) }
@@ -74,6 +74,9 @@ namespace Engine {
     //   e:look_at(target [, up])               turn local -Z (forward) towards a point
     //   e.audio -> nil or { clip, volume, pitch, loop, playing, play(), stop() }
     //   e:add_audio(clip [, { volume, pitch, loop=true, spatial=true, play=true, min_distance, max_distance }])
+    //   e.particles -> nil or { emitting, rate, emission, gravity_scale, start_color, end_color (vec3), count,
+    //                           burst([n]), clear(), preset(name) }   presets: Fire Smoke Sparks Magic Dust Embers
+    //   e:add_particles("Fire") or e:add_particles{ preset, rate, burst, emitting, additive, texture = "texture:Textures/x.png" }
     //   e.animator -> nil or { clip (set = cross-fade), speed, loop, playing, time, blend_time, root_motion, root_bone,
     //                          play(name [, blend_seconds]), stop(), duration([name]), clips(), bones(),
     //                          add_event(clip, time, name), clear_events([clip]), events(),
@@ -101,7 +104,9 @@ namespace Engine {
     //   audio.play(clip [, { volume, pitch }])             2D one-shot, e.g. "Sounds/coin.wav"
     //   audio.play_at(clip, position [, { volume, pitch }]) 3D one-shot, quieter with distance
     //   scene.quit()                         the game closes (in the editor: Play stops)
-    //   scene.render_stats() -> { draw_calls, triangles, instances, culled, shadow_skipped, static_batches, static_merged }   (the last frame; a debug HUD)
+    //   scene.render_stats() -> { draw_calls, triangles, instances, culled, shadow_skipped, particles, static_batches, static_merged }
+    //                                        (the last frame; a debug HUD)
+    //   scene.spawn_particles(pos, "Sparks" | { preset, count })   a one-shot burst entity that removes itself when done
     //   ---- ui: drawn this frame only, in call order. x, y, w, h are 0..1 of the view (top left origin).
     //   ui.text(text, x, y [, { size=24, color=vec3, alpha=1, align="left"|"center"|"right" }])
     //   ui.rect(x, y, w, h [, { color, alpha, rounding }])                 rounding in px at 720p

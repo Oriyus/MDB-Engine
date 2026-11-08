@@ -27,6 +27,7 @@ namespace Engine {
     void GameSession::Start() {
         if (m_Running) Stop();
         m_Physics->Reset();
+        m_Scene.ResetParticles();        // emitters start over (the editor preview already ran them)
         m_Physics->Sync(m_Scene);
         m_Scripts->Start(m_Scene);
         m_Scene.BuildStaticBatches();    // after on_create, which may build or change the level

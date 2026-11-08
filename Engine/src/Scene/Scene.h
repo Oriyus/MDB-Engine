@@ -18,6 +18,7 @@ namespace Engine {
     struct ShadowSettings;
     class Environment;
     class DrawList;
+    struct ParticleDraw;
 
     // A copy of one entity's component values, used to rewind after Play
     struct EntitySnapshot {
@@ -36,6 +37,7 @@ namespace Engine {
         std::optional<CameraComponent>              Camera;
         std::optional<AudioSourceComponent>         AudioSource;
         std::optional<AnimatorComponent>            Animator;
+        std::optional<ParticleEmitterComponent>     Particles;
         std::optional<PrefabComponent>              Prefab;
     };
     using SceneSnapshot = std::vector<EntitySnapshot>;
@@ -96,6 +98,13 @@ namespace Engine {
         void UpdateAnimations(float dt);
         // Where a bone of an animated model is now, in world space (after IK). NaN if unknown.
         glm::vec3 BonePosition(entt::entity e, const std::string& bone);
+
+        // Particle emitters (Scene/Particles.cpp): advance them by dt (spawn, move, expire), and build this
+        // frame's draw lists for ParticleRenderer. The editor also runs UpdateParticles in Edit mode (a preview).
+        void UpdateParticles(float dt);
+        void GatherParticles(const Camera& camera, std::vector<ParticleDraw>& draws);
+        uint32_t ParticleCount() const;
+        void ResetParticles();             // every emitter starts over (Play does this: the editor preview ran them)
         // The world direction a bone faces: the direction that, at rest, points where the entity faces (+Z)
         glm::vec3 BoneForward(entt::entity e, const std::string& bone);
 

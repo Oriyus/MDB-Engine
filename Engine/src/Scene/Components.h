@@ -134,6 +134,49 @@ namespace Engine {
         bool  Primary = true;
     };
 
+    // One live particle (simulated on the CPU by Scene::UpdateParticles)
+    struct Particle {
+        glm::vec3 Position{ 0.0f };       // world space (or the emitter's space when not WorldSpace)
+        glm::vec3 Velocity{ 0.0f };
+        float Age = 0.0f, Life = 1.0f;    // seconds
+        float Size = 0.1f;                // size at birth (metres)
+        float Rotation = 0.0f, Spin = 0.0f;   // radians, radians per second
+    };
+
+    // Emits camera-facing particles: fire, smoke, sparks, dust. Simulated in Edit mode too (a live
+    // preview) and drawn after the see-through pass. See ApplyParticlePreset for ready-made looks.
+    enum class EmitShape : int { Point = 0, Sphere = 1, Box = 2 };   // stored in scene files: append only
+    struct ParticleEmitterComponent {
+        bool  Emitting = true;            // spawn Rate particles per second
+        float Rate = 20.0f;
+        int   Burst = 0;                  // particles spawned at once when the emitter starts
+        int   MaxParticles = 500;
+        glm::vec2 Lifetime{ 1.0f, 2.0f }; // seconds, random between
+        glm::vec2 Speed{ 1.0f, 2.0f };    // metres per second, random between
+        glm::vec3 Direction{ 0.0f, 1.0f, 0.0f };   // in the entity's space
+        float Spread = 25.0f;             // cone half-angle, degrees (180 = every way)
+        EmitShape Shape = EmitShape::Point;
+        glm::vec3 ShapeSize{ 0.5f };      // sphere: radius in x; box: full size
+        float GravityScale = 0.0f;        // 1 = falls like a dropped object
+        float Drag = 0.0f;                // velocity lost per second (0..)
+        glm::vec2 Size{ 0.15f, 0.25f };   // at birth, metres, random between
+        float EndSize = 1.0f;             // size at death, as a multiple of the birth size
+        glm::vec4 StartColor{ 1.0f, 1.0f, 1.0f, 1.0f };   // sRGB-style + alpha, like the colour pickers
+        glm::vec4 EndColor{ 1.0f, 1.0f, 1.0f, 0.0f };
+        float Emission = 1.0f;            // brightness multiplier (> 1 glows with bloom)
+        glm::vec2 SpinSpeed{ 0.0f, 0.0f };   // degrees per second, random between (and a random start angle if non-zero)
+        std::shared_ptr<Texture2D> Texture;  // optional; none = a soft round dot
+        bool  Additive = false;           // add light (fire, sparks, magic) instead of covering (smoke, dust)
+        bool  WorldSpace = true;          // particles stay where they were emitted (else they move with the entity)
+        bool  DestroyWhenDone = false;    // remove the entity once it stops emitting and its particles are gone
+
+        // Runtime state (not saved)
+        std::vector<Particle> Particles;
+        float SpawnCarry = 0.0f;          // fractional particles owed by Rate
+        bool  Started = false;            // the start Burst has been emitted
+        int   PendingBurst = 0;           // queued by scripts / the Inspector
+    };
+
     // A sound attached to an entity, played while the game runs (see Audio/AudioEngine.h).
     // Clip is relative to the asset directory, e.g. "Sounds/lava_loop.wav".
     struct AudioSourceComponent {

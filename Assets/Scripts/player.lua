@@ -56,6 +56,7 @@ function on_update(self, dt)
     if input.key_pressed(Key.Space) and grounded(self) then
         self.body:add_impulse(vec3(0, jump, 0))
         audio.play("Sounds/jump.wav", { volume = 0.5 })
+        scene.spawn_particles(self.position - vec3(0, 0.45, 0), { preset = "Dust", count = 16 })   -- a puff of dust
     end
 
     if self.position.y < -10 then shared.respawn() end    -- fell off the world

@@ -4,6 +4,7 @@
 #include "Scene/Entity.h"
 #include "Scene/Components.h"
 #include "Scene/Prefab.h"
+#include "Scene/Particles.h"
 #include "Renderer/Model.h"
 #include "Core/Log.h"
 
@@ -290,6 +291,13 @@ void BuildCoinRush(Scene& scene, const LevelAssets& a, PrefabLibrary& prefabs) {
         snd.Volume = 0.6f;
         snd.MinDistance = 2.0f;
         snd.MaxDistance = 14.0f;
+        // Embers drifting up off the lava (a box emitter the size of the pad)
+        auto& embers = e.Add<ParticleEmitterComponent>();
+        ApplyParticlePreset(embers, "Embers");
+        embers.ShapeSize = glm::vec3(0.9f, 0.0f, 0.9f);
+        embers.Rate = 22.0f;
+        embers.Size = glm::vec2(0.07f, 0.13f);
+        embers.Speed = glm::vec2(0.6f, 1.4f);
     }
     AddPad(scene, a, "Bouncer", glm::vec3(7.0f, -0.97f, -4.5f), 1.6f, 1.6f, 0.5f,
         glm::vec3(0.2f, 0.6f, 0.3f), glm::vec3(0.1f, 0.8f, 0.3f), "Scripts/bouncer.lua");
