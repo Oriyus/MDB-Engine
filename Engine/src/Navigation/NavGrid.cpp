@@ -181,6 +181,7 @@ namespace Engine {
 
         m_Blocked.assign(m_Cells.size(), 0);
         m_Baked = true;
+        m_BakeCount++;
         m_BakeMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - t0).count();
 
         int layered = 0;

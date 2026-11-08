@@ -52,13 +52,13 @@
 
 class EditorApp : public Engine::Application {
 public:
-    // The editor opens full screen (borderless, at the monitor's resolution); F11 switches to a window
+    // The editor opens as a maximized window; F11 switches to full screen (borderless) and back
     static Engine::WindowProps EditorWindow() {
         Engine::WindowProps p;
         p.Title = "MDB Editor";
         p.Width = 1600;
         p.Height = 900;
-        p.Fullscreen = EnvVar("MDB_WINDOWED") != "1";   // test hook: screen captures need a normal window
+        p.Maximized = EnvVar("MDB_WINDOWED") != "1";    // test hook: a plain 1600 x 900 window for screen captures
         return p;
     }
     EditorApp() : Application(EditorWindow()) {}
@@ -2020,6 +2020,7 @@ private:
                 ImGui::MenuItem("Colliders", nullptr, &m_ShowColliders);
                 ImGui::MenuItem("Camera Frustums", nullptr, &m_ShowFrustums);
                 ImGui::MenuItem("Navigation Grid", nullptr, &m_ShowNavGrid);
+                ImGui::MenuItem("Fog of War", nullptr, &m_Renderer->ShowFog);   // off: see through the fog while play-testing
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Debug")) {

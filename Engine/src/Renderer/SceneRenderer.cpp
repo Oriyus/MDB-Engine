@@ -24,7 +24,65 @@ namespace Engine {
         std::unique_ptr<DecalRenderer> Decals;
         uint32_t DepthCopy = 0, DepthCopyW = 0, DepthCopyH = 0;   // the scene depth, for decals to sample
 
-        ~Impl() { if (DepthCopy) glDeleteTextures(1, &DepthCopy); }
+        // Fog of war: the map as an RG8 texture (re-uploaded when its revision changes) and a fullscreen pass
+        std::unique_ptr<Shader> FogShader;
+        uint32_t FogTex = 0, FogVAO = 0, FogRevision = 0;
+        int FogW = 0, FogD = 0;
+
+        ~Impl() {
+            if (DepthCopy) glDeleteTextures(1, &DepthCopy);
+            if (FogTex) glDeleteTextures(1, &FogTex);
+            if (FogVAO) glDeleteVertexArrays(1, &FogVAO);
+        }
+
+        void DrawFog(const FogOfWarState& fog, const Camera& camera, uint32_t depthTex) {
+            if (!FogTex || FogW != fog.Width || FogD != fog.Depth) {
+                if (FogTex) glDeleteTextures(1, &FogTex);
+                glCreateTextures(GL_TEXTURE_2D, 1, &FogTex);
+                glTextureStorage2D(FogTex, 1, GL_RG8, fog.Width, fog.Depth);
+                glTextureParameteri(FogTex, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTextureParameteri(FogTex, GL_TEXTURE_MAG_FILTER, GL_LINEAR);   // soft edges between cells
+                glTextureParameteri(FogTex, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+                glTextureParameteri(FogTex, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+                const float border[4] = { 0, 0, 0, 0 };                           // outside the map: never seen
+                glTextureParameterfv(FogTex, GL_TEXTURE_BORDER_COLOR, border);
+                FogW = fog.Width;
+                FogD = fog.Depth;
+                FogRevision = fog.Revision - 1;
+            }
+            if (FogRevision != fog.Revision && fog.Texels.size() >= size_t(FogW) * FogD * 2) {
+                glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+                glTextureSubImage2D(FogTex, 0, 0, 0, FogW, FogD, GL_RG, GL_UNSIGNED_BYTE, fog.Texels.data());
+                glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+                FogRevision = fog.Revision;
+            }
+            if (!FogVAO) glCreateVertexArrays(1, &FogVAO);
+            auto lin = [](const glm::vec3& c) { return glm::pow(glm::clamp(c, glm::vec3(0.0f), glm::vec3(1.0f)), glm::vec3(2.2f)); };
+            Shader& s = *FogShader;
+            s.Bind();
+            s.SetInt("u_Depth", 0);
+            s.SetInt("u_Fog", 1);
+            s.SetMat4("u_InvViewProjection", glm::inverse(camera.GetViewProjection()));
+            s.SetVec2("u_FogOrigin", fog.Origin);
+            s.SetVec2("u_FogSize", glm::vec2(fog.Width, fog.Depth) * fog.CellSize);
+            s.SetVec3("u_HiddenColor", lin(fog.HiddenColor));
+            s.SetVec3("u_ExploredColor", lin(fog.ExploredColor));
+            s.SetFloat("u_ExploredAlpha", fog.ExploredAlpha);
+            glBindTextureUnit(0, depthTex);
+            glBindTextureUnit(1, FogTex);
+            glEnable(GL_BLEND);
+            glBlendFunci(0, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glColorMaski(1, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);   // keep the entity IDs (clicks still pick)
+            glDisable(GL_DEPTH_TEST);
+            glDepthMask(GL_FALSE);
+            glBindVertexArray(FogVAO);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+            glBindVertexArray(0);
+            glDepthMask(GL_TRUE);
+            glEnable(GL_DEPTH_TEST);
+            glColorMaski(1, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+            glDisable(GL_BLEND);
+        }
 
         // Copy the HDR target's depth (decals read it while it is still attached for drawing)
         uint32_t CopyDepth(uint32_t width, uint32_t height) {
@@ -82,6 +140,7 @@ namespace Engine {
         I.Particles = std::make_unique<ParticleRenderer>();
         I.DecalShader = std::make_unique<Shader>(I.ShaderPath("decal.vert"), I.ShaderPath("decal.frag"));
         I.Decals = std::make_unique<DecalRenderer>();
+        I.FogShader = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("fog.frag"));
         I.Post = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("tonemap.frag"));
         I.SSAOShader = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("ssao.frag"));
         I.SSAOBlur = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("ssao_blur.frag"));
@@ -123,11 +182,16 @@ namespace Engine {
         I.HDR->Clear(0.005f, 0.005f, 0.01f, 1.0f);
         scene.Render(camera, *I.Lit, *I.Draws, &I.Shadows, I.Env.get());
         I.Env->DrawSkybox(camera, scene.AmbientIntensity);
+        // Decals and fog both read the depth; it is copied once (after the opaque scene, the only depth writer)
+        uint32_t depthCopy = 0;
+        auto depth = [&]() { if (!depthCopy) depthCopy = I.CopyDepth(I.HDR->GetWidth(), I.HDR->GetHeight()); return depthCopy; };
         if (!scene.Decals.empty())                                     // projected onto the opaque scene, under glass
-            I.Decals->Render(scene.Decals, camera, I.CopyDepth(I.HDR->GetWidth(), I.HDR->GetHeight()), I.HDR->GetWidth(), I.HDR->GetHeight(), *I.DecalShader);
+            I.Decals->Render(scene.Decals, camera, depth(), I.HDR->GetWidth(), I.HDR->GetHeight(), *I.DecalShader);
         scene.Render(camera, *I.Lit, *I.Draws, &I.Shadows, I.Env.get(), Scene::RenderPass::Transparent);   // glass etc. over the sky
         scene.GatherParticles(camera, I.ParticleDraws);                 // particles last: over glass and sky
         I.Particles->Render(I.ParticleDraws, camera, *I.ParticleShader);
+        if (scene.Fog.Enabled && ShowFog && scene.Fog.Width > 0)        // fog of war over everything but the sky
+            I.DrawFog(scene.Fog, camera, depth());
         Framebuffer::Unbind();
 
         // 3) Screen-space effects
@@ -161,7 +225,7 @@ namespace Engine {
     void SceneRenderer::ReloadShaders() {
         Impl& I = *m_Impl;
         for (auto* s : { I.Lit.get(), I.PointDepth.get(), I.SunDepth.get(), I.Post.get(), I.SSAOShader.get(),
-                         I.SSAOBlur.get(), I.BloomDown.get(), I.BloomUp.get(), I.FXAA.get(), I.ParticleShader.get(), I.DecalShader.get() })
+                         I.SSAOBlur.get(), I.BloomDown.get(), I.BloomUp.get(), I.FXAA.get(), I.ParticleShader.get(), I.DecalShader.get(), I.FogShader.get() })
             s->Reload();
         I.Env->ReloadSkyShader();
     }

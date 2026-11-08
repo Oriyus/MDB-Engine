@@ -16,6 +16,7 @@ namespace Engine {
     class AudioEngine;
     class PrefabLibrary;
     class NavGrid;
+    class FogOfWar;
     struct ResourceRegistry;
 
     // What saves.* and level.* reach (GameSession implements it)
@@ -107,6 +108,7 @@ namespace Engine {
     //   e:look_at(target [, up]) and e.forward... work in world space
     //   e.id, e:valid(), e:destroy(), e:clone()
     //   e:flash([color = white [, seconds = 0.25 [, strength = 3]]])   a hit flash on the entity and every mesh below it
+    //   e.visible   shown or hidden (runtime, not saved): the entity and every mesh below it; hidden ones cast no shadow
     //   e:has(kind), e:remove(kind)     kind = "mesh" "body" "collider" "light" "sun" "script" "spin" "orbit" "camera" "audio" "animator" "particles"
     //   e.mesh   -> nil or { color, emissive, metallic, roughness, unlit, geometry ("cube" "sphere" ...),
     //               opacity (0..1; below 1 makes an opaque mesh "blend"), alpha_mode ("opaque" "cutout" "blend"),
@@ -222,6 +224,13 @@ namespace Engine {
     //   nav.cover(at, from) -> "none"|"half"|"full", 0|1|2   an obstacle next to `at` towards `from`: blocks waist height
     //       (half) or head height too (full)
     //   nav.visible_cells(from, range [, { eye, target }]) -> { { cell, position }... }   what `from` can see within range
+    //   ---- fog: fog of war on the nav grid's columns (black = never seen, dimmed = explored, clear = visible now)
+    //   fog.enable([{ hidden_color, explored_color, explored_alpha = 0.6, fade = 4 }]) -> ok, fog.disable(), fog.enabled()
+    //   fog.reveal(pos, radius [, eye = 1.6])   call every frame for each viewer: columns within radius it has line of
+    //       sight to (chest height, static level only) are visible this frame and become explored
+    //   fog.explore(pos, radius)   explored without sight (a map, a scouting spell); fog.reset() forgets everything
+    //   fog.is_visible(pos), fog.is_explored(pos)   (true when fog is off); hide units in the fog with e.visible
+    //   fog.save() -> string, fog.load(string) -> ok   the explored map, for on_save / on_load
     //   input.key_down(k), input.key_pressed(k), input.key_released(k)    Key.A..Key.Z, Key.Num0..9, Key.F1..12,
     //   input.mouse_down(b), input.mouse_pressed(b), input.mouse_position()  Key.Space, Key.Left ... Mouse.Left ...
     //   shared                                  a table all scripts see (score, game state...)
@@ -237,6 +246,7 @@ namespace Engine {
         void SetResources(const ResourceRegistry& resources);
         void SetPrefabs(PrefabLibrary* prefabs);   // for scene.spawn_prefab
         void SetNavigation(NavGrid* nav);          // for nav.*
+        void SetFog(FogOfWar* fog);                // for fog.*
         void SetViewAspect(float aspect);          // width / height of the game view, for scene.screen_ray
         void SetHost(ScriptHost* host);            // for saves.* and level.*
 

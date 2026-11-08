@@ -18,6 +18,7 @@ local ambush_range = 4.5
 local units = {}             -- { e, name, enemy, cell, path, index, moving, speed, clip, face }
 local hero
 local mode = "explore"
+local sight_range = 9        -- fog of war: how far the hero sees (metres)
 local turn = 1               -- the unit whose turn it is (combat)
 local points = 0             -- movement left this turn
 local reach                  -- cell -> { cell, cost, previous } for the hero's turn (nil = recompute)
@@ -415,7 +416,13 @@ function on_create(self)
     end
     play(hero, "Survey")
     shared.focus = h.position
+    -- fog of war: black where nobody has been, dimmed where the hero has been but can't see now
+    fog.enable{ explored_alpha = 0.6 }
 end
+
+-- The explored map is saved with the level (level changes and save slots)
+function on_save(self) return { fog = fog.save() } end
+function on_load(self, data) if data.fog then fog.load(data.fog) end end
 
 function on_update(self, dt)
     if not hero then return end
@@ -445,16 +452,22 @@ function on_update(self, dt)
 
     for _, u in ipairs(units) do step_unit(u, dt) end
 
+    -- fog of war: the hero sees what is in sight range and not behind walls; enemies in the fog are hidden
+    fog.reveal(hero.e.position, sight_range)
+    for _, u in ipairs(units) do
+        if u.enemy then u.seen = fog.is_visible(u.e.position); u.e.visible = u.seen end
+    end
+
     -- in combat, mark where each unit stands
     if mode == "combat" then
         for i, u in ipairs(units) do
-            if u.cell then
+            if u.cell and (not u.enemy or u.seen) then
                 local col = u.enemy and vec3(1, 0.25, 0.2) or vec3(0.3, 0.6, 1)
                 ring(nav.cell_position(u.cell), col, i == turn and 0.95 or 0.6, 1.1)
             end
             -- a name plate over each unit (scene.world_to_screen)
             local x, y, visible = scene.world_to_screen(u.e.position + vec3(0, 2.0, 0))
-            if visible then
+            if visible and (not u.enemy or u.seen) then
                 ui.text(u.name, x, y, { size = 16, align = "center", color = u.enemy and vec3(1, 0.55, 0.5) or vec3(0.6, 0.8, 1) })
             end
         end

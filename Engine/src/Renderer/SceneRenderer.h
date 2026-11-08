@@ -53,6 +53,7 @@ namespace Engine {
         void GatherSettings(SceneSettings& s) const;
 
         PostSettings Post;
+        bool ShowFog = true;                   // draw fog of war when a script turned it on (the editor can hide it)
         ShadowSettings& Shadows();
         SSAO& GetSSAO();
         Bloom& GetBloom();

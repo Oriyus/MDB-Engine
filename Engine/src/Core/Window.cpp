@@ -65,12 +65,16 @@ namespace Engine {
 
         // Always created windowed, then switched: that way there is a windowed size to return to
         m_Data.Fullscreen = false;
+        if (props.Maximized) glfwMaximizeWindow(m_Window);
         if (props.Fullscreen) SetFullscreen(true);
     }
 
     void Window::SetFullscreen(bool fullscreen) {
         if (fullscreen == m_Data.Fullscreen) return;
         if (fullscreen) {
+            // Remember the normal (restored) rect; a maximized window is maximized again on the way back
+            m_WindowedMaximized = glfwGetWindowAttrib(m_Window, GLFW_MAXIMIZED) != 0;
+            if (m_WindowedMaximized) glfwRestoreWindow(m_Window);
             glfwGetWindowPos(m_Window, &m_WindowedX, &m_WindowedY);
             glfwGetWindowSize(m_Window, &m_WindowedW, &m_WindowedH);
             GLFWmonitor* monitor = glfwGetPrimaryMonitor();
@@ -79,6 +83,7 @@ namespace Engine {
         }
         else {
             glfwSetWindowMonitor(m_Window, nullptr, m_WindowedX, m_WindowedY, m_WindowedW, m_WindowedH, 0);
+            if (m_WindowedMaximized) glfwMaximizeWindow(m_Window);
         }
         m_Data.Fullscreen = fullscreen;
         SetVSync(m_Data.VSync);     // some drivers drop the swap interval on a mode change

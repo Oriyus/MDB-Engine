@@ -106,6 +106,7 @@ namespace Engine {
         // out over FlashDuration seconds. Merged static parts don't flash.
         glm::vec3 FlashColor{ 0.0f };
         float FlashTime = 0.0f, FlashDuration = 0.0f;
+        bool  Hidden = false;                     // runtime (e.visible = false in Lua, not saved): not drawn, casts no shadow
     };
 
     struct PointLightComponent {

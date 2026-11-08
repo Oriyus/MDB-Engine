@@ -12,6 +12,7 @@ namespace Engine {
         uint32_t Height = 720;
         bool VSync = true;
         bool Fullscreen = false;       // borderless on the primary monitor, at its resolution
+        bool Maximized = false;        // windowed, filling the work area (Width/Height are the restored size)
     };
 
     class Window {
@@ -41,6 +42,7 @@ namespace Engine {
         GLFWwindow* m_Window = nullptr;
         WindowProps m_Data;
         int m_WindowedX = 100, m_WindowedY = 100, m_WindowedW = 1280, m_WindowedH = 720;
+        bool m_WindowedMaximized = false;   // maximized before going full screen: maximized again after
     };
 
 } // namespace Engine

@@ -413,6 +413,20 @@ self:add_audio("Sounds/lava_loop.wav", { loop = true, min_distance = 2, max_dist
 <p>Measured on the tactics yard: half behind the crate and the fence, full against the terrace wall, none with the crate behind you. See <a href="#script-sight">Scripting › Line of sight</a>.</p>
 </section>
 
+<section class="doc" data-group="Engine" id="engine-fog">
+<h2>Fog of war</h2>
+<p>Three states per nav-grid column: <b>never seen</b> (black), <b>explored</b> (dimmed — you remember the place, not what is there now) and <b>visible</b> (clear).</p>
+<ul>
+  <li>Each frame scripts reveal around their viewers. A column is visible if the viewer has line of sight to chest height there (walls and terraces cast vision shadows; low crates don't). Walls next to a seen floor are shown too.</li>
+  <li>Results are cached per viewer position, so a standing unit costs nothing; a new position costs about 2.5 ms in Debug.</li>
+  <li>Drawn as one fullscreen pass over the scene (from the depth buffer), with soft edges and fades. The sky is left alone and clicks still pick through it.</li>
+  <li>Hide units in the fog with <code>e.visible = false</code> (no shadow either).</li>
+  <li>The explored map is saved by the game (<code>fog.save</code> / <code>fog.load</code> in <code>on_save</code> / <code>on_load</code>).</li>
+  <li>Editor: Viewport › View › Fog of War turns the drawing off while play-testing.</li>
+</ul>
+<p>See <a href="#script-fog">Scripting › Fog of war</a>.</p>
+</section>
+
 <section class="doc" data-group="Engine" id="engine-session">
 <h2>Game session &amp; play mode</h2>
 <p><code>GameSession</code> runs a scene as a game: <code>Start</code> (bodies, then scripts), <code>Update</code>, <code>Stop</code>. Both apps use it.</p>
@@ -502,6 +516,7 @@ self:add_audio("Sounds/lava_loop.wav", { loop = true, min_distance = 2, max_dist
 <tr><td><code>dialogue_test.lua</code></td><td>Dialogue runner on the Sage's dialogue (31)</td></tr>
 <tr><td><code>transform_test.lua</code></td><td>Rotations through Euler angles near gimbal lock (4)</td></tr>
 <tr><td><code>engine_features_test.lua</code></td><td>world_to_screen, decals, line of sight, cover, primitives, flash (22)</td></tr>
+<tr><td><code>fog_test.lua</code></td><td>Fog of war: reveal, explore, save / load, e.visible (17)</td></tr>
 </table>
 <pre><code class="sh">set MDB_WINDOWED=1 &amp; set MDB_SCENE=tactics_test.json &amp; set MDB_AUTOPLAY=1
 set MDB_TEST_SCRIPT=Scripts/nav_test.lua &amp; set MDB_QUIT_AFTER=8
@@ -543,7 +558,7 @@ MDBEditor.exe &gt; log.txt</code></pre>
 
 <section class="doc" data-group="Editor" id="editor-layout">
 <h2>Layout &amp; panels</h2>
-<p>A Unity/Godot-style docking layout that starts full screen:</p>
+<p>A Unity/Godot-style docking layout that starts as a maximized window (F11 switches to full screen):</p>
 <ul>
   <li><b>Hierarchy</b> (left) — the entity tree.</li>
   <li><b>Viewport</b> (centre) — the scene, with its own menu and a stats overlay.</li>
@@ -967,6 +982,32 @@ for _, c in ipairs(nav.visible_cells(archer.position, 8)) do           -- what t
     decal.draw(c.position, { size = 0.9, shape = "square", color = vec3(1, 0.8, 0.2), alpha = 0.3 })
 end</code></pre>
 <p>Only static level geometry blocks sight and gives cover. In the tactics demo, hovering a reachable cell in combat shows how many enemies see it and the cover it gives.</p>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-fog">
+<h2>Fog of war</h2>
+<pre><code class="lua">function on_create(self)
+    fog.enable{ explored_alpha = 0.6 }          -- also hidden_color, explored_color, fade
+end
+
+function on_update(self, dt)
+    for _, u in ipairs(party) do fog.reveal(u.position, 9) end    -- every frame, every viewer
+    for _, e in ipairs(enemies) do e.visible = fog.is_visible(e.position) end
+end
+
+-- keep what was explored with the level and in save slots
+function on_save(self) return { fog = fog.save() } end
+function on_load(self, data) if data.fog then fog.load(data.fog) end end</code></pre>
+<table>
+<tr><th>Call</th><th>Meaning</th></tr>
+<tr><td><code>fog.enable([opts])</code>, <code>fog.disable()</code>, <code>fog.enabled()</code></td><td>Turn it on (sized to the nav grid) or off</td></tr>
+<tr><td><code>fog.reveal(pos, radius [, eye = 1.6])</code></td><td>Visible this frame within radius and line of sight; becomes explored</td></tr>
+<tr><td><code>fog.explore(pos, radius)</code></td><td>Explored without sight (a map, a scouting spell)</td></tr>
+<tr><td><code>fog.is_visible(pos)</code>, <code>fog.is_explored(pos)</code></td><td>Queries (true when fog is off)</td></tr>
+<tr><td><code>fog.reset()</code></td><td>Forget everything explored</td></tr>
+<tr><td><code>fog.save()</code> → string, <code>fog.load(s)</code> → ok</td><td>The explored map</td></tr>
+<tr><td><code>e.visible</code></td><td>Show or hide an entity and everything below it (not saved)</td></tr>
+</table>
 </section>
 
 <section class="doc" data-group="Scripting" id="script-input">

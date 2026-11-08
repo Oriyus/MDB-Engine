@@ -176,6 +176,7 @@ namespace Engine {
         m_Registry.clear();
         ClearStaticBatches();        // merged meshes belong to the entities that are gone
         Decals.clear();
+        Fog = FogOfWarState{};
     }
 
     // ---------------------------------------------------------------- update systems
@@ -1070,7 +1071,7 @@ namespace Engine {
         auto drawables = m_Registry.view<TransformComponent, MeshRendererComponent>();
         for (auto entity : drawables) {
             const auto& mr = drawables.get<MeshRendererComponent>(entity);
-            if (!mr.Geometry || mr.Merged) continue;    // merged: drawn by its static batch
+            if (!mr.Geometry || mr.Merged || mr.Hidden) continue;    // merged: drawn by its static batch; hidden: e.visible = false
 
             const glm::mat4 world = GetWorldMatrix(entity) * mr.LocalOffset;
             const auto* bones = GetBonePalette(entity, mr);

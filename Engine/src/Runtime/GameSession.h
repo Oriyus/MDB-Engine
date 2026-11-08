@@ -12,6 +12,7 @@ namespace Engine {
     class AudioEngine;
     class PrefabLibrary;
     class NavGrid;
+    class FogOfWar;
     struct ResourceRegistry;
     struct SceneSettings;
 
@@ -91,6 +92,7 @@ namespace Engine {
         Scene& m_Scene;
         std::unique_ptr<PhysicsWorld> m_Physics;
         std::unique_ptr<NavGrid> m_Nav;
+        std::unique_ptr<FogOfWar> m_Fog;
         std::unique_ptr<AudioEngine> m_Audio;          // before the script engine: it holds pointers to these
         std::unique_ptr<PrefabLibrary> m_Prefabs;
         std::unique_ptr<ScriptEngine> m_Scripts;

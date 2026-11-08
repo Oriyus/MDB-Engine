@@ -10,6 +10,7 @@
 #include "Scripting/ScriptEngine.h"
 #include "Renderer/Camera.h"
 #include "Navigation/NavGrid.h"
+#include "Navigation/FogOfWar.h"
 #include "Core/Log.h"
 
 #include <algorithm>
@@ -89,12 +90,14 @@ namespace Engine {
         : m_Scene(scene) {
         m_Physics = std::make_unique<PhysicsWorld>();
         m_Nav = std::make_unique<NavGrid>();
+        m_Fog = std::make_unique<FogOfWar>();
         m_Audio = std::make_unique<AudioEngine>(assetDir);
         m_Prefabs = std::make_unique<PrefabLibrary>(assetDir, resources);
         m_Scripts = std::make_unique<ScriptEngine>(assetDir, m_Physics.get(), m_Audio.get());
         m_Scripts->SetResources(resources);
         m_Scripts->SetPrefabs(m_Prefabs.get());
         m_Scripts->SetNavigation(m_Nav.get());
+        m_Scripts->SetFog(m_Fog.get());
         m_Scripts->SetHost(this);
         m_Campaign = std::make_unique<Campaign>();
         m_Campaign->AssetDir = assetDir;
@@ -109,6 +112,8 @@ namespace Engine {
         if (m_Running) Stop();
         m_Physics->Reset();
         m_Nav->Clear();                  // the level may have changed: baked again on first use
+        *m_Fog = FogOfWar{};             // a script turns fog on again (and loads what was explored)
+        m_Scene.Fog = FogOfWarState{};
         m_Scene.ResetParticles();        // emitters start over (the editor preview already ran them)
         m_Physics->Sync(m_Scene);
         m_Scripts->Start(m_Scene);
@@ -121,6 +126,8 @@ namespace Engine {
         m_Audio->StopAll();
         m_Scene.ClearStaticBatches();
         m_Nav->Clear();
+        *m_Fog = FogOfWar{};
+        m_Scene.Fog = FogOfWarState{};
         m_Physics->Reset();
         m_Running = false;
     }

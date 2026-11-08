@@ -10,6 +10,7 @@
 #include "Renderer/RenderStats.h"
 #include "Scene/Particles.h"
 #include "Navigation/NavGrid.h"
+#include "Navigation/FogOfWar.h"
 #include "Scene/EntityJson.h"          // glm <-> json
 #include "Runtime/UILayout.h"
 #include "Core/Input.h"
@@ -105,6 +106,7 @@ namespace Engine {
         AudioEngine* Audio = nullptr;
         PrefabLibrary* Prefabs = nullptr;
         NavGrid* Nav = nullptr;
+        FogOfWar* Fog = nullptr;
         ScriptHost* Host = nullptr;
         nlohmann::json PendingRestore;                    // SetRestore: applied by the next Start
         bool HasPendingRestore = false, PendingLoading = false;
@@ -361,6 +363,26 @@ namespace Engine {
                 return CameraRef{ e };
             },
             // Turn so local -Z (forward) points at target. `up` defaults to world up.
+            // Shown or hidden (runtime, not saved): the entity and every mesh below it; hidden ones cast no shadow.
+            // Reading it says whether the entity's own mesh (or, without one, its first child's) is shown.
+            "visible", sol::property(
+                [](const ScriptEntity& e) {
+                    if (!e.Valid()) return false;
+                    std::vector<entt::entity> todo{ e.Handle };
+                    for (size_t i = 0; i < todo.size(); i++) {
+                        if (auto* mr = e.Owner->Registry().try_get<MeshRendererComponent>(todo[i])) return !mr->Hidden;
+                        for (entt::entity child : e.Owner->GetChildren(todo[i])) todo.push_back(child);
+                    }
+                    return true;
+                },
+                [](const ScriptEntity& e, bool v) {
+                    if (!e.Valid()) return;
+                    std::vector<entt::entity> todo{ e.Handle };
+                    for (size_t i = 0; i < todo.size(); i++) {
+                        if (auto* mr = e.Owner->Registry().try_get<MeshRendererComponent>(todo[i])) mr->Hidden = !v;
+                        for (entt::entity child : e.Owner->GetChildren(todo[i])) todo.push_back(child);
+                    }
+                }),
             // A hit flash: the entity and every mesh below it glow `color` and fade back over `seconds`
             "flash", [](const ScriptEntity& e, sol::optional<glm::vec3> color, sol::optional<float> seconds, sol::optional<float> strength) {
                 if (!e.Valid()) return;
@@ -1418,6 +1440,32 @@ namespace Engine {
         nav.set_function("is_blocked", [this](int cell) { return EnsureNav() && Nav->IsBlocked(cell); });
         nav.set_function("clear_blocked", [this]() { if (EnsureNav()) Nav->ClearBlocked(); });
 
+        // ---- fog of war (Navigation/FogOfWar): needs the nav grid (baked on first use)
+        sol::table fog = lua.create_named_table("fog");
+        fog.set_function("enable", [this](sol::optional<sol::table> opts) {
+            if (!Fog || !EnsureNav()) return false;
+            FogOfWarState& s = ActiveScene->Fog;
+            Fog->Enable(*Nav, s);
+            if (opts) {
+                s.HiddenColor = opts->get<sol::optional<glm::vec3>>("hidden_color").value_or(s.HiddenColor);
+                s.ExploredColor = opts->get<sol::optional<glm::vec3>>("explored_color").value_or(s.ExploredColor);
+                s.ExploredAlpha = opts->get<sol::optional<float>>("explored_alpha").value_or(s.ExploredAlpha);
+                Fog->FadeSpeed = opts->get<sol::optional<float>>("fade").value_or(Fog->FadeSpeed);
+            }
+            return true;
+        });
+        fog.set_function("disable", [this]() { if (Fog) Fog->Disable(ActiveScene->Fog); });
+        fog.set_function("enabled", [this]() { return Fog && Fog->IsEnabled(); });
+        fog.set_function("reveal", [this](const glm::vec3& pos, float radius, sol::optional<float> eye) {
+            if (Fog && Fog->IsEnabled() && EnsureNav()) Fog->Reveal(*Nav, *Physics, pos, radius, eye.value_or(1.6f));
+        });
+        fog.set_function("explore", [this](const glm::vec3& pos, float radius) { if (Fog) Fog->Explore(pos, radius); });
+        fog.set_function("is_visible", [this](const glm::vec3& pos) { return !Fog || Fog->IsVisible(pos); });
+        fog.set_function("is_explored", [this](const glm::vec3& pos) { return !Fog || Fog->IsExplored(pos); });
+        fog.set_function("reset", [this]() { if (Fog) Fog->Reset(); });
+        fog.set_function("save", [this]() { return Fog && Fog->IsEnabled() ? Fog->Save() : std::string(); });
+        fog.set_function("load", [this](const std::string& data) { return Fog && Fog->IsEnabled() && Fog->Load(data); });
+
         // ---- line of sight and cover (static level geometry)
         auto sight = [](const sol::optional<sol::table>& opts) {
             NavGrid::SightOptions o;
@@ -1780,6 +1828,7 @@ namespace Engine {
     void ScriptEngine::SetResources(const ResourceRegistry& resources) { m_Impl->Resources = resources; }
     void ScriptEngine::SetPrefabs(PrefabLibrary* prefabs) { m_Impl->Prefabs = prefabs; }
     void ScriptEngine::SetNavigation(NavGrid* nav) { m_Impl->Nav = nav; }
+    void ScriptEngine::SetFog(FogOfWar* fog) { m_Impl->Fog = fog; }
     void ScriptEngine::SetViewAspect(float aspect) { if (aspect > 0.0f) m_Impl->ViewAspect = aspect; }
     void ScriptEngine::SetHost(ScriptHost* host) { m_Impl->Host = host; }
 
@@ -1899,6 +1948,7 @@ namespace Engine {
         m.Time += dt;
         m.UI.clear();               // a paused game keeps showing the last frame's UI (and decals)
         scene.Decals.clear();       // decal.draw is per frame too
+        if (m.Fog) m.Fog->BeginFrame();   // fog.reveal is per frame too
         {
             UIPointerState p{ m.PtrX, m.PtrY, m.PtrInside, m.PtrDown, m.PtrRightDown, m.PtrWheel };
             if (m.SimPointer) p = m.Sim;                                  // ui.simulate_pointer (tests)
@@ -1928,6 +1978,7 @@ namespace Engine {
         }
 
         m.DispatchEvents();         // events.emit from on_update (on_event may destroy things too)
+        if (m.Fog) m.Fog->EndFrame(scene.Fog, dt);   // what was revealed this frame: explored, faded, drawn
         m.FlushDestroys(scene);
         if (const int open = m.UIC.EndFrame(); open > 0 && !m.UIWarned) {   // a begin_* without its end_*
             m.UIWarned = true;

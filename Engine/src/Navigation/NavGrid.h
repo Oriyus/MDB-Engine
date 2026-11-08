@@ -93,6 +93,16 @@ namespace Engine {
 
         float LastBakeMs() const { return m_BakeMs; }
 
+        // ---- the column layout (fog of war and debug views work per column)
+        int GridWidth() const { return m_W; }
+        int GridDepth() const { return m_D; }
+        glm::vec2 GridOrigin() const { return m_Origin; }
+        void ColumnCells(int ix, int iz, int& first, int& end) const {   // cells [first, end) of a column, bottom to top
+            const int c = iz * m_W + ix;
+            first = m_ColumnStart[c]; end = m_ColumnStart[c + 1];
+        }
+        uint32_t BakeCount() const { return m_BakeCount; }   // changes with every bake (caches built on the grid)
+
     private:
         struct Cell {
             glm::vec3 Pos{ 0.0f };
@@ -108,6 +118,7 @@ namespace Engine {
         NavSettings m_Settings;
         bool m_Baked = false;
         float m_BakeMs = 0.0f;
+        uint32_t m_BakeCount = 0;
         glm::vec2 m_Origin{ 0.0f };          // X/Z corner of column (0, 0)
         int m_W = 0, m_D = 0;                // columns along X and Z
         std::vector<int> m_ColumnStart;      // m_W * m_D + 1 prefix sums into m_Cells (each column bottom to top)
