@@ -28,6 +28,7 @@
 #include "Runtime/ResourceLibrary.h"
 #include "Runtime/GameSession.h"
 #include "Runtime/GameUI.h"
+#include "Navigation/NavGrid.h"
 #include "DemoLevels.h"
 #include "EditorHistory.h"
 #include "AssetBrowser.h"
@@ -194,6 +195,7 @@ public:
         if (auto sc = EnvVar("MDB_SCENE"); !sc.empty()) LoadScene(sc);
         if (auto demo = EnvVar("MDB_DEMO"); demo == "1" || demo == "script") BuildLevel(BuildScriptDemo);
         else if (demo == "coinrush") BuildLevel(BuildCoinRush);
+        else if (demo == "tactics") BuildLevel(BuildTacticsTest);
         if (auto ts = EnvVar("MDB_TEST_SCRIPT"); !ts.empty())
             m_Scene.CreateEntity("Test").Add<ScriptComponent>().Path = ts;
         if (auto sv = EnvVar("MDB_SAVE_SCENE"); !sv.empty()) SaveScene(sv);
@@ -353,6 +355,7 @@ public:
                 const float px = (mp.x - m_ViewportOrigin.x) / std::max(m_ViewportSize.x, 1.0f);
                 const float py = (mp.y - m_ViewportOrigin.y) / std::max(m_ViewportSize.y, 1.0f);
                 m_Session->Scripts().SetPointer(px, py, m_ViewportHovered && m_ViewingGame, ImGui::IsMouseDown(ImGuiMouseButton_Left));
+                m_Session->Scripts().SetViewAspect(aspect);   // for scene.screen_ray
             }
             m_Session->Update(dt, m_StepFrame);
             if (m_Session->ConsumeRestartRequest()) m_PlayCmd = PlayCmd::Restart;   // next frame
@@ -688,7 +691,7 @@ public:
         m_Spawned.clear();
         build(m_Scene, MakeLevelAssets(), m_Session->Prefabs());
         m_History.Track(m_Scene, m_Selected, m_Resources->Registry(),
-            build == BuildCoinRush ? "Build Coin Rush" : "Build script demo");   // undoable like any edit
+            build == BuildCoinRush ? "Build Coin Rush" : build == BuildTacticsTest ? "Build tactics test" : "Build script demo");   // undoable like any edit
     }
 
     // ------------------------------------------------------------ game camera
@@ -725,6 +728,45 @@ public:
             line(k[3] + u * 0.1f, p + f * d + u * (h + 0.3f), col);      // a little "up" roof
             line(k[2] + u * 0.1f, p + f * d + u * (h + 0.3f), col);
             line(k[3] + u * 0.1f, k[2] + u * 0.1f, col);
+        }
+    }
+
+    // The baked navigation grid (Play only: it is baked from physics bodies): a square per walkable
+    // cell (green on the lowest layer of its column, blue above it, e.g. on a bridge; red = blocked)
+    // and a faint line for each orthogonal link, so walls between cells show as gaps.
+    void DrawNavGrid(const ImVec2& origin, const ImVec2& size) {
+        using namespace Engine;
+        const NavGrid& nav = m_Session->Navigation();
+        if (!nav.IsBaked()) return;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const glm::mat4 vp = ViewCamera().GetViewProjection();
+        auto project = [&](const glm::vec3& w, ImVec2& out) {
+            glm::vec4 c = vp * glm::vec4(w, 1.0f);
+            if (c.w <= 0.01f) return false;
+            out = ImVec2(origin.x + (c.x / c.w * 0.5f + 0.5f) * size.x,
+                origin.y + (1.0f - (c.y / c.w * 0.5f + 0.5f)) * size.y);
+            return true;
+        };
+        const float h = nav.Settings().CellSize * 0.42f;
+        const glm::vec3 lift(0.0f, 0.03f, 0.0f);
+        const bool links = nav.CellCount() <= 20000;
+        for (int i = 0; i < nav.CellCount(); i++) {
+            const glm::vec3 p = nav.CellPosition(i) + lift;
+            ImVec2 q[4];
+            const glm::vec3 k[4] = { p + glm::vec3(-h, 0, -h), p + glm::vec3(h, 0, -h), p + glm::vec3(h, 0, h), p + glm::vec3(-h, 0, h) };
+            bool ok = true;
+            for (int c = 0; c < 4 && ok; c++) ok = project(k[c], q[c]);
+            if (!ok) continue;
+            const ImU32 col = nav.IsBlocked(i) ? IM_COL32(255, 70, 60, 90)
+                : nav.CellLayer(i) > 0 ? IM_COL32(80, 160, 255, 70) : IM_COL32(80, 230, 120, 55);
+            dl->AddQuadFilled(q[0], q[1], q[2], q[3], col);
+            if (!links) continue;
+            for (int d : { 0, 2 }) {                  // +X and +Z: every link drawn once
+                const int n = nav.Neighbor(i, d);
+                ImVec2 a, b;
+                if (n >= 0 && project(p, a) && project(nav.CellPosition(n) + lift, b))
+                    dl->AddLine(a, b, IM_COL32(220, 255, 230, 60), 1.0f);
+            }
         }
     }
 
@@ -946,6 +988,7 @@ private:
                 ImGui::TextDisabled("Replaces the current scene");
                 if (ImGui::MenuItem("Script Demo")) BuildLevel(BuildScriptDemo);
                 if (ImGui::MenuItem("Coin Rush")) BuildLevel(BuildCoinRush);
+                if (ImGui::MenuItem("Tactics Test (navigation)")) BuildLevel(BuildTacticsTest);
                 ImGui::EndMenu();
             }
             ImGui::EndDisabled();
@@ -1894,6 +1937,7 @@ private:
                 ImGui::MenuItem("Stats", nullptr, &m_ShowStatsOverlay);
                 ImGui::MenuItem("Colliders", nullptr, &m_ShowColliders);
                 ImGui::MenuItem("Camera Frustums", nullptr, &m_ShowFrustums);
+                ImGui::MenuItem("Navigation Grid", nullptr, &m_ShowNavGrid);
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Debug")) {
@@ -1960,6 +2004,7 @@ private:
 
         if (m_ShowColliders && !m_ViewingGame) DrawColliders(origin, size);
         if (!m_ViewingGame && m_ShowFrustums) DrawCameraFrustums(origin, size);
+        if (!m_ViewingGame && m_ShowNavGrid && m_PlayState != PlayState::Edit) DrawNavGrid(origin, size);
         if (m_PlayState != PlayState::Edit)   // kept while paused: the scripts did not run again
             DrawScriptUI(ImGui::GetWindowDrawList(), m_GameFont, m_Session->Scripts().UIItems(), origin, size, &m_UITextures);
         if (m_ShowStatsOverlay && !m_ViewingGame) DrawStatsOverlay(origin, size);
@@ -2736,6 +2781,7 @@ private:
     float m_QuitAfter = 0.0f;        // MDB_QUIT_AFTER test hook (0 = never)
     float m_Gravity = 9.81f;
     bool  m_ShowColliders = true;
+    bool  m_ShowNavGrid = true;      // the navigation grid, once a script baked it (Play)
 
     // Editor shell (menu bar, toolbar, panels)
     bool  m_ShowHierarchy = true, m_ShowInspector = true, m_ShowSceneSettings = true, m_ShowConsole = true;

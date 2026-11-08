@@ -8,6 +8,7 @@
 #include "Renderer/Model.h"
 #include "Core/Log.h"
 
+#include <glm/gtc/matrix_transform.hpp>
 #include <cmath>
 #include <functional>
 #include <string>
@@ -334,4 +335,103 @@ void BuildCoinRush(Scene& scene, const LevelAssets& a, PrefabLibrary& prefabs) {
     }
     MarkStatic(scene);
     LOG_INFO("Coin Rush built. Press Play (Ctrl+P).");
+}
+
+void BuildTacticsTest(Scene& scene, const LevelAssets& a, PrefabLibrary&) {
+    scene.Clear();
+
+    // ---- 24 x 24 arena at y = -1, walled in. Everything is aligned to whole metres, so with
+    // 1 m cells every cell centre sits in the middle of a tile (x.5, z.5).
+    AddFloor(scene, a, 2.0f);
+    AddSun(scene, 1.25f);
+    const glm::vec3 wall(0.35f, 0.4f, 0.55f), stone(0.85f, 0.72f, 0.52f), wood(0.55f, 0.36f, 0.2f);
+    AddBox(scene, a, "Wall N", glm::vec3(0.0f, -0.4f, -12.25f), glm::vec3(25.0f, 1.2f, 0.5f), wall);
+    AddBox(scene, a, "Wall S", glm::vec3(0.0f, -0.4f, 12.25f), glm::vec3(25.0f, 1.2f, 0.5f), wall);
+    AddBox(scene, a, "Wall W", glm::vec3(-12.25f, -0.4f, 0.0f), glm::vec3(0.5f, 1.2f, 24.0f), wall);
+    AddBox(scene, a, "Wall E", glm::vec3(12.25f, -0.4f, 0.0f), glm::vec3(0.5f, 1.2f, 24.0f), wall);
+
+    // ---- two high terraces (top y = 1.5) along the north wall, joined by a bridge. The ground under
+    // the bridge stays walkable (2.2 m of head room): those columns have two layers.
+    AddBox(scene, a, "Terrace W", glm::vec3(-8.0f, 0.25f, -9.0f), glm::vec3(8.0f, 2.5f, 6.0f), stone);
+    AddBox(scene, a, "Terrace E", glm::vec3(8.0f, 0.25f, -9.0f), glm::vec3(8.0f, 2.5f, 6.0f), stone);
+    AddBox(scene, a, "Bridge", glm::vec3(0.0f, 1.35f, -9.0f), glm::vec3(8.0f, 0.3f, 2.0f), wood);
+    AddBox(scene, a, "Rail N", glm::vec3(0.0f, 1.9f, -10.05f), glm::vec3(8.0f, 0.8f, 0.1f), wood);
+    AddBox(scene, a, "Rail S", glm::vec3(0.0f, 1.9f, -7.95f), glm::vec3(8.0f, 0.8f, 0.1f), wood);
+
+    // ---- a ramp up to the west terrace: 2.5 m over 8 m (about 0.31 m per cell, under the 0.4 m step)
+    {
+        const float run = 8.0f, rise = 2.5f, thick = 0.3f;
+        const float angle = std::atan(rise / run);
+        const float length = std::sqrt(run * run + rise * rise) + 0.1f;
+        const float yMid = -1.0f + rise * 0.5f - 0.5f * thick / std::cos(angle);
+        AddBox(scene, a, "Ramp", glm::vec3(-8.0f, yMid, -2.0f), glm::vec3(4.0f, thick, length), stone,
+            BodyType::Static, glm::vec3(angle, 0.0f, 0.0f));
+    }
+
+    // ---- a dais in the east, reached only by two 0.3 m steps on its west side
+    AddBox(scene, a, "Step 1", glm::vec3(3.5f, -0.85f, 3.5f), glm::vec3(1.0f, 0.3f, 5.0f), stone);
+    AddBox(scene, a, "Step 2", glm::vec3(4.5f, -0.7f, 3.5f), glm::vec3(1.0f, 0.6f, 5.0f), stone);
+    AddBox(scene, a, "Dais", glm::vec3(7.5f, -0.55f, 3.5f), glm::vec3(5.0f, 0.9f, 5.0f), stone);
+
+    // ---- a thin fence on a cell boundary (x = 0): the cells on both sides are walkable, the link
+    // between them is not. And a few crates, one cell each.
+    AddBox(scene, a, "Fence", glm::vec3(0.0f, -0.4f, 4.0f), glm::vec3(0.1f, 1.2f, 8.0f), wood);
+    for (const glm::vec3& p : { glm::vec3(2.5f, -0.5f, 8.5f), glm::vec3(-6.5f, -0.5f, 6.5f),
+             glm::vec3(6.5f, -0.5f, -2.5f), glm::vec3(-2.5f, -0.5f, -2.5f), glm::vec3(-3.5f, -0.5f, -2.5f) })
+        AddBox(scene, a, "Crate", p, glm::vec3(1.0f), wood * 1.3f);
+
+    {
+        Entity e = scene.CreateEntity("Bridge Light");
+        e.Get<TransformComponent>().Position = glm::vec3(0.0f, 4.0f, -6.0f);
+        auto& l = e.Add<PointLightComponent>();
+        l.Color = glm::vec3(1.0f, 0.8f, 0.55f);
+        l.Intensity = 2.0f;
+    }
+
+    // ---- the units. They have no rigid body: tactics.lua moves them along nav paths.
+    {
+        Entity e = scene.CreateEntity("Hero");
+        e.Get<TransformComponent>().Position = glm::vec3(-2.5f, -1.0f, 9.5f);
+        e.Get<TransformComponent>().Rotation = glm::vec3(0.0f, 3.14159265f, 0.0f);
+        auto& mr = e.Add<MeshRendererComponent>();
+        if (a.Fox && a.Fox->IsSkinned()) {
+            mr.Geometry = a.Fox;
+            mr.LocalOffset = a.Fox->GetGroundedMatrix(1.4f);
+            mr.UseModelMaterials = a.Fox->HasTexturedMaterials();
+            mr.Color = glm::vec3(1.0f);
+            auto& an = e.Add<AnimatorComponent>();
+            an.Clip = "Survey";
+            for (float t : { 0.10f, 0.45f }) an.Events.push_back({ "Walk", t, "sound:Sounds/step.wav" });
+            for (float t : { 0.20f, 0.75f }) an.Events.push_back({ "Run", t, "sound:Sounds/step.wav" });
+        }
+        else {                                       // no fox model: a blue block
+            mr.Geometry = a.Cube;
+            mr.Color = glm::vec3(0.3f, 0.55f, 1.0f);
+            mr.LocalOffset = glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.7f, 0.0f)), glm::vec3(0.6f, 1.4f, 0.6f));
+        }
+    }
+    for (const glm::vec3& p : { glm::vec3(7.5f, -0.1f, 2.5f), glm::vec3(8.5f, -0.1f, 4.5f), glm::vec3(9.5f, 1.5f, -9.5f) }) {
+        Entity e = scene.CreateEntity("Enemy");
+        e.Get<TransformComponent>().Position = p;
+        auto& mr = e.Add<MeshRendererComponent>();       // a red block standing on the entity's origin
+        mr.Geometry = a.Cube;
+        mr.Color = glm::vec3(0.85f, 0.18f, 0.12f);
+        mr.Roughness = 0.5f;
+        mr.LocalOffset = glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.8f, 0.0f)), glm::vec3(0.7f, 1.6f, 0.7f));
+    }
+
+    {
+        Entity e = scene.CreateEntity("Main Camera");
+        auto& t = e.Get<TransformComponent>();
+        t.Position = glm::vec3(-2.5f, 8.0f, 17.0f);
+        t.Rotation = glm::vec3(-0.85f, 0.0f, 0.0f);
+        e.Add<CameraComponent>().FOV = 50.0f;
+        e.Add<ScriptComponent>().Path = "Scripts/tactics_camera.lua";
+    }
+    {
+        Entity e = scene.CreateEntity("Tactics");
+        e.Add<ScriptComponent>().Path = "Scripts/tactics.lua";
+    }
+    MarkStatic(scene);
+    LOG_INFO("Tactics test built. Press Play (Ctrl+P), then click the ground to move; C starts combat.");
 }

@@ -32,3 +32,9 @@ void BuildScriptDemo(Engine::Scene& scene, const LevelAssets& assets, Engine::Pr
 // Scripts: game.lua (rules + UI), follow.lua (camera), player.lua, coin.lua, goal.lua,
 // hazard.lua, bouncer.lua
 void BuildCoinRush(Engine::Scene& scene, const LevelAssets& assets, Engine::PrefabLibrary& prefabs);
+
+// Navigation test for a turn-based game: free movement while exploring, grid movement in combat, on
+// one layered nav grid. Terraces joined by a bridge (walkable above and below), a ramp, steps up to a
+// dais, a thin fence on a cell boundary and crates. The fox hero and three enemy blocks have no body:
+// tactics.lua moves them. Scripts: tactics.lua (modes, turns, overlay tiles), tactics_camera.lua
+void BuildTacticsTest(Engine::Scene& scene, const LevelAssets& assets, Engine::PrefabLibrary& prefabs);

@@ -15,6 +15,7 @@
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyLock.h>
 
@@ -134,11 +135,14 @@ namespace Engine {
 
         class RayFilter final : public JPH::BodyFilter {
         public:
-            explicit RayFilter(JPH::BodyID ignore) : m_Ignore(ignore) {}
+            explicit RayFilter(JPH::BodyID ignore, bool staticOnly = false) : m_Ignore(ignore), m_StaticOnly(staticOnly) {}
             bool ShouldCollide(const JPH::BodyID& id) const override { return id != m_Ignore; }
-            bool ShouldCollideLocked(const JPH::Body& body) const override { return !body.IsSensor(); }
+            bool ShouldCollideLocked(const JPH::Body& body) const override {
+                return !body.IsSensor() && (!m_StaticOnly || body.IsStatic());
+            }
         private:
             JPH::BodyID m_Ignore;
+            bool m_StaticOnly = false;
         };
 
         inline uint64_t PairKey(JPH::BodyID a, JPH::BodyID b) {
@@ -667,7 +671,7 @@ namespace Engine {
     }
 
     bool PhysicsWorld::Raycast(const glm::vec3& origin, const glm::vec3& direction, float maxDistance,
-        RayHit& hit, entt::entity ignore) const {
+        RayHit& hit, entt::entity ignore, bool staticOnly) const {
         const float len = glm::length(direction);
         if (len < 1e-6f || maxDistance <= 0.0f) return false;
         const glm::vec3 dir = direction / len * maxDistance;
@@ -677,7 +681,7 @@ namespace Engine {
 
         JPH::RRayCast ray{ JPH::RVec3(origin.x, origin.y, origin.z), ToJolt(dir) };
         JPH::RayCastResult result;
-        RayFilter filter(ignoreId);
+        RayFilter filter(ignoreId, staticOnly);
         if (!m_Impl->System.GetNarrowPhaseQuery().CastRay(ray, result, {}, {}, filter)) return false;
 
         auto ent = m_Impl->BodyToEntity.find(result.mBodyID.GetIndexAndSequenceNumber());
@@ -692,6 +696,51 @@ namespace Engine {
         if (lock.Succeeded())
             hit.Normal = ToGlm(lock.GetBody().GetWorldSpaceSurfaceNormal(result.mSubShapeID2, p));
         return true;
+    }
+
+    void PhysicsWorld::RaycastAll(const glm::vec3& origin, const glm::vec3& direction, float maxDistance,
+        std::vector<RayHit>& hits, bool staticOnly) const {
+        hits.clear();
+        const float len = glm::length(direction);
+        if (len < 1e-6f || maxDistance <= 0.0f) return;
+        const glm::vec3 dir = direction / len * maxDistance;
+
+        JPH::RRayCast ray{ JPH::RVec3(origin.x, origin.y, origin.z), ToJolt(dir) };
+        JPH::RayCastSettings settings;                 // back faces ignored, convex shapes solid
+        JPH::AllHitCollisionCollector<JPH::CastRayCollector> collector;
+        RayFilter filter(JPH::BodyID(), staticOnly);
+        m_Impl->System.GetNarrowPhaseQuery().CastRay(ray, settings, collector, {}, {}, filter);
+        collector.Sort();
+
+        for (const JPH::RayCastResult& r : collector.mHits) {
+            auto ent = m_Impl->BodyToEntity.find(r.mBodyID.GetIndexAndSequenceNumber());
+            if (ent == m_Impl->BodyToEntity.end()) continue;
+            const JPH::RVec3 p = ray.GetPointOnRay(r.mFraction);
+            RayHit h;
+            h.Entity = ent->second;
+            h.Point = ToGlm(JPH::Vec3(p));
+            h.Distance = r.mFraction * maxDistance;
+            h.Normal = -dir / maxDistance;
+            JPH::BodyLockRead lock(m_Impl->System.GetBodyLockInterface(), r.mBodyID);
+            if (lock.Succeeded())
+                h.Normal = ToGlm(lock.GetBody().GetWorldSpaceSurfaceNormal(r.mSubShapeID2, p));
+            hits.push_back(h);
+        }
+    }
+
+    bool PhysicsWorld::StaticBounds(glm::vec3& mn, glm::vec3& mx) const {
+        bool any = false;
+        for (const auto& [e, b] : m_Impl->Bindings) {
+            if (b.Type != BodyType::Static || b.Trigger) continue;
+            JPH::BodyLockRead lock(m_Impl->System.GetBodyLockInterface(), b.Id);
+            if (!lock.Succeeded()) continue;
+            const JPH::AABox box = lock.GetBody().GetWorldSpaceBounds();
+            const glm::vec3 lo = ToGlm(box.mMin), hi = ToGlm(box.mMax);
+            mn = any ? glm::min(mn, lo) : lo;
+            mx = any ? glm::max(mx, hi) : hi;
+            any = true;
+        }
+        return any;
     }
 
 } // namespace Engine

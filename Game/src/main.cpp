@@ -161,6 +161,7 @@ public:
             const float px = io.MousePos.x / std::max(d.x, 1.0f), py = io.MousePos.y / std::max(d.y, 1.0f);
             const bool inside = px >= 0.0f && px <= 1.0f && py >= 0.0f && py <= 1.0f;
             m_Session->Scripts().SetPointer(px, py, inside, ImGui::IsMouseDown(ImGuiMouseButton_Left));
+            m_Session->Scripts().SetViewAspect(d.x / std::max(d.y, 1.0f));   // for scene.screen_ray
 
             m_Session->Update(dt);
             if (m_Session->ConsumeRestartRequest()) m_RestartPending = true;   // scene.restart(): next frame

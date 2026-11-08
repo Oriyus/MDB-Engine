@@ -1,0 +1,2051 @@
+{
+  "entities": [
+    {
+      "id": 920751739903660566,
+      "name": "Tactics",
+      "script": {
+        "path": "Scripts/tactics.lua"
+      },
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "camera": {
+        "far": 500.0,
+        "fov": 50.0,
+        "near": 0.10000000149011612,
+        "primary": true
+      },
+      "id": 1897549568705491603,
+      "name": "Main Camera",
+      "script": {
+        "path": "Scripts/tactics_camera.lua"
+      },
+      "transform": {
+        "position": [
+          -2.5,
+          8.0,
+          17.0
+        ],
+        "rotation": [
+          -0.8500000238418579,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 1960589115282207198,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.8500000238418579,
+          0.18000000715255737,
+          0.11999999731779099
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          0.699999988079071,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.600000023841858,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.699999988079071,
+          0.0,
+          0.0,
+          0.800000011920929,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.5,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Enemy",
+      "transform": {
+        "position": [
+          9.5,
+          1.5,
+          -9.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 17592806186963535674,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.8500000238418579,
+          0.18000000715255737,
+          0.11999999731779099
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          0.699999988079071,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.600000023841858,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.699999988079071,
+          0.0,
+          0.0,
+          0.800000011920929,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.5,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Enemy",
+      "transform": {
+        "position": [
+          8.5,
+          -0.10000000149011612,
+          4.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 3043590523137373549,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.8500000238418579,
+          0.18000000715255737,
+          0.11999999731779099
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          0.699999988079071,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.600000023841858,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.699999988079071,
+          0.0,
+          0.0,
+          0.800000011920929,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.5,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Enemy",
+      "transform": {
+        "position": [
+          7.5,
+          -0.10000000149011612,
+          2.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "animator": {
+        "blendTime": 0.25,
+        "clip": "Survey",
+        "events": [
+          {
+            "clip": "Walk",
+            "name": "sound:Sounds/step.wav",
+            "time": 0.10000000149011612
+          },
+          {
+            "clip": "Walk",
+            "name": "sound:Sounds/step.wav",
+            "time": 0.44999998807907104
+          },
+          {
+            "clip": "Run",
+            "name": "sound:Sounds/step.wav",
+            "time": 0.20000000298023224
+          },
+          {
+            "clip": "Run",
+            "name": "sound:Sounds/step.wav",
+            "time": 0.75
+          }
+        ],
+        "loop": true,
+        "playing": true,
+        "speed": 1.0
+      },
+      "id": 5118615087803939484,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Fox.glb",
+        "localOffset": [
+          0.009048612788319588,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.009048612788319588,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.009048612788319588,
+          0.0,
+          3.451771846130214e-08,
+          0.0011015930213034153,
+          0.09713748842477798,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.5,
+        "static": false,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Hero",
+      "transform": {
+        "position": [
+          -2.5,
+          -1.0,
+          9.5
+        ],
+        "rotation": [
+          0.0,
+          3.1415927410125732,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 15690819560513603714,
+      "name": "Bridge Light",
+      "pointLight": {
+        "castShadows": true,
+        "color": [
+          1.0,
+          0.800000011920929,
+          0.550000011920929
+        ],
+        "intensity": 2.0
+      },
+      "transform": {
+        "position": [
+          0.0,
+          4.0,
+          -6.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 3040154354653756664,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.7149999737739563,
+          0.46799999475479126,
+          0.25999999046325684
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Crate",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -3.5,
+          -0.5,
+          -2.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 176935352626286338,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.7149999737739563,
+          0.46799999475479126,
+          0.25999999046325684
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Crate",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -2.5,
+          -0.5,
+          -2.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 3888488201454381549,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.7149999737739563,
+          0.46799999475479126,
+          0.25999999046325684
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Crate",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          6.5,
+          -0.5,
+          -2.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 6980539793550723854,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.7149999737739563,
+          0.46799999475479126,
+          0.25999999046325684
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Crate",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -6.5,
+          -0.5,
+          6.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 18041413263072822820,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.7149999737739563,
+          0.46799999475479126,
+          0.25999999046325684
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Crate",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          2.5,
+          -0.5,
+          8.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 15996965303147500969,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.550000011920929,
+          0.36000001430511475,
+          0.20000000298023224
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Fence",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          0.0,
+          -0.4000000059604645,
+          4.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          0.10000000149011612,
+          1.2000000476837158,
+          8.0
+        ]
+      }
+    },
+    {
+      "id": 2461973986995279435,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.8500000238418579,
+          0.7200000286102295,
+          0.5199999809265137
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Dais",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          7.5,
+          -0.550000011920929,
+          3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          5.0,
+          0.8999999761581421,
+          5.0
+        ]
+      }
+    },
+    {
+      "id": 8378618781894288422,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.8500000238418579,
+          0.7200000286102295,
+          0.5199999809265137
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Step 2",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          4.5,
+          -0.699999988079071,
+          3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          0.6000000238418579,
+          5.0
+        ]
+      }
+    },
+    {
+      "id": 15453669321619093664,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.8500000238418579,
+          0.7200000286102295,
+          0.5199999809265137
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Step 1",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          3.5,
+          -0.8500000238418579,
+          3.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          0.30000001192092896,
+          5.0
+        ]
+      }
+    },
+    {
+      "id": 16145725065630409053,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.8500000238418579,
+          0.7200000286102295,
+          0.5199999809265137
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Ramp",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -8.0,
+          0.09284636378288269,
+          -2.0
+        ],
+        "rotation": [
+          0.30288487672805786,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          4.0,
+          0.30000001192092896,
+          8.481527328491211
+        ]
+      }
+    },
+    {
+      "id": 13197779664272815870,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.550000011920929,
+          0.36000001430511475,
+          0.20000000298023224
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Rail S",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          0.0,
+          1.899999976158142,
+          -7.949999809265137
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          8.0,
+          0.800000011920929,
+          0.10000000149011612
+        ]
+      }
+    },
+    {
+      "id": 11323078264946235609,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.550000011920929,
+          0.36000001430511475,
+          0.20000000298023224
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Rail N",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          0.0,
+          1.899999976158142,
+          -10.050000190734863
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          8.0,
+          0.800000011920929,
+          0.10000000149011612
+        ]
+      }
+    },
+    {
+      "id": 9022484186818324445,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.550000011920929,
+          0.36000001430511475,
+          0.20000000298023224
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Bridge",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          0.0,
+          1.350000023841858,
+          -9.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          8.0,
+          0.30000001192092896,
+          2.0
+        ]
+      }
+    },
+    {
+      "id": 3859873729357491851,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.8500000238418579,
+          0.7200000286102295,
+          0.5199999809265137
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Terrace E",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          8.0,
+          0.25,
+          -9.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          8.0,
+          2.5,
+          6.0
+        ]
+      }
+    },
+    {
+      "id": 9743955796908922011,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.8500000238418579,
+          0.7200000286102295,
+          0.5199999809265137
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Terrace W",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -8.0,
+          0.25,
+          -9.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          8.0,
+          2.5,
+          6.0
+        ]
+      }
+    },
+    {
+      "id": 15288950740343799883,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.3499999940395355,
+          0.4000000059604645,
+          0.550000011920929
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Wall E",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          12.25,
+          -0.4000000059604645,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          0.5,
+          1.2000000476837158,
+          24.0
+        ]
+      }
+    },
+    {
+      "id": 18422683885924085471,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.3499999940395355,
+          0.4000000059604645,
+          0.550000011920929
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Wall W",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -12.25,
+          -0.4000000059604645,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          0.5,
+          1.2000000476837158,
+          24.0
+        ]
+      }
+    },
+    {
+      "id": 8566939916585094395,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.3499999940395355,
+          0.4000000059604645,
+          0.550000011920929
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Wall S",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          0.0,
+          -0.4000000059604645,
+          12.25
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          25.0,
+          1.2000000476837158,
+          0.5
+        ]
+      }
+    },
+    {
+      "id": 14383652752660586536,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.3499999940395355,
+          0.4000000059604645,
+          0.550000011920929
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Wall N",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          0.0,
+          -0.4000000059604645,
+          -12.25
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          25.0,
+          1.2000000476837158,
+          0.5
+        ]
+      }
+    },
+    {
+      "directionalLight": {
+        "castShadows": true,
+        "color": [
+          1.0,
+          0.949999988079071,
+          0.8999999761581421
+        ],
+        "intensity": 1.25
+      },
+      "id": 283213955116502063,
+      "name": "Sun",
+      "transform": {
+        "position": [
+          0.0,
+          6.0,
+          0.0
+        ],
+        "rotation": [
+          -0.8999999761581421,
+          0.5,
+          0.0
+        ],
+        "scale": [
+          0.11999999731779099,
+          0.11999999731779099,
+          0.6000000238418579
+        ]
+      }
+    },
+    {
+      "id": 14454577641628625361,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.800000011920929,
+          0.800000011920929,
+          0.800000011920929
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "plane",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8500000238418579,
+        "static": true,
+        "texture": "checker",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Floor",
+      "rigidBody": {
+        "center": [
+          0.0,
+          -0.5,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          12.0,
+          1.0,
+          12.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          2.0,
+          1.0,
+          2.0
+        ]
+      }
+    }
+  ],
+  "settings": {
+    "ao": {
+      "bias": 0.02500000037252903,
+      "enabled": true,
+      "radius": 0.5,
+      "samples": 16,
+      "strength": 1.0
+    },
+    "bloom": {
+      "enabled": true,
+      "intensity": 0.11999999731779099,
+      "knee": 0.5,
+      "maxBrightness": 8.0,
+      "radius": 1.0,
+      "threshold": 1.0
+    },
+    "camera": {
+      "focusDistance": 6.0,
+      "pitch": 0.0,
+      "position": [
+        0.0,
+        1.0,
+        6.0
+      ],
+      "yaw": -90.0
+    },
+    "environment": {
+      "blur": 0.0,
+      "intensity": 0.6000000238418579,
+      "map": "",
+      "rotation": 0.0,
+      "showSky": true
+    },
+    "physics": {
+      "gravity": 9.8100004196167
+    },
+    "post": {
+      "exposure": 1.0,
+      "fxaa": true,
+      "gamma": true,
+      "toneMap": 2
+    },
+    "shadows": {
+      "cascadeCount": 4,
+      "cascadeSplit": 0.75,
+      "enabled": true,
+      "pointBias": 0.05000000074505806,
+      "pointFar": 30.0,
+      "shadowDistance": 60.0,
+      "sunBias": 0.0020000000949949026,
+      "sunCascades": true,
+      "sunDistance": 30.0,
+      "sunExtent": 12.0
+    }
+  },
+  "version": 3
+}

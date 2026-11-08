@@ -65,8 +65,15 @@ namespace Engine {
 
         // Closest hit along the ray (direction need not be normalized). Triggers are ignored,
         // and so is `ignore` (pass the caster to not hit yourself).
+        // staticOnly: only static bodies (the level itself, as the navigation bake sees it).
         bool Raycast(const glm::vec3& origin, const glm::vec3& direction, float maxDistance,
-            RayHit& hit, entt::entity ignore = entt::null) const;
+            RayHit& hit, entt::entity ignore = entt::null, bool staticOnly = false) const;
+        // Every surface the ray enters, nearest first (one hit per convex body, one per front-facing
+        // triangle of a mesh). Triggers are ignored.
+        void RaycastAll(const glm::vec3& origin, const glm::vec3& direction, float maxDistance,
+            std::vector<RayHit>& hits, bool staticOnly = false) const;
+        // The world bounds of every static, non-trigger body. False if there are none.
+        bool StaticBounds(glm::vec3& min, glm::vec3& max) const;
 
     private:
         struct Impl;                          // keeps Jolt's heavy headers out of everything else

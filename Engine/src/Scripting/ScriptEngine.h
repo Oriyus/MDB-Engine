@@ -11,6 +11,7 @@ namespace Engine {
     class PhysicsWorld;
     class AudioEngine;
     class PrefabLibrary;
+    class NavGrid;
     struct ResourceRegistry;
 
     // One ui.* call: drawn by the app over the game view for the frame it was made in, in call
@@ -115,6 +116,25 @@ namespace Engine {
     //   ui.button(label, x, y, w, h [, { color, text_color, size, alpha, rounding }]) -> true on the frame it's clicked
     //   ui.mouse() -> x, y, inside                                         pointer over the view, 0..1
     //   scene.raycast(origin, dir, max_dist [, ignore_entity]) -> nil or { entity, point, normal, distance }
+    //   scene.screen_ray(x, y) -> origin, dir          through the game camera, x, y 0..1 of the view (ui.mouse())
+    //   scene.pick(x, y [, max_dist = 500]) -> nil or a raycast result along screen_ray (what is under the mouse)
+    //   ---- nav: a layered walkability grid (Navigation/NavGrid.h), baked from the STATIC bodies on first use.
+    //   Cells are integer ids. Costs count steps: 1 per orthogonal step, `diagonal` per diagonal one.
+    //   nav.bake([{ cell_size=1, agent_radius=0.3, agent_height=1.8, max_step=0.4, max_slope=40, min=vec3, max=vec3 }])
+    //                                        -> cell count (bake again after the level changed; bodies added by
+    //                                           scripts count from the next frame). min/max: bounds (default: all static bodies)
+    //   nav.baked(), nav.cell_size()
+    //   nav.find_path(from, to [, { grid=false, diagonal=1.414, closest=true, max_cost }]) -> nil or
+    //       { points = { vec3... }, cells = { id... }, cost, complete, costs = { ... } (grid: cost up to each point) }
+    //       Free paths go from `from` to exactly `to`, straightened (any angle). grid = true keeps cell centres.
+    //       closest: an unreachable (or blocked) goal gives the path to the nearest reachable cell (complete = false).
+    //       max_cost cuts the path where it would cost more.
+    //   nav.reachable(from (vec3 or cell), budget [, { diagonal }]) -> { { cell, position, cost, previous }... }
+    //       every cell within budget, the start first; previous (cell or nil) leads back to the start
+    //   nav.cell_at(pos) -> cell or nil       the cell standing under pos (picks the right floor of a column)
+    //   nav.nearest(pos [, max_dist=2 [, free=true]]) -> cell or nil   free: skip blocked cells
+    //   nav.cell_position(cell) -> vec3, nav.height(pos) -> y or nil, nav.line_clear(a, b) -> bool
+    //   nav.set_blocked(cell, bool), nav.is_blocked(cell), nav.clear_blocked()   units, closed doors (paths avoid them)
     //   input.key_down(k), input.key_pressed(k), input.key_released(k)    Key.A..Key.Z, Key.Num0..9, Key.F1..12,
     //   input.mouse_down(b), input.mouse_pressed(b), input.mouse_position()  Key.Space, Key.Left ... Mouse.Left ...
     //   shared                                  a table all scripts see (score, game state...)
@@ -129,6 +149,8 @@ namespace Engine {
         // Name <-> resource mapping used by add_mesh and mesh.geometry
         void SetResources(const ResourceRegistry& resources);
         void SetPrefabs(PrefabLibrary* prefabs);   // for scene.spawn_prefab
+        void SetNavigation(NavGrid* nav);          // for nav.*
+        void SetViewAspect(float aspect);          // width / height of the game view, for scene.screen_ray
 
         void Start(Scene& scene);              // call when Play starts (after PhysicsWorld::Sync)
         void Update(Scene& scene, float dt);   // call once per simulated frame, before the physics step

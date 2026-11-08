@@ -7,17 +7,20 @@
 #include "Audio/AudioEngine.h"
 #include "Scripting/ScriptEngine.h"
 #include "Renderer/Camera.h"
+#include "Navigation/NavGrid.h"
 
 namespace Engine {
 
     GameSession::GameSession(Scene& scene, const std::string& assetDir, const ResourceRegistry& resources)
         : m_Scene(scene) {
         m_Physics = std::make_unique<PhysicsWorld>();
+        m_Nav = std::make_unique<NavGrid>();
         m_Audio = std::make_unique<AudioEngine>(assetDir);
         m_Prefabs = std::make_unique<PrefabLibrary>(assetDir, resources);
         m_Scripts = std::make_unique<ScriptEngine>(assetDir, m_Physics.get(), m_Audio.get());
         m_Scripts->SetResources(resources);
         m_Scripts->SetPrefabs(m_Prefabs.get());
+        m_Scripts->SetNavigation(m_Nav.get());
     }
 
     GameSession::~GameSession() {
@@ -27,6 +30,7 @@ namespace Engine {
     void GameSession::Start() {
         if (m_Running) Stop();
         m_Physics->Reset();
+        m_Nav->Clear();                  // the level may have changed: baked again on first use
         m_Scene.ResetParticles();        // emitters start over (the editor preview already ran them)
         m_Physics->Sync(m_Scene);
         m_Scripts->Start(m_Scene);
@@ -38,6 +42,7 @@ namespace Engine {
         m_Scripts->Stop(m_Scene);        // first: on_destroy still sees the scene and its bodies
         m_Audio->StopAll();
         m_Scene.ClearStaticBatches();
+        m_Nav->Clear();
         m_Physics->Reset();
         m_Running = false;
     }
@@ -86,5 +91,6 @@ namespace Engine {
     AudioEngine& GameSession::Audio() { return *m_Audio; }
     ScriptEngine& GameSession::Scripts() { return *m_Scripts; }
     PrefabLibrary& GameSession::Prefabs() { return *m_Prefabs; }
+    NavGrid& GameSession::Navigation() { return *m_Nav; }
 
 } // namespace Engine

@@ -9,6 +9,7 @@
 #include "Renderer/Model.h"
 #include "Renderer/RenderStats.h"
 #include "Scene/Particles.h"
+#include "Navigation/NavGrid.h"
 #include "Core/Input.h"
 #include "Core/Log.h"
 
@@ -98,6 +99,10 @@ namespace Engine {
         PhysicsWorld* Physics = nullptr;
         AudioEngine* Audio = nullptr;
         PrefabLibrary* Prefabs = nullptr;
+        NavGrid* Nav = nullptr;
+        NavSettings NavConfig;                            // the last nav.bake settings (lazy bakes use them)
+        bool NavTried = false;                            // a lazy bake ran (and may have failed): don't retry every call
+        float ViewAspect = 16.0f / 9.0f;
         ResourceRegistry Resources;
         Scene* ActiveScene = nullptr;
         float Time = 0.0f;
@@ -119,6 +124,9 @@ namespace Engine {
         std::array<bool, kMouseCount> MouseNow{}, MousePrev{};
 
         void BindApi();
+        void BindNavigation();
+        bool EnsureNav();
+        bool ScreenRay(float x, float y, glm::vec3& origin, glm::vec3& dir) const;
         void SampleInput();
         void StartInstance(entt::entity handle, const std::string& path);
         void DestroyInstance(entt::entity handle, bool callOnDestroy);
@@ -973,6 +981,8 @@ namespace Engine {
         for (int i = 1; i <= 12; i++)     key["F" + std::to_string(i)] = 289 + i;
         lua.create_named_table("Mouse", "Left", Mouse::Left, "Right", Mouse::Right, "Middle", Mouse::Middle);
 
+        BindNavigation();                // nav.* and scene.screen_ray / pick
+
         // ---- shared: one table every script sees (globals are per entity), for game-wide state
         lua["shared"] = lua.create_table();
 
@@ -986,6 +996,151 @@ namespace Engine {
             end
             print = log
         )");
+    }
+
+    // ---------------------------------------------------------------- navigation and picking
+    bool ScriptEngine::Impl::EnsureNav() {
+        if (!Nav || !Physics) return false;
+        if (Nav->IsBaked()) return true;
+        if (NavTried) return false;          // a lazy bake failed already: nav.bake() tries again
+        NavTried = true;
+        return Nav->Bake(*Physics, NavConfig);
+    }
+
+    // A ray from the game camera (the primary CameraComponent, as GameSession::UpdateGameCamera picks it)
+    // through the point x, y (0..1 of the view, top left origin)
+    bool ScriptEngine::Impl::ScreenRay(float x, float y, glm::vec3& origin, glm::vec3& dir) const {
+        auto& reg = ActiveScene->Registry();
+        entt::entity chosen = entt::null;
+        for (auto [e, c] : reg.view<CameraComponent>().each()) {
+            if (chosen == entt::null) chosen = e;
+            if (c.Primary) { chosen = e; break; }
+        }
+        if (chosen == entt::null) return false;
+        glm::vec3 p, scale;
+        glm::quat q;
+        Scene::Decompose(ActiveScene->GetWorldMatrix(chosen), p, q, scale);
+        const float t = std::tan(glm::radians(reg.get<CameraComponent>(chosen).FOV) * 0.5f);
+        origin = p;
+        dir = glm::normalize(q * glm::vec3((2.0f * x - 1.0f) * t * ViewAspect, (1.0f - 2.0f * y) * t, -1.0f));
+        return true;
+    }
+
+    void ScriptEngine::Impl::BindNavigation() {
+        sol::state& lua = *Lua;
+        sol::table scene = lua["scene"];
+        scene.set_function("screen_ray", [this](float x, float y) -> std::tuple<sol::object, sol::object> {
+            glm::vec3 o, d;
+            if (!ScreenRay(x, y, o, d)) return { sol::lua_nil, sol::lua_nil };
+            return { sol::make_object(*Lua, o), sol::make_object(*Lua, d) };
+        });
+        scene.set_function("pick", [this](float x, float y, sol::optional<float> maxDist) -> sol::object {
+            glm::vec3 o, d;
+            RayHit hit;
+            if (!Physics || !ScreenRay(x, y, o, d) || !Physics->Raycast(o, d, maxDist.value_or(500.0f), hit))
+                return sol::make_object(*Lua, sol::lua_nil);
+            return Lua->create_table_with("entity", Wrap(hit.Entity), "point", hit.Point,
+                "normal", hit.Normal, "distance", hit.Distance);
+        });
+
+        sol::table nav = lua.create_named_table("nav");
+        auto nilOr = [this](int cell) { return cell >= 0 ? sol::make_object(*Lua, cell) : sol::make_object(*Lua, sol::lua_nil); };
+        auto checkCell = [this](int cell) {
+            if (cell < 0 || cell >= Nav->CellCount()) throw std::runtime_error("invalid nav cell " + std::to_string(cell));
+            return cell;
+        };
+
+        nav.set_function("bake", [this](sol::optional<sol::table> opts) {
+            if (!Nav || !Physics) return 0;
+            NavSettings s;
+            if (opts) {
+                const sol::table& t = *opts;
+                s.CellSize = t.get<sol::optional<float>>("cell_size").value_or(s.CellSize);
+                s.AgentRadius = t.get<sol::optional<float>>("agent_radius").value_or(s.AgentRadius);
+                s.AgentHeight = t.get<sol::optional<float>>("agent_height").value_or(s.AgentHeight);
+                s.MaxStep = t.get<sol::optional<float>>("max_step").value_or(s.MaxStep);
+                s.MaxSlope = t.get<sol::optional<float>>("max_slope").value_or(s.MaxSlope);
+                auto mn = t.get<sol::optional<glm::vec3>>("min");
+                auto mx = t.get<sol::optional<glm::vec3>>("max");
+                if (mn && mx) { s.AutoBounds = false; s.BoundsMin = *mn; s.BoundsMax = *mx; }
+            }
+            NavConfig = s;
+            NavTried = true;
+            return Nav->Bake(*Physics, s) ? Nav->CellCount() : 0;
+        });
+        nav.set_function("baked", [this]() { return Nav && Nav->IsBaked(); });
+        nav.set_function("cell_size", [this]() { return EnsureNav() ? Nav->Settings().CellSize : NavConfig.CellSize; });
+
+        nav.set_function("find_path", [this](const glm::vec3& from, const glm::vec3& to, sol::optional<sol::table> opts) -> sol::object {
+            if (!EnsureNav()) return sol::make_object(*Lua, sol::lua_nil);
+            NavPathOptions o;
+            if (opts) {
+                const sol::table& t = *opts;
+                o.Grid = t.get<sol::optional<bool>>("grid").value_or(o.Grid);
+                o.Diagonal = t.get<sol::optional<float>>("diagonal").value_or(o.Diagonal);
+                o.Closest = t.get<sol::optional<bool>>("closest").value_or(o.Closest);
+                o.MaxCost = t.get<sol::optional<float>>("max_cost").value_or(o.MaxCost);
+            }
+            NavPath path;
+            if (!Nav->FindPath(from, to, o, path)) return sol::make_object(*Lua, sol::lua_nil);
+            sol::table points = Lua->create_table(), cells = Lua->create_table();
+            for (size_t i = 0; i < path.Points.size(); i++) points[i + 1] = path.Points[i];
+            for (size_t i = 0; i < path.Cells.size(); i++) cells[i + 1] = path.Cells[i];
+            sol::table out = Lua->create_table_with("points", points, "cells", cells,
+                "cost", path.Cost, "complete", path.Complete);
+            if (o.Grid) {
+                sol::table costs = Lua->create_table();
+                for (size_t i = 0; i < path.Costs.size(); i++) costs[i + 1] = path.Costs[i];
+                out["costs"] = costs;
+            }
+            return out;
+        });
+
+        nav.set_function("reachable", [this](sol::object from, float budget, sol::optional<sol::table> opts) {
+            sol::table out = Lua->create_table();
+            if (!EnsureNav()) return out;
+            int start = -1;
+            if (from.is<int>()) start = from.as<int>();
+            else if (from.is<glm::vec3>()) {
+                const glm::vec3 p = from.as<glm::vec3>();
+                start = Nav->CellAt(p);
+                if (start < 0) start = Nav->Nearest(p, Nav->Settings().CellSize * 1.5f, false);
+            }
+            else throw std::runtime_error("nav.reachable: from must be a vec3 or a cell");
+            const float diag = opts ? opts->get<sol::optional<float>>("diagonal").value_or(1.41421356f) : 1.41421356f;
+            std::vector<NavReach> reach;
+            Nav->Reachable(start, budget, diag, reach);
+            for (size_t i = 0; i < reach.size(); i++) {
+                sol::table r = Lua->create_table_with("cell", reach[i].Cell, "cost", reach[i].Cost,
+                    "position", Nav->CellPosition(reach[i].Cell));
+                if (reach[i].Previous >= 0) r["previous"] = reach[i].Previous;
+                out[i + 1] = r;
+            }
+            return out;
+        });
+
+        nav.set_function("cell_at", [this, nilOr](const glm::vec3& p) {
+            return nilOr(EnsureNav() ? Nav->CellAt(p) : -1);
+        });
+        nav.set_function("nearest", [this, nilOr](const glm::vec3& p, sol::optional<float> maxDist, sol::optional<bool> free) {
+            return nilOr(EnsureNav() ? Nav->Nearest(p, maxDist.value_or(2.0f), free.value_or(true)) : -1);
+        });
+        nav.set_function("cell_position", [this, checkCell](int cell) {
+            if (!EnsureNav()) throw std::runtime_error("nav: no grid");
+            return Nav->CellPosition(checkCell(cell));
+        });
+        nav.set_function("height", [this](const glm::vec3& p) -> sol::object {
+            const int c = EnsureNav() ? Nav->CellAt(p) : -1;
+            return c >= 0 ? sol::make_object(*Lua, Nav->CellPosition(c).y) : sol::make_object(*Lua, sol::lua_nil);
+        });
+        nav.set_function("line_clear", [this](const glm::vec3& a, const glm::vec3& b) {
+            return EnsureNav() && Nav->LineClear(a, b);
+        });
+        nav.set_function("set_blocked", [this, checkCell](int cell, sol::optional<bool> blocked) {
+            if (EnsureNav()) Nav->SetBlocked(checkCell(cell), blocked.value_or(true));
+        });
+        nav.set_function("is_blocked", [this](int cell) { return EnsureNav() && Nav->IsBlocked(cell); });
+        nav.set_function("clear_blocked", [this]() { if (EnsureNav()) Nav->ClearBlocked(); });
     }
 
     // ---------------------------------------------------------------- instances
@@ -1088,6 +1243,8 @@ namespace Engine {
 
     void ScriptEngine::SetResources(const ResourceRegistry& resources) { m_Impl->Resources = resources; }
     void ScriptEngine::SetPrefabs(PrefabLibrary* prefabs) { m_Impl->Prefabs = prefabs; }
+    void ScriptEngine::SetNavigation(NavGrid* nav) { m_Impl->Nav = nav; }
+    void ScriptEngine::SetViewAspect(float aspect) { if (aspect > 0.0f) m_Impl->ViewAspect = aspect; }
 
     bool ScriptEngine::IsRunning() const { return m_Impl->Lua != nullptr; }
     uint32_t ScriptEngine::InstanceCount() const { return (uint32_t)m_Impl->Instances.size(); }
@@ -1121,6 +1278,8 @@ namespace Engine {
 
         m.ActiveScene = &scene;
         m.Time = 0.0f;
+        m.NavTried = false;
+        m.NavConfig = NavSettings{};
         m.Errors.clear();
         m.Lua = std::make_unique<sol::state>();
         m.BindApi();

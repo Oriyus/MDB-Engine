@@ -10,6 +10,7 @@ namespace Engine {
     class AudioEngine;
     class ScriptEngine;
     class PrefabLibrary;
+    class NavGrid;
     struct ResourceRegistry;
 
     // Everything that makes a scene run as a game: physics, Lua scripts, audio and prefabs, stepped
@@ -45,10 +46,12 @@ namespace Engine {
         AudioEngine& Audio();
         ScriptEngine& Scripts();
         PrefabLibrary& Prefabs();
+        NavGrid& Navigation();             // baked on first use by a script (nav.*), cleared on Start and Stop
 
     private:
         Scene& m_Scene;
         std::unique_ptr<PhysicsWorld> m_Physics;
+        std::unique_ptr<NavGrid> m_Nav;
         std::unique_ptr<AudioEngine> m_Audio;          // before the script engine: it holds pointers to these
         std::unique_ptr<PrefabLibrary> m_Prefabs;
         std::unique_ptr<ScriptEngine> m_Scripts;
