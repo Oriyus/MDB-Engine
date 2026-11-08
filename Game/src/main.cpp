@@ -2,7 +2,8 @@
 //
 // Settings come from Assets/game.json, and the command line can override them:
 //   Game.exe [--scene <file in Assets/Scenes>] [--fullscreen | --windowed] [--width N] [--height N]
-//            [--no-vsync] [--quit-after <seconds>]
+//            [--no-vsync] [--quit-after <seconds>] [--save-dir <folder>]
+// Save slots go to %APPDATA%/<title>/Saves unless --save-dir says otherwise.
 // The Assets folder is looked for next to the executable first (a packaged build, see the
 // package_game target), then at the source tree's Assets (ASSET_DIR, for running from the build).
 //
@@ -42,6 +43,7 @@ namespace {
         std::string Scene = "coin_rush.json"; // in Assets/Scenes
         Engine::WindowProps Window;
         float QuitAfter = 0.0f;               // test hook: close after this many seconds (0 = never)
+        std::string SaveDir;                  // save slots: %APPDATA%/<title>/Saves unless --save-dir is given
     };
 
     GameConfig LoadConfig() {
@@ -83,7 +85,19 @@ namespace {
             else if (a == "--width" && hasValue) c.Window.Width = (uint32_t)std::stoul(args[++i]);
             else if (a == "--height" && hasValue) c.Window.Height = (uint32_t)std::stoul(args[++i]);
             else if (a == "--quit-after" && hasValue) c.QuitAfter = std::stof(args[++i]);
+            else if (a == "--save-dir" && hasValue) c.SaveDir = args[++i];
             else LOG_WARN("Unknown argument '{}'", a);
+        }
+        if (c.SaveDir.empty()) {
+            // %APPDATA%/<title>/Saves (the title without characters Windows refuses in names)
+            std::string title;
+            for (char ch : c.Window.Title) if (std::string("<>:\"/\\|?*").find(ch) == std::string::npos) title += ch;
+            if (title.empty()) title = "MDB Game";
+            char* appData = nullptr;
+            size_t len = 0;
+            if (_dupenv_s(&appData, &len, "APPDATA") == 0 && appData) c.SaveDir = (fs::path(appData) / title / "Saves").generic_string();
+            else c.SaveDir = (exeDir / "Saves").generic_string();
+            std::free(appData);
         }
         return c;
     }
@@ -121,11 +135,11 @@ public:
         m_FallbackCamera.FocusDistance = settings.CameraFocusDistance;
         m_FallbackCamera.SetOrientation(settings.CameraYaw, settings.CameraPitch);
 
-        int unused = -1;
-        m_Snapshot = m_Scene.Capture(entt::null, unused);   // what a restart goes back to
+        m_Session->SetSaveDirectory(m_Cfg.SaveDir);
+        m_Session->NewGame(m_Cfg.Scene);       // a restart goes back to this level as it loaded
         m_Session->Start();
         m_Running = true;
-        LOG_INFO("Playing {}", m_Cfg.Scene);
+        LOG_INFO("Playing {} (saves in {})", m_Cfg.Scene, m_Cfg.SaveDir);
     }
 
     void OnUpdate(float dt) override {
@@ -145,12 +159,17 @@ public:
         if (m_Paused && q) Close();
         if (!m_Running) return;
         if (m_Paused && r) { m_RestartPending = true; m_Paused = false; }
+        if (m_RestartPending) { m_RestartPending = false; m_Session->RequestRestart(); }
 
-        if (m_RestartPending) {
-            m_RestartPending = false;
-            m_Session->Stop();
-            m_Scene.Restore(m_Snapshot, -1);
-            m_Session->Start();
+        // A save loaded, a level change or a restart (asked for last frame) replaces the scene now,
+        // and brings that level's settings
+        SceneSettings settings;
+        m_Renderer->GatherSettings(settings);
+        if (m_Session->ApplyPending(settings)) {
+            m_Renderer->ApplySettings(settings);
+            m_FallbackCamera.Position = settings.CameraPosition;
+            m_FallbackCamera.FocusDistance = settings.CameraFocusDistance;
+            m_FallbackCamera.SetOrientation(settings.CameraYaw, settings.CameraPitch);
         }
 
         m_Session->SetPaused(m_Paused);
@@ -163,8 +182,7 @@ public:
             m_Session->Scripts().SetPointer(px, py, inside, ImGui::IsMouseDown(ImGuiMouseButton_Left));
             m_Session->Scripts().SetViewAspect(d.x / std::max(d.y, 1.0f));   // for scene.screen_ray
 
-            m_Session->Update(dt);
-            if (m_Session->ConsumeRestartRequest()) m_RestartPending = true;   // scene.restart(): next frame
+            m_Session->Update(dt);                                            // scene.restart() is handled by the session
             if (m_Session->Scripts().ConsumeQuitRequest()) Close();            // scene.quit()
         }
 
@@ -260,7 +278,6 @@ private:
     std::unique_ptr<Engine::ResourceLibrary> m_Resources;
     std::unique_ptr<Engine::SceneRenderer> m_Renderer;
     std::unique_ptr<Engine::GameSession> m_Session;
-    Engine::SceneSnapshot m_Snapshot;
     Engine::Camera m_GameCamera, m_FallbackCamera;
     ImFont* m_Font = nullptr;
     Engine::UITextureCache m_UITextures{ m_Cfg.AssetDir };   // images for ui.image (declared after m_Cfg)

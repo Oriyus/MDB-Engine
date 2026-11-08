@@ -175,6 +175,106 @@ namespace {
         }
     }
 
+    // ---- tactics levels (tactics.lua). Units have no rigid body: the script moves them along nav paths.
+    glm::mat4 BlockOffset(float w, float h) {          // a w x h x w block standing on the entity's origin
+        return glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, h * 0.5f, 0.0f)), glm::vec3(w, h, w));
+    }
+
+    void AddHero(Scene& scene, const LevelAssets& a, const glm::vec3& pos, float yaw) {
+        Entity e = scene.CreateEntity("Hero");
+        e.Get<TransformComponent>().Position = pos;
+        e.Get<TransformComponent>().Rotation = glm::vec3(0.0f, yaw, 0.0f);
+        auto& mr = e.Add<MeshRendererComponent>();
+        if (a.Fox && a.Fox->IsSkinned()) {
+            mr.Geometry = a.Fox;
+            mr.LocalOffset = a.Fox->GetGroundedMatrix(1.4f);
+            mr.UseModelMaterials = a.Fox->HasTexturedMaterials();
+            mr.Color = glm::vec3(1.0f);
+            auto& an = e.Add<AnimatorComponent>();
+            an.Clip = "Survey";
+            for (float t : { 0.10f, 0.45f }) an.Events.push_back({ "Walk", t, "sound:Sounds/step.wav" });
+            for (float t : { 0.20f, 0.75f }) an.Events.push_back({ "Run", t, "sound:Sounds/step.wav" });
+        }
+        else {                                         // no fox model: a blue block
+            mr.Geometry = a.Cube;
+            mr.Color = glm::vec3(0.3f, 0.55f, 1.0f);
+            mr.LocalOffset = BlockOffset(0.6f, 1.4f);
+        }
+    }
+
+    void AddEnemy(Scene& scene, const LevelAssets& a, const glm::vec3& pos) {
+        Entity e = scene.CreateEntity("Enemy");
+        e.Get<TransformComponent>().Position = pos;
+        auto& mr = e.Add<MeshRendererComponent>();     // a red block
+        mr.Geometry = a.Cube;
+        mr.Color = glm::vec3(0.85f, 0.18f, 0.12f);
+        mr.Roughness = 0.5f;
+        mr.LocalOffset = BlockOffset(0.7f, 1.6f);
+    }
+
+    // The camera (tactics_camera.lua) and the entity running tactics.lua
+    void AddTacticsDirector(Scene& scene, const glm::vec3& cameraPos) {
+        Entity cam = scene.CreateEntity("Main Camera");
+        cam.Get<TransformComponent>().Position = cameraPos;
+        cam.Get<TransformComponent>().Rotation = glm::vec3(-0.85f, 0.0f, 0.0f);
+        cam.Add<CameraComponent>().FOV = 50.0f;
+        cam.Add<ScriptComponent>().Path = "Scripts/tactics_camera.lua";
+        scene.CreateEntity("Tactics").Add<ScriptComponent>().Path = "Scripts/tactics.lua";
+    }
+
+    // A glowing pad that takes the hero to another level (exit.lua reads the target from the name:
+    // "Exit: <scene file> > <entry>"). No body: it doesn't block the nav grid.
+    void AddExit(Scene& scene, const LevelAssets& a, const std::string& sceneFile, const std::string& entry, const glm::vec3& pos) {
+        Entity e = scene.CreateEntity("Exit: " + sceneFile + " > " + entry);
+        auto& t = e.Get<TransformComponent>();
+        t.Position = pos + glm::vec3(0.0f, 0.02f, 0.0f);
+        t.Scale = glm::vec3(1.0f, 0.04f, 1.0f);
+        auto& mr = e.Add<MeshRendererComponent>();
+        mr.Geometry = a.Cube;
+        mr.Color = glm::vec3(0.2f, 0.7f, 0.8f);
+        mr.Emissive = glm::vec3(0.1f, 0.6f, 0.8f);
+        e.Add<ScriptComponent>().Path = "Scripts/exit.lua";
+    }
+
+    // Where the party appears when it arrives by that entry (tactics.lua: "Entry: <name>")
+    void AddEntry(Scene& scene, const std::string& name, const glm::vec3& pos, float yaw) {
+        Entity e = scene.CreateEntity("Entry: " + name);
+        e.Get<TransformComponent>().Position = pos;
+        e.Get<TransformComponent>().Rotation = glm::vec3(0.0f, yaw, 0.0f);
+    }
+
+    // A chest with a hinged lid (chest.lua opens it when the hero comes close: gold into game.gold)
+    void AddChest(Scene& scene, const LevelAssets& a, const glm::vec3& pos, float yaw) {
+        const glm::vec3 wood(0.5f, 0.3f, 0.15f), trim(0.85f, 0.65f, 0.25f);
+        Entity chest = scene.CreateEntity("Chest");
+        chest.Get<TransformComponent>().Position = pos;
+        chest.Get<TransformComponent>().Rotation = glm::vec3(0.0f, yaw, 0.0f);
+        auto& mr = chest.Add<MeshRendererComponent>();
+        mr.Geometry = a.Cube;
+        mr.Color = wood;
+        mr.Roughness = 0.8f;
+        mr.LocalOffset = glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.275f, 0.0f)), glm::vec3(0.9f, 0.55f, 0.6f));
+        auto& rb = chest.Add<RigidBodyComponent>();    // static: its cell is not walkable
+        rb.Type = BodyType::Static;
+        rb.Size = glm::vec3(0.9f, 0.55f, 0.6f);
+        rb.Center = glm::vec3(0.0f, 0.275f, 0.0f);
+        chest.Add<ScriptComponent>().Path = "Scripts/chest.lua";
+
+        Entity hinge = scene.CreateEntity("Lid Hinge");    // along the back top edge: turning it opens the lid
+        hinge.Get<TransformComponent>().Position = glm::vec3(0.0f, 0.55f, -0.3f);
+        hinge.Add<ParentComponent>(ParentComponent{ chest.Get<IDComponent>().ID });
+        Entity lid = scene.CreateEntity("Lid");
+        auto& lt = lid.Get<TransformComponent>();
+        lt.Position = glm::vec3(0.0f, 0.06f, 0.3f);
+        lt.Scale = glm::vec3(0.94f, 0.12f, 0.62f);
+        auto& lm = lid.Add<MeshRendererComponent>();
+        lm.Geometry = a.Cube;
+        lm.Color = trim;
+        lm.Metallic = 0.6f;
+        lm.Roughness = 0.4f;
+        lid.Add<ParentComponent>(ParentComponent{ hinge.Get<IDComponent>().ID });
+    }
+
 } // namespace
 
 void BuildScriptDemo(Scene& scene, const LevelAssets& a, PrefabLibrary& prefabs) {
@@ -388,50 +488,51 @@ void BuildTacticsTest(Scene& scene, const LevelAssets& a, PrefabLibrary&) {
         l.Intensity = 2.0f;
     }
 
-    // ---- the units. They have no rigid body: tactics.lua moves them along nav paths.
-    {
-        Entity e = scene.CreateEntity("Hero");
-        e.Get<TransformComponent>().Position = glm::vec3(-2.5f, -1.0f, 9.5f);
-        e.Get<TransformComponent>().Rotation = glm::vec3(0.0f, 3.14159265f, 0.0f);
-        auto& mr = e.Add<MeshRendererComponent>();
-        if (a.Fox && a.Fox->IsSkinned()) {
-            mr.Geometry = a.Fox;
-            mr.LocalOffset = a.Fox->GetGroundedMatrix(1.4f);
-            mr.UseModelMaterials = a.Fox->HasTexturedMaterials();
-            mr.Color = glm::vec3(1.0f);
-            auto& an = e.Add<AnimatorComponent>();
-            an.Clip = "Survey";
-            for (float t : { 0.10f, 0.45f }) an.Events.push_back({ "Walk", t, "sound:Sounds/step.wav" });
-            for (float t : { 0.20f, 0.75f }) an.Events.push_back({ "Run", t, "sound:Sounds/step.wav" });
-        }
-        else {                                       // no fox model: a blue block
-            mr.Geometry = a.Cube;
-            mr.Color = glm::vec3(0.3f, 0.55f, 1.0f);
-            mr.LocalOffset = glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.7f, 0.0f)), glm::vec3(0.6f, 1.4f, 0.6f));
-        }
-    }
-    for (const glm::vec3& p : { glm::vec3(7.5f, -0.1f, 2.5f), glm::vec3(8.5f, -0.1f, 4.5f), glm::vec3(9.5f, 1.5f, -9.5f) }) {
-        Entity e = scene.CreateEntity("Enemy");
-        e.Get<TransformComponent>().Position = p;
-        auto& mr = e.Add<MeshRendererComponent>();       // a red block standing on the entity's origin
-        mr.Geometry = a.Cube;
-        mr.Color = glm::vec3(0.85f, 0.18f, 0.12f);
-        mr.Roughness = 0.5f;
-        mr.LocalOffset = glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.8f, 0.0f)), glm::vec3(0.7f, 1.6f, 0.7f));
-    }
+    // ---- the way down to the cellar (a second level), where you arrive from it, and a chest
+    AddExit(scene, a, "tactics_cellar.json", "From Yard", glm::vec3(-10.5f, -1.0f, 10.5f));
+    AddEntry(scene, "From Cellar", glm::vec3(-8.5f, -1.0f, 10.5f), 1.5708f);
+    AddChest(scene, a, glm::vec3(10.5f, -1.0f, 10.5f), 3.14159f);
 
-    {
-        Entity e = scene.CreateEntity("Main Camera");
-        auto& t = e.Get<TransformComponent>();
-        t.Position = glm::vec3(-2.5f, 8.0f, 17.0f);
-        t.Rotation = glm::vec3(-0.85f, 0.0f, 0.0f);
-        e.Add<CameraComponent>().FOV = 50.0f;
-        e.Add<ScriptComponent>().Path = "Scripts/tactics_camera.lua";
-    }
-    {
-        Entity e = scene.CreateEntity("Tactics");
-        e.Add<ScriptComponent>().Path = "Scripts/tactics.lua";
-    }
+    // ---- the units. They have no rigid body: tactics.lua moves them along nav paths.
+    AddHero(scene, a, glm::vec3(-2.5f, -1.0f, 9.5f), 3.14159265f);
+    for (const glm::vec3& p : { glm::vec3(7.5f, -0.1f, 2.5f), glm::vec3(8.5f, -0.1f, 4.5f), glm::vec3(9.5f, 1.5f, -9.5f) })
+        AddEnemy(scene, a, p);
+    AddTacticsDirector(scene, glm::vec3(-2.5f, 8.0f, 17.0f));
     MarkStatic(scene);
     LOG_INFO("Tactics test built. Press Play (Ctrl+P), then click the ground to move; C starts combat.");
+}
+
+void BuildTacticsCellar(Scene& scene, const LevelAssets& a, PrefabLibrary&) {
+    scene.Clear();
+
+    // ---- a 12 x 12 room at y = -1 with four pillars, dimly lit
+    AddFloor(scene, a, 1.0f);
+    AddSun(scene, 0.35f);
+    const glm::vec3 wall(0.3f, 0.28f, 0.32f), stone(0.55f, 0.5f, 0.45f);
+    AddBox(scene, a, "Wall N", glm::vec3(0.0f, 0.0f, -6.25f), glm::vec3(13.0f, 2.0f, 0.5f), wall);
+    AddBox(scene, a, "Wall S", glm::vec3(0.0f, 0.0f, 6.25f), glm::vec3(13.0f, 2.0f, 0.5f), wall);
+    AddBox(scene, a, "Wall W", glm::vec3(-6.25f, 0.0f, 0.0f), glm::vec3(0.5f, 2.0f, 12.0f), wall);
+    AddBox(scene, a, "Wall E", glm::vec3(6.25f, 0.0f, 0.0f), glm::vec3(0.5f, 2.0f, 12.0f), wall);
+    for (const glm::vec3& p : { glm::vec3(-2.5f, 0.25f, -2.5f), glm::vec3(2.5f, 0.25f, -2.5f),
+             glm::vec3(-2.5f, 0.25f, 2.5f), glm::vec3(2.5f, 0.25f, 2.5f) })
+        AddBox(scene, a, "Pillar", p, glm::vec3(1.0f, 2.5f, 1.0f), stone);
+    for (const glm::vec3& p : { glm::vec3(0.5f, -0.5f, -4.5f), glm::vec3(4.5f, -0.5f, 0.5f) })
+        AddBox(scene, a, "Crate", p, glm::vec3(1.0f), glm::vec3(0.55f, 0.36f, 0.2f) * 1.3f);
+    for (const glm::vec3& p : { glm::vec3(0.0f, 2.2f, 0.0f), glm::vec3(-4.0f, 1.6f, 4.0f) }) {
+        Entity e = scene.CreateEntity("Lamp");
+        e.Get<TransformComponent>().Position = p;
+        auto& l = e.Add<PointLightComponent>();
+        l.Color = glm::vec3(1.0f, 0.65f, 0.35f);
+        l.Intensity = 2.5f;
+    }
+
+    AddExit(scene, a, "tactics_test.json", "From Cellar", glm::vec3(-4.5f, -1.0f, 4.5f));
+    AddEntry(scene, "From Yard", glm::vec3(-4.5f, -1.0f, 2.5f), 3.14159f);
+    AddChest(scene, a, glm::vec3(4.5f, -1.0f, -4.5f), 0.0f);
+
+    AddHero(scene, a, glm::vec3(-4.5f, -1.0f, 2.5f), 3.14159265f);
+    AddEnemy(scene, a, glm::vec3(3.5f, -1.0f, -1.5f));
+    AddTacticsDirector(scene, glm::vec3(-4.5f, 7.0f, 9.0f));
+    MarkStatic(scene);
+    LOG_INFO("Tactics cellar built (the yard's stairs lead here: tactics_test.json).");
 }

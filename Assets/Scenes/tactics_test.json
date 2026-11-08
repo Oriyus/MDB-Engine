@@ -1,7 +1,7 @@
 {
   "entities": [
     {
-      "id": 920751739903660566,
+      "id": 12545277892656258503,
       "name": "Tactics",
       "script": {
         "path": "Scripts/tactics.lua"
@@ -31,7 +31,7 @@
         "near": 0.10000000149011612,
         "primary": true
       },
-      "id": 1897549568705491603,
+      "id": 3105692896560064237,
       "name": "Main Camera",
       "script": {
         "path": "Scripts/tactics_camera.lua"
@@ -55,7 +55,7 @@
       }
     },
     {
-      "id": 1960589115282207198,
+      "id": 13077661402945801881,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -117,7 +117,7 @@
       }
     },
     {
-      "id": 17592806186963535674,
+      "id": 16579806447587771675,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -179,7 +179,7 @@
       }
     },
     {
-      "id": 3043590523137373549,
+      "id": 5826105303750065088,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -270,7 +270,7 @@
         "playing": true,
         "speed": 1.0
       },
-      "id": 5118615087803939484,
+      "id": 3911025540178054521,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -332,7 +332,261 @@
       }
     },
     {
-      "id": 15690819560513603714,
+      "id": 11576225359811853570,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.8500000238418579,
+          0.6499999761581421,
+          0.25
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.6000000238418579,
+        "opacity": 1.0,
+        "roughness": 0.4000000059604645,
+        "static": false,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Lid",
+      "parent": 17933368160423962573,
+      "transform": {
+        "position": [
+          0.0,
+          0.05999999865889549,
+          0.30000001192092896
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          0.9399999976158142,
+          0.11999999731779099,
+          0.6200000047683716
+        ]
+      }
+    },
+    {
+      "id": 17933368160423962573,
+      "name": "Lid Hinge",
+      "parent": 3629746771442853035,
+      "transform": {
+        "position": [
+          0.0,
+          0.550000011920929,
+          -0.30000001192092896
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 3629746771442853035,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.5,
+          0.30000001192092896,
+          0.15000000596046448
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          0.8999999761581421,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.550000011920929,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.6000000238418579,
+          0.0,
+          0.0,
+          0.2750000059604645,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.800000011920929,
+        "static": false,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Chest",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.2750000059604645,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.6000000238418579
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "script": {
+        "path": "Scripts/chest.lua"
+      },
+      "transform": {
+        "position": [
+          10.5,
+          -1.0,
+          10.5
+        ],
+        "rotation": [
+          0.0,
+          3.141590118408203,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 18354276347734090516,
+      "name": "Entry: From Cellar",
+      "transform": {
+        "position": [
+          -8.5,
+          -1.0,
+          10.5
+        ],
+        "rotation": [
+          0.0,
+          1.5707999467849731,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 5417117168042422250,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.20000000298023224,
+          0.699999988079071,
+          0.800000011920929
+        ],
+        "emissive": [
+          0.10000000149011612,
+          0.6000000238418579,
+          0.800000011920929
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.5,
+        "static": false,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Exit: tactics_cellar.json > From Yard",
+      "script": {
+        "path": "Scripts/exit.lua"
+      },
+      "transform": {
+        "position": [
+          -10.5,
+          -0.9800000190734863,
+          10.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          0.03999999910593033,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 12533369326771152042,
       "name": "Bridge Light",
       "pointLight": {
         "castShadows": true,
@@ -362,7 +616,7 @@
       }
     },
     {
-      "id": 3040154354653756664,
+      "id": 495523060237484217,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -442,7 +696,7 @@
       }
     },
     {
-      "id": 176935352626286338,
+      "id": 15181405018913533244,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -522,7 +776,7 @@
       }
     },
     {
-      "id": 3888488201454381549,
+      "id": 1814283710143645521,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -602,7 +856,7 @@
       }
     },
     {
-      "id": 6980539793550723854,
+      "id": 133670948468750050,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -682,7 +936,7 @@
       }
     },
     {
-      "id": 18041413263072822820,
+      "id": 6510554360483872080,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -762,7 +1016,7 @@
       }
     },
     {
-      "id": 15996965303147500969,
+      "id": 12479831638495266240,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -842,7 +1096,7 @@
       }
     },
     {
-      "id": 2461973986995279435,
+      "id": 60415319181129260,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -922,7 +1176,7 @@
       }
     },
     {
-      "id": 8378618781894288422,
+      "id": 6749051718384096364,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -1002,7 +1256,7 @@
       }
     },
     {
-      "id": 15453669321619093664,
+      "id": 6459661491980588435,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -1082,7 +1336,7 @@
       }
     },
     {
-      "id": 16145725065630409053,
+      "id": 6437000976013321985,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -1162,7 +1416,7 @@
       }
     },
     {
-      "id": 13197779664272815870,
+      "id": 9334328321623096861,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -1242,7 +1496,7 @@
       }
     },
     {
-      "id": 11323078264946235609,
+      "id": 15287303141910408260,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -1322,7 +1576,7 @@
       }
     },
     {
-      "id": 9022484186818324445,
+      "id": 11822102864822217363,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -1402,7 +1656,7 @@
       }
     },
     {
-      "id": 3859873729357491851,
+      "id": 8614871681136471494,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -1482,7 +1736,7 @@
       }
     },
     {
-      "id": 9743955796908922011,
+      "id": 3047347103007733436,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -1562,7 +1816,7 @@
       }
     },
     {
-      "id": 15288950740343799883,
+      "id": 360181170299792383,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -1642,7 +1896,7 @@
       }
     },
     {
-      "id": 18422683885924085471,
+      "id": 14014686685899495921,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -1722,7 +1976,7 @@
       }
     },
     {
-      "id": 8566939916585094395,
+      "id": 2224991102526320866,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -1802,7 +2056,7 @@
       }
     },
     {
-      "id": 14383652752660586536,
+      "id": 12326323051467810498,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
@@ -1891,7 +2145,7 @@
         ],
         "intensity": 1.25
       },
-      "id": 283213955116502063,
+      "id": 5488515727180618707,
       "name": "Sun",
       "transform": {
         "position": [
@@ -1912,7 +2166,7 @@
       }
     },
     {
-      "id": 14454577641628625361,
+      "id": 10225267037867181,
       "meshRenderer": {
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",

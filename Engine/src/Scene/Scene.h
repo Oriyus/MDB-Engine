@@ -39,6 +39,7 @@ namespace Engine {
         std::optional<AnimatorComponent>            Animator;
         std::optional<ParticleEmitterComponent>     Particles;
         std::optional<PrefabComponent>              Prefab;
+        bool                                        Transient = false;
     };
     using SceneSnapshot = std::vector<EntitySnapshot>;
 

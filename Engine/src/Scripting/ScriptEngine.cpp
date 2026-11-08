@@ -10,6 +10,7 @@
 #include "Renderer/RenderStats.h"
 #include "Scene/Particles.h"
 #include "Navigation/NavGrid.h"
+#include "Scene/EntityJson.h"          // glm <-> json
 #include "Core/Input.h"
 #include "Core/Log.h"
 
@@ -91,6 +92,7 @@ namespace Engine {
         sol::object Self;
         sol::protected_function OnUpdate, OnDestroy;
         sol::protected_function OnCollisionBegin, OnCollisionEnd, OnTriggerEnter, OnTriggerExit, OnAnimEvent;
+        sol::protected_function OnSave, OnLoad;
         bool Enabled = true;
     };
 
@@ -100,6 +102,11 @@ namespace Engine {
         AudioEngine* Audio = nullptr;
         PrefabLibrary* Prefabs = nullptr;
         NavGrid* Nav = nullptr;
+        ScriptHost* Host = nullptr;
+        nlohmann::json PendingRestore;                    // SetRestore: applied by the next Start
+        bool HasPendingRestore = false, PendingLoading = false;
+        nlohmann::json RestoreScripts = nlohmann::json::object();   // uid -> on_load data, during Start
+        bool Loading = false;                             // scene.is_loading()
         NavSettings NavConfig;                            // the last nav.bake settings (lazy bakes use them)
         bool NavTried = false;                            // a lazy bake ran (and may have failed): don't retry every call
         float ViewAspect = 16.0f / 9.0f;
@@ -125,6 +132,9 @@ namespace Engine {
 
         void BindApi();
         void BindNavigation();
+        void BindSaves();
+        nlohmann::json ToJson(const sol::object& o, int depth = 0);
+        sol::object FromJson(const nlohmann::json& j);
         bool EnsureNav();
         bool ScreenRay(float x, float y, glm::vec3& origin, glm::vec3& dir) const;
         void SampleInput();
@@ -253,6 +263,14 @@ namespace Engine {
         lua.new_usertype<ScriptEntity>("Entity", sol::no_constructor,
             "valid", &ScriptEntity::Valid,
             "id", sol::readonly_property([](const ScriptEntity& e) { return (uint32_t)entt::to_integral(e.Handle); }),
+            "uid", sol::readonly_property([](const ScriptEntity& e) { return (int64_t)e.Owner->GetID(e.Handle); }),
+            "transient", sol::property(
+                [](const ScriptEntity& e) { return e.Has<TransientComponent>(); },
+                [](const ScriptEntity& e, bool v) {
+                    if (!e.Valid()) return;
+                    if (v) e.Owner->Registry().emplace_or_replace<TransientComponent>(e.Handle);
+                    else e.Owner->Registry().remove<TransientComponent>(e.Handle);
+                }),
             "name", sol::property(
                 [](const ScriptEntity& e) { return e.Get<TagComponent>().Tag; },
                 [](const ScriptEntity& e, const std::string& s) { e.Get<TagComponent>().Tag = s; }),
@@ -587,6 +605,7 @@ namespace Engine {
             pe.Emitting = false;
             pe.Burst = count >= 0 ? count : (pe.Burst > 0 ? pe.Burst : 30);
             pe.DestroyWhenDone = true;
+            e.Add<TransientComponent>();        // an effect: never saved
             return Wrap(e.GetHandle());
         });
         // A prefab instance ("coin" or "Prefabs/coin.json"). nil (and a warning) if the prefab is missing.
@@ -985,6 +1004,8 @@ namespace Engine {
 
         // ---- shared: one table every script sees (globals are per entity), for game-wide state
         lua["shared"] = lua.create_table();
+        lua["game"] = lua.create_table();          // saved with the game, kept across level changes
+        BindSaves();
 
         // ---- logging: log(...) and print(...) both go to the game log, args joined with spaces
         lua.set_function("__engine_log", [](const std::string& s) { LOG_INFO("[lua] {}", s); });
@@ -1143,6 +1164,158 @@ namespace Engine {
         nav.set_function("clear_blocked", [this]() { if (EnsureNav()) Nav->ClearBlocked(); });
     }
 
+    // ---------------------------------------------------------------- save games
+    // Lua values <-> JSON. A table whose keys are exactly 1..n is an array, anything else an object.
+    // Object keys: strings as they are ("#" in front escaped as "#s#..."), integers as "#<n>".
+    // vec3 -> { "$vec3": [x, y, z] }, entity -> { "$entity": uid } (nil if it no longer exists).
+    nlohmann::json ScriptEngine::Impl::ToJson(const sol::object& o, int depth) {
+        using json = nlohmann::json;
+        if (depth > 32) throw std::runtime_error("tables nested more than 32 deep (a table that contains itself?)");
+        switch (o.get_type()) {
+        case sol::type::lua_nil:
+        case sol::type::none:
+            return nullptr;
+        case sol::type::boolean:
+            return o.as<bool>();
+        case sol::type::number: {
+            lua_State* L = Lua->lua_state();
+            o.push(L);
+            const bool isInt = lua_isinteger(L, -1);
+            const lua_Integer i = isInt ? lua_tointeger(L, -1) : 0;
+            const double d = lua_tonumber(L, -1);
+            lua_pop(L, 1);
+            if (isInt) return (int64_t)i;
+            if (!std::isfinite(d)) throw std::runtime_error("can't save inf or nan");
+            return d;
+        }
+        case sol::type::string:
+            return o.as<std::string>();
+        case sol::type::userdata:
+            if (o.is<glm::vec3>()) {
+                const glm::vec3 v = o.as<glm::vec3>();
+                return json{ { "$vec3", json::array({ v.x, v.y, v.z }) } };
+            }
+            if (o.is<ScriptEntity>()) {
+                const ScriptEntity e = o.as<ScriptEntity>();
+                return e.Valid() ? json{ { "$entity", e.Owner->GetID(e.Handle) } } : json(nullptr);
+            }
+            throw std::runtime_error("can't save this value (tables, numbers, strings, booleans, vec3 and entities can be saved)");
+        case sol::type::table: {
+            sol::table t = o.as<sol::table>();
+            const size_t n = t.size();
+            size_t count = 0;
+            for (const auto& kv : t) { (void)kv; count++; }
+            if (n > 0 && count == n) {
+                json arr = json::array();
+                for (size_t i = 1; i <= n; i++) { sol::object v = t[i]; arr.push_back(ToJson(v, depth + 1)); }
+                return arr;
+            }
+            json obj = json::object();
+            for (const auto& [k, v] : t) {
+                std::string key;
+                if (k.get_type() == sol::type::string) {
+                    key = k.as<std::string>();
+                    if (!key.empty() && key[0] == '#') key = "#s" + key;
+                }
+                else if (k.get_type() == sol::type::number) {
+                    lua_State* L = Lua->lua_state();
+                    k.push(L);
+                    const bool isInt = lua_isinteger(L, -1);
+                    const lua_Integer i = isInt ? lua_tointeger(L, -1) : 0;
+                    lua_pop(L, 1);
+                    if (!isInt) throw std::runtime_error("can't save a table with fractional number keys");
+                    key = "#" + std::to_string(i);
+                }
+                else throw std::runtime_error("can't save a table with keys that are not strings or integers");
+                obj[key] = ToJson(v, depth + 1);
+            }
+            return obj;
+        }
+        default:
+            throw std::runtime_error("can't save a function or coroutine");
+        }
+    }
+
+    sol::object ScriptEngine::Impl::FromJson(const nlohmann::json& j) {
+        sol::state& lua = *Lua;
+        switch (j.type()) {
+        case nlohmann::json::value_t::boolean:         return sol::make_object(lua, j.get<bool>());
+        case nlohmann::json::value_t::number_integer:  return sol::make_object(lua, (lua_Integer)j.get<int64_t>());
+        case nlohmann::json::value_t::number_unsigned: return sol::make_object(lua, (lua_Integer)j.get<uint64_t>());
+        case nlohmann::json::value_t::number_float:    return sol::make_object(lua, j.get<double>());
+        case nlohmann::json::value_t::string:          return sol::make_object(lua, j.get<std::string>());
+        case nlohmann::json::value_t::array: {
+            sol::table t = lua.create_table((int)j.size(), 0);
+            for (size_t i = 0; i < j.size(); i++) t[i + 1] = FromJson(j[i]);
+            return t;
+        }
+        case nlohmann::json::value_t::object: {
+            if (j.size() == 1 && j.contains("$vec3")) return sol::make_object(lua, j["$vec3"].get<glm::vec3>());
+            if (j.size() == 1 && j.contains("$entity")) {
+                const entt::entity h = ActiveScene->FindByID(j["$entity"].get<uint64_t>());
+                return h != entt::null ? MakeEntity(h) : sol::make_object(lua, sol::lua_nil);
+            }
+            sol::table t = lua.create_table();
+            for (auto it = j.begin(); it != j.end(); ++it) {
+                const std::string& key = it.key();
+                if (key.rfind("#s", 0) == 0) t[key.substr(2)] = FromJson(it.value());
+                else if (key.size() > 1 && key[0] == '#') t[(lua_Integer)std::stoll(key.substr(1))] = FromJson(it.value());
+                else t[key] = FromJson(it.value());
+            }
+            return t;
+        }
+        default:
+            return sol::make_object(lua, sol::lua_nil);
+        }
+    }
+
+    void ScriptEngine::Impl::BindSaves() {
+        sol::state& lua = *Lua;
+        sol::table scene = lua["scene"];
+        scene.set_function("is_loading", [this]() { return Loading; });
+        scene.set_function("find_uid", [this](int64_t uid) -> sol::object {
+            const entt::entity h = ActiveScene->FindByID((uint64_t)uid);
+            return h != entt::null ? MakeEntity(h) : sol::make_object(*Lua, sol::lua_nil);
+        });
+
+        sol::table saves = lua.create_named_table("saves");
+        saves.set_function("save", [this](const std::string& slot, sol::optional<std::string> name) {
+            std::string error = "saving is not available here";
+            const bool ok = Host && Host->SaveGame(slot, name.value_or(slot), error);
+            return std::make_tuple(ok, ok ? sol::make_object(*Lua, sol::lua_nil) : sol::make_object(*Lua, error));
+        });
+        saves.set_function("load", [this](const std::string& slot) { return Host && Host->RequestLoad(slot); });
+        saves.set_function("delete", [this](const std::string& slot) { return Host && Host->DeleteSave(slot); });
+        saves.set_function("list", [this]() {
+            return Host ? FromJson(Host->ListSaves()) : sol::make_object(*Lua, Lua->create_table());
+        });
+        saves.set_function("exists", [this](const std::string& slot) {
+            if (!Host) return false;
+            for (const auto& s : Host->ListSaves()) if (s.value("slot", std::string()) == slot) return true;
+            return false;
+        });
+
+        sol::table level = lua.create_named_table("level");
+        level.set_function("change", [this](const std::string& file, sol::optional<std::string> entry, sol::optional<sol::table> opts) {
+            if (!Host) throw std::runtime_error("level.change is not available here");
+            std::vector<uint64_t> carry;
+            if (opts) {
+                if (auto list = opts->get<sol::optional<sol::table>>("carry"))
+                    for (const auto& [k, v] : *list)
+                        if (v.is<ScriptEntity>() && v.as<ScriptEntity>().Valid())
+                            carry.push_back(ActiveScene->GetID(v.as<ScriptEntity>().Handle));
+            }
+            Host->RequestLevel(file, entry.value_or(std::string()), carry);
+        });
+        level.set_function("current", [this]() { return Host ? Host->CurrentLevel() : std::string(); });
+        level.set_function("entry", [this]() -> sol::object {
+            const std::string e = Host ? Host->LevelEntry() : std::string();
+            return e.empty() ? sol::make_object(*Lua, sol::lua_nil) : sol::make_object(*Lua, e);
+        });
+        level.set_function("play_time", [this]() { return Host ? Host->PlayTime() : 0.0f; });
+        level.set_function("arrived", [this]() { return Host && Host->Arrived(); });
+    }
+
     // ---------------------------------------------------------------- instances
     void ScriptEngine::Impl::ReportError(const std::string& msg) {
         ENGINE_ERROR("{}", msg);
@@ -1188,10 +1361,22 @@ namespace Engine {
         inst.OnTriggerEnter = inst.Env["on_trigger_enter"];
         inst.OnTriggerExit = inst.Env["on_trigger_exit"];
         inst.OnAnimEvent = inst.Env["on_anim_event"];
+        inst.OnSave = inst.Env["on_save"];
+        inst.OnLoad = inst.Env["on_load"];
 
         sol::protected_function onCreate = inst.Env["on_create"];
         auto& stored = Instances.emplace(handle, std::move(inst)).first->second;
         if (onCreate.valid()) Check(onCreate(stored.Self), stored, "on_create");
+
+        // A restored level: hand the script what its on_save returned
+        if (RestoreScripts.empty()) return;
+        auto data = RestoreScripts.find(std::to_string(ActiveScene->GetID(handle)));
+        auto it = Instances.find(handle);
+        if (data == RestoreScripts.end() || it == Instances.end() || !it->second.Enabled || !it->second.OnLoad.valid()) return;
+        sol::object value;
+        try { value = FromJson(*data); }
+        catch (const std::exception& ex) { ReportError("[script] " + path + " (on_load data): " + ex.what()); return; }
+        Check(it->second.OnLoad(it->second.Self, value), it->second, "on_load");
     }
 
     void ScriptEngine::Impl::DestroyInstance(entt::entity handle, bool callOnDestroy) {
@@ -1245,6 +1430,42 @@ namespace Engine {
     void ScriptEngine::SetPrefabs(PrefabLibrary* prefabs) { m_Impl->Prefabs = prefabs; }
     void ScriptEngine::SetNavigation(NavGrid* nav) { m_Impl->Nav = nav; }
     void ScriptEngine::SetViewAspect(float aspect) { if (aspect > 0.0f) m_Impl->ViewAspect = aspect; }
+    void ScriptEngine::SetHost(ScriptHost* host) { m_Impl->Host = host; }
+
+    void ScriptEngine::SetRestore(nlohmann::json state, bool loading) {
+        m_Impl->PendingRestore = std::move(state);
+        m_Impl->HasPendingRestore = true;
+        m_Impl->PendingLoading = loading;
+    }
+
+    nlohmann::json ScriptEngine::CaptureState(const std::function<bool(uint64_t)>& include) {
+        Impl& m = *m_Impl;
+        nlohmann::json out = { { "game", nlohmann::json::object() }, { "shared", nlohmann::json::object() },
+                               { "scripts", nlohmann::json::object() } };
+        if (!m.Lua || !m.ActiveScene) return out;
+        for (const char* name : { "game", "shared" }) {
+            try { sol::object v = (*m.Lua)[name]; out[name] = m.ToJson(v); }
+            catch (const std::exception& ex) { m.ReportError(std::string("[script] saving ") + name + ": " + ex.what()); }
+        }
+        auto& reg = m.ActiveScene->Registry();
+        std::vector<entt::entity> handles;               // on_save may (wrongly) start or stop scripts
+        for (auto& [h, inst] : m.Instances) handles.push_back(h);
+        for (entt::entity h : handles) {
+            auto it = m.Instances.find(h);
+            if (it == m.Instances.end() || !reg.valid(h) || reg.all_of<TransientComponent>(h)) continue;
+            ScriptInstance& inst = it->second;
+            if (!inst.Enabled || !inst.OnSave.valid()) continue;
+            const uint64_t uid = m.ActiveScene->GetID(h);
+            if (include && !include(uid)) continue;
+            auto result = inst.OnSave(inst.Self);
+            if (!m.Check(result, inst, "on_save")) continue;
+            sol::object value = result;
+            if (value.get_type() == sol::type::lua_nil || value.get_type() == sol::type::none) continue;
+            try { out["scripts"][std::to_string(uid)] = m.ToJson(value); }
+            catch (const std::exception& ex) { m.ReportError("[script] " + inst.Path + " (on_save): " + ex.what()); }
+        }
+        return out;
+    }
 
     bool ScriptEngine::IsRunning() const { return m_Impl->Lua != nullptr; }
     uint32_t ScriptEngine::InstanceCount() const { return (uint32_t)m_Impl->Instances.size(); }
@@ -1287,9 +1508,26 @@ namespace Engine {
         m.KeyPrev = m.KeyNow;       // keys already held when Play starts don't count as pressed
         m.MousePrev = m.MouseNow;
 
+        // A restored level or a level change: `game` and `shared` come back before any on_create
+        if (m.HasPendingRestore) {
+            const nlohmann::json& r = m.PendingRestore;
+            for (const char* name : { "game", "shared" }) {
+                auto it = r.find(name);
+                if (it == r.end() || !(it->is_object() || it->is_array())) continue;
+                try { (*m.Lua)[name] = m.FromJson(*it); }
+                catch (const std::exception& ex) { m.ReportError(std::string("[script] restoring ") + name + ": " + ex.what()); }
+            }
+            if (auto it = r.find("scripts"); it != r.end() && it->is_object()) m.RestoreScripts = *it;
+            m.Loading = m.PendingLoading;
+            m.HasPendingRestore = false;
+            m.PendingRestore = nullptr;
+        }
+
         // Start everything now so on_create runs before the first frame
         m.StartNewInstances(scene.Registry());
         m.FlushDestroys(scene);
+        m.Loading = false;
+        m.RestoreScripts = nlohmann::json::object();
         ENGINE_INFO("Scripts started: {} running", m.Instances.size());
     }
 

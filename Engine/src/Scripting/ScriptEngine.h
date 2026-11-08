@@ -1,6 +1,8 @@
 #pragma once
 #include <glm/glm.hpp>
+#include <nlohmann/json.hpp>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -13,6 +15,21 @@ namespace Engine {
     class PrefabLibrary;
     class NavGrid;
     struct ResourceRegistry;
+
+    // What saves.* and level.* reach (GameSession implements it)
+    class ScriptHost {
+    public:
+        virtual ~ScriptHost() = default;
+        virtual bool SaveGame(const std::string& slot, const std::string& name, std::string& error) = 0;
+        virtual bool RequestLoad(const std::string& slot) = 0;       // false: no such save
+        virtual bool DeleteSave(const std::string& slot) = 0;
+        virtual nlohmann::json ListSaves() const = 0;               // newest first
+        virtual void RequestLevel(const std::string& scene, const std::string& entry, const std::vector<uint64_t>& carry) = 0;
+        virtual std::string CurrentLevel() const = 0;
+        virtual std::string LevelEntry() const = 0;
+        virtual bool Arrived() const = 0;          // this level was entered by level.change (not a load or a new game)
+        virtual float PlayTime() const = 0;
+    };
 
     // One ui.* call: drawn by the app over the game view for the frame it was made in, in call
     // order (later items on top). Positions and sizes are 0..1 of the view's width / height.
@@ -46,6 +63,27 @@ namespace Engine {
     //   on_trigger_enter(self, other)           one of the two is a trigger (sensor) body
     //   on_trigger_exit(self, other)
     //   on_anim_event(self, name, clip)         an Animator event fired (see e.animator), or "end" of a non-looping clip
+    //   on_save(self) -> table                  a save game (or leaving the level) stores what it returns
+    //   on_load(self, data)                     right after on_create, when the level is restored: data = that table
+    //
+    // ---- Save games and levels (Runtime/GameSession). Entities are saved by the engine (everything that
+    // differs from the scene file); a script saves its own variables through on_save / on_load. Saved
+    // tables hold nil, booleans, numbers, strings, vec3, entities (restored by uid) and nested tables.
+    //   game                                 a table saved with the game and kept across level changes (party,
+    //                                        quests, gold). `shared` is per level (saved with the level).
+    //   saves.save(slot [, name]) -> true or false, error      at once; slot: letters, digits, _ and -
+    //   saves.load(slot) -> true or false     the game loads at the start of the next frame
+    //   saves.list() -> { { slot, name, level, time = "2026-11-08 14:02", play_time }... }   newest first
+    //   saves.exists(slot), saves.delete(slot)
+    //   level.change(scene [, entry [, { carry = { entities } }]])   next frame: this level is kept as it is
+    //       (coming back restores it), the new one loads (as left, if visited). Carried entities (and their
+    //       children, with their script data) move along. entry: a name for scripts (level.entry()).
+    //   level.current() -> scene file, level.entry() -> entry or nil, level.play_time() -> seconds
+    //   level.arrived() -> true if this level was just entered by level.change (also after a restart of it):
+    //       place the party at the entry then; after a load it stands where it was saved
+    //   scene.is_loading() -> true during on_create / on_load of a restored level (a save, or a level visited
+    //       before): don't spawn level content then, it was saved
+    //   e.uid -> stable id (kept by saves), scene.find_uid(uid), e.transient (true: never saved, e.g. markers)
     //
     // ---- Entity (self, other, results of scene.find / spawn / clone)
     //   e.name, e.position, e.rotation (radians), e.scale     read/write, LOCAL (relative to the parent);
@@ -151,6 +189,14 @@ namespace Engine {
         void SetPrefabs(PrefabLibrary* prefabs);   // for scene.spawn_prefab
         void SetNavigation(NavGrid* nav);          // for nav.*
         void SetViewAspect(float aspect);          // width / height of the game view, for scene.screen_ray
+        void SetHost(ScriptHost* host);            // for saves.* and level.*
+
+        // Script state for a save game: { "game": {...}, "shared": {...}, "scripts": { "<uid>": on_save(self) } }.
+        // include: which entities' scripts to ask (by uid; null = all). Errors in on_save are reported and skipped.
+        nlohmann::json CaptureState(const std::function<bool(uint64_t)>& include = nullptr);
+        // The next Start restores this: `game` and `shared` before any on_create, and each entity's
+        // on_load(self, data) right after its on_create. loading: scene.is_loading() is true meanwhile.
+        void SetRestore(nlohmann::json state, bool loading);
 
         void Start(Scene& scene);              // call when Play starts (after PhysicsWorld::Sync)
         void Update(Scene& scene, float dt);   // call once per simulated frame, before the physics step

@@ -49,18 +49,18 @@
 #include <vector>
 #include <algorithm>
 
-class SandboxApp : public Engine::Application {
+class EditorApp : public Engine::Application {
 public:
     // The editor opens full screen (borderless, at the monitor's resolution); F11 switches to a window
     static Engine::WindowProps EditorWindow() {
         Engine::WindowProps p;
-        p.Title = "Sandbox";
+        p.Title = "MDB Editor";
         p.Width = 1600;
         p.Height = 900;
         p.Fullscreen = EnvVar("MDB_WINDOWED") != "1";   // test hook: screen captures need a normal window
         return p;
     }
-    SandboxApp() : Application(EditorWindow()) {}
+    EditorApp() : Application(EditorWindow()) {}
 
     void OnStart() override {
         using namespace Engine;
@@ -69,6 +69,11 @@ public:
         m_Resources = std::make_unique<ResourceLibrary>(std::string(ASSET_DIR));
         m_Renderer = std::make_unique<SceneRenderer>(std::string(ASSET_DIR));
         m_Session = std::make_unique<GameSession>(m_Scene, std::string(ASSET_DIR), m_Resources->Registry());
+        {   // save slots while play-testing: MDB_SAVE_DIR, else %APPDATA%/MDB Engine/Editor Saves
+            std::string dir = EnvVar("MDB_SAVE_DIR");
+            if (dir.empty()) { const std::string app = EnvVar("APPDATA"); dir = app.empty() ? std::string("Saves") : app + "/MDB Engine/Editor Saves"; }
+            m_Session->SetSaveDirectory(dir);
+        }
 
         m_Cube = m_Resources->Cube();
         m_Plane = m_Resources->Plane();
@@ -196,6 +201,7 @@ public:
         if (auto demo = EnvVar("MDB_DEMO"); demo == "1" || demo == "script") BuildLevel(BuildScriptDemo);
         else if (demo == "coinrush") BuildLevel(BuildCoinRush);
         else if (demo == "tactics") BuildLevel(BuildTacticsTest);
+        else if (demo == "cellar") BuildLevel(BuildTacticsCellar);
         if (auto ts = EnvVar("MDB_TEST_SCRIPT"); !ts.empty())
             m_Scene.CreateEntity("Test").Add<ScriptComponent>().Path = ts;
         if (auto sv = EnvVar("MDB_SAVE_SCENE"); !sv.empty()) SaveScene(sv);
@@ -237,10 +243,14 @@ public:
 
         switch (m_PlayCmd) {
         case PlayCmd::Play:
-            if (m_PlayState == PlayState::Edit) { StartPlay(); m_Session->Start(); }
+            if (m_PlayState == PlayState::Edit) { StartPlay(); m_Session->NewGame(m_SceneFile); m_Session->Start(); }
             break;
         case PlayCmd::Stop:   // the session first: Restore invalidates every entity handle
-            if (m_PlayState != PlayState::Edit) { m_Session->Stop(); StopPlay(); }
+            if (m_PlayState != PlayState::Edit) {
+                m_Session->Stop();
+                if (m_Session->SceneReplaced()) ApplyRenderSettings(m_PlaySettings);   // a level change brought its own
+                StopPlay();
+            }
             break;
         case PlayCmd::Pause:
             if (m_PlayState == PlayState::Play)        m_PlayState = PlayState::Paused;
@@ -249,11 +259,8 @@ public:
         case PlayCmd::Step:
             if (m_PlayState == PlayState::Paused) m_StepFrame = true;
             break;
-        case PlayCmd::Restart:   // scene.restart() from a script: Stop, then Play again
-            if (m_PlayState != PlayState::Edit) {
-                m_Session->Stop(); StopPlay();
-                StartPlay(); m_Session->Start();
-            }
+        case PlayCmd::Restart:   // the current level again, as it was entered (the session does it next frame)
+            if (m_PlayState != PlayState::Edit) m_Session->RequestRestart();
             break;
         default: break;
         }
@@ -348,6 +355,16 @@ public:
 
         const bool simulate = m_PlayState == PlayState::Play || m_StepFrame;
         if (simulate) {
+            // A save loaded, a level change or a restart (asked for last frame): the session replaces
+            // the scene, and the new level brings its render settings (put back on Stop)
+            {
+                Engine::SceneSettings s = GatherSettings();
+                if (m_Session->ApplyPending(s)) {
+                    m_Renderer->ApplySettings(s);
+                    m_Selected = entt::null;      // the old handles are gone
+                    m_Spawned.clear();
+                }
+            }
             // ui.button / ui.mouse: the pointer over the viewport (last frame's layout), only while
             // looking through the game camera (otherwise clicks belong to the editor)
             {
@@ -357,8 +374,7 @@ public:
                 m_Session->Scripts().SetPointer(px, py, m_ViewportHovered && m_ViewingGame, ImGui::IsMouseDown(ImGuiMouseButton_Left));
                 m_Session->Scripts().SetViewAspect(aspect);   // for scene.screen_ray
             }
-            m_Session->Update(dt, m_StepFrame);
-            if (m_Session->ConsumeRestartRequest()) m_PlayCmd = PlayCmd::Restart;   // next frame
+            m_Session->Update(dt, m_StepFrame);            // scene.restart() is handled by the session
             if (m_Session->Scripts().ConsumeQuitRequest()) m_PlayCmd = PlayCmd::Stop;   // scene.quit(): the editor stops Play
         }
         else {
@@ -437,9 +453,9 @@ public:
         m_History.Track(m_Scene, m_Selected, m_Resources->Registry(), "Duplicate " + copy.Get<Engine::TagComponent>().Tag);
     }
 
-    // "Sandbox - coin_rush.json *": the star means unsaved changes
+    // "MDB Editor - coin_rush.json *": the star means unsaved changes
     void UpdateTitle() {
-        std::string title = "Sandbox - " + m_SceneFile + (m_History.IsDirty() ? " *" : "");
+        std::string title = "MDB Editor - " + m_SceneFile + (m_History.IsDirty() ? " *" : "");
         if (title != m_Title) { m_Title = title; SetTitle(title); }
     }
 
@@ -510,6 +526,7 @@ public:
     void StartPlay() {
         if (m_PlayState != PlayState::Edit) return;
         m_Snapshot = m_Scene.Capture(m_Selected, m_SnapshotSelected);
+        m_PlaySettings = GatherSettings();   // put back on Stop if a level change replaced them
         m_PlayState = PlayState::Play;
     }
 
@@ -641,6 +658,13 @@ public:
         return s;
     }
 
+    // The renderer's part and gravity, not the editor camera (used when Play ends after a level change)
+    void ApplyRenderSettings(const Engine::SceneSettings& s) {
+        m_Renderer->ApplySettings(s);
+        m_Gravity = s.Gravity;
+        m_Session->Physics().SetGravity(m_Gravity);
+    }
+
     void ApplySettings(const Engine::SceneSettings& s) {
         m_Renderer->ApplySettings(s);            // a new environment bakes at the start of the next Render
         m_Gravity = s.Gravity;
@@ -691,7 +715,7 @@ public:
         m_Spawned.clear();
         build(m_Scene, MakeLevelAssets(), m_Session->Prefabs());
         m_History.Track(m_Scene, m_Selected, m_Resources->Registry(),
-            build == BuildCoinRush ? "Build Coin Rush" : build == BuildTacticsTest ? "Build tactics test" : "Build script demo");   // undoable like any edit
+            build == BuildCoinRush ? "Build Coin Rush" : build == BuildTacticsTest ? "Build tactics test" : build == BuildTacticsCellar ? "Build tactics cellar" : "Build script demo");   // undoable like any edit
     }
 
     // ------------------------------------------------------------ game camera
@@ -989,6 +1013,7 @@ private:
                 if (ImGui::MenuItem("Script Demo")) BuildLevel(BuildScriptDemo);
                 if (ImGui::MenuItem("Coin Rush")) BuildLevel(BuildCoinRush);
                 if (ImGui::MenuItem("Tactics Test (navigation)")) BuildLevel(BuildTacticsTest);
+                if (ImGui::MenuItem("Tactics Cellar (second level)")) BuildLevel(BuildTacticsCellar);
                 ImGui::EndMenu();
             }
             ImGui::EndDisabled();
@@ -2769,6 +2794,7 @@ private:
     PlayState m_PlayState = PlayState::Edit;
     PlayCmd   m_PlayCmd = PlayCmd::None;     // set by the UI, applied at the start of the next frame
     Engine::SceneSnapshot m_Snapshot;
+    Engine::SceneSettings m_PlaySettings;    // the render settings when Play started
     int  m_SnapshotSelected = -1;
     bool m_StepFrame = false;
     bool m_PDown = false, m_EscDown = false;
@@ -2833,5 +2859,5 @@ private:
 };
 
 std::unique_ptr<Engine::Application> Engine::CreateApplication() {
-    return std::make_unique<SandboxApp>();
+    return std::make_unique<EditorApp>();
 }

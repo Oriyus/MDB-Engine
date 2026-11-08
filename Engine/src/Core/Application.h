@@ -46,7 +46,7 @@ namespace Engine {
         static inline std::vector<std::string> s_Args;
     };
 
-    // Defined by the game (Sandbox)
+    // Defined by each app (the editor, MDBEditor, and the standalone Game)
     std::unique_ptr<Application> CreateApplication();
 
 } // namespace Engine

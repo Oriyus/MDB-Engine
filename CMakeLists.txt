@@ -50,5 +50,8 @@ FetchContent_MakeAvailable(glfw glm spdlog entt imgui assimp json JoltPhysics lu
 
 add_subdirectory(vendor/glad)
 add_subdirectory(Engine)
-add_subdirectory(Sandbox)
+add_subdirectory(Editor)
 add_subdirectory(Game)
+
+# Visual Studio: F5 runs the editor
+set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT MDBEditor)

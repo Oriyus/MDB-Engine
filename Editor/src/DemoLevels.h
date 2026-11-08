@@ -38,3 +38,7 @@ void BuildCoinRush(Engine::Scene& scene, const LevelAssets& assets, Engine::Pref
 // dais, a thin fence on a cell boundary and crates. The fox hero and three enemy blocks have no body:
 // tactics.lua moves them. Scripts: tactics.lua (modes, turns, overlay tiles), tactics_camera.lua
 void BuildTacticsTest(Engine::Scene& scene, const LevelAssets& assets, Engine::PrefabLibrary& prefabs);
+
+// The second tactics level: a cellar reached by the yard's glowing pad (and back). Both levels have a
+// chest (chest.lua) whose gold goes into the saved `game` table. exit.lua changes level.
+void BuildTacticsCellar(Engine::Scene& scene, const LevelAssets& assets, Engine::PrefabLibrary& prefabs);

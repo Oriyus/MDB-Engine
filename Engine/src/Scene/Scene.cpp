@@ -545,6 +545,7 @@ namespace Engine {
         if (auto* c = m_Registry.try_get<AnimatorComponent>(handle))         s.Animator = *c;
         if (auto* c = m_Registry.try_get<ParticleEmitterComponent>(handle))  s.Particles = *c;
         if (auto* c = m_Registry.try_get<PrefabComponent>(handle))           s.Prefab = *c;
+        s.Transient = m_Registry.all_of<TransientComponent>(handle);
         return s;
     }
 
@@ -570,6 +571,7 @@ namespace Engine {
         if (s.Animator)         m_Registry.emplace<AnimatorComponent>(e, *s.Animator);
         if (s.Particles)        m_Registry.emplace<ParticleEmitterComponent>(e, *s.Particles);
         if (s.Prefab)           m_Registry.emplace<PrefabComponent>(e, *s.Prefab);
+        if (s.Transient)        m_Registry.emplace<TransientComponent>(e);
         return e;
     }
 

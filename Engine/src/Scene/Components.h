@@ -25,6 +25,12 @@ namespace Engine {
 
     // This entity is a child of the entity with that ID: its Transform is relative to the parent's.
     // Moving, rotating or scaling the parent carries its children along.
+    // Runtime-only: never written to save games (a script's overlay markers, one-shot effects). Set by
+    // scripts (e.transient) and scene.spawn_particles. Not stored in scene files either.
+    struct TransientComponent {
+        bool Value = true;
+    };
+
     struct ParentComponent {
         uint64_t Parent = 0;
     };

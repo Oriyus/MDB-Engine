@@ -44,6 +44,7 @@ local function tile(pos, color, alpha, size, lift)
         t:add_mesh{ geometry = "cube", color = color, opacity = alpha, cast_shadows = false,
                     roughness = 1, metallic = 0 }   -- rough: no sky reflection washing the colour out
         t.parent = owner                   -- grouped under this entity in the Hierarchy
+        t.transient = true                 -- never saved
         tiles[used] = t
     end
     local s = (size or 0.9) * cs
@@ -269,22 +270,68 @@ end
 
 local function draw_ui()
     local combat = mode == "combat"
-    ui.rect(0.012, 0.015, 0.38, combat and 0.165 or 0.13, { color = vec3(0.02, 0.03, 0.05), alpha = 0.55, rounding = 6 })
+    local dim = { size = 17, color = vec3(0.7, 0.75, 0.8) }
+    ui.rect(0.012, 0.015, 0.38, combat and 0.2 or 0.165, { color = vec3(0.02, 0.03, 0.05), alpha = 0.55, rounding = 6 })
     panel_text("TACTICS TEST", 0, { size = 22, color = vec3(1, 0.85, 0.4) })
     if not combat then
         panel_text("Exploring: click the ground to walk (free movement).", 1)
         panel_text("C or the button: combat. Walk near an enemy: ambush.", 2)
-        panel_text("Q / E: turn the camera.", 3, { size = 17, color = vec3(0.7, 0.75, 0.8) })
+        panel_text("Q / E: turn the camera.  F6 quicksave, F9 quickload.", 3, dim)
     else
         local u = units[turn]
         panel_text("Combat: " .. (u.enemy and (u.name .. " is moving...") or "your turn"), 1)
         panel_text(string.format("Movement %.1f / %d   (diagonal steps cost %.1f)", math.max(points, 0), move_points, diagonal), 2)
         panel_text("Click a blue cell to move. Space: end turn.", 3)
-        panel_text("C: leave combat. Q / E: turn the camera.", 4, { size = 17, color = vec3(0.7, 0.75, 0.8) })
+        panel_text("C: leave combat. Q / E: turn the camera.", 4, dim)
     end
+    local t = level.play_time()
+    panel_text(string.format("Gold %d     %s     %d:%02d", game.gold or 0, level.current(), math.floor(t / 60), math.floor(t % 60)),
+        combat and 5 or 4, { size = 17, color = vec3(1, 0.85, 0.4) })
     if message and message_time > 0 then
         ui.text(message, 0.5, 0.08, { size = 28, align = "center", alpha = math.min(1, message_time) })
     end
+end
+
+-- ---- save slots: F6 / F9 quicksave and quickload, and a panel with three slots ("Saves" button)
+local menu_open = false
+local slot_info = {}               -- slot -> { name, time, level, play_time } (read when the panel opens)
+local menu_x, menu_y, menu_w, menu_h = 0.6, 0.12, 0.38, 0.36
+
+local function refresh_slots()
+    slot_info = {}
+    for _, s in ipairs(saves.list()) do slot_info[s.slot] = s end
+end
+
+local function save_to(slot)
+    if mode == "combat" then say("You can't save during combat") return end
+    local name = string.format("%s, %d gold", level.current(), game.gold or 0)
+    local ok, err = saves.save(slot, name)
+    say(ok and ("Saved: " .. slot) or ("Save failed: " .. tostring(err)))
+    refresh_slots()
+end
+
+local function load_from(slot)
+    if saves.load(slot) then say("Loading " .. slot .. "...") else say("No save in " .. slot) end
+end
+
+-- Draws the panel; true if the mouse is over it (so clicks there don't walk)
+local function draw_save_menu(mx, my)
+    if not menu_open then return false end
+    ui.rect(menu_x, menu_y, menu_w, menu_h, { color = vec3(0.02, 0.03, 0.05), alpha = 0.8, rounding = 8 })
+    ui.text("SAVE SLOTS", menu_x + 0.015, menu_y + 0.015, { size = 22, color = vec3(1, 0.85, 0.4) })
+    for i = 1, 3 do
+        local slot = "slot" .. i
+        local y = menu_y + 0.07 + (i - 1) * 0.095
+        local s = slot_info[slot]
+        ui.text(s and s.name or "(empty)", menu_x + 0.015, y, { size = 18 })
+        if s then
+            ui.text(string.format("%s   played %d:%02d", s.time, math.floor(s.play_time / 60), math.floor(s.play_time % 60)),
+                menu_x + 0.015, y + 0.032, { size = 15, color = vec3(0.7, 0.75, 0.8) })
+        end
+        if ui.button("Save", menu_x + 0.22, y, 0.07, 0.055, { rounding = 5 }) then save_to(slot) end
+        if s and ui.button("Load", menu_x + 0.295, y, 0.07, 0.055, { rounding = 5, color = vec3(0.25, 0.45, 0.85) }) then load_from(slot) end
+    end
+    return mx >= menu_x and mx <= menu_x + menu_w and my >= menu_y and my <= menu_y + menu_h
 end
 
 -- ---- callbacks
@@ -298,6 +345,18 @@ function on_create(self)
     if not h then
         log("tactics.lua: no entity named Hero")
         return
+    end
+    -- Arrived from another level (level.change): stand at this level's "Entry: <entry>". After a load
+    -- the hero stands where it was saved instead.
+    local entry = level.entry()
+    if level.arrived() and entry then
+        local spot = scene.find("Entry: " .. entry)
+        if spot then
+            h.position = spot.position
+            h.rotation = spot.rotation
+        else
+            log("tactics.lua: no entity named 'Entry: " .. entry .. "'")
+        end
     end
     hero = { e = h, name = "Hero", enemy = false }
     table.insert(units, hero)
@@ -325,10 +384,20 @@ function on_update(self, dt)
         end_turn()
         ui_click = true
     end
+    if ui.button(menu_open and "Close" or "Saves", 0.50, 0.91, 0.14, 0.065, { rounding = 6 }) then
+        menu_open = not menu_open
+        if menu_open then refresh_slots() end
+        ui_click = true
+    end
+    local over_menu = draw_save_menu(mx, my)
     if input.key_pressed(Key.C) then toggle_combat() end
     if hero_turn and input.key_pressed(Key.Space) then end_turn() end
+    if input.key_pressed(Key.F6) then save_to("quick") end
+    if input.key_pressed(Key.F9) then load_from("quick") end
+    if shared.notice then say(shared.notice); shared.notice = nil end   -- from other scripts (chest.lua)
+    shared.mode = mode                                                   -- exit.lua: no level change in combat
 
-    local click = inside and not ui_click and my < 0.89 and input.mouse_pressed(Mouse.Left)
+    local click = inside and not ui_click and not over_menu and my < 0.89 and input.mouse_pressed(Mouse.Left)
     if mode == "explore" then
         update_explore(dt, mx, my, click)
     elseif units[turn].enemy then
