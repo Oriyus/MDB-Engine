@@ -8,7 +8,8 @@
 #include <vector>
 
 // File > Build Game: makes a folder you can zip and ship, on a background thread.
-//   1. compiles Game.exe in Release (cmake --build <build dir> --config Release --target Game)
+//   1. compiles Game.exe in Release (cmake --build <build dir> --config Release --target Game), or, in a
+//      packaged editor (package_editor), copies the prebuilt Player/Game.exe next to MDBEditor.exe
 //   2. <output>/<title>/: <title>.exe, EngineAssets/, the project's Assets/ (without its "exclude" files)
 //      and project.json, so the exe finds everything next to itself
 // An existing <output>/<title> folder is replaced only if it looks like an earlier build (it has project.json).

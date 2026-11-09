@@ -19,6 +19,9 @@ namespace Platform {
     // The folder picker. Returns the chosen folder (absolute, UTF-8), or "" if cancelled.
     std::string PickFolder(const std::string& title, const std::string& startIn = "");
 
+    // The folder this executable is in (absolute, UTF-8, '/'-separated, no trailing slash)
+    std::string ExeDir();
+
     // Start this executable again with these arguments (each quoted as needed). False if it failed.
     bool LaunchSelf(const std::vector<std::string>& args);
 

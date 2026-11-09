@@ -3,6 +3,7 @@
 #include "Renderer/Model.h"
 #include "Renderer/Texture.h"
 
+#include <filesystem>
 #include <vector>
 
 namespace Engine {
@@ -61,6 +62,12 @@ namespace Engine {
         if (auto it = m_Models.find(path); it != m_Models.end()) return it->second;
         auto model = std::make_shared<Model>(m_AssetDir + path);
         if (!model->IsValid()) model = nullptr;          // remembered too: don't retry every frame
+        else {
+            // A kit piece: its folder holds kit.json (see Model::NativeSize)
+            std::error_code ec;
+            const auto folder = std::filesystem::u8path(m_AssetDir + path).parent_path();
+            model->NativeSize = std::filesystem::exists(folder / "kit.json", ec);
+        }
         return m_Models[path] = model;
     }
 

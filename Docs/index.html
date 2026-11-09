@@ -159,8 +159,10 @@ footer { color: var(--muted); font-size: 13px; margin-top: 40px; }
 cmake --build build --config Debug
 .\build\bin\Debug\MDBEditor.exe [--project folder]              # the editor (the last project, else Examples)
 .\build\bin\Debug\Game.exe [--project folder] [--scene x.json]   # the game (default: Examples)
-cmake --build build --config Release --target package_game   # build/dist/Release: the Examples game</code></pre>
+cmake --build build --config Release --target package_game   # build/dist/Release: the Examples game
+cmake --build build --config Release --target package_editor # build/dist/MDB Engine: the editor, ready to zip</code></pre>
 <ul>
+  <li><b>Sharing the editor.</b> <code>package_editor</code> makes a folder that runs on any PC without building: <code>MDBEditor.exe</code>, <code>Player/Game.exe</code> (a prebuilt Release player), <code>EngineAssets</code>, the <code>Examples</code> project, these docs and a <code>README.txt</code>. When <code>EngineAssets/Shaders</code> is next to the editor's exe, it uses that folder and the <code>Examples</code> beside it instead of the source tree, and File › Build Game copies <code>Player/Game.exe</code> instead of compiling. Recipients need the Microsoft Visual C++ Redistributable (x64), like players of a built game.</li>
   <li>After <b>adding or deleting</b> a source file, run the configure line again (engine sources are collected with a glob; editor sources are listed in <code>Editor/CMakeLists.txt</code>).</li>
   <li>Shaders are read at run time: <b>F5</b> reloads them without rebuilding.</li>
   <li>In Visual Studio, F5 starts the editor (it is the startup project).</li>
@@ -242,6 +244,44 @@ e.Add&lt;RigidBodyComponent&gt;().Type = BodyType::Static;</code></pre>
                   "meshRenderer": { "geometry": "cube", "color": [0.7, 0.45, 0.25] },
                   "rigidBody": { "type": "static", "shape": "box" } } ],
   "settings": { "physics": { "gravity": 9.81 } } }</code></pre>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-foliage">
+<h2>Grass and flowers (Foliage)</h2>
+<p>A <b>Foliage</b> component (Create &gt; Grass, or Add Component &gt; Foliage) covers an area of the entity's X/Z plane with grass and flower clumps. The clumps are generated from the settings and the <b>Seed</b>, so scene files store only the settings. They are drawn GPU-instanced, about one draw per 8 m chunk in view, and lit by the same shader as everything else: sun shadows, lights, sky light and fog of war all fall on them.</p>
+<table>
+<tr><th>Setting</th><th>What it does</th></tr>
+<tr><td>Size, Density, Seed</td><td>The area (metres, centred on the entity), clumps per m², and which random layout. <b>New seed</b> picks another.</td></tr>
+<tr><td>Avoid static objects</td><td>No grass where Static meshes meet the ground: walls, floors, posts, trunks, props. Grass still grows under fence rails and branches. Moving those objects scatters the grass again.</td></tr>
+<tr><td>Height, Height variation, Width</td><td>Clump size; flowers stand a little taller.</td></tr>
+<tr><td>Root / Tip / Dry color, Dry patches, Flowers</td><td>Blades shade from root to tip; dry patches turn the tips to the dry colour; Flowers is the share of flower clumps.</td></tr>
+<tr><td>Wind strength, speed, direction</td><td>Gusts roll across the field along the direction (0° blows towards +X, 90° towards +Z), and every clump flutters a little.</td></tr>
+<tr><td>Interaction, Recovery</td><td>How far things bend the grass when they move through it, and how many seconds it takes to stand up again (leaving trails).</td></tr>
+<tr><td>Draw distance</td><td>The grass thins out smoothly over the second half of it.</td></tr>
+</table>
+<p>What presses the grass: every <b>dynamic or kinematic</b> rigid body (not triggers) near it, sized by its collider, and <code>foliage.push</code> from scripts. Clicks go through the grass to whatever is under it. The village demo has 11,600 clumps (about 790,000 triangles), which cost about 0.7 ms a frame in a Debug build.</p>
+<div class="note">Grass receives shadows but casts none. It stands on the entity's flat plane (it does not follow terrain).</div>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-kits">
+<h2>Modular kits (Village)</h2>
+<p>Models come in any units, so the editor normally scales a model it places to 2 m across and stands it on the origin. A <b>kit</b> is a folder of pieces that must snap together, so they keep their own size and pivot instead: a model whose folder holds a <code>kit.json</code> file is loaded with <code>Model::NativeSize</code>. Placing one from the Assets panel (dragged onto the viewport or double-clicked) also snaps it to the 0.5 m grid, marks it <b>Static</b> (merged into static batches) and gives it a static <b>Mesh</b> body, so the nav grid sees it.</p>
+<p><code>Examples/Assets/Models/Village</code> is an abandoned-village kit made in Blender by <code>Tools/village_kit.py</code> (procedural textures, deterministic). <code>Scenes/village.json</code> is a demo village built from it.</p>
+<p>Each piece is a <code>.gltf</code> with its <code>.bin</code>, and every piece uses the same texture atlas, <code>village_atlas.jpg</code> (the ground has its own repeating <code>village_ground.jpg</code>). A building piece therefore has one material and costs one draw per view; only iron fittings, rope and the well's water are separate small materials. The atlas holds 4 × 4 m of each texture (plaster, stone, wood, dark timber, shingles, bark), so a single face can be up to 4 m across. The engine loads each image once, whichever models use it: model textures are shared by file path, and embedded ones by content.</p>
+<table>
+<tr><th>Pieces</th><th>Pivot and fit</th></tr>
+<tr><td><code>wall</code>, <code>wall_window</code>, <code>wall_door</code>, <code>wall_broken</code>, <code>wall_ruin</code> (about 1 m: half cover)</td><td>2 m wide, 3 m high, 0.2 m thick, centred on its wall line, outside towards +Z. Bottom centre.</td></tr>
+<tr><td><code>corner_post</code></td><td>At every grid point where walls meet (it hides the joint).</td></tr>
+<tr><td><code>gable</code></td><td>The 4 m triangle above an end wall, placed at 3 m.</td></tr>
+<tr><td><code>roof</code>, <code>roof_broken</code>, <code>roof_ridge</code></td><td>Placed at 3 m. A roof slope covers the 2 m between its wall line and the ridge (45°, so houses are 4 m deep): pivot in the middle, eave towards +Z. The ridge goes on the ridge line.</td></tr>
+<tr><td><code>floor</code>, <code>floor_broken</code></td><td>2 × 2 m tile, top at 0.06.</td></tr>
+<tr><td><code>door</code></td><td>Hinge edge, bottom: turn it about Y to open it. Fits <code>wall_door</code> (opening 1.2 × 2.2 m).</td></tr>
+<tr><td><code>fence</code>, <code>fence_broken</code>, <code>fence_post</code></td><td>2 m, its post at the −X end; end a run with <code>fence_post</code>.</td></tr>
+<tr><td><code>barrel</code>, <code>crate</code>, <code>crate_broken</code>, <code>rubble</code>, <code>debris</code>, <code>well</code>, <code>dead_tree</code>, <code>signpost</code></td><td>Props, bottom centre.</td></tr>
+<tr><td><code>ground</code></td><td>10 × 10 m, top at 0; tiles side by side continue the texture.</td></tr>
+</table>
+<div class="note">Keep walls, posts and roofs on <b>whole metres</b> (the editor's Snap moves by 0.5 m). Nav cells are 1 m, so a doorway centred on a whole metre has two cell centres in it, and the cells beside a wall stay walkable. <code>Scripts/village_nav_test.lua</code> checks this on the demo village (<code>MDB_SCENE=village.json MDB_AUTOPLAY=1 MDB_TEST_SCRIPT=Scripts/village_nav_test.lua</code>, 16 checks).</div>
+<p>To change the kit, edit <code>Tools/village_kit.py</code> and run it with Blender (4.2 or later): <code>blender --background --factory-startup --python Tools/village_kit.py -- &lt;repo&gt; [--preview &lt;folder&gt;] [--log &lt;file&gt;]</code>. It rewrites the pieces, <code>kit.json</code> and <code>village.json</code>; <code>--preview</code> also renders every piece and a contact sheet.</p>
 </section>
 
 <section class="doc" data-group="Engine" id="engine-prefabs">
@@ -627,7 +667,7 @@ MDBEditor.exe &gt; log.txt</code></pre>
 <tr><td>F</td><td>Frame the selection</td></tr>
 <tr><td>Click</td><td>Select the entity under the mouse (entity-ID picking)</td></tr>
 </table>
-<p>Viewport menus: <b>View</b> (Stats, Colliders, Camera Frustums, Navigation Grid), <b>Debug</b> (Ambient Occlusion Only, Shadow Cascades), <b>Camera</b> (Frame Selected, orbit speed). Colliders draw as outlines (triggers in magenta); cameras draw as frustums.</p>
+<p>Viewport menus: <b>View</b> (Stats, Colliders, Camera Frustums, Navigation Grid), <b>Debug</b> (Ambient Occlusion Only, Shadow Cascades), <b>Camera</b> (Frame Selected, orbit speed). Colliders draw as outlines (triggers in magenta); mesh and convex-hull colliders show their full wireframe only when selected and a bounding box otherwise, so levels built from many mesh-collider pieces stay fast to edit. Cameras draw as frustums.</p>
 </section>
 
 <section class="doc" data-group="Editor" id="editor-gizmo">
@@ -913,6 +953,13 @@ p.rate = 40; p.emitting = false; p:burst(25); p:clear(); p:preset("Magic")
 p.start_color = vec3(1, 0.8, 0.2); p.end_color = vec3(1, 0, 0)
 
 scene.spawn_particles(self.position, "Sparks")    -- one-shot effect, removes itself</code></pre>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-foliage">
+<h2>Grass</h2>
+<p>Moving dynamic and kinematic bodies bend the grass by themselves. A character moved by its transform (no body) presses it with <code>foliage.push</code>, every frame while it walks:</p>
+<pre><code class="lua">foliage.push(self.position, 0.45)          -- radius 0.45 m; optional strength (default 1, up to 2)
+local clumps = scene.render_stats().foliage   -- clumps drawn last frame</code></pre>
 </section>
 
 <section class="doc" data-group="Scripting" id="script-animation">

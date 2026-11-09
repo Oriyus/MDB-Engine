@@ -3,7 +3,7 @@
 in vec3 v_WorldPos;
 in vec3 v_Normal;
 in vec2 v_TexCoord;
-flat in vec4  v_Color;       // per instance (DrawList): rgb sRGB-style, a alpha
+in vec4  v_Color;            // per instance (DrawList), or per vertex (foliage.vert): rgb sRGB-style, a alpha
 flat in vec2  v_Surface;     // metallic, roughness
 flat in vec3  v_Emissive;
 flat in int   v_EntityID;

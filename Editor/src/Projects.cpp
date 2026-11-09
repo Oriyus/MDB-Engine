@@ -1,4 +1,5 @@
 #include "Projects.h"
+#include "Platform.h"
 
 #include "Core/Application.h"
 #include "Core/Log.h"
@@ -49,6 +50,18 @@ namespace Projects {
             if (out) out << nlohmann::json{ { "recent", list } }.dump(2) << "\n";
         }
 
+        // A packaged editor (cmake --target package_editor) has EngineAssets and Examples next to its exe.
+        // A build-tree editor has neither and uses the source tree's folders compiled in.
+        std::string BaseDir() {
+            static const std::string dir = [] {
+                const std::string exe = Platform::ExeDir();
+                std::error_code ec;
+                return fs::is_directory(fs::u8path(exe) / "EngineAssets" / "Shaders", ec)
+                    ? Engine::Project::Normalize(exe) : std::string(MDB_SOURCE_DIR);
+            }();
+            return dir;
+        }
+
         bool Same(const std::string& a, const std::string& b) {
             std::error_code ec;
             return Engine::Project::Normalize(a) == Engine::Project::Normalize(b)
@@ -64,22 +77,22 @@ namespace Projects {
                 folder = Env("MDB_PROJECT");
                 if (!folder.empty()) {
                     remember = false;                                   // test runs leave the recent list alone
-                    if (!Engine::Project::IsProject(folder) && Engine::Project::IsProject(std::string(MDB_SOURCE_DIR) + folder))
-                        folder = std::string(MDB_SOURCE_DIR) + folder;
+                    if (!Engine::Project::IsProject(folder) && Engine::Project::IsProject(BaseDir() + folder))
+                        folder = BaseDir() + folder;
                 }
             }
             if (folder.empty()) {
                 for (const auto& r : ReadRecent()) if (Engine::Project::IsProject(r)) { folder = r; break; }
             }
-            if (folder.empty()) folder = EXAMPLES_DIR;
+            if (folder.empty()) folder = ExamplesDir();
 
             Engine::Project p;
             std::string error;
             if (!Engine::Project::Load(folder, p, &error)) {
                 LOG_ERROR("Can't open the project: {}. Opening the Examples project instead.", error);
-                if (!Engine::Project::Load(EXAMPLES_DIR, p, &error)) {
+                if (!Engine::Project::Load(ExamplesDir(), p, &error)) {
                     LOG_ERROR("{}", error);
-                    p.Root = Engine::Project::Normalize(EXAMPLES_DIR);
+                    p.Root = Engine::Project::Normalize(ExamplesDir());
                 }
             }
             if (remember) AddRecent(p.Root);
@@ -96,12 +109,19 @@ namespace Projects {
     const Engine::Project& Current() { return Storage(); }
     Engine::Project& CurrentMutable() { return Storage(); }
 
+    bool Packaged() { return BaseDir() != std::string(MDB_SOURCE_DIR); }
+
     const std::string& EngineDir() {
-        static const std::string dir = Engine::Project::Normalize(ENGINE_ASSET_DIR);
+        static const std::string dir = Engine::Project::Normalize(Packaged() ? BaseDir() + "EngineAssets" : std::string(ENGINE_ASSET_DIR));
         return dir;
     }
 
-    bool IsExamples(const Engine::Project& project) { return Same(project.Root, EXAMPLES_DIR); }
+    const std::string& ExamplesDir() {
+        static const std::string dir = Engine::Project::Normalize(Packaged() ? BaseDir() + "Examples" : std::string(EXAMPLES_DIR));
+        return dir;
+    }
+
+    bool IsExamples(const Engine::Project& project) { return Same(project.Root, ExamplesDir()); }
 
     std::vector<std::string> Recent() {
         std::vector<std::string> out;

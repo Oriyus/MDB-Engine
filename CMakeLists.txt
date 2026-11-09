@@ -55,3 +55,22 @@ add_subdirectory(Game)
 
 # Visual Studio: F5 runs the editor
 set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT MDBEditor)
+# The editor as a folder you can zip and give to someone who will not build it:
+# build/dist/MDB Engine/ with MDBEditor.exe, Player/Game.exe (the prebuilt player File > Build Game copies),
+# EngineAssets, the Examples project and the documentation. The editor finds them next to its exe
+# (Projects::Packaged). Build it in Release:
+#   cmake --build build --config Release --target package_editor
+set(EDITOR_DIST_DIR "${CMAKE_BINARY_DIR}/dist/MDB Engine")
+add_custom_target(package_editor
+    COMMAND ${CMAKE_COMMAND} -E rm -rf ${EDITOR_DIST_DIR}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${EDITOR_DIST_DIR}/Player ${EDITOR_DIST_DIR}/Examples
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:MDBEditor> ${EDITOR_DIST_DIR}/
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:Game> ${EDITOR_DIST_DIR}/Player/
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/EngineAssets ${EDITOR_DIST_DIR}/EngineAssets
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/Examples/Assets ${EDITOR_DIST_DIR}/Examples/Assets
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/Examples/project.json ${EDITOR_DIST_DIR}/Examples/
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/Docs ${EDITOR_DIST_DIR}/Docs
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/Editor/package/README.txt ${EDITOR_DIST_DIR}/
+    COMMAND ${CMAKE_COMMAND} -E echo "Editor packaged in ${EDITOR_DIST_DIR}"
+    DEPENDS MDBEditor Game
+    VERBATIM)

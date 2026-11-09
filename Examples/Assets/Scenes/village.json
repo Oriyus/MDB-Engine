@@ -1,0 +1,9938 @@
+{
+  "entities": [
+    {
+      "id": 1398472707854180141,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 1.0,
+        "opacity": 1.0,
+        "roughness": 0.03999999910593033,
+        "static": false,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 0,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 1
+      },
+      "transform": {
+        "position": [
+          9.630270004272461,
+          0.2189258486032486,
+          6.163898468017578
+        ],
+        "rotation": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 7177312495217508281,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/ground.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Ground",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 1077755812133460511,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/ground.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Ground",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 836039650763798036,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/ground.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Ground",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 8693348754041190512,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/ground.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Ground",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 7443283460211601105,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/ground.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Ground",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 322137023740435929,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/ground.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Ground",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 6392603135540172178,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/ground.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Ground",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 907783145581771206,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/ground.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Ground",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 3270936131150551094,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/ground.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Ground",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 160745375477502153,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall_window.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall_window",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -8.0,
+          0.0,
+          -3.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 9100592678774730080,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall_door.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall_door",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -6.0,
+          0.0,
+          -3.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 146102112054215240,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall_window.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall_window",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -4.0,
+          0.0,
+          -3.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 5979659925760592211,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -4.0,
+          0.0,
+          -7.0
+        ],
+        "rotation": [
+          0.0,
+          3.1415927410125732,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 4466380225144381435,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall_window.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall_window",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -6.0,
+          0.0,
+          -7.0
+        ],
+        "rotation": [
+          0.0,
+          3.1415927410125732,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 4275475405615798525,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -8.0,
+          0.0,
+          -7.0
+        ],
+        "rotation": [
+          0.0,
+          3.1415927410125732,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 841975906058087775,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -9.0,
+          0.0,
+          -4.0
+        ],
+        "rotation": [
+          0.0,
+          4.71238899230957,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 6580046956622448451,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall_window.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall_window",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -9.0,
+          0.0,
+          -6.0
+        ],
+        "rotation": [
+          0.0,
+          4.71238899230957,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 7796963950386096914,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall_window.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall_window",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -3.0,
+          0.0,
+          -6.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 4640128026363694694,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -3.0,
+          0.0,
+          -4.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 8120906263943692206,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -9.0,
+          0.0,
+          -7.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 2304257268482558463,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -9.0,
+          0.0,
+          -3.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 6154346135789446998,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -7.0,
+          0.0,
+          -7.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 8414621974990733660,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -7.0,
+          0.0,
+          -3.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 632439670118359255,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -5.0,
+          0.0,
+          -7.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 6226946886582501948,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -5.0,
+          0.0,
+          -3.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 4750451339786717747,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -3.0,
+          0.0,
+          -7.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 423955249317381408,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -3.0,
+          0.0,
+          -3.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 7603578813712404002,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -9.0,
+          0.0,
+          -5.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 581788927911943511,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -3.0,
+          0.0,
+          -5.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 2789415677646520261,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/roof.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "roof",
+      "transform": {
+        "position": [
+          -8.0,
+          3.0,
+          -4.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 7841511348459877151,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/roof.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "roof",
+      "transform": {
+        "position": [
+          -8.0,
+          3.0,
+          -6.0
+        ],
+        "rotation": [
+          0.0,
+          3.1415927410125732,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 2457606612151497696,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/roof_ridge.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "roof_ridge",
+      "transform": {
+        "position": [
+          -8.0,
+          3.0,
+          -5.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 6045751964426858214,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/roof.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "roof",
+      "transform": {
+        "position": [
+          -6.0,
+          3.0,
+          -4.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 1844971594770472739,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/roof.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "roof",
+      "transform": {
+        "position": [
+          -6.0,
+          3.0,
+          -6.0
+        ],
+        "rotation": [
+          0.0,
+          3.1415927410125732,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 8084790317600029872,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/roof_ridge.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "roof_ridge",
+      "transform": {
+        "position": [
+          -6.0,
+          3.0,
+          -5.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 6137338290635318552,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/roof.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "roof",
+      "transform": {
+        "position": [
+          -4.0,
+          3.0,
+          -4.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 8683579254391230706,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/roof_broken.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "roof_broken",
+      "transform": {
+        "position": [
+          -4.0,
+          3.0,
+          -6.0
+        ],
+        "rotation": [
+          0.0,
+          3.1415927410125732,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 651062502466189254,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/roof_ridge.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "roof_ridge",
+      "transform": {
+        "position": [
+          -4.0,
+          3.0,
+          -5.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 3076087587811283025,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/gable.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "gable",
+      "transform": {
+        "position": [
+          -9.0,
+          3.0,
+          -5.0
+        ],
+        "rotation": [
+          0.0,
+          4.71238899230957,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 6548716956735635937,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/gable.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "gable",
+      "transform": {
+        "position": [
+          -3.0,
+          3.0,
+          -5.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 6063025082606497660,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/floor.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "floor",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -8.0,
+          0.0,
+          -6.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 1541340399809451925,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/floor.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "floor",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -8.0,
+          0.0,
+          -4.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 703134340415909128,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/floor.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "floor",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -6.0,
+          0.0,
+          -6.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 4580157520729359530,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/floor.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "floor",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -6.0,
+          0.0,
+          -4.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 694720031803317661,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/floor.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "floor",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -4.0,
+          0.0,
+          -6.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 1983895630353609160,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/floor.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "floor",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -4.0,
+          0.0,
+          -4.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 250217751538125233,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/door.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Door",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -6.550000190734863,
+          0.0,
+          -3.1500000953674316
+        ],
+        "rotation": [
+          0.0,
+          1.6580628156661987,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 3193415983690898273,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall_door.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall_door",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          9.0,
+          0.0,
+          -2.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 1022769692313317766,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall_broken.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall_broken",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          9.0,
+          0.0,
+          -4.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 4885465513070268840,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall_ruin.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall_ruin",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          5.0,
+          0.0,
+          -4.0
+        ],
+        "rotation": [
+          0.0,
+          4.71238899230957,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 6184287697463902378,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          5.0,
+          0.0,
+          -2.0
+        ],
+        "rotation": [
+          0.0,
+          4.71238899230957,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 4188717717738370913,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall_window.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall_window",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          8.0,
+          0.0,
+          -1.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 3839235750979865512,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall_broken.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall_broken",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          6.0,
+          0.0,
+          -1.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 6109435785400503236,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          6.0,
+          0.0,
+          -5.0
+        ],
+        "rotation": [
+          0.0,
+          3.1415927410125732,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 370823081754073747,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall_ruin.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall_ruin",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          8.0,
+          0.0,
+          -5.0
+        ],
+        "rotation": [
+          0.0,
+          3.1415927410125732,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 2505723696940210811,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          5.0,
+          0.0,
+          -1.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 2769527503060070136,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          9.0,
+          0.0,
+          -1.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 7817635060360179969,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          5.0,
+          0.0,
+          -3.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 7186578033268010540,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          9.0,
+          0.0,
+          -3.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 4284275090167284937,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          5.0,
+          0.0,
+          -5.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 5193737607145789320,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          9.0,
+          0.0,
+          -5.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 7049040386737368166,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          7.0,
+          0.0,
+          -1.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 4573471325074416011,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          7.0,
+          0.0,
+          -5.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 5375941932293433710,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/roof.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "roof",
+      "transform": {
+        "position": [
+          6.0,
+          3.0,
+          -2.0
+        ],
+        "rotation": [
+          0.0,
+          4.71238899230957,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 4317637133327382815,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/roof_broken.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "roof_broken",
+      "transform": {
+        "position": [
+          6.0,
+          3.0,
+          -4.0
+        ],
+        "rotation": [
+          0.0,
+          4.71238899230957,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 418088967793467099,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/gable.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "gable",
+      "transform": {
+        "position": [
+          7.0,
+          3.0,
+          -1.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 8605029983773753215,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/floor_broken.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "floor_broken",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          6.0,
+          0.0,
+          -2.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 8026072196273732218,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/floor.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "floor",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          8.0,
+          0.0,
+          -2.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 5487133655467652339,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/floor_broken.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "floor_broken",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          8.0,
+          0.0,
+          -4.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 1567709057336109568,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/rubble.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Rubble",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          10.0,
+          0.0,
+          -4.400000095367432
+        ],
+        "rotation": [
+          0.0,
+          0.5235987901687622,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 6765765020095177659,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/rubble.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Rubble",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          6.300000190734863,
+          0.0,
+          0.10000000149011612
+        ],
+        "rotation": [
+          0.0,
+          2.7925267219543457,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 4788891257108940960,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/debris.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Debris",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          7.599999904632568,
+          0.0,
+          -2.0
+        ],
+        "rotation": [
+          0.0,
+          1.2217304706573486,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 4038656707974586495,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/door.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Fallen door",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          10.399999618530273,
+          0.05999999865889549,
+          -1.2000000476837158
+        ],
+        "rotation": [
+          -1.5707963705062866,
+          0.5235987901687622,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 2536805525366086914,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall_door.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall_door",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -7.0,
+          0.0,
+          6.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 7172729606875013556,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall_window.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall_window",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -7.0,
+          0.0,
+          4.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 3839918183255697935,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall_broken.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall_broken",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -11.0,
+          0.0,
+          4.0
+        ],
+        "rotation": [
+          0.0,
+          4.71238899230957,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 7093348377678683462,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -11.0,
+          0.0,
+          6.0
+        ],
+        "rotation": [
+          0.0,
+          4.71238899230957,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 8661633127285090941,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -8.0,
+          0.0,
+          7.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 950865118334347967,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          7.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 7752893324097548776,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall_window.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall_window",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          3.0
+        ],
+        "rotation": [
+          0.0,
+          3.1415927410125732,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 3475548298909459601,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "wall",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -8.0,
+          0.0,
+          3.0
+        ],
+        "rotation": [
+          0.0,
+          3.1415927410125732,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 7533320766081139680,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -11.0,
+          0.0,
+          7.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 2356334772118702085,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -7.0,
+          0.0,
+          7.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 1765474420335011194,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -11.0,
+          0.0,
+          5.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 997579191898130843,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -7.0,
+          0.0,
+          5.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 6457595723258098923,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -11.0,
+          0.0,
+          3.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 8885757962708599820,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -7.0,
+          0.0,
+          3.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 5353376263521977362,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -9.0,
+          0.0,
+          7.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 8697663847541117616,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/corner_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "corner_post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -9.0,
+          0.0,
+          3.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 8964484672267670948,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/roof.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "roof",
+      "transform": {
+        "position": [
+          -8.0,
+          3.0,
+          6.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 7820738720551929090,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/roof.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "roof",
+      "transform": {
+        "position": [
+          -10.0,
+          3.0,
+          6.0
+        ],
+        "rotation": [
+          0.0,
+          4.71238899230957,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 9073413600922149984,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/roof_ridge.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "roof_ridge",
+      "transform": {
+        "position": [
+          -9.0,
+          3.0,
+          6.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 2983665482421915307,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/roof_broken.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "roof_broken",
+      "transform": {
+        "position": [
+          -8.0,
+          3.0,
+          4.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 7258699981545465765,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/roof.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "roof",
+      "transform": {
+        "position": [
+          -10.0,
+          3.0,
+          4.0
+        ],
+        "rotation": [
+          0.0,
+          4.71238899230957,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 6647137576733442619,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/roof_ridge.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "roof_ridge",
+      "transform": {
+        "position": [
+          -9.0,
+          3.0,
+          4.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 723961835201379524,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/gable.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "gable",
+      "transform": {
+        "position": [
+          -9.0,
+          3.0,
+          7.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 1975185135333451283,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/gable.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "gable",
+      "transform": {
+        "position": [
+          -9.0,
+          3.0,
+          3.0
+        ],
+        "rotation": [
+          0.0,
+          3.1415927410125732,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 8250599379450749252,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/floor.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "floor",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          6.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 7410077205520190337,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/floor.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "floor",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -8.0,
+          0.0,
+          6.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 2023530299295138714,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/floor.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "floor",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -10.0,
+          0.0,
+          4.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 7651913607880904768,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/floor.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "floor",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -8.0,
+          0.0,
+          4.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 7312246349405185411,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/well.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Well",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          1.0,
+          0.0,
+          3.0
+        ],
+        "rotation": [
+          0.0,
+          0.3490658402442932,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 8660460067835717959,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/dead_tree.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Dead tree",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          5.0,
+          0.0,
+          7.0
+        ],
+        "rotation": [
+          0.0,
+          0.6981316804885864,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 9208656803297692568,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/signpost.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Signpost",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          2.0,
+          0.0,
+          12.0
+        ],
+        "rotation": [
+          0.0,
+          3.4906585216522217,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 2818889099034099471,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/barrel.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Barrel",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -3.200000047683716,
+          0.0,
+          -2.4000000953674316
+        ],
+        "rotation": [
+          0.0,
+          0.1745329201221466,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 4250444977578892782,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/barrel.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Barrel",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -2.5,
+          0.0,
+          -2.299999952316284
+        ],
+        "rotation": [
+          0.0,
+          1.2217304706573486,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 5395485234897898176,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/crate.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Crate",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -2.799999952316284,
+          0.0,
+          -1.600000023841858
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 7899880090491083785,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/crate_broken.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Crate broken",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -8.600000381469727,
+          0.0,
+          -2.5999999046325684
+        ],
+        "rotation": [
+          0.0,
+          0.3490658402442932,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 6353364505026632400,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/barrel.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Barrel",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          4.539723873138428,
+          0.0,
+          1.5836732387542725
+        ],
+        "rotation": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 8757641564817344157,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/crate.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Crate",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -5.5,
+          0.0,
+          8.600000381469727
+        ],
+        "rotation": [
+          0.0,
+          0.7853981852531433,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 934259849941713369,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/barrel.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Barrel",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -4.800000190734863,
+          0.0,
+          9.199999809265137
+        ],
+        "rotation": [
+          0.0,
+          0.2617993950843811,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 1794887566509122141,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/debris.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Debris",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          -1.5,
+          0.0,
+          6.0
+        ],
+        "rotation": [
+          0.0,
+          1.3962633609771729,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 8176022673951929062,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/barrel.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Tipped barrel",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          3.5999999046325684,
+          0.33000001311302185,
+          3.0
+        ],
+        "rotation": [
+          1.5707963705062866,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 4238791107559397044,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/fence.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Fence",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          4.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 2179737338419212082,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/fence.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Fence",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          6.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 7356120074833053844,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/fence_broken.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Fence",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          8.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 8587191050047270124,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/fence.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Fence",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          12.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 1891532243983326050,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/fence_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Fence post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          9.0,
+          0.0,
+          10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 8205802507488282524,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/fence.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Fence",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          13.0,
+          0.0,
+          9.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 3884641138762678306,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/fence_broken.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Fence",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          13.0,
+          0.0,
+          7.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 8785678238366595706,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/fence.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Fence",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          13.0,
+          0.0,
+          5.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 1874741265730539747,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/fence_post.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Fence post",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          13.0,
+          0.0,
+          4.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 556268956994847480,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall_ruin.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Ruin",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          9.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 3251107461344987000,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall_ruin.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Ruin",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          11.0,
+          0.0,
+          -10.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 1411733702128078396,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/wall_ruin.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Ruin",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          12.0,
+          0.0,
+          -9.0
+        ],
+        "rotation": [
+          0.0,
+          1.5707963705062866,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 8360622699619611670,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "model:Models/Village/rubble.gltf",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.8999999761581421,
+        "static": true,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": true
+      },
+      "name": "Rubble",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.6000000238418579,
+        "mass": 1.0,
+        "restitution": 0.20000000298023224,
+        "shape": 3,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "transform": {
+        "position": [
+          10.5,
+          0.0,
+          -8.199999809265137
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "foliage": {
+        "avoidStatic": true,
+        "baseColor": [
+          0.12999999523162842,
+          0.1899999976158142,
+          0.05999999865889549
+        ],
+        "density": 15.0,
+        "drawDistance": 50.0,
+        "dryAmount": 0.3840000033378601,
+        "dryColor": [
+          0.6600000262260437,
+          0.5799999833106995,
+          0.3199999928474426
+        ],
+        "flowerAmount": 0.029999999329447746,
+        "height": 0.41999998688697815,
+        "heightVariation": 0.44999998807907104,
+        "interaction": 1.0,
+        "recovery": 0.10000000149011612,
+        "roughness": 0.32100000977516174,
+        "seed": 19,
+        "size": [
+          30.0,
+          30.0
+        ],
+        "tipColor": [
+          0.5,
+          0.6000000238418579,
+          0.2199999988079071
+        ],
+        "width": 1.0,
+        "windDirection": 35.0,
+        "windSpeed": 1.0,
+        "windStrength": 0.8999999761581421
+      },
+      "id": 8770365501411468274,
+      "name": "Grass",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "camera": {
+        "far": 300.0,
+        "fov": 50.0,
+        "near": 0.10000000149011612,
+        "primary": true
+      },
+      "id": 4357453012316014128,
+      "name": "Main Camera",
+      "transform": {
+        "position": [
+          15.0,
+          9.0,
+          17.0
+        ],
+        "rotation": [
+          -0.3799999952316284,
+          0.7200000286102295,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "directionalLight": {
+        "castShadows": true,
+        "color": [
+          1.0,
+          0.8999999761581421,
+          0.7799999713897705
+        ],
+        "intensity": 1.600000023841858
+      },
+      "id": 1279548081208109653,
+      "name": "Sun",
+      "transform": {
+        "position": [
+          0.0,
+          10.0,
+          0.0
+        ],
+        "rotation": [
+          -0.75,
+          0.8999999761581421,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    }
+  ],
+  "settings": {
+    "ao": {
+      "bias": 0.02500000037252903,
+      "enabled": true,
+      "radius": 0.5,
+      "samples": 16,
+      "strength": 1.0
+    },
+    "bloom": {
+      "enabled": true,
+      "intensity": 0.07999999821186066,
+      "knee": 0.5,
+      "maxBrightness": 8.0,
+      "radius": 1.0,
+      "threshold": 1.0
+    },
+    "camera": {
+      "focusDistance": 12.568559646606445,
+      "pitch": -31.800067901611328,
+      "position": [
+        12.484456062316895,
+        5.745543479919434,
+        11.477218627929688
+      ],
+      "yaw": -134.1999969482422
+    },
+    "environment": {
+      "blur": 0.0,
+      "intensity": 0.550000011920929,
+      "map": "forest_slope_1k.hdr",
+      "rotation": 0.0,
+      "showSky": false
+    },
+    "physics": {
+      "gravity": 9.8100004196167
+    },
+    "post": {
+      "exposure": 1.0,
+      "fxaa": true,
+      "gamma": true,
+      "toneMap": 2
+    },
+    "shadows": {
+      "cascadeCount": 4,
+      "cascadeSplit": 0.75,
+      "enabled": true,
+      "pointBias": 0.05000000074505806,
+      "pointFar": 30.0,
+      "shadowDistance": 60.0,
+      "sunBias": 0.0020000000949949026,
+      "sunCascades": true,
+      "sunDistance": 30.0,
+      "sunExtent": 16.0
+    }
+  },
+  "version": 3
+}

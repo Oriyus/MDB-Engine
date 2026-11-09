@@ -54,21 +54,28 @@ void GameBuilder::Run(Engine::Project project, std::string engineDir, std::strin
         m_Running = false;
     };
 
-    // 1. Game.exe in Release
-    Add("Compiling Game.exe (Release). The first time this builds the whole engine and takes a few minutes.");
-    const std::string cmd = std::string("\"") + MDB_CMAKE_COMMAND + "\" --build \"" + MDB_BUILD_DIR + "\" --config Release --target Game";
-    Add("> " + cmd);
-    const int code = Platform::RunProcess(cmd, [this](const std::string& line) {
-        // MSBuild prints a lot; keep what tells progress or trouble
-        if (line.find("error") != std::string::npos || line.find("warning C") != std::string::npos
-            || line.find("->") != std::string::npos || line.find("Building") != std::string::npos
-            || line.find("Compiling") != std::string::npos || line.find(".cpp") != std::string::npos)
-            Add("  " + line);
-    });
-    if (code != 0) { fail(code < 0 ? "could not run CMake (" + std::string(MDB_CMAKE_COMMAND) + ")" : "the compile failed (exit code " + std::to_string(code) + ")"); return; }
-    const fs::path builtExe = fs::u8path(std::string(MDB_BUILD_DIR) + "bin/Release/Game.exe");
+    // 1. Game.exe in Release: a packaged editor ships it prebuilt (Player/Game.exe next to MDBEditor.exe);
+    //    an editor run from the build tree compiles it
     std::error_code ec;
-    if (!fs::exists(builtExe, ec)) { fail("no Game.exe at " + Engine::Project::PathString(builtExe)); return; }
+    fs::path builtExe = fs::u8path(Platform::ExeDir()) / "Player" / "Game.exe";
+    if (fs::is_regular_file(builtExe, ec)) {
+        Add("Using the prebuilt player " + Engine::Project::PathString(builtExe));
+    }
+    else {
+        Add("Compiling Game.exe (Release). The first time this builds the whole engine and takes a few minutes.");
+        const std::string cmd = std::string("\"") + MDB_CMAKE_COMMAND + "\" --build \"" + MDB_BUILD_DIR + "\" --config Release --target Game";
+        Add("> " + cmd);
+        const int code = Platform::RunProcess(cmd, [this](const std::string& line) {
+            // MSBuild prints a lot; keep what tells progress or trouble
+            if (line.find("error") != std::string::npos || line.find("warning C") != std::string::npos
+                || line.find("->") != std::string::npos || line.find("Building") != std::string::npos
+                || line.find("Compiling") != std::string::npos || line.find(".cpp") != std::string::npos)
+                Add("  " + line);
+        });
+        if (code != 0) { fail(code < 0 ? "could not run CMake (" + std::string(MDB_CMAKE_COMMAND) + ")" : "the compile failed (exit code " + std::to_string(code) + ")"); return; }
+        builtExe = fs::u8path(std::string(MDB_BUILD_DIR) + "bin/Release/Game.exe");
+        if (!fs::exists(builtExe, ec)) { fail("no Game.exe at " + Engine::Project::PathString(builtExe)); return; }
+    }
 
     // 2. The folder
     const std::string name = SafeName(project.Title);

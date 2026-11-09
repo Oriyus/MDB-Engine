@@ -188,6 +188,32 @@ namespace Engine {
         int   PendingBurst = 0;           // queued by scripts / the Inspector
     };
 
+    // Grass and flowers over an area: GPU-instanced clumps (Renderer/FoliageRenderer, Shaders/foliage.vert with
+    // lit.frag). The clumps are generated from these settings and Seed every time they change, never stored.
+    // They sway in the wind and bend away from moving bodies (dynamic and kinematic) and script pushes
+    // (foliage.push), then stand up again over Recovery seconds.
+    struct FoliageComponent {
+        glm::vec2 Size{ 20.0f, 20.0f };   // the area in the entity's X/Z, centred on it; clumps stand on its Y
+        float Density = 6.0f;             // clumps per square metre
+        uint32_t Seed = 1;
+        float Height = 0.45f;             // metres
+        float HeightVariation = 0.4f;     // each clump is Height x (1 +- this)
+        float Width = 1.0f;               // blade width and clump spread
+        glm::vec3 BaseColor{ 0.13f, 0.19f, 0.06f };   // sRGB-style, like the colour pickers: blade roots
+        glm::vec3 TipColor{ 0.50f, 0.60f, 0.22f };    // blade tips
+        glm::vec3 DryColor{ 0.66f, 0.58f, 0.32f };    // tips where the grass is dry (in patches)
+        float DryAmount = 0.3f;           // 0..1: how much of the area is dry
+        float FlowerAmount = 0.04f;       // 0..1: share of clumps that are flowers
+        float Roughness = 0.75f;
+        float WindStrength = 1.0f;        // 0 = still
+        float WindSpeed = 1.0f;
+        float WindDirection = 30.0f;      // degrees around Y; 0 blows towards +X
+        float Interaction = 1.0f;         // how far bodies and pushes bend the blades (0 = not at all)
+        float Recovery = 1.2f;            // seconds for pressed grass to stand up again
+        float DrawDistance = 45.0f;       // metres; clumps thin out over the last half of it
+        bool  AvoidStatic = true;         // no clumps under Static meshes standing on the ground (walls, floors, props)
+    };
+
     // A sound attached to an entity, played while the game runs (see Audio/AudioEngine.h).
     // Clip is relative to the asset directory, e.g. "Sounds/lava_loop.wav".
     struct AudioSourceComponent {

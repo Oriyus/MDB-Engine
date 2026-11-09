@@ -12,11 +12,20 @@
 #include <cfloat>
 #include <cmath>
 #include <filesystem>
+#include <string_view>
 #include <unordered_map>
 
 namespace fs = std::filesystem;
 
 namespace Engine {
+
+    namespace {
+        // Model textures shared between models, by source (see loadTexture). Weak: a texture goes when its last model does.
+        std::unordered_map<std::string, std::weak_ptr<Texture2D>>& SharedTextures() {
+            static std::unordered_map<std::string, std::weak_ptr<Texture2D>> textures;
+            return textures;
+        }
+    }
 
     Model::Model(const std::string& path) {
         // Read without flattening first: a model with bones keeps its node tree for animation.
@@ -54,10 +63,23 @@ namespace Engine {
             auto it = cache.find(key);
             if (it != cache.end()) return it->second;
 
+            // Shared across models: the same file, or the same embedded image bytes, is one GPU texture
+            // (every piece of a kit carries the same textures)
+            auto shared = [srgb](const std::string& id, auto create) -> std::shared_ptr<Texture2D> {
+                auto& slot = SharedTextures()[id + (srgb ? "|srgb" : "|linear")];
+                if (auto t = slot.lock()) return t;
+                auto t = create();
+                slot = t;
+                return t;
+                };
             std::shared_ptr<Texture2D> tex;
             if (const aiTexture* emb = scene->GetEmbeddedTexture(file.c_str())) {
-                if (emb->mHeight == 0)
-                    tex = Texture2D::FromMemory(reinterpret_cast<const uint8_t*>(emb->pcData), emb->mWidth, srgb);
+                if (emb->mHeight == 0) {
+                    const std::string_view bytes(reinterpret_cast<const char*>(emb->pcData), emb->mWidth);
+                    tex = shared("mem:" + std::to_string(std::hash<std::string_view>{}(bytes)) + ":" + std::to_string(bytes.size()), [&] {
+                        return Texture2D::FromMemory(reinterpret_cast<const uint8_t*>(emb->pcData), emb->mWidth, srgb);
+                        });
+                }
                 else
                     ENGINE_WARN("Raw embedded texture '{}' is not supported", file);
             }
@@ -66,7 +88,13 @@ namespace Engine {
                 std::replace(rel.begin(), rel.end(), '\\', '/');
                 fs::path p = baseDir / rel;
                 if (!fs::exists(p)) p = baseDir / fs::path(rel).filename();
-                if (fs::exists(p)) tex = std::make_shared<Texture2D>(p.string(), srgb);
+                if (fs::exists(p)) {
+                    std::error_code ec;
+                    const auto stamp = fs::last_write_time(p, ec).time_since_epoch().count();     // an edited file loads again
+                    tex = shared("file:" + fs::weakly_canonical(p, ec).string() + ":" + std::to_string(stamp), [&] {
+                        return std::make_shared<Texture2D>(p.string(), srgb);
+                        });
+                }
                 else ENGINE_WARN("Texture not found for model '{}': {}", path, file);
             }
             cache[key] = tex;

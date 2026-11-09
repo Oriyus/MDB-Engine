@@ -177,6 +177,7 @@ namespace Engine {
         ClearStaticBatches();        // merged meshes belong to the entities that are gone
         Decals.clear();
         Fog = FogOfWarState{};
+        FoliagePushes.clear();
     }
 
     // ---------------------------------------------------------------- update systems
@@ -568,6 +569,7 @@ namespace Engine {
         if (auto* c = m_Registry.try_get<AudioSourceComponent>(handle))      s.AudioSource = *c;
         if (auto* c = m_Registry.try_get<AnimatorComponent>(handle))         s.Animator = *c;
         if (auto* c = m_Registry.try_get<ParticleEmitterComponent>(handle))  s.Particles = *c;
+        if (auto* c = m_Registry.try_get<FoliageComponent>(handle))          s.Foliage = *c;
         if (auto* c = m_Registry.try_get<PrefabComponent>(handle))           s.Prefab = *c;
         s.Transient = m_Registry.all_of<TransientComponent>(handle);
         return s;
@@ -594,6 +596,7 @@ namespace Engine {
         if (s.AudioSource)      m_Registry.emplace<AudioSourceComponent>(e, *s.AudioSource);
         if (s.Animator)         m_Registry.emplace<AnimatorComponent>(e, *s.Animator);
         if (s.Particles)        m_Registry.emplace<ParticleEmitterComponent>(e, *s.Particles);
+        if (s.Foliage)          m_Registry.emplace<FoliageComponent>(e, *s.Foliage);
         if (s.Prefab)           m_Registry.emplace<PrefabComponent>(e, *s.Prefab);
         if (s.Transient)        m_Registry.emplace<TransientComponent>(e);
         return e;
@@ -1200,6 +1203,12 @@ namespace Engine {
     // ---------------------------------------------------------------- render system
     void Scene::Render(const Camera& camera, Shader& shader, const DrawList& list, const ShadowContext* ctx,
         const Environment* env, RenderPass pass) {
+        SetLightingUniforms(camera, shader, list, ctx, env);
+        DrawListBatches(shader, list, pass);
+    }
+
+    void Scene::SetLightingUniforms(const Camera& camera, Shader& shader, const DrawList& list, const ShadowContext* ctx,
+        const Environment* env) {
         const auto lights = GatherPointLights(*this);
 
         glm::vec3 sunDir(0.0f, -1.0f, 0.0f), sunColor(0.0f);
@@ -1272,7 +1281,9 @@ namespace Engine {
                 }
             }
         }
+    }
 
+    void Scene::DrawListBatches(Shader& shader, const DrawList& list, RenderPass pass) {
         // Each batch: its textures and alpha settings, then one instanced call for all its objects
         list.Bind();
         auto drawBatches = [&](const std::vector<DrawBatch>& batches) {

@@ -73,6 +73,16 @@ namespace Engine {
                 { "texture", res.TextureName ? res.TextureName(p.Texture) : std::string() },
                 { "additive", p.Additive },{ "worldSpace", p.WorldSpace },{ "destroyWhenDone", p.DestroyWhenDone } };
         }
+        if (e.Has<FoliageComponent>()) {
+            auto& f = e.Get<FoliageComponent>();
+            j["foliage"] = {
+                { "size", f.Size },{ "density", f.Density },{ "seed", f.Seed },{ "height", f.Height },
+                { "heightVariation", f.HeightVariation },{ "width", f.Width },{ "baseColor", f.BaseColor },
+                { "tipColor", f.TipColor },{ "dryColor", f.DryColor },{ "dryAmount", f.DryAmount },
+                { "flowerAmount", f.FlowerAmount },{ "roughness", f.Roughness },{ "windStrength", f.WindStrength },
+                { "windSpeed", f.WindSpeed },{ "windDirection", f.WindDirection },{ "interaction", f.Interaction },
+                { "recovery", f.Recovery },{ "drawDistance", f.DrawDistance },{ "avoidStatic", f.AvoidStatic } };
+        }
         if (e.Has<AnimatorComponent>()) {
             auto& a = e.Get<AnimatorComponent>();
             j["animator"] = { { "clip", a.Clip },{ "speed", a.Speed },{ "loop", a.Loop },{ "playing", a.Playing },
@@ -213,6 +223,30 @@ namespace Engine {
             p.DestroyWhenDone = jp.value("destroyWhenDone", p.DestroyWhenDone);
             e.Add<ParticleEmitterComponent>(p);
         }
+        if (j.contains("foliage")) {
+            const auto& jf = j["foliage"];
+            FoliageComponent f;
+            if (jf.contains("size")) f.Size = jf["size"].get<glm::vec2>();
+            f.Density = jf.value("density", f.Density);
+            f.Seed = jf.value("seed", f.Seed);
+            f.Height = jf.value("height", f.Height);
+            f.HeightVariation = jf.value("heightVariation", f.HeightVariation);
+            f.Width = jf.value("width", f.Width);
+            if (jf.contains("baseColor")) f.BaseColor = jf["baseColor"].get<glm::vec3>();
+            if (jf.contains("tipColor")) f.TipColor = jf["tipColor"].get<glm::vec3>();
+            if (jf.contains("dryColor")) f.DryColor = jf["dryColor"].get<glm::vec3>();
+            f.DryAmount = jf.value("dryAmount", f.DryAmount);
+            f.FlowerAmount = jf.value("flowerAmount", f.FlowerAmount);
+            f.Roughness = jf.value("roughness", f.Roughness);
+            f.WindStrength = jf.value("windStrength", f.WindStrength);
+            f.WindSpeed = jf.value("windSpeed", f.WindSpeed);
+            f.WindDirection = jf.value("windDirection", f.WindDirection);
+            f.Interaction = jf.value("interaction", f.Interaction);
+            f.Recovery = jf.value("recovery", f.Recovery);
+            f.DrawDistance = jf.value("drawDistance", f.DrawDistance);
+            f.AvoidStatic = jf.value("avoidStatic", f.AvoidStatic);
+            e.Add<FoliageComponent>(f);
+        }
         if (j.contains("animator")) {
             const auto& ja = j["animator"];
             AnimatorComponent a;
@@ -291,6 +325,7 @@ namespace Engine {
         if (e.Has<AudioSourceComponent>())      e.Remove<AudioSourceComponent>();
         if (e.Has<AnimatorComponent>())         e.Remove<AnimatorComponent>();
         if (e.Has<ParticleEmitterComponent>())  e.Remove<ParticleEmitterComponent>();
+        if (e.Has<FoliageComponent>())          e.Remove<FoliageComponent>();
     }
 
     bool HasComponentKeys(const json& j) {

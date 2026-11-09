@@ -127,6 +127,15 @@ namespace Platform {
         return result;
     }
 
+    std::string ExeDir() {
+        wchar_t exe[MAX_PATH * 4];
+        const DWORD n = GetModuleFileNameW(nullptr, exe, (DWORD)std::size(exe));
+        const std::filesystem::path dir = (n == 0 || n >= std::size(exe)) ? std::filesystem::current_path()
+                                                                          : std::filesystem::path(exe).parent_path();
+        const std::u8string s = dir.generic_u8string();
+        return std::string(s.begin(), s.end());
+    }
+
     bool LaunchSelf(const std::vector<std::string>& args) {
         wchar_t exe[MAX_PATH * 4];
         const DWORD n = GetModuleFileNameW(nullptr, exe, (DWORD)std::size(exe));

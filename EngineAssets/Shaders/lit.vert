@@ -29,7 +29,7 @@ uniform mat4 u_Bones[MAX_BONES];
 out vec3 v_WorldPos;
 out vec3 v_Normal;
 out vec2 v_TexCoord;
-flat out vec4  v_Color;
+out vec4  v_Color;        // the same at every vertex of a mesh (foliage.vert varies it along a blade)
 flat out vec2  v_Surface;
 flat out vec3  v_Emissive;
 flat out int   v_EntityID;

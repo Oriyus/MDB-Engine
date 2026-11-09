@@ -159,7 +159,7 @@ namespace Engine {
     //   audio.play(clip [, { volume, pitch }])             2D one-shot, e.g. "Sounds/coin.wav"
     //   audio.play_at(clip, position [, { volume, pitch }]) 3D one-shot, quieter with distance
     //   scene.quit()                         the game closes (in the editor: Play stops)
-    //   scene.render_stats() -> { draw_calls, triangles, instances, culled, shadow_skipped, particles, decals, static_batches, static_merged }
+    //   scene.render_stats() -> { draw_calls, triangles, instances, culled, shadow_skipped, particles, decals, static_batches, static_merged, foliage }
     //                                        (the last frame; a debug HUD)
     //   scene.spawn_particles(pos, "Sparks" | { preset, count })   a one-shot burst entity that removes itself when done
     //   ---- ui: drawn this frame only, in call order. x, y, w, h are 0..1 of the view (top left origin).
@@ -202,6 +202,9 @@ namespace Engine {
     //                       rotation (radians), thickness (0 filled, else outline width 0..1), fill (inside alpha of an
     //                       outline), softness = 0.04, emission = 1, height = 1, texture = "Textures/x.png" }])
     //       targets, area templates, movement ranges, path markers. They fade on steep surfaces. decal.count()
+    //   ---- foliage: grass and flowers (FoliageComponent). Moving dynamic and kinematic bodies bend it by themselves.
+    //   foliage.push(pos [, radius = 0.5, strength = 1])   press the grass around pos this frame (call every frame while
+    //       something without a body walks through it); it springs back over the field's Recovery seconds
     //   ---- nav: a layered walkability grid (Navigation/NavGrid.h), baked from the STATIC bodies on first use.
     //   Cells are integer ids. Costs count steps: 1 per orthogonal step, `diagonal` per diagonal one.
     //   nav.bake([{ cell_size=1, agent_radius=0.3, agent_height=1.8, max_step=0.4, max_slope=40, min=vec3, max=vec3 }])

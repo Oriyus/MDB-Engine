@@ -41,6 +41,11 @@ namespace Engine {
         glm::mat4 GetNormalizeMatrix(float targetSize) const;
         // The same scale, but standing on the origin: centred on x/z, the lowest point at y = 0 (characters, props)
         glm::mat4 GetGroundedMatrix(float targetSize) const;
+        // Kit pieces (a model in a folder holding kit.json, set by ResourceLibrary) are already in metres with their
+        // own pivot, so they snap together: placing one keeps the file's size and origin
+        bool NativeSize = false;
+        // How the editor places the model: identity for kit pieces, else GetGroundedMatrix(targetSize)
+        glm::mat4 GetPlacementMatrix(float targetSize) const { return NativeSize ? glm::mat4(1.0f) : GetGroundedMatrix(targetSize); }
 
         // ---- skeletal animation (models whose meshes have bones)
         // A node's local placement in a pose. A pose is one NodePose per skeleton node.

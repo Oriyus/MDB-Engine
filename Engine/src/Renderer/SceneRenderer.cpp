@@ -3,6 +3,7 @@
 #include "Renderer/DrawList.h"
 #include "Renderer/ParticleRenderer.h"
 #include "Renderer/DecalRenderer.h"
+#include "Renderer/FoliageRenderer.h"
 #include "Renderer/Camera.h"
 #include "Renderer/Framebuffer.h"
 #include "Renderer/Environment.h"
@@ -23,6 +24,8 @@ namespace Engine {
         std::string EngineDir;                   // the engine's files (Shaders)
         std::unique_ptr<Shader> Lit, PointDepth, SunDepth, Post, SSAOShader, SSAOBlur, BloomDown, BloomUp, FXAA, ParticleShader, DecalShader;
         std::unique_ptr<DecalRenderer> Decals;
+        std::unique_ptr<Shader> FoliageShader;           // foliage.vert + lit.frag: grass lit like everything else
+        std::unique_ptr<FoliageRenderer> Foliage;
         uint32_t DepthCopy = 0, DepthCopyW = 0, DepthCopyH = 0;   // the scene depth, for decals to sample
 
         // Fog of war: the map as an RG8 texture (re-uploaded when its revision changes) and a fullscreen pass
@@ -142,6 +145,8 @@ namespace Engine {
         I.Particles = std::make_unique<ParticleRenderer>();
         I.DecalShader = std::make_unique<Shader>(I.ShaderPath("decal.vert"), I.ShaderPath("decal.frag"));
         I.Decals = std::make_unique<DecalRenderer>();
+        I.FoliageShader = std::make_unique<Shader>(I.ShaderPath("foliage.vert"), I.ShaderPath("lit.frag"));
+        I.Foliage = std::make_unique<FoliageRenderer>();
         I.FogShader = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("fog.frag"));
         I.Post = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("tonemap.frag"));
         I.SSAOShader = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("ssao.frag"));
@@ -183,6 +188,7 @@ namespace Engine {
         I.HDR->Bind();
         I.HDR->Clear(0.005f, 0.005f, 0.01f, 1.0f);
         scene.Render(camera, *I.Lit, *I.Draws, &I.Shadows, I.Env.get());
+        I.Foliage->Render(scene, camera, *I.FoliageShader, *I.Draws, &I.Shadows, I.Env.get());   // grass: opaque, before the sky
         I.Env->DrawSkybox(camera, scene.AmbientIntensity);
         // Decals and fog both read the depth; it is copied once (after the opaque scene, the only depth writer)
         uint32_t depthCopy = 0;
@@ -227,7 +233,7 @@ namespace Engine {
     void SceneRenderer::ReloadShaders() {
         Impl& I = *m_Impl;
         for (auto* s : { I.Lit.get(), I.PointDepth.get(), I.SunDepth.get(), I.Post.get(), I.SSAOShader.get(),
-                         I.SSAOBlur.get(), I.BloomDown.get(), I.BloomUp.get(), I.FXAA.get(), I.ParticleShader.get(), I.DecalShader.get(), I.FogShader.get() })
+                         I.SSAOBlur.get(), I.BloomDown.get(), I.BloomUp.get(), I.FXAA.get(), I.ParticleShader.get(), I.DecalShader.get(), I.FogShader.get(), I.FoliageShader.get() })
             s->Reload();
         I.Env->ReloadSkyShader();
     }

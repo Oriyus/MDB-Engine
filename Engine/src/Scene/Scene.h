@@ -40,6 +40,7 @@ namespace Engine {
         std::optional<AudioSourceComponent>         AudioSource;
         std::optional<AnimatorComponent>            Animator;
         std::optional<ParticleEmitterComponent>     Particles;
+        std::optional<FoliageComponent>             Foliage;
         std::optional<PrefabComponent>              Prefab;
         bool                                        Transient = false;
     };
@@ -100,6 +101,15 @@ namespace Engine {
         float AmbientIntensity = 0.6f;     // strength of the environment light
         std::vector<Decal> Decals;         // this frame's decals (scripts add them with decal.draw; drawn by SceneRenderer)
         FogOfWarState Fog;                 // fog of war (fog.* in Lua, Navigation/FogOfWar; drawn by SceneRenderer)
+        // Grass pushes from scripts (foliage.push), used and cleared by the foliage renderer on the next frame
+        struct FoliagePush { glm::vec3 Position; float Radius = 0.5f; float Strength = 1.0f; };
+        std::vector<FoliagePush> FoliagePushes;
+        // The lighting uniforms of lit.frag (camera, lights, sun cascades, environment) on any shader that uses it
+        void SetLightingUniforms(const Camera& camera, Shader& shader, const DrawList& list, const ShadowContext* shadows,
+            const Environment* env);
+    private:
+        void DrawListBatches(Shader& shader, const DrawList& list, RenderPass pass);
+    public:
         entt::registry& Registry() { return m_Registry; }
 
         void UpdateOrbitPositions();   // place orbiting entities from their current angle, without advancing it

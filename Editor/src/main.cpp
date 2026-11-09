@@ -986,6 +986,30 @@ public:
         }
     }
 
+    // Collision geometry for the overlay, fetched once per geometry (the copy was made every frame before)
+    struct CollisionWire {
+        std::weak_ptr<Engine::Renderable> Source;
+        std::vector<glm::vec3> Positions;
+        std::vector<uint32_t> Indices;
+    };
+    const CollisionWire& WireFor(const std::shared_ptr<Engine::Renderable>& geometry) {
+        CollisionWire& w = m_CollisionWires[geometry.get()];
+        if (w.Source.lock() != geometry) {           // new, or the address was reused by another geometry
+            w.Source = geometry;
+            w.Positions.clear(); w.Indices.clear();
+            geometry->GetCollisionGeometry(w.Positions, w.Indices);
+        }
+        return w;
+    }
+
+    // True for the selected entity and everything under it (a body's child colliders)
+    bool IsSelectedOrInside(entt::entity e) {
+        int guard = 0;
+        for (entt::entity p = e; p != entt::null && guard++ < 256; p = m_Scene.GetParent(p))
+            if (p == m_Selected) return true;
+        return false;
+    }
+
     void DrawColliders(const ImVec2& origin, const ImVec2& size) {
         using namespace Engine;
         ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -1020,23 +1044,36 @@ public:
             if (shape == ColliderShape::None) return;
 
             if (shape == ColliderShape::ConvexHull || shape == ColliderShape::Mesh) {
-                // The geometry the collider is built from, as a wireframe. Big meshes show an even
-                // sample of their triangles (at most 2000), which still reads as the shape.
                 const auto* mr = m_Scene.Registry().try_get<MeshRendererComponent>(entity);
                 if (!mr || !mr->Geometry) return;
                 const glm::mat4 G = M * mr->LocalOffset;
-                std::vector<glm::vec3> pos;
-                std::vector<uint32_t> idx;
-                mr->Geometry->GetCollisionGeometry(pos, idx);
-                const size_t tris = idx.size() / 3;
+                // Not selected: the geometry's bounding box (a level built from mesh-collider pieces would
+                // otherwise draw tens of thousands of lines a frame: 11 FPS on the village demo)
+                if (!IsSelectedOrInside(entity)) {
+                    glm::vec3 mn, mx;
+                    mr->Geometry->GetLocalBounds(mn, mx);
+                    glm::vec3 c[8];
+                    for (int i = 0; i < 8; i++)
+                        c[i] = glm::vec3(G * glm::vec4((i & 1) ? mx.x : mn.x, (i & 2) ? mx.y : mn.y, (i & 4) ? mx.z : mn.z, 1.0f));
+                    static const int edges[12][2] = { { 0,1 },{ 2,3 },{ 4,5 },{ 6,7 },{ 0,2 },{ 1,3 },{ 4,6 },{ 5,7 },{ 0,4 },{ 1,5 },{ 2,6 },{ 3,7 } };
+                    const ImU32 faint = (col & 0x00FFFFFFu) | (90u << 24);
+                    for (auto& ed : edges) line(c[ed[0]], c[ed[1]], faint);
+                    return;
+                }
+                // Selected: the geometry the collider is built from, as a wireframe (cached per geometry).
+                // Big meshes show an even sample of their triangles (at most 2000), which still reads as the shape.
+                const CollisionWire& wire = WireFor(mr->Geometry);
+                const size_t tris = wire.Indices.size() / 3;
                 const size_t step = std::max<size_t>(1, tris / 2000);
                 const ImU32 faint = (col & 0x00FFFFFFu) | (110u << 24);   // a wireframe this dense must not hide the model
-                for (auto& p : pos) p = glm::vec3(G * glm::vec4(p, 1.0f));
+                std::vector<glm::vec3>& pos = m_WireScratch;
+                pos.resize(wire.Positions.size());
+                for (size_t i = 0; i < pos.size(); i++) pos[i] = glm::vec3(G * glm::vec4(wire.Positions[i], 1.0f));
                 for (size_t t = 0; t < tris; t += step) {
                     const size_t i = t * 3;
-                    line(pos[idx[i]], pos[idx[i + 1]], faint);
-                    line(pos[idx[i + 1]], pos[idx[i + 2]], faint);
-                    line(pos[idx[i + 2]], pos[idx[i]], faint);
+                    line(pos[wire.Indices[i]], pos[wire.Indices[i + 1]], faint);
+                    line(pos[wire.Indices[i + 1]], pos[wire.Indices[i + 2]], faint);
+                    line(pos[wire.Indices[i + 2]], pos[wire.Indices[i]], faint);
                 }
                 return;
             }
@@ -1361,6 +1398,11 @@ private:
                 place(e);
             }
             ImGui::EndMenu();
+        }
+        if (ImGui::MenuItem("Grass")) {
+            Entity e = m_Scene.CreateEntity("Grass");
+            e.Add<FoliageComponent>();
+            place(e);
         }
         ImGui::SeparatorText("Gameplay");
         if (ImGui::MenuItem("Camera")) {
@@ -1757,7 +1799,7 @@ private:
         auto model = m_Resources->LoadModel(path);
         if (!model) { LOG_WARN("Can't load the model {}", path); return false; }
         mr.Geometry = model;
-        mr.LocalOffset = model->GetGroundedMatrix(2.0f);
+        mr.LocalOffset = model->GetPlacementMatrix(2.0f);
         mr.UseModelMaterials = model->HasTexturedMaterials();
         if (mr.UseModelMaterials) mr.Color = glm::vec3(1.0f);
         return true;
@@ -1781,7 +1823,19 @@ private:
                 if (!model->AnimationNames().empty()) an.Clip = model->AnimationNames().front();
             }
         }
-        m_Scene.SetWorldPosition(e.GetHandle(), position);
+        glm::vec3 at = position;
+        // A kit piece snaps to the 0.5 m grid (X/Z) and becomes still level geometry: Static, with a static mesh body
+        if (e.Has<MeshRendererComponent>()) {
+            if (const auto* model = dynamic_cast<const Model*>(e.Get<MeshRendererComponent>().Geometry.get()); model && model->NativeSize) {
+                at.x = std::round(at.x * 2.0f) * 0.5f;
+                at.z = std::round(at.z * 2.0f) * 0.5f;
+                e.Get<MeshRendererComponent>().Static = true;
+                auto& rb = e.Add<RigidBodyComponent>();
+                rb.Type = BodyType::Static;
+                rb.Shape = ColliderShape::Mesh;
+            }
+        }
+        m_Scene.SetWorldPosition(e.GetHandle(), at);
         if (parent != entt::null && m_Scene.Registry().valid(parent)) m_Scene.SetParent(e.GetHandle(), parent, true);
         m_Selected = e.GetHandle();
         m_MaybeChanged = true;
@@ -1905,7 +1959,7 @@ private:
     // Stats drawn over the top-right corner of the viewport image
     void DrawStatsOverlay(const ImVec2& origin, const ImVec2& size) {
         using namespace Engine;
-        char lines[10][96];
+        char lines[12][96];
         int n = 0;
         std::snprintf(lines[n++], 96, "%.0f FPS  (%.2f ms)", ImGui::GetIO().Framerate, 1000.0f / std::max(ImGui::GetIO().Framerate, 1.0f));
         std::snprintf(lines[n++], 96, "Draw calls  %u", RenderStats::DrawCalls);
@@ -1916,6 +1970,7 @@ private:
         if (m_Scene.StaticBatchCount() > 0)
             std::snprintf(lines[n++], 96, "Static      %u batches / %u objects", m_Scene.StaticBatchCount(), m_Scene.StaticMergedCount());
         if (RenderStats::Particles > 0) std::snprintf(lines[n++], 96, "Particles   %u", RenderStats::Particles);
+        if (RenderStats::Foliage > 0) std::snprintf(lines[n++], 96, "Foliage     %u clumps", RenderStats::Foliage);
         std::snprintf(lines[n++], 96, "Entities    %zu", m_Scene.Registry().view<TagComponent>().size());
         std::snprintf(lines[n++], 96, "Camera      %.1f, %.1f, %.1f", m_Camera->Position.x, m_Camera->Position.y, m_Camera->Position.z);
 
@@ -2408,7 +2463,7 @@ private:
                         if (!ImGui::Selectable(file.c_str(), current == file)) continue;
                         if (auto model = m_Resources->LoadModel(file)) {
                             mr.Geometry = model;
-                            mr.LocalOffset = model->GetGroundedMatrix(2.0f);   // 2 m across, standing on the origin
+                            mr.LocalOffset = model->GetPlacementMatrix(2.0f);   // 2 m across, standing on the origin (kit pieces: as they are)
                             mr.UseModelMaterials = model->HasTexturedMaterials();
                             if (mr.UseModelMaterials) mr.Color = glm::vec3(1.0f);
                         }
@@ -2610,6 +2665,45 @@ private:
             ImGui::Checkbox("Destroy when done", &pe.DestroyWhenDone);
             ImGui::SetItemTooltip("Remove the entity once it stops emitting and its particles are gone (one-shot effects)");
             if (ImGui::Button("Remove##particles")) e.Remove<ParticleEmitterComponent>();
+            ImGui::PopID();
+        }
+
+        if (e.Has<FoliageComponent>() && ImGui::CollapsingHeader("Foliage", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto& f = e.Get<FoliageComponent>();
+            ImGui::PushID("foliage");
+            ImGui::TextDisabled("%.0f clumps", f.Size.x * f.Size.y * f.Density);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("New seed")) f.Seed = f.Seed * 1664525u + 1013904223u;
+            ImGui::SeparatorText("Area");
+            ImGui::DragFloat2("Size", &f.Size.x, 0.1f, 0.1f, 1000.0f, "%.1f m");
+            ImGui::SetItemTooltip("In the entity's X/Z, centred on it. The clumps stand on its height.");
+            ImGui::DragFloat("Density", &f.Density, 0.1f, 0.05f, 60.0f, "%.1f / m2");
+            int seed = (int)f.Seed;
+            if (ImGui::DragInt("Seed", &seed, 1.0f, 0, INT_MAX)) f.Seed = (uint32_t)std::max(seed, 0);
+            ImGui::Checkbox("Avoid static objects", &f.AvoidStatic);
+            ImGui::SetItemTooltip("No grass under Static meshes standing on the ground: walls, floors, props.\nMoving them scatters it again.");
+            ImGui::DragFloat("Draw distance", &f.DrawDistance, 0.5f, 2.0f, 500.0f, "%.0f m");
+            ImGui::SetItemTooltip("The grass thins out over the second half of this distance");
+            ImGui::SeparatorText("Look");
+            ImGui::DragFloat("Height", &f.Height, 0.01f, 0.02f, 5.0f, "%.2f m");
+            ImGui::SliderFloat("Height variation", &f.HeightVariation, 0.0f, 0.95f);
+            ImGui::DragFloat("Width", &f.Width, 0.01f, 0.1f, 5.0f, "x %.2f");
+            ImGui::ColorEdit3("Root color", &f.BaseColor.x);
+            ImGui::ColorEdit3("Tip color", &f.TipColor.x);
+            ImGui::ColorEdit3("Dry color", &f.DryColor.x);
+            ImGui::SliderFloat("Dry patches", &f.DryAmount, 0.0f, 1.0f);
+            ImGui::SliderFloat("Flowers", &f.FlowerAmount, 0.0f, 1.0f);
+            ImGui::SliderFloat("Roughness", &f.Roughness, 0.05f, 1.0f);
+            ImGui::SeparatorText("Wind and touch");
+            ImGui::DragFloat("Wind strength", &f.WindStrength, 0.01f, 0.0f, 3.0f);
+            ImGui::DragFloat("Wind speed", &f.WindSpeed, 0.01f, 0.0f, 5.0f);
+            ImGui::SliderFloat("Wind direction", &f.WindDirection, 0.0f, 360.0f, "%.0f deg");
+            ImGui::SetItemTooltip("Around Y: 0 blows towards +X, 90 towards +Z");
+            ImGui::SliderFloat("Interaction", &f.Interaction, 0.0f, 2.0f);
+            ImGui::SetItemTooltip("How far moving bodies (dynamic, kinematic) and foliage.push bend the grass");
+            ImGui::DragFloat("Recovery", &f.Recovery, 0.01f, 0.05f, 20.0f, "%.2f s");
+            ImGui::SetItemTooltip("Seconds for pressed grass to stand up again");
+            if (ImGui::Button("Remove##foliage")) e.Remove<FoliageComponent>();
             ImGui::PopID();
         }
 
@@ -2862,6 +2956,7 @@ private:
                 if (e.Has<MeshRendererComponent>()) FitCollider(e.Get<MeshRendererComponent>(), rb);
             }
             if (!e.Has<ParticleEmitterComponent>() && ImGui::MenuItem("Particle Emitter")) e.Add<ParticleEmitterComponent>();
+            if (!e.Has<FoliageComponent>() && ImGui::MenuItem("Foliage")) e.Add<FoliageComponent>();
             if (!e.Has<AnimatorComponent>() && ImGui::MenuItem("Animator")) {
                 auto& an = e.Add<AnimatorComponent>();
                 const auto* mr = e.Has<MeshRendererComponent>() ? &e.Get<MeshRendererComponent>() : nullptr;
@@ -3031,6 +3126,8 @@ private:
     float m_QuitAfter = 0.0f;        // MDB_QUIT_AFTER test hook (0 = never)
     float m_Gravity = 9.81f;
     bool  m_ShowColliders = true;
+    std::unordered_map<const Engine::Renderable*, CollisionWire> m_CollisionWires;
+    std::vector<glm::vec3> m_WireScratch;
     bool  m_ShowNavGrid = true;      // the navigation grid, once a script baked it (Play)
 
     // Editor shell (menu bar, toolbar, panels)

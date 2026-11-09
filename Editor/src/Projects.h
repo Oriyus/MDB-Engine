@@ -16,7 +16,11 @@ namespace Projects {
 
     const Engine::Project& Current();          // resolved on first use
     Engine::Project& CurrentMutable();         // for Build Game's settings (saved with Project::Save)
+    // A packaged editor (package_editor) has EngineAssets/ and Examples/ next to MDBEditor.exe and uses those;
+    // an editor run from the build tree uses the source tree's (compiled in).
+    bool Packaged();
     const std::string& EngineDir();            // the engine's files: shaders, Scripts/Lib (absolute, '/'-ended)
+    const std::string& ExamplesDir();          // the Examples project (absolute, '/'-ended)
     bool IsExamples(const Engine::Project& project);
 
     std::vector<std::string> Recent();         // project folders, newest first (only ones that still exist)

@@ -676,7 +676,7 @@ namespace Engine {
             const auto& c = RenderStats::LastFrame;
             return Lua->create_table_with("draw_calls", c.DrawCalls, "triangles", c.Triangles,
                 "instances", c.Instances, "culled", c.Culled, "shadow_skipped", c.ShadowSkipped, "particles", c.Particles,
-                "static_batches", c.StaticBatches, "static_merged", c.StaticMerged, "decals", c.Decals);
+                "static_batches", c.StaticBatches, "static_merged", c.StaticMerged, "decals", c.Decals, "foliage", c.Foliage);
         });
         scene.set_function("raycast", [this](const glm::vec3& origin, const glm::vec3& dir, float maxDist,
             sol::optional<ScriptEntity> ignore) -> sol::object {
@@ -1332,6 +1332,14 @@ namespace Engine {
             ActiveScene->Decals.push_back(std::move(d));
         });
         decal.set_function("count", [this]() { return ActiveScene->Decals.size(); });
+
+        // Grass (FoliageComponent): bodies press it by themselves; scripts press it where something without a
+        // body walks (a character driven by its transform)
+        sol::table foliage = lua.create_named_table("foliage");
+        foliage.set_function("push", [this](const glm::vec3& pos, sol::optional<float> radius, sol::optional<float> strength) {
+            if (ActiveScene->FoliagePushes.size() >= 256) return;     // more than enough for a frame
+            ActiveScene->FoliagePushes.push_back({ pos, std::max(radius.value_or(0.5f), 0.01f), std::clamp(strength.value_or(1.0f), 0.0f, 2.0f) });
+        });
 
         scene.set_function("pick", [this](float x, float y, sol::optional<float> maxDist) -> sol::object {
             glm::vec3 o, d;
