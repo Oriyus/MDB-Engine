@@ -5,6 +5,7 @@
 #include "Renderer/RenderStats.h"
 #include "Scene/Scene.h"
 #include "Scene/Components.h"
+#include "Core/Profiler.h"
 
 #include <glad/glad.h>
 #include <glm/gtc/matrix_transform.hpp>
@@ -197,11 +198,32 @@ namespace Engine {
         std::chrono::steady_clock::time_point Last = std::chrono::steady_clock::now();
         float Time = 0.0f;
 
-        // Static meshes resting on something (their world bounding boxes), and a hash to notice when they change
+        // Static meshes resting on something (their world bounding boxes), and a hash to notice when they change.
+        // The hash is of the raw inputs (transform, parent, offset, geometry), cheap enough for every frame; the
+        // world boxes are only worked out again when it changes (that took 6.5 ms a frame on the village forest).
+        static void Mix(uint64_t& h, const void* data, size_t bytes) {
+            const auto* w = static_cast<const uint32_t*>(data);
+            for (size_t i = 0; i < bytes / 4; i++) h = (h ^ w[i]) * 0x100000001B3ull;
+        }
         void GatherObstacles(Scene& scene) {
+            auto& reg = scene.Registry();
+            uint64_t h = 1469598103934665603ull;
+            for (auto [e, mr, t] : reg.view<MeshRendererComponent, TransformComponent>().each()) {
+                if (!mr.Static || !mr.Geometry) continue;
+                Mix(h, &t.Position, sizeof(glm::vec3) * 3);              // position, rotation, scale
+                Mix(h, &mr.LocalOffset, sizeof(glm::mat4));
+                const auto* g = mr.Geometry.get();
+                Mix(h, &g, sizeof(g));
+                if (const auto* p = reg.try_get<ParentComponent>(e)) {      // a moved parent moves it too
+                    Mix(h, &p->Parent, sizeof(p->Parent));
+                    const entt::entity pe = scene.FindByID(p->Parent);
+                    if (pe != entt::null) Mix(h, &reg.get<TransformComponent>(pe).Position, sizeof(glm::vec3) * 3);
+                }
+            }
+            if (h == ObstacleHash && !Obstacles.empty()) return;
+            ObstacleHash = h;
             Obstacles.clear();
-            Hasher h;
-            for (auto [e, mr] : scene.Registry().view<MeshRendererComponent>().each()) {
+            for (auto [e, mr] : reg.view<MeshRendererComponent>().each()) {
                 if (!mr.Static || !mr.Geometry) continue;
                 glm::vec3 mn, mx;
                 mr.Geometry->GetLocalBounds(mn, mx);
@@ -210,9 +232,7 @@ namespace Engine {
                 const glm::vec3 hh = (mx - mn) * 0.5f;
                 const glm::vec3 ext = glm::abs(glm::vec3(M[0])) * hh.x + glm::abs(glm::vec3(M[1])) * hh.y + glm::abs(glm::vec3(M[2])) * hh.z;
                 Obstacles.push_back({ { c - ext, c + ext }, M, mr.Geometry });
-                h.Add(c); h.Add(ext); h.Add(M);
             }
-            ObstacleHash = h.H;
         }
 
         // Moving bodies (dynamic and kinematic, not triggers) and this frame's script pushes
@@ -443,11 +463,12 @@ namespace Engine {
             scene.FoliagePushes.clear();
             return;
         }
-        I.GatherObstacles(scene);
-        I.GatherPressers(scene);
+        { PROFILE_SCOPE("Gather obstacles"); I.GatherObstacles(scene); }
+        { PROFILE_SCOPE("Gather pressers"); I.GatherPressers(scene); }
         for (auto& [id, field] : I.Fields) field->Seen = false;
 
         shader.Bind();
+        shader.QuietMissing = true;                  // foliage.vert has no u_SceneWind* (grass has its own wind)
         scene.SetLightingUniforms(camera, shader, list, shadows, env);
         shader.SetInt("u_UseTexture", 0);
         shader.SetInt("u_UseNormalMap", 0);
@@ -472,11 +493,12 @@ namespace Engine {
             const glm::mat4 world = scene.GetWorldMatrix(e);
             const uint64_t hash = Impl::HashOf(f, world, I.ObstacleHash);
             if (!field.Scattered || hash != field.Hash) {
+                PROFILE_SCOPE("Scatter");
                 I.Scatter(field, f, world);
                 field.Hash = hash;
                 field.Scattered = true;
             }
-            I.UpdateTrample(field, f, world, dt);
+            { PROFILE_SCOPE("Trample"); I.UpdateTrample(field, f, world, dt); }
             if (field.Chunks.empty()) continue;
 
             const float a = glm::radians(f.WindDirection);

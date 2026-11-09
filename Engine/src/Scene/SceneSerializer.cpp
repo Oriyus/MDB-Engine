@@ -32,6 +32,14 @@ namespace Engine {
                                { "sunBias", sh.SunBias },{ "sunExtent", sh.SunExtent },{ "sunDistance", sh.SunDistance },
                                { "sunCascades", sh.SunCascades },{ "cascadeCount", sh.CascadeCount },
                                { "shadowDistance", sh.ShadowDistance },{ "cascadeSplit", sh.CascadeSplit } } },
+                { "volumetricFog", { { "enabled", s.VolumetricFog.Enabled },{ "density", s.VolumetricFog.Density },
+                                     { "heightFalloff", s.VolumetricFog.HeightFalloff },{ "baseHeight", s.VolumetricFog.BaseHeight },
+                                     { "color", s.VolumetricFog.Color },{ "anisotropy", s.VolumetricFog.Anisotropy },
+                                     { "sunIntensity", s.VolumetricFog.SunIntensity },{ "ambientIntensity", s.VolumetricFog.AmbientIntensity },
+                                     { "pointLightIntensity", s.VolumetricFog.PointLightIntensity },
+                                     { "noiseScale", s.VolumetricFog.NoiseScale },{ "noiseAmount", s.VolumetricFog.NoiseAmount },
+                                     { "windSpeed", s.VolumetricFog.WindSpeed },{ "windDirection", s.VolumetricFog.WindDirection },
+                                     { "maxDistance", s.VolumetricFog.MaxDistance },{ "steps", s.VolumetricFog.Steps } } },
                 { "physics", { { "gravity", s.Gravity } } },
                 { "camera", { { "position", s.CameraPosition },{ "yaw", s.CameraYaw },{ "pitch", s.CameraPitch },
                               { "focusDistance", s.CameraFocusDistance } } },
@@ -85,6 +93,24 @@ namespace Engine {
                 sh.CascadeCount = std::clamp(e->value("cascadeCount", sh.CascadeCount), 1, 4);
                 sh.ShadowDistance = e->value("shadowDistance", sh.ShadowDistance);
                 sh.CascadeSplit = e->value("cascadeSplit", sh.CascadeSplit);
+            }
+            if (auto* e = section("volumetricFog")) {
+                auto& v = s.VolumetricFog;
+                v.Enabled = e->value("enabled", v.Enabled);
+                v.Density = e->value("density", v.Density);
+                v.HeightFalloff = e->value("heightFalloff", v.HeightFalloff);
+                v.BaseHeight = e->value("baseHeight", v.BaseHeight);
+                if (e->contains("color")) v.Color = e->at("color").get<glm::vec3>();
+                v.Anisotropy = e->value("anisotropy", v.Anisotropy);
+                v.SunIntensity = e->value("sunIntensity", v.SunIntensity);
+                v.AmbientIntensity = e->value("ambientIntensity", v.AmbientIntensity);
+                v.PointLightIntensity = e->value("pointLightIntensity", v.PointLightIntensity);
+                v.NoiseScale = e->value("noiseScale", v.NoiseScale);
+                v.NoiseAmount = e->value("noiseAmount", v.NoiseAmount);
+                v.WindSpeed = e->value("windSpeed", v.WindSpeed);
+                v.WindDirection = e->value("windDirection", v.WindDirection);
+                v.MaxDistance = e->value("maxDistance", v.MaxDistance);
+                v.Steps = std::clamp(e->value("steps", v.Steps), 8, 96);
             }
             if (auto* e = section("physics"))
                 s.Gravity = e->value("gravity", s.Gravity);
@@ -140,7 +166,10 @@ namespace Engine {
         }
 
         json root = { { "version", 3 },{ "entities", entities } };
-        if (settings) root["settings"] = WriteSettings(*settings, m_Scene.AmbientIntensity);
+        if (settings) {
+            root["settings"] = WriteSettings(*settings, m_Scene.AmbientIntensity);
+            root["settings"]["wind"] = { { "direction", m_Scene.Wind.Direction },{ "speed", m_Scene.Wind.Speed },{ "strength", m_Scene.Wind.Strength } };
+        }
 
         std::ofstream file(path);
         if (!file) { ENGINE_ERROR("Could not write scene file: {}", path); return false; }
@@ -205,8 +234,16 @@ namespace Engine {
         // Settings parse into copies too, so a bad value leaves everything as it was
         SceneSettings parsedSettings = settings ? *settings : SceneSettings{};
         float ambient = m_Scene.AmbientIntensity;
+        Scene::WindSettings wind = m_Scene.Wind;
         try {
-            if (root.contains("settings")) ReadSettings(root["settings"], parsedSettings, ambient);
+            if (root.contains("settings")) {
+                ReadSettings(root["settings"], parsedSettings, ambient);
+                if (auto it = root["settings"].find("wind"); it != root["settings"].end() && it->is_object()) {
+                    wind.Direction = it->value("direction", wind.Direction);
+                    wind.Speed = it->value("speed", wind.Speed);
+                    wind.Strength = it->value("strength", wind.Strength);
+                }
+            }
         }
         catch (const std::exception& ex) {
             ENGINE_ERROR("Scene settings are malformed: {}", ex.what());
@@ -220,6 +257,7 @@ namespace Engine {
 
         if (root.contains("settings")) {
             m_Scene.AmbientIntensity = ambient;
+            m_Scene.Wind = wind;
             if (settings) *settings = parsedSettings;
         }
 

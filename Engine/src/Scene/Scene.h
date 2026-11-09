@@ -99,6 +99,14 @@ namespace Engine {
             const Environment* env = nullptr, RenderPass pass = RenderPass::Opaque);
 
         float AmbientIntensity = 0.6f;     // strength of the environment light
+        // The wind that sways Mesh Renderers with Wind > 0 (trees). Saved in the scene settings ("wind").
+        // Grass fields have their own wind settings (FoliageComponent).
+        struct WindSettings {
+            float Direction = 30.0f;       // degrees around Y: 0 blows towards +X, 90 towards +Z
+            float Speed = 1.0f;
+            float Strength = 1.0f;         // multiplies every Mesh Renderer's Wind
+        } Wind;
+        float WindTime = 0.0f;             // seconds, advanced by SceneRenderer (runs in Edit mode too)
         std::vector<Decal> Decals;         // this frame's decals (scripts add them with decal.draw; drawn by SceneRenderer)
         FogOfWarState Fog;                 // fog of war (fog.* in Lua, Navigation/FogOfWar; drawn by SceneRenderer)
         // Grass pushes from scripts (foliage.push), used and cleared by the foliage renderer on the next frame
@@ -109,6 +117,7 @@ namespace Engine {
             const Environment* env);
     private:
         void DrawListBatches(Shader& shader, const DrawList& list, RenderPass pass);
+        void SetWindUniforms(Shader& shader) const;      // u_SceneWind*: lit.vert and shadow.vert sway Wind > 0 parts
     public:
         entt::registry& Registry() { return m_Registry; }
 

@@ -1,6 +1,7 @@
 #pragma once
 #include "Renderer/PostProcess.h"
 #include "Renderer/Shadowmap.h"
+#include "Renderer/VolumetricFog.h"
 
 #include <cstdint>
 #include <memory>
@@ -55,6 +56,7 @@ namespace Engine {
 
         PostSettings Post;
         bool ShowFog = true;                   // draw fog of war when a script turned it on (the editor can hide it)
+        VolumetricFogSettings VolFog;          // volumetric fog (part of the level settings)
         ShadowSettings& Shadows();
         SSAO& GetSSAO();
         Bloom& GetBloom();

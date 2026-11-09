@@ -2,6 +2,7 @@
 #include "Scene/Scene.h"
 #include "Renderer/PostProcess.h"
 #include "Renderer/Shadowmap.h"
+#include "Renderer/VolumetricFog.h"
 
 #include <glm/glm.hpp>
 #include <functional>
@@ -39,6 +40,7 @@ namespace Engine {
         int   AOSamples = 16;
         float BloomThreshold = 1.0f, BloomKnee = 0.5f, BloomRadius = 1.0f, BloomMaxBrightness = 8.0f;
 
+        VolumetricFogSettings VolumetricFog;
         float Gravity = 9.81f;           // m/s^2, downward
 
         // Editor camera

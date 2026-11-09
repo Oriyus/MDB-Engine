@@ -88,6 +88,7 @@ namespace Engine {
 
     private:
         uint32_t m_Buffers[2] = { 0, 0 };   // instances, indices
+        std::vector<uint32_t> m_SortOrder;  // AddBatches scratch
         size_t m_Capacity[2] = { 0, 0 };    // bytes
     };
 

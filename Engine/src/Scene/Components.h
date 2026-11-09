@@ -42,10 +42,13 @@ namespace Engine {
         glm::vec3 Rotation{ 0.0f };   // Euler angles in radians
         glm::vec3 Scale{ 1.0f };
 
+        // translate * rotate * scale, built directly: the rotation's columns times the scale, then the position.
+        // The same numbers as multiplying the three matrices (those products only add zeros), without the two
+        // 4x4 multiplies (it runs for every object every frame: 7 us each in a Debug build).
         glm::mat4 GetMatrix() const {
-            return glm::translate(glm::mat4(1.0f), Position)
-                * glm::mat4_cast(glm::quat(Rotation))
-                * glm::scale(glm::mat4(1.0f), Scale);
+            const glm::mat3 r = glm::mat3_cast(glm::quat(Rotation));
+            return glm::mat4(glm::vec4(r[0] * Scale.x, 0.0f), glm::vec4(r[1] * Scale.y, 0.0f),
+                             glm::vec4(r[2] * Scale.z, 0.0f), glm::vec4(Position, 1.0f));
         }
     };
 
@@ -101,6 +104,9 @@ namespace Engine {
         // Static: never moves or changes while playing. Static parts with the same material are merged
         // into a few big meshes when Play starts (Scene::BuildStaticBatches), saving per-object work.
         bool  Static = false;
+        // Sway in the scene's wind (Scene::Wind; lit.vert / shadow.vert): 0 = still, 1 = a tree. The higher a
+        // vertex is in the mesh the more it moves, so the base stays put. A swaying part is never merged.
+        float Wind = 0.0f;
         bool  Merged = false;                     // runtime: drawn by a static batch, not on its own (not saved)
         // Runtime hit flash (e:flash in Lua, not saved): FlashColor glows on top of the emissive colour, fading
         // out over FlashDuration seconds. Merged static parts don't flash.

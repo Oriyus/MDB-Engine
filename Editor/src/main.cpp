@@ -24,6 +24,7 @@
 #include "Audio/AudioEngine.h"
 #include "Scene/Prefab.h"
 #include "Scene/Particles.h"
+#include "Core/Profiler.h"
 #include "Renderer/SceneRenderer.h"
 #include "Runtime/ResourceLibrary.h"
 #include "Runtime/GameSession.h"
@@ -51,6 +52,9 @@
 #include <random>
 #include <vector>
 #include <algorithm>
+#include <functional>
+#include <unordered_map>
+#include <unordered_set>
 
 class EditorApp : public Engine::Application {
 public:
@@ -235,6 +239,7 @@ public:
         }
         if (EnvVar("MDB_AUTOPLAY") == "1") m_PlayCmd = PlayCmd::Play;
         if (auto q = EnvVar("MDB_QUIT_AFTER"); !q.empty()) m_QuitAfter = std::strtof(q.c_str(), nullptr);
+        if (EnvVar("MDB_NO_VSYNC") == "1") GetWindow().SetVSync(false);   // test hook: uncapped frame rate, for timing
 
         m_History.Reset(m_Scene, m_Selected, m_Resources->Registry());   // the starting point for undo
 
@@ -258,6 +263,7 @@ public:
             || ImGui::IsMouseDown(ImGuiMouseButton_Left) || ImGui::IsMouseDown(ImGuiMouseButton_Right)
             || ImGui::IsMouseDown(ImGuiMouseButton_Middle);
         if (m_PlayState == PlayState::Edit && m_MaybeChanged && !interacting) {
+            PROFILE_SCOPE("Undo history check");
             m_History.Track(m_Scene, m_Selected, m_Resources->Registry());
             m_MaybeChanged = false;
         }
@@ -405,10 +411,11 @@ public:
                     over ? ImGui::GetIO().MouseWheel : 0.0f, ImGui::IsMouseDown(ImGuiMouseButton_Right));
                 m_Session->Scripts().SetViewAspect(aspect);   // for scene.screen_ray
             }
-            m_Session->Update(dt, m_StepFrame);            // scene.restart() is handled by the session
+            { PROFILE_SCOPE("Session update"); m_Session->Update(dt, m_StepFrame); }   // scene.restart() is handled by the session
             if (m_Session->Scripts().ConsumeQuitRequest()) m_PlayCmd = PlayCmd::Stop;   // scene.quit(): the editor stops Play
         }
         else {
+            PROFILE_SCOPE("Edit-mode scene update");
             m_Scene.UpdateOrbitPositions();
             m_Scene.UpdateAnimations(0.0f);   // pose animated models at their current time (scrubbing works)
             if (m_PlayState == PlayState::Edit) m_Scene.UpdateParticles(dt);   // a live preview while editing (not while paused)
@@ -421,7 +428,7 @@ public:
         Camera& view = ViewCamera();
         m_Session->SetListener(view);
 
-        m_Renderer->Render(m_Scene, view, vw, vh);
+        { PROFILE_SCOPE("Render"); m_Renderer->Render(m_Scene, view, vw, vh); }
 
         glViewport(0, 0, (int)GetWindow().GetWidth(), (int)GetWindow().GetHeight());
     }
@@ -434,16 +441,17 @@ public:
         ImGuiID dockspace = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
         BuildDefaultLayoutOnce(dockspace);
 
-        DrawViewportPanel();
+        { PROFILE_SCOPE("Viewport panel"); DrawViewportPanel(); }
         if (m_ShowUI) {
-            if (m_ShowHierarchy) DrawHierarchyPanel();
-            if (m_ShowInspector) DrawInspectorPanel();
-            if (m_ShowSceneSettings) DrawSceneSettingsPanel();
-            if (m_ShowConsole) DrawConsolePanel();
+            if (m_ShowHierarchy) { PROFILE_SCOPE("Hierarchy"); DrawHierarchyPanel(); }
+            if (m_ShowInspector) { PROFILE_SCOPE("Inspector"); DrawInspectorPanel(); }
+            if (m_ShowSceneSettings) { PROFILE_SCOPE("Scene settings"); DrawSceneSettingsPanel(); }
+            if (m_ShowConsole) { PROFILE_SCOPE("Console"); DrawConsolePanel(); }
             if (m_ShowAssets) {
                 // A new panel: dock it with the Console the first time (saved layouts don't know it yet)
                 if (ImGuiWindow* console = ImGui::FindWindowByName("Console"); console && console->DockId)
                     ImGui::SetNextWindowDockID(console->DockId, ImGuiCond_FirstUseEver);
+                PROFILE_SCOPE("Assets");
                 HandleAssetActions(m_Assets.Draw(&m_ShowAssets, [this](const std::string& p) -> uint32_t {
                     auto t = m_Resources->LoadTexture(p);
                     return t ? t->GetID() : 0;
@@ -1011,6 +1019,7 @@ public:
     }
 
     void DrawColliders(const ImVec2& origin, const ImVec2& size) {
+        PROFILE_SCOPE("Collider overlay");
         using namespace Engine;
         ImDrawList* dl = ImGui::GetWindowDrawList();
         const glm::mat4 vp = ViewCamera().GetViewProjection();
@@ -1025,6 +1034,29 @@ public:
         auto line = [&](const glm::vec3& a, const glm::vec3& b, ImU32 col) {
             ImVec2 pa, pb;
             if (project(a, pa) && project(b, pb)) dl->AddLine(pa, pb, col, 1.5f);
+            };
+        // A box (local corners mn..mx under M) as 12 edges. Its 8 corners are projected once (through vp * M) and
+        // a box wholly off screen is skipped; unselected outlines are 1 px (ImGui's fast line path). A forest of
+        // 450 bodies took 8.7 ms a frame in a Debug build with each edge projecting its own ends.
+        auto box = [&](const glm::mat4& M, const glm::vec3& mn, const glm::vec3& mx, ImU32 col, float thickness) {
+            const glm::mat4 clip = vp * M;
+            glm::vec4 c[8];
+            int left = 0, right = 0, below = 0, above = 0, behind = 0;
+            for (int i = 0; i < 8; i++) {
+                c[i] = clip * glm::vec4((i & 1) ? mx.x : mn.x, (i & 2) ? mx.y : mn.y, (i & 4) ? mx.z : mn.z, 1.0f);
+                left += c[i].x < -c[i].w; right += c[i].x > c[i].w; below += c[i].y < -c[i].w; above += c[i].y > c[i].w;
+                behind += c[i].w <= 0.01f;
+            }
+            if (left == 8 || right == 8 || below == 8 || above == 8 || behind == 8) return;
+            ImVec2 s[8];
+            bool ok[8];
+            for (int i = 0; i < 8; i++) {
+                ok[i] = c[i].w > 0.01f;
+                if (ok[i]) s[i] = ImVec2(origin.x + (c[i].x / c[i].w * 0.5f + 0.5f) * size.x, origin.y + (1.0f - (c[i].y / c[i].w * 0.5f + 0.5f)) * size.y);
+            }
+            static const int edges[12][2] = { { 0,1 },{ 2,3 },{ 4,5 },{ 6,7 },{ 0,2 },{ 1,3 },{ 4,6 },{ 5,7 },{ 0,4 },{ 1,5 },{ 2,6 },{ 3,7 } };
+            for (auto& ed : edges)
+                if (ok[ed[0]] && ok[ed[1]]) dl->AddLine(s[ed[0]], s[ed[1]], col, thickness);
             };
         // A circle of radius r around c in the plane of u, v (from angle a0 to a1)
         auto arc = [&](const glm::vec3& c, const glm::vec3& u, const glm::vec3& v, float r, float a0, float a1, ImU32 col) {
@@ -1052,12 +1084,7 @@ public:
                 if (!IsSelectedOrInside(entity)) {
                     glm::vec3 mn, mx;
                     mr->Geometry->GetLocalBounds(mn, mx);
-                    glm::vec3 c[8];
-                    for (int i = 0; i < 8; i++)
-                        c[i] = glm::vec3(G * glm::vec4((i & 1) ? mx.x : mn.x, (i & 2) ? mx.y : mn.y, (i & 4) ? mx.z : mn.z, 1.0f));
-                    static const int edges[12][2] = { { 0,1 },{ 2,3 },{ 4,5 },{ 6,7 },{ 0,2 },{ 1,3 },{ 4,6 },{ 5,7 },{ 0,4 },{ 1,5 },{ 2,6 },{ 3,7 } };
-                    const ImU32 faint = (col & 0x00FFFFFFu) | (90u << 24);
-                    for (auto& ed : edges) line(c[ed[0]], c[ed[1]], faint);
+                    box(G, mn, mx, (col & 0x00FFFFFFu) | (90u << 24), 1.0f);
                     return;
                 }
                 // Selected: the geometry the collider is built from, as a wireframe (cached per geometry).
@@ -1079,13 +1106,7 @@ public:
             }
             if (shape == ColliderShape::Box) {
                 const glm::vec3 h = sz * 0.5f;
-                glm::vec3 c[8];
-                for (int i = 0; i < 8; i++)
-                    c[i] = glm::vec3(M * glm::vec4(center + glm::vec3((i & 1) ? h.x : -h.x,
-                        (i & 2) ? h.y : -h.y,
-                        (i & 4) ? h.z : -h.z), 1.0f));
-                static const int edges[12][2] = { { 0,1 },{ 2,3 },{ 4,5 },{ 6,7 },{ 0,2 },{ 1,3 },{ 4,6 },{ 5,7 },{ 0,4 },{ 1,5 },{ 2,6 },{ 3,7 } };
-                for (auto& ed : edges) line(c[ed[0]], c[ed[1]], col);
+                box(M, center - h, center + h, col, IsSelectedOrInside(entity) ? 1.5f : 1.0f);
                 return;
             }
 
@@ -1601,6 +1622,46 @@ private:
             ImGui::EndDisabled();
         }
 
+        if (ImGui::CollapsingHeader("Wind")) {
+            auto& w = m_Scene.Wind;
+            ImGui::SliderFloat("Direction##wind", &w.Direction, 0.0f, 360.0f, "%.0f deg");
+            ImGui::SetItemTooltip("Around Y: 0 blows towards +X, 90 towards +Z");
+            ImGui::DragFloat("Speed##wind", &w.Speed, 0.01f, 0.0f, 5.0f);
+            ImGui::DragFloat("Strength##wind", &w.Strength, 0.01f, 0.0f, 5.0f);
+            ImGui::TextDisabled("Sways Mesh Renderers with Wind > 0 (trees).\nGrass fields have their own wind.");
+        }
+
+        if (ImGui::CollapsingHeader("Volumetric Fog")) {
+            auto& v = m_Renderer->VolFog;
+            ImGui::PushID("volfog");
+            ImGui::Checkbox("Enabled", &v.Enabled);
+            ImGui::BeginDisabled(!v.Enabled);
+            ImGui::SeparatorText("Shape");
+            ImGui::SliderFloat("Density", &v.Density, 0.0f, 0.3f, "%.3f");
+            ImGui::SetItemTooltip("How thick the fog is at and below the base height (per metre)");
+            ImGui::DragFloat("Base height", &v.BaseHeight, 0.05f, -100.0f, 100.0f, "%.2f m");
+            ImGui::SliderFloat("Height falloff", &v.HeightFalloff, 0.1f, 50.0f, "%.1f m");
+            ImGui::SetItemTooltip("Above the base height the fog thins to about a third every this many metres");
+            ImGui::SliderFloat("Wisps", &v.NoiseAmount, 0.0f, 1.0f);
+            ImGui::SetItemTooltip("0 = even fog, 1 = patchy");
+            ImGui::SliderFloat("Wisp scale", &v.NoiseScale, 0.01f, 1.0f, "%.3f / m");
+            ImGui::DragFloat("Wind speed", &v.WindSpeed, 0.01f, 0.0f, 10.0f, "%.2f m/s");
+            ImGui::SliderFloat("Wind direction", &v.WindDirection, 0.0f, 360.0f, "%.0f deg");
+            ImGui::SeparatorText("Light");
+            ImGui::ColorEdit3("Color", &v.Color.x);
+            ImGui::SliderFloat("Sun shafts", &v.SunIntensity, 0.0f, 5.0f);
+            ImGui::SliderFloat("Forward scattering", &v.Anisotropy, -0.9f, 0.9f);
+            ImGui::SetItemTooltip("Towards 1 the fog glows when you look towards the sun");
+            ImGui::SliderFloat("Sky light", &v.AmbientIntensity, 0.0f, 5.0f);
+            ImGui::SliderFloat("Lamp glow", &v.PointLightIntensity, 0.0f, 5.0f);
+            ImGui::SeparatorText("Quality");
+            ImGui::SliderFloat("Distance", &v.MaxDistance, 5.0f, 500.0f, "%.0f m");
+            ImGui::SliderInt("Steps", &v.Steps, 8, 96);
+            ImGui::SetItemTooltip("Samples along each view ray (marched at half resolution)");
+            ImGui::EndDisabled();
+            ImGui::PopID();
+        }
+
         if (ImGui::CollapsingHeader("Physics")) {
             if (ImGui::SliderFloat("Gravity", &m_Gravity, 0.0f, 30.0f, "%.2f m/s2")) m_Session->Physics().SetGravity(m_Gravity);
             ImGui::TextDisabled("Bodies: %u (they exist during Play)", m_Session->Physics().BodyCount());
@@ -2008,24 +2069,46 @@ private:
         m_RowAction = { RowAction::None, entt::null };
         const std::string filter = Lower(m_HierarchyFilter);
         ImGui::BeginChild("##entities");
+        // Only the rows in view are drawn (ImGuiListClipper): a forest of 700 entities cost 8 ms a frame in Debug
+        // drawing every row. The tree is flattened into rows first, following the open nodes.
         if (!filter.empty()) {
             // Searching: a flat list of the matches
-            for (auto handle : reg.view<TagComponent>()) {
-                const std::string& name = reg.get<TagComponent>(handle).Tag;
-                if (Lower(name).find(filter) == std::string::npos) continue;
-                ImGui::PushID((int)entt::to_integral(handle));
-                if (ImGui::Selectable(name.c_str(), handle == m_Selected)) m_Selected = handle;
-                DrawRowContextMenu(handle);
-                ImGui::PopID();
-            }
+            std::vector<entt::entity> matches;
+            for (auto handle : reg.view<TagComponent>())
+                if (Lower(reg.get<TagComponent>(handle).Tag).find(filter) != std::string::npos) matches.push_back(handle);
+            ImGuiListClipper clipper;
+            clipper.Begin((int)matches.size());
+            while (clipper.Step())
+                for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
+                    const entt::entity handle = matches[i];
+                    ImGui::PushID((int)entt::to_integral(handle));
+                    if (ImGui::Selectable(reg.get<TagComponent>(handle).Tag.c_str(), handle == m_Selected)) m_Selected = handle;
+                    DrawRowContextMenu(handle);
+                    ImGui::PopID();
+                }
         }
         else {
             // A tree: roots first, children nested. Drag an entity onto another to make it a child,
             // or onto the empty space below the list to make it a root again.
-            std::vector<entt::entity> roots;
+            std::unordered_map<entt::entity, std::vector<entt::entity>> children;
+            for (auto [child, p] : reg.view<ParentComponent>().each()) {
+                const entt::entity parent = m_Scene.GetParent(child);
+                if (parent != entt::null && parent != child) children[parent].push_back(child);
+            }
+            m_HierarchyRows.clear();
+            std::function<void(entt::entity, int)> add = [&](entt::entity e, int depth) {
+                auto it = children.find(e);
+                const bool hasChildren = it != children.end();
+                m_HierarchyRows.push_back({ e, depth, hasChildren });
+                if (hasChildren && depth < 64 && !m_HierarchyCollapsed.count(m_Scene.GetID(e)))
+                    for (auto c : it->second) add(c, depth + 1);
+            };
             for (auto handle : reg.view<TagComponent>())
-                if (m_Scene.GetParent(handle) == entt::null) roots.push_back(handle);
-            for (auto r : roots) DrawHierarchyNode(r, 0);
+                if (m_Scene.GetParent(handle) == entt::null) add(handle, 0);
+            ImGuiListClipper clipper;
+            clipper.Begin((int)m_HierarchyRows.size());
+            while (clipper.Step())
+                for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) DrawHierarchyRow(m_HierarchyRows[i]);
         }
 
         ImGui::Dummy(ImVec2(ImGui::GetContentRegionAvail().x, std::max(ImGui::GetContentRegionAvail().y, 30.0f)));
@@ -2092,20 +2175,34 @@ private:
     struct PendingReparent { entt::entity Child, Parent; bool Pending; };
     PendingReparent m_Reparent{ entt::null, entt::null, false };
 
-    void DrawHierarchyNode(entt::entity e, int depth) {
+    // One row of the flattened tree (DrawHierarchyPanel): indented by depth; open state kept in m_HierarchyCollapsed
+    struct HierarchyRow { entt::entity E; int Depth; bool HasChildren; };
+    std::vector<HierarchyRow> m_HierarchyRows;
+    std::unordered_set<uint64_t> m_HierarchyCollapsed;    // entity IDs whose children are folded away
+
+    void DrawHierarchyRow(const HierarchyRow& row) {
         using namespace Engine;
         auto& reg = m_Scene.Registry();
-        const auto children = m_Scene.GetChildren(e);
+        const entt::entity e = row.E;
+        const uint64_t id = m_Scene.GetID(e);
 
         ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth
-            | ImGuiTreeNodeFlags_DefaultOpen;
-        if (children.empty()) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+            | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+        if (!row.HasChildren) flags |= ImGuiTreeNodeFlags_Leaf;
         if (e == m_Selected) flags |= ImGuiTreeNodeFlags_Selected;
 
+        if (row.Depth > 0) ImGui::Indent(row.Depth * ImGui::GetStyle().IndentSpacing);
         const bool instance = reg.all_of<PrefabComponent>(e);
         if (instance) ImGui::PushStyleColor(ImGuiCol_Text, kPrefabColor);
-        const bool open = ImGui::TreeNodeEx((void*)(uintptr_t)m_Scene.GetID(e), flags, "%s", reg.get<TagComponent>(e).Tag.c_str());
+        const bool wasOpen = row.HasChildren && !m_HierarchyCollapsed.count(id);
+        if (row.HasChildren) ImGui::SetNextItemOpen(wasOpen);
+        const bool open = ImGui::TreeNodeEx((void*)(uintptr_t)id, flags, "%s", reg.get<TagComponent>(e).Tag.c_str());
         if (instance) ImGui::PopStyleColor();
+        if (row.Depth > 0) ImGui::Unindent(row.Depth * ImGui::GetStyle().IndentSpacing);
+        if (row.HasChildren && open != wasOpen) {
+            if (open) m_HierarchyCollapsed.erase(id);
+            else m_HierarchyCollapsed.insert(id);
+        }
         if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) m_Selected = e;
         DrawRowContextMenu(e);
 
@@ -2123,11 +2220,6 @@ private:
             using K = AssetBrowser::Kind;
             const std::string asset = AssetBrowser::AcceptDrop({ K::Model, K::Prefab, K::Texture, K::Script, K::Sound });
             if (!asset.empty()) m_AssetDrop = { asset, e, true };
-        }
-
-        if (open && !children.empty()) {
-            if (depth < 64) for (auto c : children) DrawHierarchyNode(c, depth + 1);
-            ImGui::TreePop();
         }
     }
 
@@ -2484,6 +2576,9 @@ private:
             ImGui::Checkbox("Static", &mr.Static);
             ImGui::SetItemTooltip("Never moves or changes during Play: merged with other static\n"
                 "parts of the same material when Play starts (fewer draws)");
+            ImGui::DragFloat("Wind", &mr.Wind, 0.01f, 0.0f, 5.0f);
+            ImGui::SetItemTooltip("Sway in the scene's wind (Scene Settings > Wind): 0 = still, 1 = a tree.\n"
+                "The top of the mesh moves most, its base stays put.");
             {
                 // Transparency
                 static const char* modes[] = { "Opaque", "Cutout (alpha test)", "Blend (see-through)" };

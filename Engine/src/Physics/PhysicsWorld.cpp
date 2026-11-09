@@ -551,7 +551,9 @@ namespace Engine {
             glm::vec3 pos, scale;
             glm::quat q;
             bool moved = t.Position != b.WrittenPos || t.Rotation != b.WrittenRot;
-            if (moved || b.Type == BodyType::Static) {
+            // A static body without a parent moves only with its own transform (checked just above); one with a
+            // parent can be carried by it, so its world pose is checked every frame (a forest of roots isn't)
+            if (moved || (b.Type == BodyType::Static && reg.all_of<ParentComponent>(e))) {
                 I.WorldPose(e, pos, q, scale);
                 if (b.Type == BodyType::Static) moved = moved || pos != b.CurPos || q != b.CurRot;
             }

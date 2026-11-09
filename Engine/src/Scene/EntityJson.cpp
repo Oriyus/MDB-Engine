@@ -35,6 +35,8 @@ namespace Engine {
                 { "castShadows", mr.CastShadows },
                 { "static", mr.Static },
             };
+            // Only when it sways, so other mesh renderers keep their old JSON (no prefab overrides appear)
+            if (mr.Wind != 0.0f) j["meshRenderer"]["wind"] = mr.Wind;
         }
         if (e.Has<PointLightComponent>()) {
             auto& l = e.Get<PointLightComponent>();
@@ -146,6 +148,7 @@ namespace Engine {
             mr.AlphaCutoff = jm.value("alphaCutoff", 0.5f);
             mr.CastShadows = jm.value("castShadows", true);
             mr.Static = jm.value("static", false);
+            mr.Wind = jm.value("wind", 0.0f);
             e.Add<MeshRendererComponent>(mr);
         }
         if (j.contains("pointLight")) {

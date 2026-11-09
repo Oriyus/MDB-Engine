@@ -28,6 +28,9 @@ namespace Engine {
         void SetMat4(const std::string& name, const glm::mat4& value);
         void SetMat4Array(const std::string& name, const glm::mat4* values, uint32_t count);   // e.g. "u_Bones"
 
+        // Don't warn about uniforms this program lacks (it is given a shared set, e.g. Scene::SetLightingUniforms)
+        bool QuietMissing = false;
+
     private:
         uint32_t Compile(const std::string& vertexPath, const std::string& fragmentPath);
         int GetUniformLocation(const std::string& name);

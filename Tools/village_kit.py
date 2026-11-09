@@ -230,6 +230,38 @@ def tex_ground(rng):
         img[m] = img[m] * 0.4 + np.array((0.52, 0.50, 0.46)) * rng.uniform(0.6, 1.0)
     return np.clip(img, 0, 1)
 
+def tex_needles(rng):
+    """Pine needles: dark streaky greens with lighter tips and shadowed clumps."""
+    streak = fbm(rng, 96, 12, 3)
+    clump = fbm(rng, 6, 6, 4)
+    img = mix(col((0.08, 0.15, 0.08)), col((0.19, 0.30, 0.13)), streak)
+    img *= (0.65 + 0.55 * clump)[..., None]
+    tips = noise(rng, 180, 180) > 0.86
+    img = np.where(tips[..., None], img * 1.35 + col((0.02, 0.04, 0.0)), img)
+    return np.clip(img, 0, 1)
+
+def tex_leaves(rng):
+    """Broadleaf canopy: overlapping leaves in mixed greens over dark gaps (tileable)."""
+    img = np.zeros((S, S, 3), np.float32) + col((0.05, 0.09, 0.03))[0, 0]
+    greens = [(0.18, 0.30, 0.08), (0.25, 0.38, 0.11), (0.32, 0.44, 0.13), (0.38, 0.47, 0.15), (0.45, 0.46, 0.15)]
+    for _ in range(1400):
+        cx, cy = rng.integers(0, S), rng.integers(0, S)
+        r = rng.uniform(5, 11)
+        a = rng.uniform(0, np.pi)
+        ca, sa = np.cos(a), np.sin(a)
+        n = int(r) + 2
+        dy, dx = np.mgrid[-n:n + 1, -n:n + 1]
+        u = (dx * ca + dy * sa) / r
+        v = (-dx * sa + dy * ca) / (r * 0.55)
+        m = (u * u + v * v) < 1.0
+        rows, cols = (cy + np.arange(-n, n + 1)) % S, (cx + np.arange(-n, n + 1)) % S
+        patch = img[np.ix_(rows, cols)]
+        c = np.array(greens[rng.integers(0, len(greens))]) * rng.uniform(0.8, 1.15)
+        shade = (1.0 - 0.35 * np.clip(u, 0, 1))[..., None]          # one side of each leaf a bit darker
+        patch[m] = (c * shade)[m]
+        img[np.ix_(rows, cols)] = patch
+    return np.clip(img * (0.85 + 0.3 * fbm(rng, 5, 5, 3))[..., None], 0, 1)
+
 def make_image(name, rgb):
     os.makedirs(TEX_DIR, exist_ok=True)
     h, w = rgb.shape[:2]
@@ -277,7 +309,7 @@ def make_mat(name, img=None, color=(1, 1, 1), rough=0.9, metal=0.0):
 CELL_PX, PAD_PX, CELL_M = 1024, 32, 4.0
 ATLAS_COLS, ATLAS_ROWS = 4, 2
 PX_PER_M = (CELL_PX - 2 * PAD_PX) / CELL_M          # 240 px per metre (the 512 px / 2 m tiles had 256)
-CELLS = {"plaster": 0, "stone": 1, "wood": 2, "timber": 3, "shingles": 4, "bark": 5}
+CELLS = {"plaster": 0, "stone": 1, "wood": 2, "timber": 3, "shingles": 4, "bark": 5, "needles": 6, "leaves": 7}
 
 def atlas_cell(tile):
     """A 2 m tile (S x S, repeating) resampled into a cell: CELL_M metres inside, the tiling continued in the border."""
@@ -294,6 +326,8 @@ def build_materials():
     tiles = {"plaster": tex_plaster(rng), "stone": tex_stone(rng), "wood": wood,
              "timber": wood * col((0.62, 0.56, 0.52)), "shingles": tex_shingles(rng), "bark": tex_bark(rng)}
     ground = tex_ground(rng)
+    tiles["needles"] = tex_needles(np.random.default_rng(31))     # own generators: the older textures stay as they were
+    tiles["leaves"] = tex_leaves(np.random.default_rng(37))
     atlas = np.full((ATLAS_ROWS * CELL_PX, ATLAS_COLS * CELL_PX, 3), 0.5, np.float32)
     for name, cell in CELLS.items():
         cx, cy = cell % ATLAS_COLS, cell // ATLAS_COLS
@@ -820,6 +854,77 @@ def signpost(b):
     b.prism(arrow, 0.035, mat="wood")
     b.pop()
 
+# ---------------------------------------------------------------------------- trees (the forest around the village)
+# Pivot at the foot of the trunk. Give them Wind 1 in the engine (MeshRenderer.Wind): the crown sways, the base stays.
+
+def skirt(b, z0, r, h, seg=11):
+    """One tier of a pine: a jagged, drooping cone of needles (open underside, pulled up a little)."""
+    ring = []
+    for j in range(seg):
+        a = 2 * math.pi * (j + b.rng.uniform(-0.25, 0.25)) / seg
+        rr = r * b.rng.uniform(0.78, 1.08)
+        ring.append(b.bm.verts.new((rr * math.cos(a), rr * math.sin(a), z0 - b.rng.uniform(0.0, 0.25) * r * 0.4)))
+    apex = b.bm.verts.new((b.j(0.05), b.j(0.05), z0 + h))
+    under = b.bm.verts.new((0, 0, z0 + h * 0.22))
+    faces = []
+    for j in range(seg):
+        k = (j + 1) % seg
+        faces.append(b.bm.faces.new((ring[j], ring[k], apex)))
+        faces.append(b.bm.faces.new((ring[k], ring[j], under)))
+    b._finish(ring + [apex, under], faces, "needles", Matrix.Identity(4))
+
+def limb(b, base, direction, length, r0, seg=6):
+    d = Vector(direction).normalized()
+    m = Matrix.Translation(base) @ d.to_track_quat("Z", "Y").to_matrix().to_4x4()
+    b.push(m)
+    b.lathe([(r0, 0.0), (r0 * 0.45, length)], seg, mat="bark", uv="bark", cap_bottom=False)
+    b.pop()
+    return Vector(base) + d * length
+
+def blob(b, centre, r, mat="leaves", jitter=0.24, squash=0.75):
+    """A lumpy ball of leaves (an icosphere pushed in and out), flatter underneath."""
+    ret = bmesh.ops.create_icosphere(b.bm, subdivisions=1, radius=r)
+    verts = ret["verts"]
+    faces = list({f for v in verts for f in v.link_faces})
+    for v in verts:
+        v.co *= 1.0 + b.rng.uniform(-jitter, jitter)
+        if v.co.z < 0: v.co.z *= squash
+    b._finish(verts, faces, mat, T(*centre), smooth=True)
+
+def pine(b, height=9.0, radius=2.1, tiers=6):
+    b.lathe([(0.3, 0.0), (0.2, 0.5), (0.16, height * 0.5), (0.06, height * 0.93)], 8, mat="bark", uv="bark", cap_bottom=False)
+    for i in range(tiers):
+        f = i / (tiers - 1)
+        z0 = 1.5 + (height - 3.0) * f
+        tier_h = (height - z0) if i == tiers - 1 else 2.1 * (1.0 - 0.35 * f)
+        skirt(b, z0, radius * (1.0 - 0.72 * f), tier_h)
+
+def oak(b, height=7.5, spread=2.6, limbs=4):
+    rng = b.rng
+    prof = [(0.45, 0.0), (0.3, 0.35), (0.26, 2.0), (0.2, 3.2)]
+    bend = [(0, 0), (0.02, 0), (0.08, 0.04), (0.15, 0.06)]
+    b.lathe(prof, 9, mat="bark", uv="bark", centres=bend, cap_bottom=False)
+    top = Vector((0.15, 0.06, 3.2))
+    crowns = []
+    for i in range(limbs):
+        a = 2 * math.pi * (i + rng.uniform(-0.2, 0.2)) / limbs
+        start = Vector((0.1, 0.04, rng.uniform(2.5, 3.1)))
+        tip = limb(b, start, (math.cos(a), math.sin(a), rng.uniform(0.7, 1.2)), spread * rng.uniform(0.75, 0.95), 0.14)
+        crowns.append(tip)
+    limb(b, top, (0.05, 0.02, 1.0), height - 4.6, 0.16)
+    for tip in crowns:
+        blob(b, tip + Vector((0, 0, 0.5)), rng.uniform(1.4, 1.75))
+    blob(b, (0.2, 0.1, height - 1.7), 2.0)
+    for i in range(3):     # fill the gaps between the clusters
+        a = rng.uniform(0, 2 * math.pi)
+        blob(b, (math.cos(a) * spread * 0.5, math.sin(a) * spread * 0.5, height - rng.uniform(2.4, 3.2)), rng.uniform(1.2, 1.5))
+
+def bush(b):
+    for i in range(4):
+        a = 2 * math.pi * i / 4 + b.rng.uniform(-0.4, 0.4)
+        r = 0.0 if i == 0 else b.rng.uniform(0.35, 0.55)
+        blob(b, (math.cos(a) * r, math.sin(a) * r, b.rng.uniform(0.35, 0.55)), b.rng.uniform(0.45, 0.7), squash=0.5)
+
 def ground(b):
     """A 10 x 10 m ground tile, top at 0 (5 m texture repeat, so tiles side by side continue the texture)."""
     def uv(co, n, a):       # UVs are in texture metres (TILE per repeat): one repeat per 5 m
@@ -834,6 +939,8 @@ PIECES = [
     ("door", door), ("fence", fence), ("fence_broken", lambda b: fence(b, True)), ("fence_post", fence_post),
     ("barrel", barrel), ("crate", crate), ("crate_broken", lambda b: crate(b, True)),
     ("rubble", rubble), ("debris", debris), ("well", well), ("dead_tree", dead_tree), ("signpost", signpost),
+    ("pine", pine), ("pine_tall", lambda b: pine(b, 12.5, 2.3, 8)), ("oak", oak), ("oak_wide", lambda b: oak(b, 8.5, 3.3, 5)),
+    ("bush", bush),
     ("ground", ground),
 ]
 
@@ -905,6 +1012,7 @@ def render_previews(objs, folder):
 
 # ============================================================================ demo scene (engine JSON)
 CAM = [float(v) for v in os.environ.get("VILLAGE_CAM", "15,9,17,-0.38,0.72").split(",")]   # x, y, z, pitch, yaw (radians)
+SUN_ROT = [float(v) for v in os.environ.get("VILLAGE_SUN", "-0.36,3.75,0").split(",")]       # pitch, yaw, roll (radians): low, behind the village
 
 class SceneOut:
     def __init__(self):
@@ -913,18 +1021,54 @@ class SceneOut:
 
     def id(self): return self.rng.getrandbits(63)
 
-    def piece(self, name, x, z, ry=0.0, y=0.0, label=None, rx=0.0, rz=0.0, body=None):
-        if body is None: body = not name.startswith(("roof", "gable"))      # nothing reaches the roofs
+    def piece(self, name, x, z, ry=0.0, y=0.0, label=None, rx=0.0, rz=0.0, body=None, scale=1.0, wind=0.0, trunk=None):
+        """trunk = (width, height): a static box body around the trunk instead of a mesh body (trees)."""
+        if body is None: body = not name.startswith(("roof", "gable", "bush"))      # nothing reaches the roofs
         e = {
             "id": self.id(), "name": label or name,
-            "transform": {"position": [x, y, z], "rotation": [math.radians(rx), math.radians(ry), math.radians(rz)], "scale": [1, 1, 1]},
+            "transform": {"position": [x, y, z], "rotation": [math.radians(rx), math.radians(ry), math.radians(rz)], "scale": [scale, scale, scale]},
             "meshRenderer": {"geometry": f"model:Models/Village/{name}.gltf", "texture": "", "color": [1, 1, 1],
                              "localOffset": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], "unlit": False,
                              "useModelMaterials": True, "metallic": 0.0, "roughness": 0.9, "static": True, "castShadows": True},
         }
-        if body:
+        if wind: e["meshRenderer"]["wind"] = wind
+        if trunk:
+            e["rigidBody"] = {"type": 0, "shape": 0, "size": [trunk[0], trunk[1], trunk[0]], "center": [0, trunk[1] / 2, 0], "friction": 0.6}
+        elif body:
             e["rigidBody"] = {"type": 0, "shape": 3, "size": [1, 1, 1], "center": [0, 0, 0], "friction": 0.6}
         self.entities.append(e)
+
+    def forest(self):
+        """A ring of forest around the 30 x 30 m village: trees no closer than 3.6 m, a clearing around the
+        houses and a gap where the road leaves past the signpost (x -1..5, south)."""
+        rng = random.Random(77)
+        trees, bushes = [], []
+        def clear(x, z, margin):
+            if abs(x) < 15 + margin and abs(z) < 15 + margin: return False      # the village clearing
+            if -1.0 < x < 5.0 and z > 13: return False                       # the road out
+            if (x - 15.0) ** 2 + (z - 17.0) ** 2 < 11.0 ** 2: return False      # room for the default game camera
+            return True
+        for _ in range(9000):
+            x, z = rng.uniform(-44, 44), rng.uniform(-44, 44)
+            if not clear(x, z, 2.5 + rng.uniform(0, 3)): continue
+            if any((x - tx) ** 2 + (z - tz) ** 2 < 3.6 ** 2 for tx, tz in trees): continue
+            trees.append((x, z))
+        for _ in range(4000):
+            x, z = rng.uniform(-44, 44), rng.uniform(-44, 44)
+            if not clear(x, z, 0.5): continue
+            if any((x - tx) ** 2 + (z - tz) ** 2 < 1.6 ** 2 for tx, tz in trees + bushes): continue
+            bushes.append((x, z))
+            if len(bushes) >= 140: break
+        for x, z in trees:
+            r = rng.random()
+            kind = "pine" if r < 0.35 else "pine_tall" if r < 0.6 else "oak" if r < 0.85 else "oak_wide"
+            s = rng.uniform(0.8, 1.25)
+            self.piece(kind, round(x, 2), round(z, 2), rng.uniform(0, 360), scale=round(s, 3), wind=1.0,
+                       trunk=(0.7 if kind.startswith("oak") else 0.5, 4.0), label="Tree")
+        for x, z in bushes:
+            self.piece("bush", round(x, 2), round(z, 2), rng.uniform(0, 360), scale=round(rng.uniform(0.7, 1.4), 3),
+                       wind=0.6, body=False, label="Bush")
+        print(f"forest: {len(trees)} trees, {len(bushes)} bushes")
 
     def house(self, ox, oz, ry, front, back, left, right, roof="roof", ridge=True, gables=(True, True), floors=None, roofs=None):
         """A house n modules wide and 4 m deep (front/back/left/right: wall pieces per module, None = gap).
@@ -963,9 +1107,17 @@ class SceneOut:
                 if kind: put(kind, -hw + 1 + 2 * i, lz, 0)
 
     def build(self):
-        for gx in (-10, 0, 10):          # 30 x 30 m of ground
-            for gz in (-10, 0, 10):
+        for gx in range(-40, 41, 10):    # 90 x 90 m of ground: the village and the forest around it
+            for gz in range(-40, 41, 10):
                 self.piece("ground", gx, gz, label="Ground")
+        self.forest()
+        # sparse, darker grass on the forest floor (the village field adds to it in the clearing)
+        self.entities.append({"id": self.id(), "name": "Forest floor",
+                              "foliage": {"size": [90.0, 90.0], "density": 2.5, "seed": 3, "height": 0.32, "heightVariation": 0.5,
+                                          "baseColor": [0.08, 0.13, 0.05], "tipColor": [0.30, 0.40, 0.16], "dryAmount": 0.45,
+                                          "flowerAmount": 0.01, "windStrength": 0.6, "windDirection": 35.0,
+                                          "drawDistance": 45.0, "avoidStatic": True},
+                              "transform": {"position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1]}})
         # House A: the best kept, 3 modules (6 x 4 m, x -9..-3, z -7..-3), facing the square
         self.house(-6, -5, 0, ["wall_window", "wall_door", "wall_window"], ["wall", "wall_window", "wall"],
                    ["wall", "wall_window"], ["wall_window", "wall"], roofs={("b", 2): "roof_broken"})
@@ -1012,13 +1164,19 @@ class SceneOut:
                               "camera": {"fov": 50.0, "near": 0.1, "far": 300.0, "primary": True},
                               "transform": {"position": [CAM[0], CAM[1], CAM[2]], "rotation": [CAM[3], CAM[4], 0.0], "scale": [1, 1, 1]}})
         self.entities.append({"id": self.id(), "name": "Sun",
-                              "directionalLight": {"color": [1.0, 0.9, 0.78], "intensity": 1.6, "castShadows": True},
-                              "transform": {"position": [0, 10, 0], "rotation": [-0.75, 0.9, 0.0], "scale": [1, 1, 1]}})
+                              "directionalLight": {"color": [1.0, 0.86, 0.68], "intensity": 1.8, "castShadows": True},
+                              "transform": {"position": [0, 10, 0], "rotation": SUN_ROT, "scale": [1, 1, 1]}})
         return {"entities": self.entities, "version": 3, "settings": {
             "ao": {"bias": 0.025, "enabled": True, "radius": 0.5, "samples": 16, "strength": 1.0},
             "bloom": {"enabled": True, "intensity": 0.08, "knee": 0.5, "maxBrightness": 8.0, "radius": 1.0, "threshold": 1.0},
             "camera": {"focusDistance": 30.0, "pitch": -30.0, "position": [16.0, 15.0, 20.0], "yaw": -127.0},
             "environment": {"blur": 0.0, "intensity": 0.55, "map": "", "rotation": 0.0, "showSky": True},
+            # a misty morning: low fog with drifting wisps, the low sun behind the village throwing shafts through it
+            "volumetricFog": {"enabled": True, "density": 0.032, "heightFalloff": 1.8, "baseHeight": 0.0, "color": [0.9, 0.9, 0.92],
+                              "anisotropy": 0.7, "sunIntensity": 2.4, "ambientIntensity": 0.6, "pointLightIntensity": 1.0,
+                              "noiseScale": 0.12, "noiseAmount": 0.6, "windSpeed": 0.6, "windDirection": 35.0,
+                              "maxDistance": 70.0, "steps": 32},
+            "wind": {"direction": 35.0, "speed": 1.0, "strength": 1.0},       # sways the trees (grass has its own)
             "physics": {"gravity": 9.81},
             "post": {"exposure": 1.0, "fxaa": True, "gamma": True, "toneMap": 2},
             "shadows": {"cascadeCount": 4, "cascadeSplit": 0.75, "enabled": True, "pointBias": 0.05, "pointFar": 30.0,

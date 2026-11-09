@@ -100,7 +100,7 @@ namespace Engine {
         if (it != m_UniformCache.end()) return it->second;
 
         int loc = glGetUniformLocation(m_Program, name.c_str());
-        if (loc == -1) ENGINE_WARN("Uniform '{}' not found (or optimized out)", name);
+        if (loc == -1 && !QuietMissing) ENGINE_WARN("Uniform '{}' not found (or optimized out)", name);
         m_UniformCache[name] = loc;
         return loc;
     }

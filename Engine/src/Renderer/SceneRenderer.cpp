@@ -4,6 +4,7 @@
 #include "Renderer/ParticleRenderer.h"
 #include "Renderer/DecalRenderer.h"
 #include "Renderer/FoliageRenderer.h"
+#include "Renderer/VolumetricFog.h"
 #include "Renderer/Camera.h"
 #include "Renderer/Framebuffer.h"
 #include "Renderer/Environment.h"
@@ -12,9 +13,11 @@
 #include "Scene/Scene.h"
 #include "Scene/SceneSerializer.h"
 #include "Core/Log.h"
+#include "Core/Profiler.h"
 
 #include <glad/glad.h>
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 
 namespace Engine {
@@ -26,6 +29,9 @@ namespace Engine {
         std::unique_ptr<DecalRenderer> Decals;
         std::unique_ptr<Shader> FoliageShader;           // foliage.vert + lit.frag: grass lit like everything else
         std::unique_ptr<FoliageRenderer> Foliage;
+        std::unique_ptr<Shader> VolFogMarch, VolFogComposite;   // volfog.frag (half resolution), volfog_composite.frag
+        std::unique_ptr<VolumetricFog> FogPass;
+        std::chrono::steady_clock::time_point WindClock = std::chrono::steady_clock::now();   // advances Scene::WindTime
         uint32_t DepthCopy = 0, DepthCopyW = 0, DepthCopyH = 0;   // the scene depth, for decals to sample
 
         // Fog of war: the map as an RG8 texture (re-uploaded when its revision changes) and a fullscreen pass
@@ -147,6 +153,9 @@ namespace Engine {
         I.Decals = std::make_unique<DecalRenderer>();
         I.FoliageShader = std::make_unique<Shader>(I.ShaderPath("foliage.vert"), I.ShaderPath("lit.frag"));
         I.Foliage = std::make_unique<FoliageRenderer>();
+        I.VolFogMarch = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("volfog.frag"));
+        I.VolFogComposite = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("volfog_composite.frag"));
+        I.FogPass = std::make_unique<VolumetricFog>();
         I.FogShader = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("fog.frag"));
         I.Post = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("tonemap.frag"));
         I.SSAOShader = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("ssao.frag"));
@@ -180,28 +189,37 @@ namespace Engine {
         height = std::max(height, 1u);
         I.HDR->Resize(width, height);
 
+        // The wind keeps blowing in Edit mode and while paused (trees sway; see Scene::Wind)
+        const auto now = std::chrono::steady_clock::now();
+        scene.WindTime += std::clamp(std::chrono::duration<float>(now - I.WindClock).count(), 0.0f, 0.1f);
+        I.WindClock = now;
+
         // 1) Depth passes (all point lights + sun)
-        scene.BuildDrawList(*I.Draws, camera, &I.Shadows);
-        scene.RenderShadows(I.Shadows, *I.Draws);
+        { PROFILE_SCOPE("Build draw list"); scene.BuildDrawList(*I.Draws, camera, &I.Shadows); }
+        { PROFILE_SCOPE("Shadow passes"); scene.RenderShadows(I.Shadows, *I.Draws); }
 
         // 2) Scene into the HDR framebuffer, then the sky behind it
         I.HDR->Bind();
         I.HDR->Clear(0.005f, 0.005f, 0.01f, 1.0f);
-        scene.Render(camera, *I.Lit, *I.Draws, &I.Shadows, I.Env.get());
-        I.Foliage->Render(scene, camera, *I.FoliageShader, *I.Draws, &I.Shadows, I.Env.get());   // grass: opaque, before the sky
+        { PROFILE_SCOPE("Opaque pass"); scene.Render(camera, *I.Lit, *I.Draws, &I.Shadows, I.Env.get()); }
+        { PROFILE_SCOPE("Foliage"); I.Foliage->Render(scene, camera, *I.FoliageShader, *I.Draws, &I.Shadows, I.Env.get()); }   // grass: opaque, before the sky
         I.Env->DrawSkybox(camera, scene.AmbientIntensity);
         // Decals and fog both read the depth; it is copied once (after the opaque scene, the only depth writer)
         uint32_t depthCopy = 0;
         auto depth = [&]() { if (!depthCopy) depthCopy = I.CopyDepth(I.HDR->GetWidth(), I.HDR->GetHeight()); return depthCopy; };
         if (!scene.Decals.empty())                                     // projected onto the opaque scene, under glass
             I.Decals->Render(scene.Decals, camera, depth(), I.HDR->GetWidth(), I.HDR->GetHeight(), *I.DecalShader);
-        scene.Render(camera, *I.Lit, *I.Draws, &I.Shadows, I.Env.get(), Scene::RenderPass::Transparent);   // glass etc. over the sky
+        { PROFILE_SCOPE("Transparent pass"); scene.Render(camera, *I.Lit, *I.Draws, &I.Shadows, I.Env.get(), Scene::RenderPass::Transparent); }   // glass etc. over the sky
+        if (VolFog.Enabled)                                      // fog over the scene and the sky, under particles
+            I.FogPass->Render(scene, camera, *I.VolFogMarch, *I.VolFogComposite, *I.Draws, &I.Shadows, I.Env.get(), depth(),
+                             I.HDR->GetWidth(), I.HDR->GetHeight(), VolFog);
         scene.GatherParticles(camera, I.ParticleDraws);                 // particles last: over glass and sky
         I.Particles->Render(I.ParticleDraws, camera, *I.ParticleShader);
         if (scene.Fog.Enabled && ShowFog && scene.Fog.Width > 0)        // fog of war over everything but the sky
             I.DrawFog(scene.Fog, camera, depth());
         Framebuffer::Unbind();
 
+        PROFILE_SCOPE("Post (SSAO, bloom, tone map, FXAA)");
         // 3) Screen-space effects
         uint32_t aoTex = 0, bloomTex = 0;
         if (Post.AOEnabled) {
@@ -233,7 +251,7 @@ namespace Engine {
     void SceneRenderer::ReloadShaders() {
         Impl& I = *m_Impl;
         for (auto* s : { I.Lit.get(), I.PointDepth.get(), I.SunDepth.get(), I.Post.get(), I.SSAOShader.get(),
-                         I.SSAOBlur.get(), I.BloomDown.get(), I.BloomUp.get(), I.FXAA.get(), I.ParticleShader.get(), I.DecalShader.get(), I.FogShader.get(), I.FoliageShader.get() })
+                         I.SSAOBlur.get(), I.BloomDown.get(), I.BloomUp.get(), I.FXAA.get(), I.ParticleShader.get(), I.DecalShader.get(), I.FogShader.get(), I.FoliageShader.get(), I.VolFogMarch.get(), I.VolFogComposite.get() })
             s->Reload();
         I.Env->ReloadSkyShader();
     }
@@ -278,6 +296,7 @@ namespace Engine {
         I.Glow->Knee = s.BloomKnee;
         I.Glow->Radius = s.BloomRadius;
         I.Glow->MaxBrightness = s.BloomMaxBrightness;
+        VolFog = s.VolumetricFog;
     }
 
     void SceneRenderer::GatherSettings(SceneSettings& s) const {
@@ -297,6 +316,7 @@ namespace Engine {
         s.BloomKnee = I.Glow->Knee;
         s.BloomRadius = I.Glow->Radius;
         s.BloomMaxBrightness = I.Glow->MaxBrightness;
+        s.VolumetricFog = VolFog;
     }
 
 } // namespace Engine

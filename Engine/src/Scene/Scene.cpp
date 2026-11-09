@@ -1,4 +1,5 @@
 #include "Scene/Scene.h"
+#include "Core/Profiler.h"
 #include "Scene/Entity.h"
 #include "Scene/Components.h"
 #include "Renderer/Camera.h"
@@ -725,13 +726,20 @@ namespace Engine {
             }
             // A local box under a transform, tested as its world-space bounding box
             bool Visible(const glm::mat4& world, const glm::vec3& mn, const glm::vec3& mx) const {
-                const glm::vec3 c = glm::vec3(world * glm::vec4((mn + mx) * 0.5f, 1.0f));
-                const glm::vec3 h = (mx - mn) * 0.5f;
-                const glm::vec3 e = glm::abs(glm::vec3(world[0])) * h.x + glm::abs(glm::vec3(world[1])) * h.y +
-                    glm::abs(glm::vec3(world[2])) * h.z;
+                glm::vec3 c, e;
+                WorldBox(world, mn, mx, c, e);
+                return Visible(c, e);
+            }
+            // A world-space box (centre, half extents): one object is tested against several views with it
+            bool Visible(const glm::vec3& c, const glm::vec3& e) const {
                 for (const auto& p : Planes)
                     if (glm::dot(glm::vec3(p), c) + glm::dot(glm::abs(glm::vec3(p)), e) + p.w < 0.0f) return false;
                 return true;
+            }
+            static void WorldBox(const glm::mat4& world, const glm::vec3& mn, const glm::vec3& mx, glm::vec3& c, glm::vec3& e) {
+                c = glm::vec3(world * glm::vec4((mn + mx) * 0.5f, 1.0f));
+                const glm::vec3 h = (mx - mn) * 0.5f;
+                e = glm::abs(glm::vec3(world[0])) * h.x + glm::abs(glm::vec3(world[1])) * h.y + glm::abs(glm::vec3(world[2])) * h.z;
             }
         };
 
@@ -906,7 +914,7 @@ namespace Engine {
         std::vector<Candidate> candidates;
 
         for (auto [e, mr] : m_Registry.view<MeshRendererComponent>().each()) {
-            if (!mr.Static || !mr.Geometry || GetBonePalette(e, mr)) continue;
+            if (!mr.Static || !mr.Geometry || GetBonePalette(e, mr) || mr.Wind != 0.0f) continue;   // swaying parts stay apart
             if (uses[mr.Geometry.get()] > 1) continue;                   // repeated: instancing handles it better
             const uint32_t parts = mr.UseModelMaterials ? mr.Geometry->SubmeshCount() : 1;
 
@@ -1016,7 +1024,7 @@ namespace Engine {
 
         // Shadow views: a frustum each, plus the light's reach as a sphere for a quick first test
         const auto lights = GatherPointLights(*this);
-        list.Views = shadowSettings ? GatherShadowViews(*this, *shadowSettings, lights, camera, sunSize, list) : std::vector<ShadowView>{};
+        { PROFILE_SCOPE("Shadow views"); list.Views = shadowSettings ? GatherShadowViews(*this, *shadowSettings, lights, camera, sunSize, list) : std::vector<ShadowView>{}; }
         const auto& views = list.Views;
         std::vector<Frustum> viewFrusta;
         viewFrusta.reserve(views.size());
@@ -1033,7 +1041,8 @@ namespace Engine {
         // Which shadow views a caster (a box under a transform) can show up in: fills inView
         auto classifyShadows = [&](const glm::mat4& world, const glm::vec3& mn, const glm::vec3& mx) {
             bool any = false;
-            const glm::vec3 center = glm::vec3(world * glm::vec4((mn + mx) * 0.5f, 1.0f));
+            glm::vec3 center, extent;                  // the world box, once for every view
+            Frustum::WorldBox(world, mn, mx, center, extent);
             const float radius = glm::length(glm::vec3(world * glm::vec4((mx - mn) * 0.5f, 0.0f)));
             int lastLight = -2;
             bool lightReaches = true;
@@ -1043,7 +1052,7 @@ namespace Engine {
                     lightReaches = lastLight < 0 ||
                         glm::length(center - lights[lastLight].Pos) - radius < shadowSettings->PointFar;
                 }
-                inView[v] = lightReaches && viewFrusta[v].Visible(world, mn, mx);
+                inView[v] = lightReaches && viewFrusta[v].Visible(center, extent);
                 if (!inView[v]) list.ShadowSkipped++;
                 any = any || inView[v];
             }
@@ -1071,12 +1080,14 @@ namespace Engine {
             if (visible) opaque.push_back(item);
         }
 
+        PROFILE_SCOPE("Objects");
         auto drawables = m_Registry.view<TransformComponent, MeshRendererComponent>();
         for (auto entity : drawables) {
             const auto& mr = drawables.get<MeshRendererComponent>(entity);
             if (!mr.Geometry || mr.Merged || mr.Hidden) continue;    // merged: drawn by its static batch; hidden: e.visible = false
 
-            const glm::mat4 world = GetWorldMatrix(entity) * mr.LocalOffset;
+            static const glm::mat4 kIdentity(1.0f);
+            const glm::mat4 world = mr.LocalOffset == kIdentity ? GetWorldMatrix(entity) : GetWorldMatrix(entity) * mr.LocalOffset;
             const auto* bones = GetBonePalette(entity, mr);
             glm::vec3 mn, mx;
             mr.Geometry->GetLocalBounds(mn, mx);
@@ -1095,6 +1106,9 @@ namespace Engine {
             base.Model = world;
             base.Normal = glm::mat4(glm::transpose(glm::inverse(glm::mat3(world))));
             base.Info = glm::ivec4((int)entt::to_integral(entity), mr.Unlit ? 1 : 0, 0, 0);
+            // Wind (lit.vert / shadow.vert): its amount, and the mesh's height range (local) that sets how much each vertex moves
+            glm::vec3 windMin(0.0f), windMax(1.0f);
+            if (mr.Wind != 0.0f) mr.Geometry->GetLocalBounds(windMin, windMax);
             float distance = -1.0f;
 
             const uint32_t parts = mr.UseModelMaterials ? mr.Geometry->SubmeshCount() : 1;
@@ -1105,10 +1119,10 @@ namespace Engine {
                 // With a model material the component Color tints it; metallic/roughness/emissive come from the file
                 InstanceData inst = base;
                 inst.Color = glm::vec4(mat ? mat->Color * mr.Color : mr.Color, s.Alpha);
-                inst.Surface = glm::vec4(mat ? mat->Metallic : mr.Metallic, mat ? mat->Roughness : mr.Roughness, 0.0f, 0.0f);
+                inst.Surface = glm::vec4(mat ? mat->Metallic : mr.Metallic, mat ? mat->Roughness : mr.Roughness, mr.Wind, windMax.y - windMin.y);
                 glm::vec3 emissive = mat ? mat->EmissiveColor : mr.Emissive;
                 if (mr.FlashTime > 0.0f && mr.FlashDuration > 0.0f) emissive += mr.FlashColor * (mr.FlashTime / mr.FlashDuration);
-                inst.Emissive = glm::vec4(emissive, 0.0f);
+                inst.Emissive = glm::vec4(emissive, windMin.y);
 
                 DrawList::Item item;
                 item.Instance = list.AddInstance(inst);
@@ -1140,10 +1154,12 @@ namespace Engine {
                 else opaque.push_back(item);
             }
         }
+        { PROFILE_SCOPE("Sort into batches");
         list.AddBatches(opaque, list.Opaque, DrawList::Order::ByState);
         list.AddBatches(transparent, list.Transparent, DrawList::Order::BackToFront);
         for (size_t v = 0; v < views.size(); v++) list.AddBatches(shadow[v], list.ShadowViews[v], DrawList::Order::ByState);
-        list.Upload();
+        }
+        { PROFILE_SCOPE("Upload"); list.Upload(); }
         RenderStats::Culled += list.Culled;
         RenderStats::ShadowSkipped += list.ShadowSkipped;
         RenderStats::StaticBatches = (uint32_t)m_StaticBatches.size();
@@ -1183,6 +1199,7 @@ namespace Engine {
                 if (!ctx.Points || !ctx.PointDepth) continue;
                 Shader& sh = *ctx.PointDepth;
                 sh.Bind();
+                SetWindUniforms(sh);
                 sh.SetFloat("u_FarPlane", s.PointFar);
                 sh.SetVec3("u_LightPos", lights[view.Light].Pos);
                 ctx.Points->BindFace((uint32_t)view.Light, (uint32_t)view.Face);
@@ -1193,6 +1210,7 @@ namespace Engine {
                 if (!ctx.Sun || !ctx.SunDepth) continue;
                 Shader& sh = *ctx.SunDepth;
                 sh.Bind();
+                SetWindUniforms(sh);
                 ctx.Sun->Bind((uint32_t)view.Face);              // this cascade's layer
                 sh.SetMat4("u_LightVP", view.ViewProj);
                 drawCasters(sh, list.ShadowViews[v]);
@@ -1205,6 +1223,14 @@ namespace Engine {
         const Environment* env, RenderPass pass) {
         SetLightingUniforms(camera, shader, list, ctx, env);
         DrawListBatches(shader, list, pass);
+    }
+
+    void Scene::SetWindUniforms(Shader& shader) const {
+        const float a = glm::radians(Wind.Direction);
+        shader.SetFloat("u_SceneWindTime", WindTime);
+        shader.SetVec2("u_SceneWindDir", glm::vec2(std::cos(a), std::sin(a)));
+        shader.SetFloat("u_SceneWindSpeed", Wind.Speed);
+        shader.SetFloat("u_SceneWindStrength", Wind.Strength);
     }
 
     void Scene::SetLightingUniforms(const Camera& camera, Shader& shader, const DrawList& list, const ShadowContext* ctx,
@@ -1220,6 +1246,7 @@ namespace Engine {
         shader.Bind();
         shader.SetMat4("u_ViewProjection", camera.GetViewProjection());
         shader.SetVec3("u_ViewPos", camera.Position);
+        SetWindUniforms(shader);
 
         // Every sampler gets its own unit, even when unused (two sampler types on one unit is an error)
         shader.SetInt("u_Texture", 0);

@@ -1,4 +1,5 @@
 #include "Core/Application.h"
+#include "Core/Profiler.h"
 #include "Core/Log.h"
 #include "Renderer/RenderStats.h"
 #include <glad/glad.h>
@@ -57,13 +58,17 @@ namespace Engine {
             RenderStats::Reset();
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-            OnUpdate(dt);
+            { PROFILE_SCOPE("Update"); OnUpdate(dt); }
 
-            m_ImGui->Begin();
-            OnImGui();
-            m_ImGui->End();
+            {
+                PROFILE_SCOPE("UI");
+                m_ImGui->Begin();
+                { PROFILE_SCOPE("Build"); OnImGui(); }
+                { PROFILE_SCOPE("Draw"); m_ImGui->End(); }
+            }
 
-            m_Window->OnUpdate();
+            { PROFILE_SCOPE("Swap"); m_Window->OnUpdate(); }
+            Profiler::EndFrame();
         }
 
         OnShutdown();

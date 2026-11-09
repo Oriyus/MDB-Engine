@@ -1,4 +1,5 @@
 #include "Runtime/GameSession.h"
+#include "Core/Profiler.h"
 #include "Runtime/LevelState.h"
 #include "Scene/Scene.h"
 #include "Scene/Entity.h"
@@ -138,12 +139,12 @@ namespace Engine {
         if (!m_Running) return;
         const float stepDt = singleStep ? 1.0f / 60.0f : dt;
         m_Campaign->PlayTime += stepDt;
-        m_Scene.OnUpdate(stepDt);                          // Spin / Orbit / animation
+        { PROFILE_SCOPE("Scene update"); m_Scene.OnUpdate(stepDt); }   // Spin / Orbit / animation
         m_Scripts->DispatchAnimationEvents(m_Scene);       // on_anim_event, "sound:" events
-        m_Scripts->Update(m_Scene, stepDt);                // Lua on_update
-        m_Physics->Step(m_Scene, stepDt, singleStep);      // physics overrides dynamic transforms
+        { PROFILE_SCOPE("Scripts"); m_Scripts->Update(m_Scene, stepDt); }   // Lua on_update
+        { PROFILE_SCOPE("Physics"); m_Physics->Step(m_Scene, stepDt, singleStep); }   // physics overrides dynamic transforms
         m_Scripts->DispatchCollisions(m_Scene);            // on_collision_* / on_trigger_*
-        m_Audio->Update(m_Scene);                          // entity sounds follow their transforms
+        { PROFILE_SCOPE("Audio"); m_Audio->Update(m_Scene); }   // entity sounds follow their transforms
         if (m_Scripts->ConsumeRestartRequest()) RequestRestart();   // scene.restart(): next frame
     }
 

@@ -53,6 +53,19 @@ add_subdirectory(Engine)
 add_subdirectory(Editor)
 add_subdirectory(Game)
 
+# Debug builds of the code that runs every frame inline what is declared inline (/Ob1 instead of /Ob0): glm,
+# EnTT, the standard library, small accessors. Still unoptimised (/Od) and debuggable, but maths-heavy loops no
+# longer pay a call for every vector operation. No ABI change (runtime and iterator checks stay). The later
+# /Ob1 overrides the /Ob0 of the Debug flags (MSVC warning D9025). Libraries used only while loading (assimp,
+# glfw, spdlog, Lua) keep their defaults.
+if(MSVC)
+    foreach(t Engine MDBEditor Game Jolt imgui)
+        if(TARGET ${t})
+            target_compile_options(${t} PRIVATE $<$<CONFIG:Debug>:/Ob1>)
+        endif()
+    endforeach()
+endif()
+
 # Visual Studio: F5 runs the editor
 set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT MDBEditor)
 # The editor as a folder you can zip and give to someone who will not build it:

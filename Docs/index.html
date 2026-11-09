@@ -263,6 +263,28 @@ e.Add&lt;RigidBodyComponent&gt;().Type = BodyType::Static;</code></pre>
 <div class="note">Grass receives shadows but casts none. It stands on the entity's flat plane (it does not follow terrain).</div>
 </section>
 
+<section class="doc" data-group="Engine" id="engine-wind">
+<h2>Wind (trees)</h2>
+<p>Any Mesh Renderer can sway in the wind: set its <b>Wind</b> (0 = still, 1 = a tree). The higher a point is in the mesh, the more it moves, so trunks stay planted while crowns bend with the gusts and the leaves flutter. Shadows sway with it. The wind itself is in Scene Settings &gt; <b>Wind</b> (direction, speed, strength) and is saved with the level. It blows in Edit mode too, so you see it while building.</p>
+<p>The gusts roll across the level the same way as on the grass, so trees and the grass under them move together. Grass fields keep their own wind settings (Foliage component). Scripts: <code>self.mesh.wind = 0.8</code> or <code>add_mesh{ ..., wind = 1 }</code>.</p>
+<div class="note">A swaying part is never merged into a static batch (merged parts can't move). The village demo's forest (308 trees, 140 bushes) costs about 2.5 ms a frame in a Release build.</div>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-volfog">
+<h2>Volumetric fog</h2>
+<p>Scene Settings &gt; <b>Volumetric Fog</b> fills the air with fog that is lit by the scene: the sun shines through it, and wherever the sun is blocked (behind a house, a tree) the fog stays dark, so you see <b>light shafts</b>. The sky lights it from all around, and point lights glow in it. It is saved with the level (the <code>volumetricFog</code> section of the scene's settings).</p>
+<table>
+<tr><th>Setting</th><th>What it does</th></tr>
+<tr><td>Density, Base height, Height falloff</td><td>How thick the fog is at and below the base height, and how quickly it thins above it (to about a third every falloff metres): low ground mist, or a whole valley.</td></tr>
+<tr><td>Wisps, Wisp scale, Wind speed / direction</td><td>Patches of thicker and thinner fog that drift with the wind.</td></tr>
+<tr><td>Color</td><td>Tints the light the fog scatters.</td></tr>
+<tr><td>Sun shafts, Forward scattering</td><td>How bright the sunlit fog is, and how much brighter it gets looking towards the sun.</td></tr>
+<tr><td>Sky light, Lamp glow</td><td>Light from the sky, and the halo around point lights.</td></tr>
+<tr><td>Distance, Steps</td><td>How far along each view ray it is computed, and how many samples are taken. It is computed at half resolution and sharpened against edges when it is put on the image.</td></tr>
+</table>
+<div class="note">For visible shafts, put the sun low and roughly in front of the camera, as the village demo does. The fog lies over glass as it does over the surface behind it.</div>
+</section>
+
 <section class="doc" data-group="Engine" id="engine-kits">
 <h2>Modular kits (Village)</h2>
 <p>Models come in any units, so the editor normally scales a model it places to 2 m across and stands it on the origin. A <b>kit</b> is a folder of pieces that must snap together, so they keep their own size and pivot instead: a model whose folder holds a <code>kit.json</code> file is loaded with <code>Model::NativeSize</code>. Placing one from the Assets panel (dragged onto the viewport or double-clicked) also snaps it to the 0.5 m grid, marks it <b>Static</b> (merged into static batches) and gives it a static <b>Mesh</b> body, so the nav grid sees it.</p>
@@ -278,6 +300,7 @@ e.Add&lt;RigidBodyComponent&gt;().Type = BodyType::Static;</code></pre>
 <tr><td><code>door</code></td><td>Hinge edge, bottom: turn it about Y to open it. Fits <code>wall_door</code> (opening 1.2 × 2.2 m).</td></tr>
 <tr><td><code>fence</code>, <code>fence_broken</code>, <code>fence_post</code></td><td>2 m, its post at the −X end; end a run with <code>fence_post</code>.</td></tr>
 <tr><td><code>barrel</code>, <code>crate</code>, <code>crate_broken</code>, <code>rubble</code>, <code>debris</code>, <code>well</code>, <code>dead_tree</code>, <code>signpost</code></td><td>Props, bottom centre.</td></tr>
+<tr><td><code>pine</code>, <code>pine_tall</code>, <code>oak</code>, <code>oak_wide</code>, <code>bush</code></td><td>Trees (about 9, 12.5, 7.5 and 8.5 m) and a bush, at the foot of the trunk. Give them <b>Wind</b> (trees 1, bushes 0.6) so they sway.</td></tr>
 <tr><td><code>ground</code></td><td>10 × 10 m, top at 0; tiles side by side continue the texture.</td></tr>
 </table>
 <div class="note">Keep walls, posts and roofs on <b>whole metres</b> (the editor's Snap moves by 0.5 m). Nav cells are 1 m, so a doorway centred on a whole metre has two cell centres in it, and the cells beside a wall stay walkable. <code>Scripts/village_nav_test.lua</code> checks this on the demo village (<code>MDB_SCENE=village.json MDB_AUTOPLAY=1 MDB_TEST_SCRIPT=Scripts/village_nav_test.lua</code>, 16 checks).</div>
@@ -602,6 +625,8 @@ MDBEditor.exe &gt; log.txt</code></pre>
 <tr><td><code>MDB_AUTOPLAY=1</code></td><td>Press Play</td></tr>
 <tr><td><code>MDB_TEST_SCRIPT=Scripts/x.lua</code></td><td>Add a "Test" entity running it</td></tr>
 <tr><td><code>MDB_QUIT_AFTER=s</code></td><td>Close after s seconds</td></tr>
+<tr><td><code>MDB_NO_VSYNC=1</code></td><td>An uncapped frame rate, for timing (vsync hides the real cost)</td></tr>
+<tr><td><code>MDB_PROFILE=1</code></td><td>Every 300 frames, log the average milliseconds per frame of each timed section (update, render passes, draw list, foliage, physics, UI panels), nested. Add a section in C++ with <code>PROFILE_SCOPE("Name")</code> (<code>Core/Profiler.h</code>). Profile in Release to see what a player gets; Debug is many times slower on per-object work.</td></tr>
 <tr><td><code>MDB_SAVE_DIR</code></td><td>Save slot folder while play-testing</td></tr>
 <tr><td><code>MDB_OPEN_DIALOGUE=Dialogues/x.json[#node]</code></td><td>Open the Dialogue Editor on a file (and select a node)</td></tr>
 <tr><td><code>MDB_SAVE_DIALOGUE=1</code></td><td>Re-save that dialogue through the editor</td></tr>

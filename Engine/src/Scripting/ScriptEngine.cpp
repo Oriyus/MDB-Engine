@@ -226,6 +226,9 @@ namespace Engine {
             "static", sol::property(
                 [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().Static; },
                 [](const MeshRef& m, bool v) { m.E.Get<MeshRendererComponent>().Static = v; }),
+            "wind", sol::property(
+                [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().Wind; },
+                [](const MeshRef& m, float v) { m.E.Get<MeshRendererComponent>().Wind = std::max(v, 0.0f); }),
             "cast_shadows", sol::property(
                 [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().CastShadows; },
                 [](const MeshRef& m, bool v) { m.E.Get<MeshRendererComponent>().CastShadows = v; }),
@@ -530,6 +533,7 @@ namespace Engine {
                     mr.AlphaCutoff = opts->get<sol::optional<float>>("alpha_cutoff").value_or(mr.AlphaCutoff);
                     mr.CastShadows = opts->get<sol::optional<bool>>("cast_shadows").value_or(mr.CastShadows);
                     mr.Static = opts->get<sol::optional<bool>>("static").value_or(mr.Static);
+                    mr.Wind = std::max(opts->get<sol::optional<float>>("wind").value_or(mr.Wind), 0.0f);
                     // fit = metres: a model file is scaled and centred to that size (models come in any units)
                     if (const auto fit = opts->get<sol::optional<float>>("fit")) {
                         if (const auto* model = dynamic_cast<const Model*>(mr.Geometry.get())) {
