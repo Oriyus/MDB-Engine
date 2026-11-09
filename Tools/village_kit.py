@@ -262,20 +262,194 @@ def tex_leaves(rng):
         img[np.ix_(rows, cols)] = patch
     return np.clip(img * (0.85 + 0.3 * fbm(rng, 5, 5, 3))[..., None], 0, 1)
 
-def make_image(name, rgb):
+# ---------------------------------------------------------------------------- tree textures (realistic trees)
+def tex_bark_real(rng, size=512):
+    """Furrowed bark, tileable: U = once round the trunk, V = 2 m up it. Returns (rgb, height 0..1)."""
+    ridges = fbm(rng, 11, 2, 5)                                   # long vertical ridges
+    split = np.abs(noise(rng, 14, 3) - 0.5) * 2.0                 # where the bark splits into plates
+    plates = np.clip((ridges - 0.32) * 2.2, 0, 1) * np.clip(split * 1.6, 0, 1)
+    fine = fbm(rng, 48, 24, 3)
+    cross = (noise(rng, 6, 40) > 0.78).astype(np.float32) * 0.5    # horizontal cracks across the plates
+    height = np.clip(plates * (0.75 + 0.25 * fine) - cross * plates * 0.6, 0, 1)
+    dark, mid, light = col((0.14, 0.12, 0.10)), col((0.35, 0.30, 0.25)), col((0.55, 0.50, 0.44))
+    rgb = mix(dark, mid, np.clip(height * 1.8, 0, 1))
+    rgb = mix(rgb, light, np.clip((height - 0.55) * 2.2, 0, 1) * (0.6 + 0.4 * fine))
+    lichen = np.clip((fbm(rng, 5, 7, 4) - 0.6) * 4.0, 0, 1) * np.clip(height * 2, 0, 1)
+    rgb = mix(rgb, col((0.44, 0.48, 0.36)), lichen * 0.55)
+    return np.clip(rgb, 0, 1), height
+
+def normal_map(height, strength):
+    """Tangent-space normals (OpenGL / glTF: green up) from a tileable height field."""
+    dx = (np.roll(height, -1, axis=1) - np.roll(height, 1, axis=1)) * strength
+    dy = (np.roll(height, -1, axis=0) - np.roll(height, 1, axis=0)) * strength
+    n = np.stack([-dx, -dy, np.ones_like(height)], -1)
+    n /= np.linalg.norm(n, axis=-1, keepdims=True)
+    return n * 0.5 + 0.5
+
+class Sprite:
+    """An RGBA drawing (y up, like Blender images) for the leaf cards: segments and leaves, painted over."""
+    def __init__(self, size=512):
+        self.size = size
+        self.rgb = np.zeros((size, size, 3), np.float32)
+        self.a = np.zeros((size, size), np.float32)
+
+    def _paint(self, x0, y0, cov, color):
+        h, w = cov.shape
+        rgb = self.rgb[y0:y0 + h, x0:x0 + w]; a = self.a[y0:y0 + h, x0:x0 + w]
+        c = np.asarray(color, np.float32)
+        rgb[...] = rgb * (1 - cov[..., None]) + (c if c.ndim == 1 else c) * cov[..., None]
+        a[...] = np.maximum(a, cov)
+
+    def segment(self, p0, p1, w0, w1, color):
+        """A tapered stroke from p0 to p1 (pixels), anti-aliased."""
+        p0, p1 = np.array(p0, float), np.array(p1, float)
+        pad = max(w0, w1) + 2
+        x0 = int(max(0, min(p0[0], p1[0]) - pad)); x1 = int(min(self.size, max(p0[0], p1[0]) + pad + 1))
+        y0 = int(max(0, min(p0[1], p1[1]) - pad)); y1 = int(min(self.size, max(p0[1], p1[1]) + pad + 1))
+        if x1 <= x0 or y1 <= y0: return
+        yy, xx = np.mgrid[y0:y1, x0:x1].astype(np.float32)
+        d = p1 - p0; L2 = max(float(d @ d), 1e-6)
+        t = np.clip(((xx - p0[0]) * d[0] + (yy - p0[1]) * d[1]) / L2, 0, 1)
+        dist = np.hypot(xx - (p0[0] + t * d[0]), yy - (p0[1] + t * d[1]))
+        half = (w0 + (w1 - w0) * t) * 0.5
+        self._paint(x0, y0, np.clip(half - dist + 0.5, 0, 1), color)
+
+    def leaf(self, base, angle, length, width, color, rng):
+        """A pointed leaf from base along angle: lit on one side, darker rim, a pale midrib."""
+        ca, sa = math.cos(angle), math.sin(angle)
+        cx, cy = base[0] + ca * length * 0.5, base[1] + sa * length * 0.5
+        r = int(length * 0.5 + 3)
+        x0, x1 = int(max(0, cx - r)), int(min(self.size, cx + r + 1))
+        y0, y1 = int(max(0, cy - r)), int(min(self.size, cy + r + 1))
+        if x1 <= x0 or y1 <= y0: return
+        yy, xx = np.mgrid[y0:y1, x0:x1].astype(np.float32)
+        u = ((xx - cx) * ca + (yy - cy) * sa) / (length * 0.5)        # -1 base .. 1 tip
+        v = (-(xx - cx) * sa + (yy - cy) * ca) / (width * 0.5)
+        edge = np.power(np.clip(1 - u * u, 0, 1), 0.65)              # pointed at both ends
+        inside = edge - np.abs(v)
+        cov = np.clip(inside * width * 0.5 + 0.5, 0, 1)
+        if not cov.any(): return
+        c = np.asarray(color, np.float32)
+        shade = 0.82 + 0.22 * np.clip(v, -1, 1) + 0.08 * u            # one half catches more light, tips lighter
+        rim = np.clip(1 - inside * 4, 0, 1) * 0.25
+        rib = np.clip(1 - np.abs(v) * 9, 0, 1) * 0.12
+        tint = c[None, None, :] * (shade - rim + rib)[..., None]
+        self._paint(x0, y0, cov, tint)
+
+    def finish(self):
+        """Fill the see-through pixels with the colour of the nearest leaves, so mipmaps don't darken the edges."""
+        rgb, a = self.rgb * self.a[..., None], self.a.copy()
+        filled_rgb, filled_a = rgb.copy(), a.copy()
+        for _ in range(24):
+            blur = lambda x: (x + np.roll(x, 1, 0) + np.roll(x, -1, 0) + np.roll(x, 1, 1) + np.roll(x, -1, 1)) / 5
+            filled_rgb, filled_a = blur(filled_rgb), blur(filled_a)
+        fill = filled_rgb / np.maximum(filled_a[..., None], 1e-4)
+        out = np.where(self.a[..., None] > 0.02, self.rgb, fill)
+        return np.clip(out, 0, 1), self.a
+
+def sprite_broadleaf(rng):
+    """A leafy twig, growing up from the bottom centre (the card's base)."""
+    s = Sprite()
+    bark = (0.22, 0.16, 0.11)
+    greens = [(0.22, 0.36, 0.10), (0.28, 0.43, 0.12), (0.35, 0.49, 0.14), (0.42, 0.52, 0.16), (0.49, 0.51, 0.16)]
+    stem = [(256 + rng.uniform(-8, 8), 8)]
+    for i in range(1, 9):
+        stem.append((stem[-1][0] + rng.uniform(-14, 14), 8 + i * 58))
+    twigs = []
+    for i in range(len(stem) - 1):
+        s.segment(stem[i], stem[i + 1], 9 - i * 0.9, 9 - (i + 1) * 0.9, bark)
+        if i >= 1:
+            side = 1 if i % 2 else -1
+            a = math.radians(90 - side * rng.uniform(35, 60))
+            L = rng.uniform(110, 190) * (1.0 - i / 12)
+            end = (stem[i][0] + math.cos(a) * L, stem[i][1] + math.sin(a) * L)
+            s.segment(stem[i], end, 5, 2, bark)
+            twigs.append((stem[i], end))
+    twigs.append((stem[-3], stem[-1]))
+    for p0, p1 in twigs:
+        ang = math.atan2(p1[1] - p0[1], p1[0] - p0[0])
+        for k in range(rng.integers(5, 8)):
+            t = 0.25 + 0.75 * k / 6
+            at = (p0[0] + (p1[0] - p0[0]) * t, p0[1] + (p1[1] - p0[1]) * t)
+            for side in (-1, 1):
+                la = ang + side * math.radians(rng.uniform(30, 70))
+                s.leaf(at, la, rng.uniform(48, 74), rng.uniform(22, 32), greens[rng.integers(0, len(greens))], rng)
+        s.leaf(p1, ang + rng.uniform(-0.3, 0.3), rng.uniform(55, 80), rng.uniform(26, 34), greens[rng.integers(0, len(greens))], rng)
+    return s.finish()
+
+def sprite_pine(rng):
+    """A spray of needles on a twig with side shoots, the twig from the bottom centre up."""
+    s = Sprite()
+    bark = (0.24, 0.16, 0.10)
+    needles = [(0.16, 0.27, 0.11), (0.20, 0.33, 0.13), (0.25, 0.38, 0.15), (0.30, 0.42, 0.17)]
+    def shoot(p0, angle, length, w, depth):
+        steps = int(length / 4)
+        pts = [np.array(p0, float)]
+        a = angle
+        for i in range(steps):
+            a += rng.uniform(-0.03, 0.03)
+            pts.append(pts[-1] + 4 * np.array((math.cos(a), math.sin(a))))
+        if depth == 0:                            # side shoots all along, alternating, longest at the bottom (a fan)
+            k = 0
+            for i in range(4, len(pts) - 8, 7):
+                side = 1 if k % 2 else -1
+                k += 1
+                f = i / len(pts)
+                shoot(pts[i], a + side * math.radians(rng.uniform(38, 55)), 250 * (1 - 0.75 * f) * rng.uniform(0.8, 1.0), w * 0.5, 1)
+        for i in range(len(pts) - 1):
+            f = i / max(1, len(pts) - 1)
+            s.segment(pts[i], pts[i + 1], w * (1 - 0.7 * f), w * (1 - 0.7 * (f + 1 / len(pts))), bark)
+        for i in range(1, len(pts)):              # needles: pairs leaning forward, shorter towards the tip
+            f = i / len(pts)
+            nl = (1 - 0.5 * f) * rng.uniform(40, 58) * (0.8 if depth else 1.0)
+            for side in (-1, 1):
+                na = a + side * math.radians(rng.uniform(38, 62))
+                tip = pts[i] + nl * np.array((math.cos(na), math.sin(na)))
+                c = needles[rng.integers(0, len(needles))]
+                s.segment(pts[i], tip, 3.0, 1.4, (c[0] * 1.15, c[1] * 1.15, c[2] * 1.1) if rng.random() < 0.3 else c)
+    shoot((256, 6), math.radians(90 + rng.uniform(-4, 4)), 480, 7, 0)
+    return s.finish()
+
+def make_image(name, rgb, fmt="JPEG", alpha=None, noncolor=False):
+    """Saved as JPEG (or PNG when it has alpha): the glTF export keeps each image's format (export_image_format AUTO)."""
     os.makedirs(TEX_DIR, exist_ok=True)
     h, w = rgb.shape[:2]
-    img = bpy.data.images.new(name, w, h, alpha=False)
+    img = bpy.data.images.new(name, w, h, alpha=alpha is not None)
+    if noncolor: img.colorspace_settings.name = "Non-Color"     # before the pixels: changing it resets them
     px = np.ones((h, w, 4), np.float32)
     px[..., :3] = np.clip(rgb, 0, 1)
+    if alpha is not None: px[..., 3] = np.clip(alpha, 0, 1)
     img.pixels.foreach_set(px.ravel())
-    img.filepath_raw = os.path.join(TEX_DIR, name + ".png")
-    img.file_format = "PNG"
-    img.save()
+    img.filepath_raw = os.path.join(TEX_DIR, name + (".jpg" if fmt == "JPEG" else ".png"))
+    img.file_format = fmt
+    try: img.save(quality=90)
+    except TypeError: img.save()
     return img
 
 # ============================================================================ materials
-def make_mat(name, img=None, color=(1, 1, 1), rough=0.9, metal=0.0):
+def make_mat(name, img=None, color=(1, 1, 1), rough=0.9, metal=0.0, normal=None, alpha_clip=None):
+    """normal: a tangent-space normal map image (non-colour). alpha_clip: cut the texture's alpha at this value
+    (glTF alphaMode MASK, which the engine reads as Cutout; export() also writes it into the .gltf)."""
+    m = _make_mat(name, img, color, rough, metal)
+    nt = m.node_tree
+    bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
+    tex = next((n for n in nt.nodes if n.type == "TEX_IMAGE"), None)
+    if normal is not None:
+        nimg = nt.nodes.new("ShaderNodeTexImage"); nimg.image = normal
+        nmap = nt.nodes.new("ShaderNodeNormalMap")
+        nt.links.new(nimg.outputs["Color"], nmap.inputs["Color"])
+        nt.links.new(nmap.outputs["Normal"], bsdf.inputs["Normal"])
+    if alpha_clip is not None and tex is not None:
+        cmp = nt.nodes.new("ShaderNodeMath"); cmp.operation = "GREATER_THAN"
+        cmp.inputs[1].default_value = alpha_clip
+        nt.links.new(tex.outputs["Alpha"], cmp.inputs[0])
+        nt.links.new(cmp.outputs[0], bsdf.inputs["Alpha"])
+        CLIPPED[name] = alpha_clip
+    return m
+
+CLIPPED = {}   # material name -> alpha cutoff (export() writes alphaMode MASK for these)
+
+def _make_mat(name, img=None, color=(1, 1, 1), rough=0.9, metal=0.0):
     m = bpy.data.materials.new(name)
     try: m.use_nodes = True
     except Exception: pass
@@ -338,6 +512,22 @@ def build_materials():
     MATS["iron"] = (make_mat("Iron", None, (0.16, 0.14, 0.13), rough=0.55, metal=0.7), None)
     MATS["rope"] = (make_mat("Rope", None, (0.52, 0.44, 0.30), rough=0.95), None)
     MATS["water"] = (make_mat("Water", None, (0.05, 0.07, 0.07), rough=0.08), None)
+    # trees: a repeating bark with a normal map, and the leaf cards' sprites (2 x 2: broadleaf twigs, pine sprays)
+    bark_rgb, bark_h = tex_bark_real(np.random.default_rng(41))
+    MATS["bark_real"] = (make_mat("Bark", make_image("village_bark", bark_rgb), rough=0.95,
+                                  normal=make_image("village_bark_normal", normal_map(bark_h, 5.0), noncolor=True)), None)
+    rgb = np.zeros((2 * SPRITE_PX, 2 * SPRITE_PX, 3), np.float32); alpha = np.zeros((2 * SPRITE_PX, 2 * SPRITE_PX), np.float32)
+    for i, (fn, seed) in enumerate(((sprite_broadleaf, 51), (sprite_broadleaf, 52), (sprite_pine, 53), (sprite_pine, 54))):
+        c, a = fn(np.random.default_rng(seed))
+        cx, cy = i % 2, i // 2
+        rgb[cy * SPRITE_PX:(cy + 1) * SPRITE_PX, cx * SPRITE_PX:(cx + 1) * SPRITE_PX] = c
+        alpha[cy * SPRITE_PX:(cy + 1) * SPRITE_PX, cx * SPRITE_PX:(cx + 1) * SPRITE_PX] = a
+    MATS["leaves"] = (make_mat("Leaves", make_image("village_foliage", rgb, fmt="PNG", alpha=alpha), rough=0.8,
+                               alpha_clip=LEAF_CUTOFF), KEEP_UV)
+
+SPRITE_PX = 512
+LEAF_CUTOFF = 0.35
+KEEP_UV = -1          # an island whose UVs are final (leaf cards: a sprite's rectangle)
 
 # ============================================================================ geometry builder
 def rot(rx=0.0, ry=0.0, rz=0.0):
@@ -359,6 +549,7 @@ class Builder:
         # until object() packs each island into its cell; q > 0 = only move by whole steps of q on that axis
         # (shingle courses, barrel staves stay lined up with the texture's rows)
         self.islands = []
+        self.leaf_faces = []      # (face, crown centre): leaf cards get normals pointing out of the crown
 
     # ---- matrix stack (local frames: a shutter on its hinge, a roof on its slope)
     def push(self, m): self.stack.append(self.stack[-1] @ m)
@@ -495,6 +686,7 @@ class Builder:
         ground's own repeating texture) just go from metres to repeats."""
         aw, ah = ATLAS_COLS * CELL_PX, ATLAS_ROWS * CELL_PX
         for faces, cell, quantum in self.islands:
+            if cell == KEEP_UV: continue
             loops = [l for f in faces for l in f.loops]
             if cell is None:
                 for l in loops: l[self.uv].uv = l[self.uv].uv / TILE
@@ -524,10 +716,24 @@ class Builder:
     def object(self, name):
         self.pack_uvs(name)
         bm = self.bm
+        bm.faces.index_update()
+        centres = {f.index: c for f, c in self.leaf_faces}
         me = bpy.data.meshes.new(name)
         bm.to_mesh(me)
         bm.free()
         for m in self.mats: me.materials.append(m)
+        if centres:
+            # Leaf cards: normals pointing out of the crown (a bit up), so the canopy shades as one rounded mass
+            # instead of flat cards facing every way. Everything else keeps the normals it has.
+            normals = [tuple(c.vector) for c in me.corner_normals]
+            for poly in me.polygons:
+                c = centres.get(poly.index)
+                if c is None: continue
+                for li in poly.loop_indices:
+                    d = Vector(me.vertices[me.loops[li].vertex_index].co) - c
+                    n = d.normalized() if d.length > 1e-4 else Vector((0, 0, 1))
+                    normals[li] = tuple((n * 0.8 + Vector((0, 0, 0.35))).normalized())
+            me.normals_split_custom_set(normals)
         ob = bpy.data.objects.new(name, me)
         bpy.context.scene.collection.objects.link(ob)
         return ob
@@ -857,73 +1063,162 @@ def signpost(b):
 # ---------------------------------------------------------------------------- trees (the forest around the village)
 # Pivot at the foot of the trunk. Give them Wind 1 in the engine (MeshRenderer.Wind): the crown sways, the base stays.
 
-def skirt(b, z0, r, h, seg=11):
-    """One tier of a pine: a jagged, drooping cone of needles (open underside, pulled up a little)."""
-    ring = []
-    for j in range(seg):
-        a = 2 * math.pi * (j + b.rng.uniform(-0.25, 0.25)) / seg
-        rr = r * b.rng.uniform(0.78, 1.08)
-        ring.append(b.bm.verts.new((rr * math.cos(a), rr * math.sin(a), z0 - b.rng.uniform(0.0, 0.25) * r * 0.4)))
-    apex = b.bm.verts.new((b.j(0.05), b.j(0.05), z0 + h))
-    under = b.bm.verts.new((0, 0, z0 + h * 0.22))
+# Trunk and big limbs are geometry (bent, tapering tubes with a repeating bark and its normal map); twigs, leaves
+# and needles are alpha-cut cards with the sprites of village_foliage.png, in crossed pairs, seen from both sides.
+
+def tube(b, pts, radii, seg=8, mat="bark_real"):
+    """A bent tube through pts (radius per point), closed at its end. UV: once round, 2 m of bark per repeat."""
+    pts = [Vector(p) for p in pts]
+    n = len(pts)
+    tangents = [(pts[min(i + 1, n - 1)] - pts[max(i - 1, 0)]).normalized() for i in range(n)]
+    ref = Vector((0, 0, 1)) if abs(tangents[0].z) < 0.9 else Vector((1, 0, 0))
+    nrm = (ref - tangents[0] * ref.dot(tangents[0])).normalized()
+    rings, along = [], [0.0]
+    for i, p in enumerate(pts):
+        t = tangents[i]
+        nrm = (nrm - t * nrm.dot(t)).normalized()          # carried along the tube (no sudden twists)
+        bi = t.cross(nrm)
+        rings.append([b.bm.verts.new(p + radii[i] * (math.cos(2 * math.pi * j / seg) * nrm + math.sin(2 * math.pi * j / seg) * bi))
+                      for j in range(seg)])
+        if i: along.append(along[-1] + (pts[i] - pts[i - 1]).length)
+    material, cell = MATS[mat]
+    idx = b.mi(material)
     faces = []
+    for i in range(n - 1):
+        for j in range(seg):
+            f = b.bm.faces.new((rings[i][j], rings[i][(j + 1) % seg], rings[i + 1][(j + 1) % seg], rings[i + 1][j]))
+            for loop, (ri, jj) in zip(f.loops, ((i, j), (i, j + 1), (i + 1, j + 1), (i + 1, j))):
+                loop[b.uv].uv = (TILE * jj / seg, along[ri])
+            faces.append(f)
+    tip = b.bm.verts.new(pts[-1] + tangents[-1] * radii[-1])
     for j in range(seg):
-        k = (j + 1) % seg
-        faces.append(b.bm.faces.new((ring[j], ring[k], apex)))
-        faces.append(b.bm.faces.new((ring[k], ring[j], under)))
-    b._finish(ring + [apex, under], faces, "needles", Matrix.Identity(4))
+        f = b.bm.faces.new((rings[-1][j], rings[-1][(j + 1) % seg], tip))
+        for loop, (u, v) in zip(f.loops, ((j, along[-1]), (j + 1, along[-1]), (j + 0.5, along[-1] + radii[-1]))):
+            loop[b.uv].uv = (TILE * u / seg, v)
+        faces.append(f)
+    for f in faces:
+        f.material_index = idx
+        f.smooth = True
+    b.islands.append((faces, cell, (0.0, 0.0)))
 
-def limb(b, base, direction, length, r0, seg=6):
+def grow(rng, start, direction, length, r0, r1, segs, up=0.0, wobble=0.1):
+    """A limb's centre line: it bends at random and towards the sky (up > 0) or the ground (up < 0)."""
+    pts, d = [Vector(start)], Vector(direction).normalized()
+    for i in range(segs):
+        d = (d + Vector((rng.uniform(-wobble, wobble), rng.uniform(-wobble, wobble), up))).normalized()
+        pts.append(pts[-1] + d * (length / segs))
+    return pts, [r0 + (r1 - r0) * i / segs for i in range(segs + 1)]
+
+def card(b, base, direction, side, width, height, sprite, centre):
+    """A leaf card: a sprite of village_foliage.png standing on base, growing along direction, side across it.
+    Two faces (front and back), so it shows from both sides with back-face culling."""
     d = Vector(direction).normalized()
-    m = Matrix.Translation(base) @ d.to_track_quat("Z", "Y").to_matrix().to_4x4()
-    b.push(m)
-    b.lathe([(r0, 0.0), (r0 * 0.45, length)], seg, mat="bark", uv="bark", cap_bottom=False)
-    b.pop()
-    return Vector(base) + d * length
+    s = Vector(side).normalized() * (width * 0.5)
+    base = Vector(base)
+    corners = [base - s, base + s, base + s + d * height, base - s + d * height]
+    cx, cy = sprite % 2, sprite // 2
+    pad = 2.0 / (2 * SPRITE_PX)
+    u0, u1 = cx * 0.5 + pad, (cx + 1) * 0.5 - pad
+    v0, v1 = cy * 0.5 + pad, (cy + 1) * 0.5 - pad
+    uvs = [(u0, v0), (u1, v0), (u1, v1), (u0, v1)]
+    material, cell = MATS["leaves"]
+    idx = b.mi(material)
+    faces = []
+    for order in ((0, 1, 2, 3), (3, 2, 1, 0)):
+        vs = [b.bm.verts.new(corners[k]) for k in order]
+        f = b.bm.faces.new(vs)
+        for loop, k in zip(f.loops, order): loop[b.uv].uv = uvs[k]
+        f.material_index = idx
+        faces.append(f)
+        b.leaf_faces.append((f, Vector(centre)))
+    b.islands.append((faces, KEEP_UV, (0.0, 0.0)))
 
-def blob(b, centre, r, mat="leaves", jitter=0.24, squash=0.75):
-    """A lumpy ball of leaves (an icosphere pushed in and out), flatter underneath."""
-    ret = bmesh.ops.create_icosphere(b.bm, subdivisions=1, radius=r)
-    verts = ret["verts"]
-    faces = list({f for v in verts for f in v.link_faces})
-    for v in verts:
-        v.co *= 1.0 + b.rng.uniform(-jitter, jitter)
-        if v.co.z < 0: v.co.z *= squash
-    b._finish(verts, faces, mat, T(*centre), smooth=True)
+def card_pair(b, rng, base, direction, size, sprite, centre, aspect=1.0):
+    """Two cards crossed along the same direction (a twig with some volume from every side)."""
+    d = Vector(direction).normalized()
+    s1 = (Matrix.Rotation(rng.uniform(0, math.pi), 3, d) @ d.orthogonal().normalized()).normalized()
+    s2 = d.cross(s1).normalized()
+    for s in (s1, s2):
+        card(b, base, d, s, size * aspect, size, sprite, centre)
 
-def pine(b, height=9.0, radius=2.1, tiers=6):
-    b.lathe([(0.3, 0.0), (0.2, 0.5), (0.16, height * 0.5), (0.06, height * 0.93)], 8, mat="bark", uv="bark", cap_bottom=False)
-    for i in range(tiers):
-        f = i / (tiers - 1)
-        z0 = 1.5 + (height - 3.0) * f
-        tier_h = (height - z0) if i == tiers - 1 else 2.1 * (1.0 - 0.35 * f)
-        skirt(b, z0, radius * (1.0 - 0.72 * f), tier_h)
-
-def oak(b, height=7.5, spread=2.6, limbs=4):
+def oak(b, height=9.0, spread=3.4, limbs=6):
     rng = b.rng
-    prof = [(0.45, 0.0), (0.3, 0.35), (0.26, 2.0), (0.2, 3.2)]
-    bend = [(0, 0), (0.02, 0), (0.08, 0.04), (0.15, 0.06)]
-    b.lathe(prof, 9, mat="bark", uv="bark", centres=bend, cap_bottom=False)
-    top = Vector((0.15, 0.06, 3.2))
-    crowns = []
+    # trunk: a flared foot, slightly crooked, carrying on up as the leader
+    tpts, trad = grow(rng, (0, 0, 0), (0, 0, 1), height * 0.78, 0.36, 0.05, 10, up=0.0, wobble=0.05)
+    trad[0] = 0.55; trad[1] *= 1.18
+    tube(b, tpts, trad, seg=10)
+    centre = Vector((0, 0, height * 0.62))
+    tips = []
     for i in range(limbs):
-        a = 2 * math.pi * (i + rng.uniform(-0.2, 0.2)) / limbs
-        start = Vector((0.1, 0.04, rng.uniform(2.5, 3.1)))
-        tip = limb(b, start, (math.cos(a), math.sin(a), rng.uniform(0.7, 1.2)), spread * rng.uniform(0.75, 0.95), 0.14)
-        crowns.append(tip)
-    limb(b, top, (0.05, 0.02, 1.0), height - 4.6, 0.16)
-    for tip in crowns:
-        blob(b, tip + Vector((0, 0, 0.5)), rng.uniform(1.4, 1.75))
-    blob(b, (0.2, 0.1, height - 1.7), 2.0)
-    for i in range(3):     # fill the gaps between the clusters
-        a = rng.uniform(0, 2 * math.pi)
-        blob(b, (math.cos(a) * spread * 0.5, math.sin(a) * spread * 0.5, height - rng.uniform(2.4, 3.2)), rng.uniform(1.2, 1.5))
+        at = int(rng.uniform(0.38, 0.66) * (len(tpts) - 1))
+        az = i * 2.39996 + rng.uniform(-0.3, 0.3)                    # golden angle round the trunk
+        el = rng.uniform(0.3, 0.85)
+        d = Vector((math.cos(az) * math.cos(el), math.sin(az) * math.cos(el), math.sin(el)))
+        pts, rad = grow(rng, tpts[at], d, spread * rng.uniform(0.75, 1.05), min(trad[at] * 0.62, 0.17), 0.03, 6, up=0.07, wobble=0.16)
+        tube(b, pts, rad, seg=7)
+        for j in range(int(rng.randrange(3, 5))):
+            p = int(rng.uniform(0.3, 0.92) * (len(pts) - 1))
+            dd = (d + Vector((rng.uniform(-0.9, 0.9), rng.uniform(-0.9, 0.9), rng.uniform(0.0, 0.8)))).normalized()
+            pts2, rad2 = grow(rng, pts[p], dd, rng.uniform(1.1, 2.0), max(rad[p] * 0.55, 0.025), 0.012, 3, up=0.1, wobble=0.22)
+            tube(b, pts2, rad2, seg=5)
+            tips += [(q, dd) for q in pts2[1:]]
+        tips += [(q, d) for q in pts[-3:]]
+    tips += [(q, Vector((0, 0, 1))) for q in tpts[-3:]]
+    for p, d in tips:                                                 # twigs with leaves
+        for k in range(2):
+            dir_ = (d + Vector((rng.uniform(-0.8, 0.8), rng.uniform(-0.8, 0.8), rng.uniform(-0.3, 0.9)))).normalized()
+            size = rng.uniform(1.3, 1.9)
+            card_pair(b, rng, p - dir_ * size * 0.2, dir_, size, int(rng.randrange(0, 2)), centre)
+
+def pine(b, height=12.0, reach=3.0):
+    rng = b.rng
+    tpts, trad = grow(rng, (0, 0, 0), (0, 0, 1), height, 0.32, 0.025, 14, up=0.0, wobble=0.015)
+    trad[0] = 0.48; trad[1] *= 1.15
+    tube(b, tpts, trad, seg=9)
+    def trunk_at(z):
+        i = min(len(tpts) - 2, max(0, int(z / height * (len(tpts) - 1))))
+        f = (z - tpts[i].z) / max(tpts[i + 1].z - tpts[i].z, 1e-4)
+        return tpts[i].lerp(tpts[i + 1], min(max(f, 0.0), 1.0))
+    z, base_z = 2.0, 2.0
+    while z < height - 0.5:
+        f = (z - base_z) / (height - base_z)                           # 0 at the lowest whorl, 1 at the top
+        L = reach * (1 - f) ** 0.9 + 0.35
+        n = int(rng.randrange(5, 7))
+        a0 = rng.uniform(0, 2 * math.pi)
+        for k in range(n):
+            az = a0 + 2 * math.pi * k / n + rng.uniform(-0.25, 0.25)
+            el = math.radians(-18 + 34 * f + rng.uniform(-6, 6))     # droop low down, rise near the top
+            d = Vector((math.cos(az) * math.cos(el), math.sin(az) * math.cos(el), math.sin(el)))
+            pts, rad = grow(rng, trunk_at(z), d, L, 0.06 * (1 - f) + 0.018, 0.008, 3, up=-0.04, wobble=0.05)
+            tube(b, pts, rad, seg=5)
+            m = max(1, int(math.ceil(L / 0.6)))
+            for c in range(m):                                          # needle sprays along the branch, lying flat-ish
+                t = c / m
+                i = min(len(pts) - 2, int(t * (len(pts) - 1)))
+                p = pts[i].lerp(pts[i + 1], t * (len(pts) - 1) - i)
+                cd = (d + Vector((rng.uniform(-0.25, 0.25), rng.uniform(-0.25, 0.25), rng.uniform(-0.05, 0.15)))).normalized()
+                size = min(1.8, L - t * L + 0.6)
+                flat = cd.cross(Vector((0, 0, 1)))
+                side = Matrix.Rotation(math.radians(rng.uniform(-25, 25)), 3, cd) @ (flat.normalized() if flat.length > 1e-3 else cd.orthogonal().normalized())
+                centre = trunk_at(p.z) - Vector((0, 0, 0.6))
+                card(b, p, cd, side, size * 1.0, size, 2 + int(rng.randrange(0, 2)), centre)
+                card(b, p, cd, Matrix.Rotation(math.radians(55), 3, cd) @ side, size * 0.8, size * 0.9, 2 + int(rng.randrange(0, 2)), centre)
+        z += rng.uniform(0.5, 0.7) * (1 - 0.35 * f)
+    for k in range(4):                                                  # the top of the leader
+        d = Vector((rng.uniform(-0.35, 0.35), rng.uniform(-0.35, 0.35), 1.0)).normalized()
+        card_pair(b, rng, tpts[-2], d, 0.9, 2 + int(rng.randrange(0, 2)), tpts[-4], aspect=0.7)
 
 def bush(b):
-    for i in range(4):
-        a = 2 * math.pi * i / 4 + b.rng.uniform(-0.4, 0.4)
-        r = 0.0 if i == 0 else b.rng.uniform(0.35, 0.55)
-        blob(b, (math.cos(a) * r, math.sin(a) * r, b.rng.uniform(0.35, 0.55)), b.rng.uniform(0.45, 0.7), squash=0.5)
+    rng = b.rng
+    centre = Vector((0, 0, 0.35))
+    for i in range(3):
+        a = 2 * math.pi * i / 3 + rng.uniform(-0.4, 0.4)
+        pts, rad = grow(rng, (0, 0, 0), (math.cos(a) * 0.5, math.sin(a) * 0.5, 1), 0.7, 0.035, 0.01, 3, up=0.05, wobble=0.2)
+        tube(b, pts, rad, seg=5)
+    for i in range(14):
+        a = rng.uniform(0, 2 * math.pi)
+        d = Vector((math.cos(a) * rng.uniform(0.4, 1.0), math.sin(a) * rng.uniform(0.4, 1.0), rng.uniform(0.3, 1.0))).normalized()
+        card_pair(b, rng, Vector((0, 0, rng.uniform(0.05, 0.3))), d, rng.uniform(0.8, 1.15), int(rng.randrange(0, 2)), centre)
 
 def ground(b):
     """A 10 x 10 m ground tile, top at 0 (5 m texture repeat, so tiles side by side continue the texture)."""
@@ -939,7 +1234,7 @@ PIECES = [
     ("door", door), ("fence", fence), ("fence_broken", lambda b: fence(b, True)), ("fence_post", fence_post),
     ("barrel", barrel), ("crate", crate), ("crate_broken", lambda b: crate(b, True)),
     ("rubble", rubble), ("debris", debris), ("well", well), ("dead_tree", dead_tree), ("signpost", signpost),
-    ("pine", pine), ("pine_tall", lambda b: pine(b, 12.5, 2.3, 8)), ("oak", oak), ("oak_wide", lambda b: oak(b, 8.5, 3.3, 5)),
+    ("pine", lambda b: pine(b, 11.0, 2.6)), ("pine_tall", lambda b: pine(b, 15.0, 3.0)), ("oak", oak), ("oak_wide", lambda b: oak(b, 9.5, 4.2, 7)),
     ("bush", bush),
     ("ground", ground),
 ]
@@ -952,11 +1247,20 @@ def export(ob, path):
     # .gltf + .bin with the images beside them: every piece points at the same village_atlas.jpg (stored once,
     # and the engine shares one GPU texture per image file)
     kw = dict(filepath=path, export_format="GLTF_SEPARATE", use_selection=True, export_yup=True, export_apply=True,
-              export_image_format="JPEG", export_materials="EXPORT", export_animations=False)
+              export_image_format="AUTO", export_materials="EXPORT", export_animations=False)   # JPEGs stay JPEG, the leaves PNG
     try:
         bpy.ops.export_scene.gltf(**kw, export_image_quality=88)
     except TypeError:
         bpy.ops.export_scene.gltf(**kw)
+    # Alpha-cut materials: make sure the file says MASK with our cutoff (the engine reads it as Cutout)
+    if CLIPPED:
+        with open(path, encoding="utf-8") as f: g = json.load(f)
+        changed = False
+        for m in g.get("materials", []):
+            if m.get("name") in CLIPPED:
+                m["alphaMode"] = "MASK"; m["alphaCutoff"] = CLIPPED[m["name"]]; changed = True
+        if changed:
+            with open(path, "w", encoding="utf-8") as f: json.dump(g, f, indent=2)
 
 # ============================================================================ previews (Cycles, CPU)
 def render_previews(objs, folder):
