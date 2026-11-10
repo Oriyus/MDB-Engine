@@ -107,6 +107,7 @@ namespace Engine {
             float Strength = 1.0f;         // multiplies every Mesh Renderer's Wind
         } Wind;
         float WindTime = 0.0f;             // seconds, advanced by SceneRenderer (runs in Edit mode too)
+        float WindTimePrev = 0.0f;         // last frame's WindTime (motion vectors of swaying parts)
         std::vector<Decal> Decals;         // this frame's decals (scripts add them with decal.draw; drawn by SceneRenderer)
         FogOfWarState Fog;                 // fog of war (fog.* in Lua, Navigation/FogOfWar; drawn by SceneRenderer)
         // Grass pushes from scripts (foliage.push), used and cleared by the foliage renderer on the next frame

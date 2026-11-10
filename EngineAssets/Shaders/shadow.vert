@@ -13,6 +13,7 @@ struct Instance {
     vec4  Surface;
     vec4  Emissive;
     ivec4 Info;
+    mat4  PrevModel;   // last frame's Model (motion vectors; unused here)
 };
 layout(std430, binding = 0) readonly buffer Instances { Instance u_Instances[]; };
 layout(std430, binding = 1) readonly buffer InstanceIndices { uint u_Indices[]; };   // per view: which instances

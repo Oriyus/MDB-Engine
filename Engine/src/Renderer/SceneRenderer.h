@@ -70,8 +70,16 @@ namespace Engine {
         glm::vec3 OutlineColor{ 1.0f, 0.55f, 0.1f };   // sRGB
         float OutlineWidth = 2.0f;                      // pixels
 
+        bool ShowMotionVectors = false;                 // debug view of the TAA motion vectors (not saved)
+        // Draw the opaque scene and grass depth-only first, so lighting runs once per pixel (heavy foliage overdraw).
+        // On by default; a debug switch (not saved).
+        bool DepthPrepass = true;
+        // Forget the TAA history (the next frame starts fresh). Call on a camera cut: a level change or a teleport,
+        // so the old view doesn't bleed into the new one for a few frames.
+        void ResetTemporalHistory();
+
         PostSettings Post;
-        bool ShowFog = true;                  // draw fog of war when a script turned it on (the editor can hide it)
+        bool ShowFog = true;                 // draw fog of war when a script turned it on (the editor can hide it)
         VolumetricFogSettings VolFog;          // volumetric fog (part of the level settings)
         ShadowSettings& Shadows();
         SSAO& GetSSAO();

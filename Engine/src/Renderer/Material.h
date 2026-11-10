@@ -25,6 +25,9 @@ namespace Engine {
         AlphaMode Mode = AlphaMode::Opaque;
         float AlphaCutoff = 0.5f;                 // Cutout only
         bool DoubleSided = false;                 // back faces drawn too, lit from their own side (glTF doubleSided)
+        // Specular reflection of a non-metal, 0..1 (glTF KHR_materials_specular specularFactor; Blender's Specular IOR
+        // Level exports it): scales the usual 4% reflectance and the bright reflection at grazing angles. 0 = none.
+        float Specular = 1.0f;
     };
 
 } // namespace Engine

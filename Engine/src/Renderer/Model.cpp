@@ -14,6 +14,9 @@
 #include <filesystem>
 #include <string_view>
 #include <unordered_map>
+#include <fstream>
+#include <iterator>
+#include <nlohmann/json.hpp>
 
 namespace fs = std::filesystem;
 
@@ -24,6 +27,37 @@ namespace Engine {
         std::unordered_map<std::string, std::weak_ptr<Texture2D>>& SharedTextures() {
             static std::unordered_map<std::string, std::weak_ptr<Texture2D>> textures;
             return textures;
+        }
+
+        // Each glTF material's name and KHR_materials_specular specularFactor (1 when the extension is absent), in file
+        // order. Reads the JSON of a .gltf, or the JSON chunk of a .glb. Empty if the file can't be read.
+        struct GltfSpecular { std::string Name; float Factor = 1.0f; };
+        std::vector<GltfSpecular> ReadGltfSpecular(const std::string& path, bool binary) {
+            std::vector<GltfSpecular> out;
+            std::ifstream f(path, std::ios::binary);
+            if (!f) return out;
+            std::string text;
+            if (binary) {
+                uint32_t header[5] = {};                   // magic, version, length, then chunk 0: length, type ("JSON")
+                if (!f.read(reinterpret_cast<char*>(header), sizeof(header)) || header[0] != 0x46546C67u || header[4] != 0x4E4F534Au)
+                    return out;
+                text.resize(header[3]);
+                if (!f.read(text.data(), (std::streamsize)text.size())) return out;
+            }
+            else text.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+            const auto j = nlohmann::json::parse(text, nullptr, false);
+            if (j.is_discarded() || !j.contains("materials") || !j["materials"].is_array()) return out;
+            for (const auto& m : j["materials"]) {
+                GltfSpecular s;
+                if (m.contains("name") && m["name"].is_string()) s.Name = m["name"].get<std::string>();
+                if (m.contains("extensions") && m["extensions"].contains("KHR_materials_specular")) {
+                    const auto& e = m["extensions"]["KHR_materials_specular"];
+                    if (e.contains("specularFactor") && e["specularFactor"].is_number())
+                        s.Factor = std::clamp(e["specularFactor"].get<float>(), 0.0f, 1.0f);
+                }
+                out.push_back(std::move(s));
+            }
+            return out;
         }
     }
 
@@ -101,6 +135,10 @@ namespace Engine {
             return tex;
             };
 
+        // glTF KHR_materials_specular, read from the file: assimp drops specularFactor 0 (its importer treats a zero
+        // factor with the default colour as "not set"), and 0 is exactly what Blender's Specular IOR Level 0 exports
+        const auto gltfSpecular = linearColors ? ReadGltfSpecular(path, ext == ".glb") : std::vector<GltfSpecular>{};
+
         // ---- materials
         for (unsigned i = 0; i < scene->mNumMaterials; i++) {
             const aiMaterial* am = scene->mMaterials[i];
@@ -108,6 +146,11 @@ namespace Engine {
 
             aiString name;
             if (am->Get(AI_MATKEY_NAME, name) == AI_SUCCESS) m.Name = name.C_Str();
+            // assimp keeps glTF's material order (plus a default material at the end): match by index, check the name
+            if (i < gltfSpecular.size() && (gltfSpecular[i].Name.empty() || gltfSpecular[i].Name == m.Name))
+                m.Specular = gltfSpecular[i].Factor;
+            else
+                for (const auto& g : gltfSpecular) if (!g.Name.empty() && g.Name == m.Name) { m.Specular = g.Factor; break; }
 
             aiColor4D c;
             if (am->Get(AI_MATKEY_BASE_COLOR, c) == AI_SUCCESS ||

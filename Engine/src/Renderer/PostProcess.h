@@ -18,7 +18,10 @@ namespace Engine {
         bool  BloomEnabled = true;
         float BloomIntensity = 0.12f;
 
-        bool FXAA = true;
+        bool FXAA = true;                     // used when TAA is off
+        // Temporal anti-aliasing: each frame is drawn shifted by a sub-pixel amount and blended with earlier ones,
+        // so edges, thin leaves and noisy effects stay steady in motion (SceneRenderer, taa.frag). Replaces FXAA.
+        bool TAA = true;
 
         // Colour grading (tonemap.frag). The neutral values below change nothing.
         float Contrast = 1.0f;                // around mid grey, before the tone map: > 1 = deeper shadows, brighter lights

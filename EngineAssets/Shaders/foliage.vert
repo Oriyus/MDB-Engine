@@ -16,6 +16,11 @@ layout(std430, binding = 4) readonly buffer Clumps { Clump u_Clumps[]; };
 uniform int u_InstanceOffset;        // this draw's first clump (a chunk of the field)
 
 uniform mat4  u_ViewProjection;
+uniform mat4  u_CurViewProjection;    // without the TAA jitter (motion vectors, as lit.vert)
+uniform mat4  u_PrevViewProjection;
+out vec4 v_CurClip;
+out vec4 v_PrevClip;
+invariant gl_Position;    // drawn twice (depth pre-pass, then lit): the positions must match exactly
 uniform vec3  u_ViewPos;
 uniform float u_Time;
 uniform vec2  u_WindDir;             // world X/Z, unit length
@@ -32,7 +37,7 @@ out vec3 v_WorldPos;
 out vec3 v_Normal;
 out vec2 v_TexCoord;
 out vec4 v_Color;
-flat out vec2  v_Surface;
+flat out vec3  v_Surface;     // metallic, roughness, specular (0..1, 1 = the usual 4% for non-metals)
 flat out vec3  v_Emissive;
 flat out int   v_EntityID;
 flat out int   v_Unlit;
@@ -83,9 +88,11 @@ void main() {
     vec3 col = mix(u_BaseColor, tip, smoothstep(0.0, 0.9, h)) * c.Color.rgb;
     if (a_TexCoord.y > 0.5) col = c.Flower.rgb;
     v_Color = vec4(col, 1.0);
-    v_Surface = vec2(0.0, u_Roughness);
+    v_Surface = vec3(0.0, u_Roughness, 1.0);
     v_Emissive = vec3(0.0);
     v_EntityID = -1;             // not written: the entity-ID target is masked, so clicks pick the ground under the grass
     v_Unlit = 0;
     gl_Position = u_ViewProjection * vec4(world, 1.0);
+    v_CurClip = u_CurViewProjection * vec4(world, 1.0);     // motion vectors: camera motion only (the sway is small)
+    v_PrevClip = u_PrevViewProjection * vec4(world, 1.0);
 }

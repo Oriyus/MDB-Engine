@@ -113,13 +113,14 @@ namespace Engine {
     //   e.mesh   -> nil or { color, emissive, metallic, roughness, unlit, geometry ("cube" "sphere" ...),
     //               opacity (0..1; below 1 makes an opaque mesh "blend"), alpha_mode ("opaque" "cutout" "blend"),
     //               alpha_cutoff, cast_shadows, static (merged when Play starts; read-only in effect during Play),
-    //               wind (sway in the scene's wind: 0 still, 1 a tree), double_sided (back faces drawn too) }
+    //               wind (sway in the scene's wind: 0 still, 1 a tree), double_sided (back faces drawn too),
+    //               specular (0..1: reflection of a non-metal, 0 = matte) }
     //   e.light  -> nil or { color, intensity, shadows }
     //   e.body   -> nil or { velocity, angular_velocity, type, trigger, mass,
     //                         add_force(v) (newtons, lasts this frame: call each frame), add_impulse(v) }
     //   e:add_mesh{ geometry="cube"|"sphere"|"plane"|"capsule"|"cylinder"|"cone"|"model:Models/x.glb", texture="checker", color=vec3,
     //               metallic, roughness, emissive, unlit, fit=metres (models: scaled to that size, standing on the origin),
-    //               opacity, alpha_mode, alpha_cutoff, cast_shadows, static, wind, double_sided }
+    //               opacity, alpha_mode, alpha_cutoff, cast_shadows, static, wind, double_sided, specular }
     //   e:add_body{ type="dynamic"|"static"|"kinematic", shape="box"|"sphere"|"capsule"|"convex"|"mesh"|"none", size=number|vec3,
     //               center=vec3, mass, friction, bounciness, trigger=bool, velocity=vec3 }
     //   e:add_collider{ shape="box"|"sphere"|"capsule"|"convex"|"mesh", size, center }   an extra shape for the

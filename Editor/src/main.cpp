@@ -246,6 +246,7 @@ public:
             m_WireXRay = vm == "xray";
         }
         m_PendingSelect = EnvVar("MDB_SELECT");     // selected once the scene has it (loads are queued)
+        if (EnvVar("MDB_MOTION_VECTORS") == "1") m_Renderer->ShowMotionVectors = true;   // Viewport > Debug > Motion Vectors
         if (EnvVar("MDB_AUTOPLAY") == "1") m_PlayCmd = PlayCmd::Play;
         if (auto q = EnvVar("MDB_QUIT_AFTER"); !q.empty()) m_QuitAfter = std::strtof(q.c_str(), nullptr);
         if (EnvVar("MDB_NO_VSYNC") == "1") GetWindow().SetVSync(false);   // test hook: uncapped frame rate, for timing
@@ -417,6 +418,7 @@ public:
                 Engine::SceneSettings s = GatherSettings();
                 if (m_Session->ApplyPending(s)) {
                     m_Renderer->ApplySettings(s);
+                    m_Renderer->ResetTemporalHistory();   // a new level: a camera cut
                     ClearSelection();             // the old handles are gone
                     m_Spawned.clear();
                 }
@@ -444,9 +446,11 @@ public:
         m_StepFrame = false;
 
         // During Play, look through the scene's game camera (after scripts moved it this frame)
+        const bool wasViewingGame = m_ViewingGame;
         m_ViewingGame = m_PlayState != PlayState::Edit && m_PlayThroughGameCamera
             && m_Session->UpdateGameCamera(*m_GameCamera, aspect);
         Camera& view = ViewCamera();
+        if (m_ViewingGame != wasViewingGame) m_Renderer->ResetTemporalHistory();   // switched cameras: a cut
         m_Session->SetListener(view);
 
         // Shading and the selection outline are editor views: the game camera shows the game as it is
@@ -1648,6 +1652,11 @@ private:
             ImGui::SeparatorText("Point lights");
             ImGui::SliderFloat("Range", &s.PointFar, 5.0f, 100.0f, "%.0f m");
             ImGui::SliderFloat("Bias##point", &s.PointBias, 0.005f, 0.3f, "%.3f");
+            ImGui::SliderInt("Update every", &s.PointUpdateInterval, 1, 8, s.PointUpdateInterval == 1 ? "frame" : "%d frames");
+            ImGui::SetItemTooltip("How often a still light re-renders its shadows (the lights take turns).\n"
+                "A light that moves, or has something moving or animated in reach, updates at once;\n"
+                "swaying trees don't count, so their lamp shadows update at this rate.\n"
+                "Each shadowed point light costs about 0.5 ms a frame on an RTX 2060 when it updates.");
             ImGui::SeparatorText("Sun");
             ImGui::SliderFloat("Bias##sun", &s.SunBias, 0.0002f, 0.01f, "%.4f");
             ImGui::Checkbox("Cascades (follow the camera)", &s.SunCascades);
@@ -1667,7 +1676,13 @@ private:
             const char* modes[] = { "None (clamp)", "Reinhard", "ACES" };
             ImGui::Combo("Tone map", &m_Renderer->Post.ToneMap, modes, 3);
             ImGui::Checkbox("Gamma correction", &m_Renderer->Post.Gamma);
+            ImGui::Checkbox("Temporal anti-aliasing (TAA)", &m_Renderer->Post.TAA);
+            ImGui::SetItemTooltip("Each frame is drawn shifted by a fraction of a pixel and blended with the frames\n"
+                "before it: smooth, steady edges, leaves and fog in motion. Replaces FXAA. Rendered view only.");
+            ImGui::BeginDisabled(m_Renderer->Post.TAA);
             ImGui::Checkbox("FXAA (anti-aliasing)", &m_Renderer->Post.FXAA);
+            ImGui::EndDisabled();
+            if (m_Renderer->Post.TAA) ImGui::SetItemTooltip("Used when TAA is off");
 
             ImGui::SeparatorText("Color grading");
             auto& grade = m_Renderer->Post;
@@ -2575,6 +2590,9 @@ private:
             if (ImGui::BeginMenu("Debug")) {
                 ImGui::MenuItem("Ambient Occlusion Only", nullptr, &m_Renderer->Post.AODebug);
                 ImGui::MenuItem("Shadow Cascades", nullptr, &m_Renderer->Shadows().CascadeDebug);
+                ImGui::MenuItem("Motion Vectors", nullptr, &m_Renderer->ShowMotionVectors);
+                ImGui::SetItemTooltip("How far each pixel moved since the last frame (red = sideways, green = up/down;\n"
+                    "black = still). Needs TAA on and the Rendered view.");
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Camera")) {
@@ -2874,6 +2892,16 @@ private:
                 ImGui::SliderFloat("Metallic", &mr.Metallic, 0.0f, 1.0f);
                 ImGui::SliderFloat("Roughness", &mr.Roughness, 0.04f, 1.0f);
                 ImGui::ColorEdit3("Emissive", &mr.Emissive.x, ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float);
+            }
+            ImGui::SliderFloat("Specular", &mr.Specular, 0.0f, 1.0f);
+            ImGui::SetItemTooltip("How much a non-metal reflects: 1 = the usual 4%% plus the bright sheen at grazing\n"
+                "angles, 0 = none (matte bark, cloth, dry clay). With model materials it multiplies\n"
+                "the file's own value (glTF KHR_materials_specular: Blender's Specular IOR Level).");
+            if (mr.UseModelMaterials && mr.Geometry) {
+                float lowest = 1.0f;
+                for (uint32_t i = 0; i < mr.Geometry->SubmeshCount(); i++)
+                    if (const auto* m = mr.Geometry->GetSubmeshMaterial(i)) lowest = std::min(lowest, m->Specular);
+                if (lowest < 1.0f) ImGui::TextDisabled("The file lowers specular to %.2f on some parts", lowest);
             }
             ImGui::Checkbox("Unlit", &mr.Unlit);
             ImGui::SameLine();

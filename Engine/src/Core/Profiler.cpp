@@ -25,6 +25,8 @@ namespace Engine {
             std::vector<Open> Stack;
             int Frames = 0;
             Clock::time_point WindowStart = Clock::now();
+            struct Gpu { const char* Name; double Total = 0.0; long long Samples = 0; };
+            std::vector<Gpu> Gpus;                  // in first-seen order
         };
         State& S() { static State s; return s; }
 
@@ -69,6 +71,12 @@ namespace Engine {
         n.Calls++;
     }
 
+    void Profiler::AddGpu(const char* name, double seconds) {
+        auto& gpus = S().Gpus;
+        for (auto& g : gpus) if (g.Name == name) { g.Total += seconds; g.Samples++; return; }
+        gpus.push_back({ name, seconds, 1 });
+    }
+
     void Profiler::EndFrame() {
         if (!Enabled()) return;
         auto& s = S();
@@ -76,6 +84,9 @@ namespace Engine {
         const double seconds = std::chrono::duration<double>(Clock::now() - s.WindowStart).count();
         ENGINE_INFO("profile: ---- {} frames, {:.3f} ms a frame ({:.0f} FPS)", s.Frames, seconds * 1000.0 / s.Frames, s.Frames / seconds);
         Print(-1, s.Frames);
+        for (auto& g : s.Gpus)
+            if (g.Samples > 0) ENGINE_INFO("profile: gpu: {:<29} {:8.3f} ms", g.Name, g.Total * 1000.0 / (double)g.Samples);
+        for (auto& g : s.Gpus) { g.Total = 0.0; g.Samples = 0; }
         for (auto& n : s.Nodes) { n.Total = 0.0; n.Calls = 0; }
         s.Frames = 0;
         s.WindowStart = Clock::now();

@@ -702,6 +702,13 @@ namespace Engine {
         return s;
     }
 
+    // Specular factor of a part (Mesh Renderer x model material) as InstanceData::Info.z = 1000 x (1 - specular), so
+    // zero, the default of every instance, means full specular. lit.vert turns it back into 0..1.
+    static int SpecularCode(const MeshRendererComponent& mr, const Material* mat) {
+        const float s = std::clamp(mr.Specular * (mat ? mat->Specular : 1.0f), 0.0f, 1.0f);
+        return (int)std::lround((1.0f - s) * 1000.0f);
+    }
+
     // First directional light, if any. dir = the direction the light travels.
     static bool FindSun(Scene& scene, glm::vec3& dir, glm::vec3& color, bool& shadows) {
         auto& reg = scene.Registry();
@@ -814,8 +821,9 @@ namespace Engine {
     // The shadow views of this frame, in the order BuildDrawList fills DrawList::ShadowViews and
     // RenderShadows draws them: the 6 cube faces of each shadowed point light, then the sun cascades.
     // Also sets list.CascadeSplits / CascadeCount.
-    static std::vector<ShadowView> GatherShadowViews(Scene& scene, const ShadowSettings& s,
+    static std::vector<ShadowView> GatherShadowViews(Scene& scene, const ShadowContext& ctx,
         const std::vector<PointLightData>& lights, const Camera& camera, uint32_t sunSize, DrawList& list) {
+        const ShadowSettings& s = ctx.Settings;
         std::vector<ShadowView> views;
         if (!s.Enabled) return views;
         static const glm::vec3 dirs[6] = {
@@ -823,8 +831,25 @@ namespace Engine {
         static const glm::vec3 ups[6] = {
             { 0, -1, 0 },{ 0, -1, 0 },{ 0, 0, 1 },{ 0, 0, -1 },{ 0, -1, 0 },{ 0, -1, 0 } };
         const glm::mat4 proj = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, s.PointFar);
+
+        // Which point lights get their cube re-rendered this frame (the rest keep last time's: the layers persist).
+        // Forced: never drawn, moved, a different light in that slot, the reach changed, or something moved near it
+        // last frame. Otherwise every PointUpdateInterval frames, staggered so the lights take turns.
+        const uint32_t interval = (uint32_t)std::max(s.PointUpdateInterval, 1);
+        const uint32_t frame = ctx.Frame++;
+        if (ctx.CachedFar != s.PointFar) { for (auto& c : ctx.Cache) c.Valid = false; ctx.CachedFar = s.PointFar; }
+        ctx.PointLightsDrawn = 0;
         for (int i = 0; i < (int)lights.size(); i++) {
             if (!lights[i].Shadows) continue;
+            if (i < (int)PointShadowArray::MaxLights) {
+                auto& c = ctx.Cache[i];
+                const bool forced = !c.Valid || c.Pos != lights[i].Pos || c.MovedNear;
+                if (!forced && (frame % interval) != ((uint32_t)i % interval)) continue;
+                c.Valid = true;
+                c.Pos = lights[i].Pos;
+                c.MovedNear = false;
+                ctx.PointLightsDrawn++;
+            }
             for (int f = 0; f < 6; f++) {
                 ShadowView v;
                 v.ViewProj = proj * glm::lookAt(lights[i].Pos, lights[i].Pos + dirs[f], ups[f]);
@@ -887,12 +912,13 @@ namespace Engine {
             const Texture2D* MetalRough = nullptr; const Texture2D* Emissive = nullptr;
             int Mode = 0; float Cutoff = 0.5f;
             glm::vec3 Color{ 1.0f }; float Alpha = 1.0f, Metallic = 0.0f, Roughness = 0.5f;
+            int Specular = 0;                // SpecularCode
             glm::vec3 EmissiveColor{ 0.0f };
             int Unlit = 0, CastShadows = 1, DoubleSided = 0;
             glm::ivec3 Cell{ 0 };
             auto Tie() const {
                 return std::tie(Albedo, Normal, MetalRough, Emissive, Mode, Cutoff, Color.x, Color.y, Color.z, Alpha,
-                    Metallic, Roughness, EmissiveColor.x, EmissiveColor.y, EmissiveColor.z, Unlit, CastShadows, DoubleSided,
+                    Metallic, Roughness, EmissiveColor.x, EmissiveColor.y, EmissiveColor.z, Unlit, CastShadows, DoubleSided, Specular,
                     Cell.x, Cell.y, Cell.z);
             }
             bool operator<(const StaticKey& o) const { return Tie() < o.Tie(); }
@@ -968,6 +994,7 @@ namespace Engine {
                 p.Key.Alpha = s.Alpha;
                 p.Key.Metallic = mat ? mat->Metallic : mr.Metallic;
                 p.Key.Roughness = mat ? mat->Roughness : mr.Roughness;
+                p.Key.Specular = SpecularCode(mr, mat);
                 p.Key.EmissiveColor = mat ? mat->EmissiveColor : mr.Emissive;
                 p.Key.Unlit = mr.Unlit ? 1 : 0;
                 p.Key.CastShadows = mr.CastShadows ? 1 : 0;
@@ -1032,7 +1059,7 @@ namespace Engine {
             sb.Instance.Color = glm::vec4(key.Color, key.Alpha);
             sb.Instance.Surface = glm::vec4(key.Metallic, key.Roughness, 0.0f, 0.0f);
             sb.Instance.Emissive = glm::vec4(key.EmissiveColor, 0.0f);
-            sb.Instance.Info = glm::ivec4(-1, key.Unlit, 0, 0);       // no single entity: click-picking finds nothing
+            sb.Instance.Info = glm::ivec4(-1, key.Unlit, key.Specular, 0);   // no single entity: click-picking finds nothing
             m_StaticBatches.push_back(std::move(sb));
         }
     }
@@ -1045,7 +1072,7 @@ namespace Engine {
 
         // Shadow views: a frustum each, plus the light's reach as a sphere for a quick first test
         const auto lights = GatherPointLights(*this);
-        { PROFILE_SCOPE("Shadow views"); list.Views = shadowSettings ? GatherShadowViews(*this, *shadowSettings, lights, camera, sunSize, list) : std::vector<ShadowView>{}; }
+        { PROFILE_SCOPE("Shadow views"); list.Views = shadowSettings ? GatherShadowViews(*this, *shadows, lights, camera, sunSize, list) : std::vector<ShadowView>{}; }
         const auto& views = list.Views;
         std::vector<Frustum> viewFrusta;
         viewFrusta.reserve(views.size());
@@ -1125,12 +1152,32 @@ namespace Engine {
             const bool visible = frustum.Visible(world, mn, mx);
             if (!visible) list.Culled++;
 
+            // Where it was last frame (motion vectors), recorded for every part, drawn or not, so movement is seen
+            // even while it is off screen. A shadow-casting part that moved (or is animated) near a point light makes
+            // that light re-render its cube next frame, whatever its update interval (wind sway doesn't count).
+            glm::mat4 prevWorld = world;
+            {
+                const uint32_t key = (uint32_t)entt::to_integral(entity);
+                const auto prev = list.PrevWorld.find(key);
+                if (prev != list.PrevWorld.end()) prevWorld = prev->second;
+                list.CurWorld[key] = world;
+            }
+            if (shadowSettings && mr.CastShadows && !mr.Unlit && (bones || prevWorld != world)) {
+                glm::vec3 center, extent;
+                Frustum::WorldBox(world, mn, mx, center, extent);
+                const float radius = glm::length(extent);
+                for (size_t j = 0; j < lights.size() && j < PointShadowArray::MaxLights; j++)
+                    if (lights[j].Shadows && glm::length(center - lights[j].Pos) - radius < shadowSettings->PointFar)
+                        shadows->Cache[j].MovedNear = true;
+            }
+
             // Which shadow views this caster can show up in (light markers must not block light)
             const bool anyShadow = !mr.Merged && !views.empty() && mr.CastShadows && !mr.Unlit && classifyShadows(world, mn, mx);
             if (!visible && !anyShadow) continue;
 
             InstanceData base;
             base.Model = world;
+            base.PrevModel = prevWorld;
             base.Normal = glm::mat4(glm::transpose(glm::inverse(glm::mat3(world))));
             base.Info = glm::ivec4((int)entt::to_integral(entity), mr.Unlit ? 1 : 0, 0, 0);
             // Wind (lit.vert / shadow.vert): its amount, and the mesh's height range (local) that sets how much each vertex moves
@@ -1150,6 +1197,7 @@ namespace Engine {
                 glm::vec3 emissive = mat ? mat->EmissiveColor : mr.Emissive;
                 if (mr.FlashTime > 0.0f && mr.FlashDuration > 0.0f) emissive += mr.FlashColor * (mr.FlashTime / mr.FlashDuration);
                 inst.Emissive = glm::vec4(emissive, windMin.y);
+                inst.Info.z = SpecularCode(mr, mat);              // lit.vert: specular = 1 - Info.z / 1000
 
                 DrawList::Item item;
                 item.Instance = list.AddInstance(inst);
@@ -1189,6 +1237,8 @@ namespace Engine {
                 else opaque.push_back(item);
             }
         }
+        list.PrevWorld.swap(list.CurWorld);               // this frame's matrices are next frame's "previous"
+        list.CurWorld.clear();
         { PROFILE_SCOPE("Sort into batches");
         list.AddBatches(opaque, list.Opaque, DrawList::Order::ByState);
         list.AddBatches(transparent, list.Transparent, DrawList::Order::BackToFront);

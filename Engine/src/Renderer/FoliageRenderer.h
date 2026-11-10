@@ -24,9 +24,11 @@ namespace Engine {
         FoliageRenderer(const FoliageRenderer&) = delete;
         FoliageRenderer& operator=(const FoliageRenderer&) = delete;
 
-        // Into the bound HDR target, after the opaque scene (its lighting uniforms are set on `shader`)
+        // Into the bound HDR target, after the opaque scene (its lighting uniforms are set on `shader`). update: advance
+        // time, wind and trampling (once a frame: the depth pre-pass draws with update = true, the lit pass with false,
+        // so both see exactly the same blades)
         void Render(Scene& scene, const Camera& camera, Shader& shader, const DrawList& list,
-                    const ShadowContext* shadows, const Environment* env);
+                    const ShadowContext* shadows, const Environment* env, bool update = true);
 
     private:
         struct Impl;

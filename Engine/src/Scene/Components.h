@@ -105,6 +105,9 @@ namespace Engine {
         // visible from behind (leaves, cloth, a sign). With model materials, a part is double-sided when this or
         // its material says so. Back faces cost extra only on these parts.
         bool  DoubleSided = false;
+        // Specular reflection, 0..1, for non-metals: 1 = the usual 4% plus the bright grazing-angle reflection, 0 = none
+        // (matte bark, cloth, unglazed clay). Multiplies the model material's own value.
+        float Specular = 1.0f;
         // Static: never moves or changes while playing. Static parts with the same material are merged
         // into a few big meshes when Play starts (Scene::BuildStaticBatches), saving per-object work.
         bool  Static = false;

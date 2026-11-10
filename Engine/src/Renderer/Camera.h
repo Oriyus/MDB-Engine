@@ -40,6 +40,11 @@ namespace Engine {
         float GetNear() const { return m_Near; }
         float GetFar() const { return m_Far; }
 
+        // Temporal anti-aliasing: shift the projection by a fraction of a pixel (in NDC, 2 / width = one pixel).
+        // SceneRenderer draws through a jittered copy; (0, 0) = none. GetUnjitteredViewProjection ignores it.
+        void SetJitter(const glm::vec2& ndc) { m_Jitter = ndc; RecalcProjection(); }
+        glm::mat4 GetUnjitteredViewProjection() const { return m_ProjectionNoJitter * m_View; }
+
         glm::vec3 Position{ 0.0f, 0.0f, 4.0f };
         float OrbitSensitivity = 0.3f;   // degrees per pixel
         float FocusDistance = 6.0f;      // distance from the camera to the orbit pivot
@@ -55,6 +60,8 @@ namespace Engine {
         glm::vec3 m_Front{ 0.0f, 0.0f, -1.0f };
         glm::mat4 m_View{ 1.0f };
         glm::mat4 m_Projection{ 1.0f };
+        glm::mat4 m_ProjectionNoJitter{ 1.0f };
+        glm::vec2 m_Jitter{ 0.0f };
     };
 
 } // namespace Engine

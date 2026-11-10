@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <glm/glm.hpp>
 
 namespace Engine {
 
@@ -45,6 +46,10 @@ namespace Engine {
         bool  Enabled = true;
         float PointBias = 0.05f;      // world units
         float PointFar = 30.0f;       // how far point-light shadows reach
+        // Re-render a still point light's shadow cube only every N frames (staggered across lights). A light that moved, or
+        // has a moving object or an animated model in reach, is re-rendered at once; swaying (wind) does not count, so
+        // tree shadows from lamps update at the lower rate. 1 = every frame. Saved as shadows.pointInterval.
+        int   PointUpdateInterval = 2;
         float SunBias = 0.002f;       // sun depth bias; scaled to each cascade's texel size (0.002 = default)
         // Cascaded sun shadows follow the camera: CascadeCount slices up to ShadowDistance from it
         bool  SunCascades = true;
@@ -64,6 +69,13 @@ namespace Engine {
         Shader* PointDepth = nullptr;
         Shader* SunDepth = nullptr;
         ShadowSettings Settings;
+
+        // Point shadow cache (runtime, kept across frames by the renderer): what each cube layer holds
+        struct PointCache { glm::vec3 Pos{ 0.0f }; bool Valid = false; bool MovedNear = false; };
+        mutable PointCache Cache[PointShadowArray::MaxLights];
+        mutable float CachedFar = 0.0f;
+        mutable uint32_t Frame = 0;
+        mutable uint32_t PointLightsDrawn = 0;      // lights re-rendered last frame (stats)
     };
 
 } // namespace Engine

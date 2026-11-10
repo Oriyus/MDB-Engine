@@ -339,11 +339,13 @@ e.Add&lt;RigidBodyComponent&gt;().Type = BodyType::Static;</code></pre>
 <p><code>SceneRenderer::Render</code> draws one frame:</p>
 <ol>
   <li><b>Draw list</b>: everything the camera or a light can see, culled and batched for instancing.</li>
-  <li><b>Shadows</b>: up to 4 point lights (cube maps) and one sun with cascades.</li>
+  <li><b>Depth pre-pass</b>: the solid scene and the grass are drawn once without lighting, so the lighting below runs once per pixel instead of once per overlapping leaf or grass blade.</li>
+  <li><b>Scene</b> into an HDR framebuffer (colour, entity-ID for click picking, motion vectors, depth). PBR shading, then the sky, then <b>decals</b> (projected from a copy of the depth), then see-through surfaces back to front.</li>
+  <li><b>Temporal anti-aliasing</b>: the frame, drawn shifted by a sub-pixel amount, is blended with the frames before it.</li>
   <li><b>Scene</b> into an HDR framebuffer (colour, entity-ID for click picking, depth). PBR shading, then the sky, then <b>decals</b> (projected from a copy of the depth), then see-through surfaces back to front.</li>
   <li><b>SSAO</b>, then <b>bloom</b>.</li>
   <li><b>Post</b>: AO, bloom, exposure, tone mapping (ACES by default), gamma.</li>
-  <li><b>FXAA</b>. The result is a texture shown by the app.</li>
+  <li><b>FXAA</b> (only when TAA is off). The result is a texture shown by the app.</li>
 </ol>
 <p>Every scene draw is instanced: per-object data lives in a storage buffer; objects that share geometry, textures and alpha state are drawn with one call.</p>
 </section>
@@ -370,6 +372,11 @@ e.Add&lt;RigidBodyComponent&gt;().Type = BodyType::Static;</code></pre>
 <p>Alpha = texture alpha × material alpha × opacity. Blend surfaces are sorted per entity, back to front, and write no depth. Setting opacity below 1 on an opaque mesh switches it to Blend.</p>
 <pre><code class="lua">self.mesh.opacity = 0.4          -- now see-through
 self:add_mesh{ geometry = "cube", texture = "texture:Textures/fence.png", alpha_mode = "cutout" }</code></pre>
+<h3>Specular (how shiny a non-metal is)</h3>
+<p>Every non-metal surface reflects a little light: about 4% when you look straight at it, rising to a bright sheen at grazing angles. On dark, rough materials such as bark, soil or cloth, that sheen can read as an unwanted plastic or wet look. Lower it with the Mesh Renderer's <b>Specular</b> slider (1 = the usual reflection, 0 = none at all). With <b>Use model materials</b>, the slider multiplies the model's own value. Metals are not affected: their reflection is their colour.</p>
+<p>Models can set it too. In Blender, the Principled BSDF's <b>Specular IOR Level</b> exports as glTF <code>KHR_materials_specular</code>, which the engine reads (0.5 in Blender is the normal amount and exports as 1; 0 exports as 0, no reflection). The Inspector shows when a model file lowers it. Lowering roughness does the opposite of what you might expect here: a fully rough surface (roughness 1) still has the grazing sheen, so use Specular to remove it.</p>
+<pre><code class="lua">self.mesh.specular = 0           -- matte: no reflections or highlights
+self:add_mesh{ geometry = "cube", specular = 0.3 }</code></pre>
 <h3>Cut-out foliage at a distance</h3>
 <p>Smaller mipmap levels of a texture are averages of the bigger ones. For thin cut-out shapes (willow leaves, grass blades, chain links), that turns solid alpha into faint alpha below the cutoff, so leaves used to thin out and disappear as trees got further away. When a texture is first drawn as Cutout, the engine rebuilds its mipmaps so that each smaller level lets as many pixels through the cutoff as the full-size image does. Distant foliage then stays as dense as it looks up close. It happens automatically, once per texture, for model materials and Mesh Renderer textures alike. All textures also use anisotropic filtering (up to 16×), which keeps surfaces seen at a slant (ground, roofs, hanging leaf cards) sharp in the distance.</p>
 <h3>Double-sided</h3>
@@ -383,7 +390,7 @@ self:add_mesh{ geometry = "plane", texture = "texture:Textures/fence.png", alpha
 <h2>Lighting &amp; shadows</h2>
 <ul>
   <li><b>Sun</b> (Directional Light): the first one is used. Cascaded shadows (1–4 cascades, stable while the camera turns). Viewport &gt; Debug &gt; Shadow Cascades tints them.</li>
-  <li><b>Point lights</b>: up to 4, each with cube-map shadows.</li>
+  <li><b>Point lights</b>: up to 4, each with cube-map shadows. Each shadowed light costs about 0.5 ms a frame (RTX 2060, 1080p) when its shadows are redrawn. A light that stands still redraws them only every few frames (Scene Settings &gt; Shadows &gt; <b>Update every</b>, default 2 frames; the lights take turns). It redraws at once when it moves, or when something in its reach moves or plays an animation. Trees swaying in the wind do not count, so their lamp shadows update at that rate.</li>
   <li>Casters are culled per shadow view; the stats overlay shows how many were skipped.</li>
   <li>Settings: shadow distance, cascade split, biases, extent (Scene Settings &gt; Shadows).</li>
 </ul>
@@ -399,10 +406,11 @@ lamp:add_light{ color = vec3(1, 0.7, 0.4), intensity = 2, shadows = true }</code
 <section class="doc" data-group="Engine" id="engine-post">
 <h2>Post-processing</h2>
 <ul>
-  <li><b>SSAO</b>: radius, bias, samples, strength (a post-multiply; Viewport &gt; Debug shows it alone).</li>
+  <li><b>SSAO</b>: radius, bias, samples, strength (a post-multiply; Viewport &gt; Debug shows it alone). Computed at half resolution: AO is soft, and that costs a quarter as much.</li>
   <li><b>Bloom</b>: threshold with soft knee, radius, intensity, brightness ceiling (no fireflies).</li>
   <li><b>Tone mapping</b>: ACES (default) and others, exposure, gamma.</li>
-  <li><b>FXAA</b> anti-aliasing.</li>
+  <li><b>Temporal anti-aliasing (TAA)</b>, on by default: every frame is drawn shifted by a different fraction of a pixel (8 positions) and blended with the frames before it, following each surface as it moves. Edges, thin leaves, grass and noisy effects (volumetric fog) stay smooth and steady in motion instead of shimmering. To avoid smearing, the old frames are only allowed colours found around each pixel in the new frame. A thin object moving fast close to the camera can still look slightly soft. Viewport   <li><b>FXAA</b> anti-aliasing.</li>gt; Debug   <li><b>FXAA</b> anti-aliasing.</li>gt; Motion Vectors shows how far each pixel moved (red = sideways, green = up/down, 16 pixels = full colour). The editor's Wireframe / Solid / Textured views do not use it.</li>
+  <li><b>FXAA</b> anti-aliasing, used when TAA is off.</li>
 </ul>
 <p>All are saved with the scene and edited in Scene Settings &gt; Post Processing.</p>
 </section>
@@ -773,7 +781,7 @@ MDBEditor.exe &gt; log.txt</code></pre>
 <tr><th>Section</th><th>Contents</th></tr>
 <tr><td>Environment</td><td>Sky map (.hdr), show sky, blur, rotation, ambient intensity</td></tr>
 <tr><td>Shadows</td><td>On/off, cascades, shadow distance, split, biases, sun extent</td></tr>
-<tr><td>Post Processing</td><td>Exposure, tone map, gamma, FXAA, AO, bloom</td></tr>
+<tr><td>Post Processing</td><td>Exposure, tone map, gamma, TAA / FXAA, AO, bloom</td></tr>
 <tr><td>Physics</td><td>Gravity</td></tr>
 <tr><td>Audio</td><td>Audio status and volume</td></tr>
 <tr><td>Scripts</td><td>Script status and recent errors</td></tr>

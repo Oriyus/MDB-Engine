@@ -2,6 +2,7 @@
 #include "Renderer/Material.h"
 #include <glm/glm.hpp>
 #include <cstdint>
+#include <unordered_map>
 #include <vector>
 
 namespace Engine {
@@ -18,9 +19,10 @@ namespace Engine {
         glm::vec4  Color{ 1.0f };           // rgb: sRGB-style colour, a: alpha (opacity x material alpha)
         glm::vec4  Surface{ 0.0f };         // x: metallic, y: roughness
         glm::vec4  Emissive{ 0.0f };        // rgb: linear emissive
-        glm::ivec4 Info{ 0 };               // x: entity ID (picking), y: unlit
+        glm::ivec4 Info{ 0 };               // x: entity ID (picking), y: unlit, z: 1000 x (1 - specular)
+        glm::mat4  PrevModel{ 1.0f };       // last frame's Model (motion vectors); Scene::BuildDrawList fills it
     };
-    static_assert(sizeof(InstanceData) == 192, "InstanceData must match the std430 layout in the shaders");
+    static_assert(sizeof(InstanceData) == 256, "InstanceData must match the std430 layout in the shaders");
 
     // A run of instances drawn with one instanced call: same geometry part, textures and alpha settings
     struct DrawBatch {
@@ -84,6 +86,9 @@ namespace Engine {
         std::vector<DrawBatch> Selected;    // the highlighted parts inside the view (editor outline), albedo only for alpha tests
         // Input, kept across Clear: entity handles (entt integral, sorted) to collect into Selected. Null or empty: none.
         const std::vector<uint32_t>* Highlight = nullptr;
+        // Motion vectors: each drawn entity's world matrix (with LocalOffset) last frame and this frame, by entt handle.
+        // Kept across Clear; BuildDrawList swaps them. A part not drawn last frame gets PrevModel = Model (no motion).
+        std::unordered_map<uint32_t, glm::mat4> PrevWorld, CurWorld;
         std::vector<std::vector<DrawBatch>> ShadowViews;    // the casters in each of Views
         std::vector<ShadowView> Views;      // this frame's shadow views (each point-light face, then the sun cascades)
         glm::vec4 CascadeSplits{ 0.0f };    // view depth where each sun cascade ends

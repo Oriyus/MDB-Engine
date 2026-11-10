@@ -19,9 +19,10 @@ namespace Engine {
         if (m_FBO)      glDeleteFramebuffers(1, &m_FBO);
         if (m_ColorTex) glDeleteTextures(1, &m_ColorTex);
         if (m_IdTex)    glDeleteTextures(1, &m_IdTex);
+        if (m_VelocityTex) glDeleteTextures(1, &m_VelocityTex);
         if (m_Depth)    glDeleteRenderbuffers(1, &m_Depth);
         if (m_Depth)    glDeleteTextures(1, &m_Depth);
-        m_FBO = m_ColorTex = m_IdTex = m_Depth = 0;
+        m_FBO = m_ColorTex = m_IdTex = m_Depth = m_VelocityTex = 0;
     }
 
     void Framebuffer::Invalidate() {
@@ -44,6 +45,16 @@ namespace Engine {
         glTextureParameteri(m_IdTex, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glNamedFramebufferTexture(m_FBO, GL_COLOR_ATTACHMENT1, m_IdTex, 0);
 
+        // Attachment 2: motion vectors for temporal anti-aliasing (screen UV moved since last frame). Off by default:
+        // only passes that write it switch it on (SetVelocityWrites); cleared to kNoVelocity = "work it out from depth"
+        glCreateTextures(GL_TEXTURE_2D, 1, &m_VelocityTex);
+        glTextureStorage2D(m_VelocityTex, 1, GL_RG16F, (GLsizei)m_Width, (GLsizei)m_Height);
+        glTextureParameteri(m_VelocityTex, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTextureParameteri(m_VelocityTex, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTextureParameteri(m_VelocityTex, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTextureParameteri(m_VelocityTex, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glNamedFramebufferTexture(m_FBO, GL_COLOR_ATTACHMENT2, m_VelocityTex, 0);
+
         // Depth + stencil as a texture, so the SSAO pass can read it
         glCreateTextures(GL_TEXTURE_2D, 1, &m_Depth);
         glTextureStorage2D(m_Depth, 1, GL_DEPTH24_STENCIL8, (GLsizei)m_Width, (GLsizei)m_Height);
@@ -53,8 +64,8 @@ namespace Engine {
         glTextureParameteri(m_Depth, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glNamedFramebufferTexture(m_FBO, GL_DEPTH_STENCIL_ATTACHMENT, m_Depth, 0);
 
-        const GLenum buffers[2] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
-        glNamedFramebufferDrawBuffers(m_FBO, 2, buffers);
+        const GLenum buffers[3] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, (GLenum)GL_NONE };
+        glNamedFramebufferDrawBuffers(m_FBO, 3, buffers);
 
         if (glCheckNamedFramebufferStatus(m_FBO, GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
             ENGINE_ERROR("Framebuffer is incomplete ({}x{})", m_Width, m_Height);
@@ -76,12 +87,23 @@ namespace Engine {
 
     void Framebuffer::Unbind() { glBindFramebuffer(GL_FRAMEBUFFER, 0); }
 
+    void Framebuffer::SetVelocityWrites(bool on) const {
+        const GLenum buffers[3] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, on ? (GLenum)GL_COLOR_ATTACHMENT2 : (GLenum)GL_NONE };
+        glNamedFramebufferDrawBuffers(m_FBO, 3, buffers);
+    }
+
     void Framebuffer::Clear(float r, float g, float b, float a) const {
         const float color[4] = { r, g, b, a };
         const GLint noEntity = -1;
         glClearNamedFramebufferfv(m_FBO, GL_COLOR, 0, color);
         glClearNamedFramebufferiv(m_FBO, GL_COLOR, 1, &noEntity);   // "1" = draw buffer index 1
         glClearNamedFramebufferfi(m_FBO, GL_DEPTH_STENCIL, 0, 1.0f, 0);
+        // Motion vectors: cleared through the framebuffer (draw buffer 2, switched on for the clear). glClearTexImage
+        // with float data wrote -infinity into this RG16F target on the NVIDIA driver here, not the value given.
+        const float noVelocity[4] = { kNoVelocity, kNoVelocity, 0.0f, 0.0f };
+        SetVelocityWrites(true);
+        glClearNamedFramebufferfv(m_FBO, GL_COLOR, 2, noVelocity);
+        SetVelocityWrites(false);
     }
 
     int Framebuffer::ReadEntityID(int x, int y) const {

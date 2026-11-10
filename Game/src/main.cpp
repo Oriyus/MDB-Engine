@@ -173,6 +173,7 @@ public:
         m_Renderer->GatherSettings(settings);
         if (m_Session->ApplyPending(settings)) {
             m_Renderer->ApplySettings(settings);
+            m_Renderer->ResetTemporalHistory();   // a new level: a camera cut
             m_FallbackCamera.Position = settings.CameraPosition;
             m_FallbackCamera.FocusDistance = settings.CameraFocusDistance;
             m_FallbackCamera.SetOrientation(settings.CameraYaw, settings.CameraPitch);

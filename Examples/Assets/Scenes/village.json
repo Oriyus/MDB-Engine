@@ -1,6 +1,281 @@
 {
   "entities": [
     {
+      "id": 11953697782662097992,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.5,
+        "static": false,
+        "texture": "",
+        "unlit": true,
+        "useModelMaterials": false
+      },
+      "name": "Point Light",
+      "pointLight": {
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "intensity": 1.0
+      },
+      "transform": {
+        "position": [
+          -10.208897590637207,
+          4.818999290466309,
+          -1.9511985778808594
+        ],
+        "rotation": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          0.15000000596046448,
+          0.15000000596046448,
+          0.15000000596046448
+        ]
+      }
+    },
+    {
+      "id": 17102394416282803538,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.5,
+        "static": false,
+        "texture": "",
+        "unlit": true,
+        "useModelMaterials": false
+      },
+      "name": "Point Light",
+      "pointLight": {
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "intensity": 1.0
+      },
+      "transform": {
+        "position": [
+          13.614110946655273,
+          4.818999290466309,
+          -6.618801593780518
+        ],
+        "rotation": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          0.15000000596046448,
+          0.15000000596046448,
+          0.15000000596046448
+        ]
+      }
+    },
+    {
+      "id": 14153471177649062565,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "cube",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.5,
+        "static": false,
+        "texture": "",
+        "unlit": true,
+        "useModelMaterials": false
+      },
+      "name": "Point Light",
+      "pointLight": {
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "intensity": 1.0
+      },
+      "transform": {
+        "position": [
+          12.559518814086914,
+          4.818999767303467,
+          12.310805320739746
+        ],
+        "rotation": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          0.15000000596046448,
+          0.15000000596046448,
+          0.15000000596046448
+        ]
+      }
+    },
+    {
+      "id": 17118744709584010162,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 1.0,
+        "opacity": 1.0,
+        "roughness": 0.03999999910593033,
+        "static": false,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Sphere",
+      "transform": {
+        "position": [
+          5.740572452545166,
+          0.22423100471496582,
+          3.296999931335449
+        ],
+        "rotation": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
       "id": 10625444724308304117,
       "meshRenderer": {
         "alphaCutoff": 0.5059999823570251,
@@ -27190,19 +27465,19 @@
       "threshold": 1.0
     },
     "camera": {
-      "focusDistance": 36.400020599365234,
-      "pitch": -19.500154495239258,
+      "focusDistance": 40.228271484375,
+      "pitch": -49.20014572143555,
       "position": [
-        18.69927215576172,
-        12.724701881408691,
-        18.4375057220459
+        11.058357238769531,
+        20.431758880615234,
+        24.162006378173828
       ],
-      "yaw": -121.5997543334961
+      "yaw": -105.09973907470703
     },
     "environment": {
       "blur": 0.0,
-      "intensity": 0.1899999976158142,
-      "map": "",
+      "intensity": 0.07999999821186066,
+      "map": "forest_slope_1k.hdr",
       "rotation": 0.0,
       "showSky": false
     },
@@ -27210,8 +27485,8 @@
       "gravity": 9.8100004196167
     },
     "post": {
-      "contrast": 1.2990000247955322,
-      "exposure": 1.4500000476837158,
+      "contrast": 1.7619999647140503,
+      "exposure": 1.5080000162124634,
       "fxaa": true,
       "gamma": true,
       "grain": 0.0,
@@ -27244,23 +27519,23 @@
       "sunExtent": 16.0
     },
     "volumetricFog": {
-      "ambientIntensity": 0.4869999885559082,
-      "anisotropy": 0.6449999809265137,
-      "baseHeight": 1.25,
+      "ambientIntensity": 0.11400000005960464,
+      "anisotropy": 0.40299999713897705,
+      "baseHeight": 0.8999999761581421,
       "color": [
-        0.8901660442352295,
-        0.9104477763175964,
-        0.8017375469207764
+        0.9062339067459106,
+        0.9291044473648071,
+        0.8701687455177307
       ],
-      "density": 0.035999998450279236,
+      "density": 0.30000001192092896,
       "enabled": true,
-      "heightFalloff": 2.200000047683716,
+      "heightFalloff": 0.20000000298023224,
       "maxDistance": 70.0,
-      "noiseAmount": 0.5109999775886536,
-      "noiseScale": 0.5090000033378601,
-      "pointLightIntensity": 2.424999952316284,
+      "noiseAmount": 0.31200000643730164,
+      "noiseScale": 0.0560000017285347,
+      "pointLightIntensity": 2.8980000019073486,
       "steps": 32,
-      "sunIntensity": 1.149999976158142,
+      "sunIntensity": 2.8420000076293945,
       "windDirection": 117.0,
       "windSpeed": 3.2300000190734863
     },

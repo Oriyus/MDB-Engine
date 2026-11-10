@@ -22,7 +22,7 @@ namespace Engine {
                 { "environment", { { "map", s.EnvironmentMap },{ "showSky", s.ShowSky },{ "blur", s.SkyBlur },
                                    { "rotation", s.SkyRotation },{ "intensity", ambient } } },
                 { "post", { { "exposure", p.Exposure },{ "toneMap", p.ToneMap },{ "gamma", p.Gamma },
-                            { "fxaa", p.FXAA },{ "contrast", p.Contrast },{ "saturation", p.Saturation },
+                            { "fxaa", p.FXAA },{ "taa", p.TAA },{ "contrast", p.Contrast },{ "saturation", p.Saturation },
                             { "temperature", p.Temperature },{ "tint", p.Tint },{ "shadowTint", p.ShadowTint },
                             { "highlightTint", p.HighlightTint },{ "vignette", p.Vignette },{ "grain", p.Grain } } },
                 { "ao", { { "enabled", p.AOEnabled },{ "strength", p.AOStrength },{ "radius", s.AORadius },
@@ -30,7 +30,7 @@ namespace Engine {
                 { "bloom", { { "enabled", p.BloomEnabled },{ "intensity", p.BloomIntensity },
                              { "threshold", s.BloomThreshold },{ "knee", s.BloomKnee },
                              { "radius", s.BloomRadius },{ "maxBrightness", s.BloomMaxBrightness } } },
-                { "shadows", { { "enabled", sh.Enabled },{ "pointBias", sh.PointBias },{ "pointFar", sh.PointFar },
+                { "shadows", { { "enabled", sh.Enabled },{ "pointBias", sh.PointBias },{ "pointFar", sh.PointFar },{ "pointInterval", sh.PointUpdateInterval },
                                { "sunBias", sh.SunBias },{ "sunExtent", sh.SunExtent },{ "sunDistance", sh.SunDistance },
                                { "sunCascades", sh.SunCascades },{ "cascadeCount", sh.CascadeCount },
                                { "shadowDistance", sh.ShadowDistance },{ "cascadeSplit", sh.CascadeSplit } } },
@@ -68,6 +68,7 @@ namespace Engine {
                 p.ToneMap = std::clamp(e->value("toneMap", p.ToneMap), 0, 2);
                 p.Gamma = e->value("gamma", p.Gamma);
                 p.FXAA = e->value("fxaa", p.FXAA);
+                p.TAA = e->value("taa", p.TAA);
                 p.Contrast = e->value("contrast", p.Contrast);
                 p.Saturation = e->value("saturation", p.Saturation);
                 p.Temperature = e->value("temperature", p.Temperature);
@@ -96,6 +97,7 @@ namespace Engine {
                 sh.Enabled = e->value("enabled", sh.Enabled);
                 sh.PointBias = e->value("pointBias", sh.PointBias);
                 sh.PointFar = e->value("pointFar", sh.PointFar);
+                sh.PointUpdateInterval = std::clamp(e->value("pointInterval", sh.PointUpdateInterval), 1, 8);
                 sh.SunBias = e->value("sunBias", sh.SunBias);
                 sh.SunExtent = e->value("sunExtent", sh.SunExtent);
                 sh.SunDistance = e->value("sunDistance", sh.SunDistance);

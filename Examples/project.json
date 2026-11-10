@@ -4,7 +4,7 @@
   "width": 1920,
   "height": 1080,
   "fullscreen": true,
-  "vsync": true,
+  "vsync": false,
   "exclude": [
     "Scripts/*_test.lua"
   ]

@@ -450,11 +450,11 @@ namespace Engine {
     FoliageRenderer::~FoliageRenderer() = default;
 
     void FoliageRenderer::Render(Scene& scene, const Camera& camera, Shader& shader, const DrawList& list,
-                                 const ShadowContext* shadows, const Environment* env) {
+                                 const ShadowContext* shadows, const Environment* env, bool update) {
         Impl& I = *m_Impl;
         const auto now = std::chrono::steady_clock::now();
-        const float dt = std::clamp(std::chrono::duration<float>(now - I.Last).count(), 0.0f, 0.1f);
-        I.Last = now;
+        const float dt = update ? std::clamp(std::chrono::duration<float>(now - I.Last).count(), 0.0f, 0.1f) : 0.0f;
+        if (update) I.Last = now;
         I.Time += dt;
 
         auto view = scene.Registry().view<FoliageComponent, IDComponent>();
@@ -463,8 +463,8 @@ namespace Engine {
             scene.FoliagePushes.clear();
             return;
         }
-        { PROFILE_SCOPE("Gather obstacles"); I.GatherObstacles(scene); }
-        { PROFILE_SCOPE("Gather pressers"); I.GatherPressers(scene); }
+        if (update) { PROFILE_SCOPE("Gather obstacles"); I.GatherObstacles(scene); }
+        if (update) { PROFILE_SCOPE("Gather pressers"); I.GatherPressers(scene); }
         for (auto& [id, field] : I.Fields) field->Seen = false;
 
         shader.Bind();
@@ -498,7 +498,7 @@ namespace Engine {
                 field.Hash = hash;
                 field.Scattered = true;
             }
-            { PROFILE_SCOPE("Trample"); I.UpdateTrample(field, f, world, dt); }
+            if (update) { PROFILE_SCOPE("Trample"); I.UpdateTrample(field, f, world, dt); }
             if (field.Chunks.empty()) continue;
 
             const float a = glm::radians(f.WindDirection);

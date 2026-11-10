@@ -9,8 +9,12 @@ namespace Engine {
         glCreateTextures(GL_TEXTURE_CUBE_MAP_ARRAY, 1, &m_Tex);
         // depth parameter of a cubemap array = layers * 6
         glTextureStorage3D(m_Tex, 1, GL_DEPTH_COMPONENT32F, (GLsizei)size, (GLsizei)size, (GLsizei)(MaxLights * 6));
-        glTextureParameteri(m_Tex, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTextureParameteri(m_Tex, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        // Hardware PCF: lit.frag samples it as samplerCubeArrayShadow; each fetch compares and blends 4 texels
+        glTextureParameteri(m_Tex, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTextureParameteri(m_Tex, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTextureParameteri(m_Tex, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+        glTextureParameteri(m_Tex, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+
         glTextureParameteri(m_Tex, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTextureParameteri(m_Tex, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTextureParameteri(m_Tex, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);

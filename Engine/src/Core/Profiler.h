@@ -12,6 +12,8 @@ namespace Engine {
         static void Begin(const char* name);   // name: a string literal (kept by pointer)
         static void End();
         static void EndFrame();                // the Application calls it once per frame
+        // GPU time of a stage (GpuTimer), averaged per frame and printed as "gpu:" lines in the same report
+        static void AddGpu(const char* name, double seconds);
     };
 
     struct ProfileScope {

@@ -5,6 +5,7 @@
 #include "Renderer/DecalRenderer.h"
 #include "Renderer/FoliageRenderer.h"
 #include "Renderer/VolumetricFog.h"
+#include "Renderer/GpuTimer.h"
 #include "Renderer/Camera.h"
 #include "Renderer/Framebuffer.h"
 #include "Renderer/Environment.h"
@@ -46,6 +47,17 @@ namespace Engine {
         uint32_t MaskTex = 0, MaskFBO = 0, MaskW = 0, MaskH = 0;
         std::vector<uint32_t> HighlightSorted;
 
+        // Temporal anti-aliasing: two RGBA16F history targets used in turn (read last frame's, write this frame's)
+        GpuTimer Gpu;                            // MDB_PROFILE=1: GPU time per stage
+        std::unique_ptr<Shader> TAAResolve;
+        std::unique_ptr<Shader> Prepass, FoliagePrepass;   // depth pre-pass: lit.vert / foliage.vert + depth_prepass.frag
+        uint32_t HistoryTex[2] = { 0, 0 }, HistoryFBO[2] = { 0, 0 }, HistoryW = 0, HistoryH = 0;
+        int HistoryIndex = 0;                    // the one written last frame
+        bool HistoryValid = false;
+        uint32_t FrameIndex = 0;                 // picks the jitter
+        glm::mat4 PrevViewProj{ 1.0f };          // last frame's, without jitter
+        bool HasPrevViewProj = false;
+
         ~Impl() {
             if (DepthCopy) glDeleteTextures(1, &DepthCopy);
             if (SelDepth) glDeleteTextures(1, &SelDepth);
@@ -53,6 +65,76 @@ namespace Engine {
             if (FogVAO) glDeleteVertexArrays(1, &FogVAO);
             if (MaskFBO) glDeleteFramebuffers(1, &MaskFBO);
             if (MaskTex) glDeleteTextures(1, &MaskTex);
+            DestroyHistory();
+        }
+
+        void DestroyHistory() {
+            for (int i = 0; i < 2; i++) {
+                if (HistoryFBO[i]) glDeleteFramebuffers(1, &HistoryFBO[i]);
+                if (HistoryTex[i]) glDeleteTextures(1, &HistoryTex[i]);
+                HistoryFBO[i] = HistoryTex[i] = 0;
+            }
+            HistoryValid = false;
+        }
+
+        // Sub-pixel offsets: the first 8 points of the Halton (2, 3) sequence, centred on the pixel
+        static float Halton(uint32_t i, uint32_t base) {
+            float f = 1.0f, r = 0.0f;
+            for (; i > 0; i /= base) { f /= (float)base; r += f * (float)(i % base); }
+            return r;
+        }
+
+        // Blend this frame (the HDR target) into the history; returns the resolved texture, which replaces the HDR
+        // colour for bloom and the tone map. camera = the jittered one the frame was drawn with.
+        uint32_t ResolveTAA(const Camera& jittered, const glm::mat4& curViewProj, uint32_t width, uint32_t height,
+                            float feedback, bool showVelocity) {
+            if (!HistoryTex[0] || HistoryW != width || HistoryH != height) {
+                DestroyHistory();
+                for (int i = 0; i < 2; i++) {
+                    glCreateTextures(GL_TEXTURE_2D, 1, &HistoryTex[i]);
+                    glTextureStorage2D(HistoryTex[i], 1, GL_RGBA16F, (GLsizei)width, (GLsizei)height);
+                    glTextureParameteri(HistoryTex[i], GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                    glTextureParameteri(HistoryTex[i], GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                    glTextureParameteri(HistoryTex[i], GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                    glTextureParameteri(HistoryTex[i], GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                    glCreateFramebuffers(1, &HistoryFBO[i]);
+                    glNamedFramebufferTexture(HistoryFBO[i], GL_COLOR_ATTACHMENT0, HistoryTex[i], 0);
+                }
+                HistoryW = width;
+                HistoryH = height;
+            }
+            const int read = HistoryIndex, write = 1 - HistoryIndex;
+            if (!FogVAO) glCreateVertexArrays(1, &FogVAO);
+            glBindFramebuffer(GL_FRAMEBUFFER, HistoryFBO[write]);
+            glViewport(0, 0, (GLsizei)width, (GLsizei)height);
+            Shader& s = *TAAResolve;
+            s.Bind();
+            s.SetInt("u_Current", 0);
+            s.SetInt("u_History", 1);
+            s.SetInt("u_Velocity", 2);
+            s.SetInt("u_Depth", 3);
+            s.SetMat4("u_InvViewProj", glm::inverse(jittered.GetViewProjection()));
+            s.SetMat4("u_CurViewProj", curViewProj);
+            s.SetMat4("u_PrevViewProj", PrevViewProj);
+            s.SetInt("u_HistoryValid", HistoryValid ? 1 : 0);
+            s.SetFloat("u_Feedback", feedback);
+            s.SetInt("u_ShowVelocity", showVelocity ? 1 : 0);
+            glBindTextureUnit(0, HDR->GetColorAttachment());
+            glBindTextureUnit(1, HistoryTex[read]);
+            glBindTextureUnit(2, HDR->GetVelocityAttachment());
+            glBindTextureUnit(3, HDR->GetDepthAttachment());
+            glDisable(GL_DEPTH_TEST);
+            glDisable(GL_CULL_FACE);
+            glDisable(GL_BLEND);
+            glBindVertexArray(FogVAO);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+            glBindVertexArray(0);
+            glEnable(GL_CULL_FACE);
+            glEnable(GL_DEPTH_TEST);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            HistoryIndex = write;
+            HistoryValid = !showVelocity;        // the debug view writes no colour history
+            return HistoryTex[write];
         }
 
         // Wireframe: fill once for depth and entity IDs (colour off), then the edges as lines on top
@@ -269,6 +351,11 @@ namespace Engine {
         I.Wire = std::make_unique<Shader>(I.ShaderPath("lit.vert"), I.ShaderPath("wire.frag"));
         I.SelectMask = std::make_unique<Shader>(I.ShaderPath("lit.vert"), I.ShaderPath("select_mask.frag"));
         I.Outline = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("outline.frag"));
+        I.TAAResolve = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("taa.frag"));
+        I.Prepass = std::make_unique<Shader>(I.ShaderPath("lit.vert"), I.ShaderPath("depth_prepass.frag"));
+        I.FoliagePrepass = std::make_unique<Shader>(I.ShaderPath("foliage.vert"), I.ShaderPath("depth_prepass.frag"));
+        I.Prepass->QuietMissing = true;       // given the lighting uniforms like the lit shaders
+        I.FoliagePrepass->QuietMissing = true;
         I.Wire->QuietMissing = true;          // given the lit.frag lighting uniforms (Scene::Render)
         I.SelectMask->QuietMissing = true;
 
@@ -292,6 +379,7 @@ namespace Engine {
 
     void SceneRenderer::Render(Scene& scene, const Camera& camera, uint32_t width, uint32_t height) {
         Impl& I = *m_Impl;
+        I.Gpu.BeginFrame();
         I.BakePendingEnvironment();
         width = std::max(width, 1u);
         height = std::max(height, 1u);
@@ -299,6 +387,7 @@ namespace Engine {
 
         // The wind keeps blowing in Edit mode and while paused (trees sway; see Scene::Wind)
         const auto now = std::chrono::steady_clock::now();
+        scene.WindTimePrev = scene.WindTime;
         scene.WindTime += std::clamp(std::chrono::duration<float>(now - I.WindClock).count(), 0.0f, 0.1f);
         I.WindClock = now;
 
@@ -307,14 +396,33 @@ namespace Engine {
         ShadowContext* shadows = rendered ? &I.Shadows : nullptr;     // the editor's simple views have no shadows
         const Environment* env = rendered ? I.Env.get() : nullptr;
 
+        // Temporal anti-aliasing (Rendered only: the editor's simple views stay crisp and steady). Everything is
+        // drawn through `view`, the camera shifted by this frame's sub-pixel jitter; the motion vectors use the
+        // unjittered matrices, this frame's and last frame's.
+        const bool taa = rendered && Post.TAA;
+        Camera view = camera;
+        if (taa) {
+            const uint32_t i = (I.FrameIndex++ % 8) + 1;      // Halton from index 1 (index 0 is the corner)
+            view.SetJitter(glm::vec2((Impl::Halton(i, 2) - 0.5f) * 2.0f / (float)width, (Impl::Halton(i, 3) - 0.5f) * 2.0f / (float)height));
+        }
+        else I.HistoryValid = false;                          // starts fresh when TAA comes back
+        const glm::mat4 curViewProj = camera.GetUnjitteredViewProjection();
+        if (!I.HasPrevViewProj) { I.PrevViewProj = curViewProj; I.HasPrevViewProj = true; }
+        for (Shader* s : { I.Lit.get(), I.FoliageShader.get(), I.Wire.get(), I.SelectMask.get() }) {
+            s->SetMat4("u_CurViewProjection", curViewProj);
+            s->SetMat4("u_PrevViewProjection", I.PrevViewProj);
+        }
+        for (Shader* s : { I.Lit.get(), I.Wire.get(), I.SelectMask.get() }) s->SetFloat("u_SceneWindTimePrev", scene.WindTimePrev);
+
         // The selection to outline (sorted for BuildDrawList's lookups)
         I.HighlightSorted = Highlight;
         std::sort(I.HighlightSorted.begin(), I.HighlightSorted.end());
         I.Draws->Highlight = &I.HighlightSorted;
 
         // 1) Depth passes (all point lights + sun)
-        { PROFILE_SCOPE("Build draw list"); scene.BuildDrawList(*I.Draws, camera, shadows); }
+        { PROFILE_SCOPE("Build draw list"); scene.BuildDrawList(*I.Draws, view, shadows); }
         if (shadows) { PROFILE_SCOPE("Shadow passes"); scene.RenderShadows(I.Shadows, *I.Draws); }
+        I.Gpu.Mark("shadows");
 
         // 2) Scene into the HDR framebuffer, then the sky behind it
         I.HDR->Bind();
@@ -331,30 +439,72 @@ namespace Engine {
         uint32_t selDepth = 0;                       // depth for the selection outline (copied below when needed)
         if (wireframe) {
             PROFILE_SCOPE("Wireframe pass");
-            I.DrawWireframe(scene, camera, XRay);
+            I.DrawWireframe(scene, view, XRay);
             if (!I.Draws->Selected.empty()) selDepth = I.CopyDepthInto(I.SelDepth, I.SelDepthW, I.SelDepthH, I.HDR->GetWidth(), I.HDR->GetHeight());
         }
         else {
-            { PROFILE_SCOPE("Opaque pass"); scene.Render(camera, *I.Lit, *I.Draws, shadows, env); }
-            // The selection outline tests against the depth of solid objects only: grass, decals and glass do not hide it
-            if (!I.Draws->Selected.empty()) selDepth = I.CopyDepthInto(I.SelDepth, I.SelDepthW, I.SelDepthH, I.HDR->GetWidth(), I.HDR->GetHeight());
-            { PROFILE_SCOPE("Foliage"); I.Foliage->Render(scene, camera, *I.FoliageShader, *I.Draws, shadows, env); }   // grass: opaque, before the sky
-            if (rendered) I.Env->DrawSkybox(camera, scene.AmbientIntensity);
+            // Motion vectors come from the opaque scene and the grass (lit.frag location 2); everything drawn after
+            // (sky, glass, particles, fog) leaves them, and the resolve works the camera's motion out from depth
+            // Depth pre-pass: the opaque scene and the grass, depth only, so the lit passes below shade each pixel
+            // once instead of once per overlapping leaf card or blade (they test LEQUAL against it, writing nothing)
+            const bool prepass = DepthPrepass;
+            if (prepass) {
+                PROFILE_SCOPE("Depth pre-pass");
+                glColorMaski(0, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+                glColorMaski(1, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+                scene.Render(view, *I.Prepass, *I.Draws, nullptr, nullptr, Scene::RenderPass::Opaque);
+                // The selection outline tests against the depth of solid objects only: grass, decals and glass do not hide it
+                if (!I.Draws->Selected.empty()) selDepth = I.CopyDepthInto(I.SelDepth, I.SelDepthW, I.SelDepthH, I.HDR->GetWidth(), I.HDR->GetHeight());
+                I.Foliage->Render(scene, view, *I.FoliagePrepass, *I.Draws, nullptr, nullptr, true);   // advances wind, trampling
+                glColorMaski(0, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+                glColorMaski(1, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+                glDepthFunc(GL_LEQUAL);
+                glDepthMask(GL_FALSE);
+                I.Gpu.Mark("depth pre-pass");
+            }
+            if (taa) I.HDR->SetVelocityWrites(true);
+            { PROFILE_SCOPE("Opaque pass"); scene.Render(view, *I.Lit, *I.Draws, shadows, env); }
+            I.Gpu.Mark("opaque scene");
+            if (!prepass && !I.Draws->Selected.empty())
+                selDepth = I.CopyDepthInto(I.SelDepth, I.SelDepthW, I.SelDepthH, I.HDR->GetWidth(), I.HDR->GetHeight());
+            { PROFILE_SCOPE("Foliage"); I.Foliage->Render(scene, view, *I.FoliageShader, *I.Draws, shadows, env, !prepass); }   // grass: opaque, before the sky
+            I.Gpu.Mark("grass");
+            if (taa) I.HDR->SetVelocityWrites(false);
+            if (prepass) {
+                glDepthFunc(GL_LESS);
+                glDepthMask(GL_TRUE);
+            }
+            if (rendered) I.Env->DrawSkybox(view, scene.AmbientIntensity);
+            I.Gpu.Mark("sky");
             // Decals and fog both read the depth; it is copied once (after the opaque scene, the only depth writer)
             if (!scene.Decals.empty() && Mode != ViewMode::Solid)      // projected onto the opaque scene, under glass
-                I.Decals->Render(scene.Decals, camera, depth(), I.HDR->GetWidth(), I.HDR->GetHeight(), *I.DecalShader);
-            { PROFILE_SCOPE("Transparent pass"); scene.Render(camera, *I.Lit, *I.Draws, shadows, env, Scene::RenderPass::Transparent); }   // glass etc. over the sky
+                I.Decals->Render(scene.Decals, view, depth(), I.HDR->GetWidth(), I.HDR->GetHeight(), *I.DecalShader);
+            I.Gpu.Mark("decals");
+            { PROFILE_SCOPE("Transparent pass"); scene.Render(view, *I.Lit, *I.Draws, shadows, env, Scene::RenderPass::Transparent); }   // glass etc. over the sky
+            I.Gpu.Mark("see-through");
             if (VolFog.Enabled && rendered)                          // fog over the scene and the sky, under particles
-                I.FogPass->Render(scene, camera, *I.VolFogMarch, *I.VolFogComposite, *I.Draws, &I.Shadows, I.Env.get(), depth(),
+                I.FogPass->Render(scene, view, *I.VolFogMarch, *I.VolFogComposite, *I.Draws, &I.Shadows, I.Env.get(), depth(),
                                  I.HDR->GetWidth(), I.HDR->GetHeight(), VolFog);
-            scene.GatherParticles(camera, I.ParticleDraws);             // particles last: over glass and sky
-            I.Particles->Render(I.ParticleDraws, camera, *I.ParticleShader);
+            I.Gpu.Mark("volumetric fog");
+            scene.GatherParticles(view, I.ParticleDraws);               // particles last: over glass and sky
+            I.Particles->Render(I.ParticleDraws, view, *I.ParticleShader);
+            I.Gpu.Mark("particles");
             if (scene.Fog.Enabled && ShowFog && scene.Fog.Width > 0 && rendered)   // fog of war over everything but the sky
-                I.DrawFog(scene.Fog, camera, depth());
+                I.DrawFog(scene.Fog, view, depth());
         }
+        I.Gpu.Mark("fog of war");
         Framebuffer::Unbind();
+
+        // Temporal resolve: this frame blended into the history. Bloom and the tone map read the result.
+        uint32_t sceneColor = I.HDR->GetColorAttachment();
+        if (taa) { PROFILE_SCOPE("TAA resolve"); sceneColor = I.ResolveTAA(view, curViewProj, width, height, 0.1f, ShowMotionVectors); }
+        I.Gpu.Mark("TAA resolve");
+        I.PrevViewProj = curViewProj;
+
+        // The outline mask is drawn without jitter (unlike the scene), so the outline itself doesn't wobble
         const bool outline = !I.Draws->Selected.empty();
         if (outline) { PROFILE_SCOPE("Selection mask"); I.DrawSelectionMask(scene, camera, selDepth, I.HDR->GetWidth(), I.HDR->GetHeight()); }
+        I.Gpu.Mark("selection mask");
         PROFILE_SCOPE("Post (SSAO, bloom, tone map, FXAA)");
         // The editor views show the picture as it is: no bloom, exposure, tone curve or grading
         PostSettings post = Post;
@@ -368,27 +518,46 @@ namespace Engine {
             plain.FXAA = Post.FXAA;
             post = plain;
         }
+        if (taa && ShowMotionVectors) {          // the debug view as written: no exposure, bloom, AO or grading
+            PostSettings plain;
+            plain.ToneMap = 0;
+            plain.Gamma = false;
+            plain.AOEnabled = false;
+            plain.BloomEnabled = false;
+            post = plain;
+        }
 
         // 3) Screen-space effects
         uint32_t aoTex = 0, bloomTex = 0;
         if (post.AOEnabled) {
-            I.AO->Resize(width, height);
-            I.AO->Compute(I.HDR->GetDepthAttachment(), camera.GetProjection(), *I.SSAOShader, *I.SSAOBlur);
+            // Half resolution: a quarter of the cost (1.0 -> 0.3 ms at 1080p on an RTX 2060); AO is soft, and the
+            // tone map samples it with linear filtering
+            I.AO->Resize(std::max(width / 2, 1u), std::max(height / 2, 1u));
+            I.AO->Compute(I.HDR->GetDepthAttachment(), view.GetProjection(), *I.SSAOShader, *I.SSAOBlur);
             aoTex = I.AO->GetOutput();
+            I.Gpu.Mark("SSAO");
         }
         if (post.BloomEnabled) {
             I.Glow->Resize(width, height);
-            I.Glow->Compute(I.HDR->GetColorAttachment(), *I.BloomDown, *I.BloomUp);
+            I.Glow->Compute(sceneColor, *I.BloomDown, *I.BloomUp);
             bloomTex = I.Glow->GetOutput();
+            I.Gpu.Mark("bloom");
         }
 
-        // 4) AO + bloom + exposure + tone map + gamma into an 8-bit texture, then FXAA
+        // 4) AO + bloom + exposure + tone map + gamma into an 8-bit texture, then FXAA (when TAA is off)
         I.Final->Resize(width, height);
-        I.Final->Apply(I.HDR->GetColorAttachment(), aoTex, bloomTex, *I.Post, post);
-        I.Final->ApplyFXAA(*I.FXAA, post.FXAA);
+        I.Final->Apply(sceneColor, aoTex, bloomTex, *I.Post, post);
+        I.Final->ApplyFXAA(*I.FXAA, post.FXAA && !taa);
+        I.Gpu.Mark("tone map, grading, FXAA");
 
         // 5) The selection outline over the finished picture (exact colour: after the tone map and grading)
         if (outline) I.DrawOutline(I.Final->GetOutputFramebuffer(), width, height, OutlineColor, OutlineWidth);
+        I.Gpu.Mark("outline");
+    }
+
+    void SceneRenderer::ResetTemporalHistory() {
+        m_Impl->HistoryValid = false;
+        m_Impl->HasPrevViewProj = false;     // and no camera motion is read into the first frame
     }
 
     uint32_t SceneRenderer::GetOutput() const { return m_Impl->Final->GetOutput(); }
@@ -404,7 +573,7 @@ namespace Engine {
         Impl& I = *m_Impl;
         for (auto* s : { I.Lit.get(), I.PointDepth.get(), I.SunDepth.get(), I.Post.get(), I.SSAOShader.get(),
                          I.SSAOBlur.get(), I.BloomDown.get(), I.BloomUp.get(), I.FXAA.get(), I.ParticleShader.get(), I.DecalShader.get(), I.FogShader.get(), I.FoliageShader.get(), I.VolFogMarch.get(), I.VolFogComposite.get(),
-                         I.Wire.get(), I.SelectMask.get(), I.Outline.get() })
+                         I.Wire.get(), I.SelectMask.get(), I.Outline.get(), I.TAAResolve.get(), I.Prepass.get(), I.FoliagePrepass.get() })
             s->Reload();
         I.Env->ReloadSkyShader();
     }

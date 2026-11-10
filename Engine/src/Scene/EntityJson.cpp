@@ -3,6 +3,8 @@
 #include "Scene/Components.h"
 #include "Scene/SceneSerializer.h"
 
+#include <algorithm>
+
 using json = nlohmann::json;
 
 namespace Engine {
@@ -38,6 +40,7 @@ namespace Engine {
             // Only when it sways, so other mesh renderers keep their old JSON (no prefab overrides appear)
             if (mr.Wind != 0.0f) j["meshRenderer"]["wind"] = mr.Wind;
             if (mr.DoubleSided) j["meshRenderer"]["doubleSided"] = true;      // likewise only when set
+            if (mr.Specular != 1.0f) j["meshRenderer"]["specular"] = mr.Specular;
         }
         if (e.Has<PointLightComponent>()) {
             auto& l = e.Get<PointLightComponent>();
@@ -151,6 +154,7 @@ namespace Engine {
             mr.Static = jm.value("static", false);
             mr.Wind = jm.value("wind", 0.0f);
             mr.DoubleSided = jm.value("doubleSided", false);
+            mr.Specular = std::clamp(jm.value("specular", 1.0f), 0.0f, 1.0f);
             e.Add<MeshRendererComponent>(mr);
         }
         if (j.contains("pointLight")) {

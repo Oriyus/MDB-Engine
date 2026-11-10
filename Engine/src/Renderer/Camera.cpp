@@ -104,7 +104,11 @@ namespace Engine {
     }
 
     void Camera::RecalcProjection() {
-        m_Projection = glm::perspective(glm::radians(m_Fov), m_Aspect, m_Near, m_Far);
+        m_ProjectionNoJitter = glm::perspective(glm::radians(m_Fov), m_Aspect, m_Near, m_Far);
+        m_Projection = m_ProjectionNoJitter;
+        // clip.w = -z_view, so x_ndc moves by -[2][0]: a sub-pixel shift of the whole image, depth unchanged
+        m_Projection[2][0] -= m_Jitter.x;
+        m_Projection[2][1] -= m_Jitter.y;
     }
 
 } // namespace Engine

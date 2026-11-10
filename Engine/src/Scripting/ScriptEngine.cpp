@@ -229,6 +229,9 @@ namespace Engine {
             "wind", sol::property(
                 [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().Wind; },
                 [](const MeshRef& m, float v) { m.E.Get<MeshRendererComponent>().Wind = std::max(v, 0.0f); }),
+            "specular", sol::property(           // 0..1: reflection of a non-metal (0 = matte, no sheen)
+                [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().Specular; },
+                [](const MeshRef& m, float v) { m.E.Get<MeshRendererComponent>().Specular = std::clamp(v, 0.0f, 1.0f); }),
             "double_sided", sol::property(       // back faces drawn too (a plane seen from behind)
                 [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().DoubleSided; },
                 [](const MeshRef& m, bool v) { m.E.Get<MeshRendererComponent>().DoubleSided = v; }),
@@ -537,6 +540,7 @@ namespace Engine {
                     mr.CastShadows = opts->get<sol::optional<bool>>("cast_shadows").value_or(mr.CastShadows);
                     mr.Static = opts->get<sol::optional<bool>>("static").value_or(mr.Static);
                     mr.DoubleSided = opts->get<sol::optional<bool>>("double_sided").value_or(mr.DoubleSided);
+                    mr.Specular = std::clamp(opts->get<sol::optional<float>>("specular").value_or(mr.Specular), 0.0f, 1.0f);
                     mr.Wind = std::max(opts->get<sol::optional<float>>("wind").value_or(mr.Wind), 0.0f);
                     // fit = metres: a model file is scaled and centred to that size (models come in any units)
                     if (const auto fit = opts->get<sol::optional<float>>("fit")) {
