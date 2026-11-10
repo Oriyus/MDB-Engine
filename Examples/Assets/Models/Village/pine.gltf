@@ -20,7 +20,6 @@
   ],
   "materials": [
     {
-      "doubleSided": true,
       "name": "Bark",
       "normalTexture": {
         "index": 0
@@ -36,7 +35,6 @@
     {
       "alphaCutoff": 0.35,
       "alphaMode": "MASK",
-      "doubleSided": true,
       "name": "Leaves",
       "pbrMetallicRoughness": {
         "baseColorTexture": {

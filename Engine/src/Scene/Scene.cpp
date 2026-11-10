@@ -680,6 +680,7 @@ namespace Engine {
         float Alpha = 1.0f;
         float Cutoff = 0.5f;
         const Texture2D* Albedo = nullptr;
+        bool DoubleSided = false;          // the component or the model material asks for it
     };
 
     static SurfaceAlpha GetSurfaceAlpha(const MeshRendererComponent& mr, uint32_t part) {
@@ -689,11 +690,15 @@ namespace Engine {
         s.Alpha = std::clamp(mr.Opacity, 0.0f, 1.0f);
         s.Cutoff = mr.AlphaCutoff;
         s.Albedo = mat ? mat->Albedo.get() : mr.Texture.get();
+        s.DoubleSided = mr.DoubleSided || (mat && mat->DoubleSided);
         if (mat) {
             if ((int)mat->Mode > (int)s.Mode) s.Mode = mat->Mode;
             if (mr.Alpha != AlphaMode::Cutout) s.Cutoff = mat->AlphaCutoff;
             s.Alpha *= mat->Alpha;
         }
+        // Alpha-tested: smaller mips keep as many pixels above the cutoff as full size (once per texture),
+        // so cut-out leaves don't thin out with distance. After the material is merged in: it decides the mode.
+        if (s.Mode == AlphaMode::Cutout && s.Albedo) s.Albedo->PreserveAlphaCoverage(s.Cutoff);
         return s;
     }
 
@@ -753,6 +758,20 @@ namespace Engine {
             }
             shader.SetMat4Array("u_Bones", bones->data(), (uint32_t)std::min(bones->size(), kMaxBones));
         }
+
+        // Face culling per batch: a double-sided batch turns it off, the next single-sided one back on. Leaves it
+        // as it found it, and never turns on culling that was off (X-ray wireframe, grass).
+        struct CullSwitch {
+            const bool WasOn = glIsEnabled(GL_CULL_FACE) == GL_TRUE;
+            bool On = WasOn;
+            void Set(bool doubleSided) {
+                const bool want = WasOn && !doubleSided;
+                if (want == On) return;
+                if (want) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE);
+                On = want;
+            }
+            ~CullSwitch() { if (On != WasOn) { if (WasOn) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE); } }
+        };
 
         void DrawBatchGeometry(const DrawBatch& b) {
             if (b.Part < 0) b.Geometry->DrawInstanced(b.Count);
@@ -869,11 +888,11 @@ namespace Engine {
             int Mode = 0; float Cutoff = 0.5f;
             glm::vec3 Color{ 1.0f }; float Alpha = 1.0f, Metallic = 0.0f, Roughness = 0.5f;
             glm::vec3 EmissiveColor{ 0.0f };
-            int Unlit = 0, CastShadows = 1;
+            int Unlit = 0, CastShadows = 1, DoubleSided = 0;
             glm::ivec3 Cell{ 0 };
             auto Tie() const {
                 return std::tie(Albedo, Normal, MetalRough, Emissive, Mode, Cutoff, Color.x, Color.y, Color.z, Alpha,
-                    Metallic, Roughness, EmissiveColor.x, EmissiveColor.y, EmissiveColor.z, Unlit, CastShadows,
+                    Metallic, Roughness, EmissiveColor.x, EmissiveColor.y, EmissiveColor.z, Unlit, CastShadows, DoubleSided,
                     Cell.x, Cell.y, Cell.z);
             }
             bool operator<(const StaticKey& o) const { return Tie() < o.Tie(); }
@@ -952,6 +971,7 @@ namespace Engine {
                 p.Key.EmissiveColor = mat ? mat->EmissiveColor : mr.Emissive;
                 p.Key.Unlit = mr.Unlit ? 1 : 0;
                 p.Key.CastShadows = mr.CastShadows ? 1 : 0;
+                p.Key.DoubleSided = s.DoubleSided ? 1 : 0;
                 p.Key.Cell = glm::ivec3(glm::floor(center / kStaticCell));
                 p.V.reserve(partV.size());
                 for (const Vertex& v : partV) {
@@ -1008,6 +1028,7 @@ namespace Engine {
             sb.State.Emissive = key.Emissive;
             sb.State.Mode = (AlphaMode)key.Mode;
             sb.State.Cutoff = key.Cutoff;
+            sb.State.DoubleSided = key.DoubleSided != 0;
             sb.Instance.Color = glm::vec4(key.Color, key.Alpha);
             sb.Instance.Surface = glm::vec4(key.Metallic, key.Roughness, 0.0f, 0.0f);
             sb.Instance.Emissive = glm::vec4(key.EmissiveColor, 0.0f);
@@ -1081,10 +1102,16 @@ namespace Engine {
         }
 
         PROFILE_SCOPE("Objects");
+        static thread_local std::vector<DrawList::Item> selected;   // highlighted parts (editor outline)
+        selected.clear();
+        const std::vector<uint32_t>* highlight = (list.Highlight && !list.Highlight->empty()) ? list.Highlight : nullptr;
         auto drawables = m_Registry.view<TransformComponent, MeshRendererComponent>();
         for (auto entity : drawables) {
             const auto& mr = drawables.get<MeshRendererComponent>(entity);
-            if (!mr.Geometry || mr.Merged || mr.Hidden) continue;    // merged: drawn by its static batch; hidden: e.visible = false
+            const bool highlighted = highlight &&
+                std::binary_search(highlight->begin(), highlight->end(), (uint32_t)entt::to_integral(entity));
+            // merged: drawn by its static batch (only its outline is drawn from here); hidden: e.visible = false
+            if (!mr.Geometry || mr.Hidden || (mr.Merged && !highlighted)) continue;
 
             static const glm::mat4 kIdentity(1.0f);
             const glm::mat4 world = mr.LocalOffset == kIdentity ? GetWorldMatrix(entity) : GetWorldMatrix(entity) * mr.LocalOffset;
@@ -1099,7 +1126,7 @@ namespace Engine {
             if (!visible) list.Culled++;
 
             // Which shadow views this caster can show up in (light markers must not block light)
-            const bool anyShadow = !views.empty() && mr.CastShadows && !mr.Unlit && classifyShadows(world, mn, mx);
+            const bool anyShadow = !mr.Merged && !views.empty() && mr.CastShadows && !mr.Unlit && classifyShadows(world, mn, mx);
             if (!visible && !anyShadow) continue;
 
             InstanceData base;
@@ -1135,6 +1162,7 @@ namespace Engine {
                 b.Emissive = mat ? mat->Emissive.get() : nullptr;
                 b.Mode = s.Mode;
                 b.Cutoff = s.Cutoff;
+                b.DoubleSided = s.DoubleSided;
                 b.Bones = bones;
 
                 if (anyShadow) {
@@ -1145,6 +1173,13 @@ namespace Engine {
                     for (size_t v = 0; v < views.size(); v++) if (inView[v]) shadow[v].push_back(sh);
                 }
                 if (!visible) continue;
+                if (highlighted) {
+                    DrawList::Item sel = item;
+                    sel.State.Normal = sel.State.MetalRough = sel.State.Emissive = nullptr;
+                    if (s.Mode == AlphaMode::Opaque) { sel.State.Albedo = nullptr; sel.State.Cutoff = 0.5f; }
+                    selected.push_back(sel);
+                }
+                if (mr.Merged) continue;
                 if (s.Mode == AlphaMode::Blend) {
                     if (distance < 0.0f)
                         distance = glm::length(glm::vec3(world * glm::vec4((mn + mx) * 0.5f, 1.0f)) - camera.Position);
@@ -1157,6 +1192,7 @@ namespace Engine {
         { PROFILE_SCOPE("Sort into batches");
         list.AddBatches(opaque, list.Opaque, DrawList::Order::ByState);
         list.AddBatches(transparent, list.Transparent, DrawList::Order::BackToFront);
+        if (!selected.empty()) list.AddBatches(selected, list.Selected, DrawList::Order::ByState);
         for (size_t v = 0; v < views.size(); v++) list.AddBatches(shadow[v], list.ShadowViews[v], DrawList::Order::ByState);
         }
         { PROFILE_SCOPE("Upload"); list.Upload(); }
@@ -1177,7 +1213,9 @@ namespace Engine {
 
         auto drawCasters = [&](Shader& sh, const std::vector<DrawBatch>& batches) {
             sh.SetInt("u_Texture", 0);
+            CullSwitch cull;
             for (const DrawBatch& b : batches) {
+                cull.Set(b.DoubleSided);                // a double-sided plane casts whichever side faces the light
                 // Cutout casts its cut shape; see-through (Blend) casts only where alpha >= 0.5
                 const bool test = b.Mode != AlphaMode::Opaque;
                 sh.SetInt("u_AlphaTest", test ? 1 : 0);
@@ -1314,7 +1352,10 @@ namespace Engine {
         // Each batch: its textures and alpha settings, then one instanced call for all its objects
         list.Bind();
         auto drawBatches = [&](const std::vector<DrawBatch>& batches) {
+            CullSwitch cull;
             for (const DrawBatch& b : batches) {
+                cull.Set(b.DoubleSided);
+                shader.SetInt("u_DoubleSided", b.DoubleSided ? 1 : 0);   // lit.frag: back faces lit from their side
                 if (b.Albedo)     b.Albedo->Bind(0);
                 if (b.Normal)     b.Normal->Bind(3);
                 if (b.MetalRough) b.MetalRough->Bind(4);
@@ -1334,6 +1375,10 @@ namespace Engine {
         if (pass == RenderPass::Opaque) {
             // Opaque and cutout parts, in any order (the depth buffer sorts them)
             drawBatches(list.Opaque);
+            return;
+        }
+        if (pass == RenderPass::Selected) {     // the highlighted parts, blend state up to the caller
+            drawBatches(list.Selected);
             return;
         }
 

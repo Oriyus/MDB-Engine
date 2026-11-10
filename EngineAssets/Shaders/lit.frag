@@ -27,6 +27,8 @@ uniform int  u_UseTexture;
 uniform int  u_UseNormalMap;
 uniform int  u_UseMetalRough;
 uniform int  u_UseEmissive;
+uniform int  u_DoubleSided;      // 1: back faces are drawn too (Mesh Renderer / material Double-sided)
+uniform int  u_ViewMode;        // editor view mode: 0 rendered (never set by the game), 1 solid, 2 textured
 
 
 // Transparency: 0 opaque, 1 cutout (discard below u_AlphaCutoff), 2 blend (premultiplied output)
@@ -227,6 +229,24 @@ void main() {
     bool blend = u_AlphaMode == 2;
     if (!blend) alpha = 1.0;
 
+    // Editor view modes (SceneRenderer::ViewMode): 1 solid (colour only), 2 textured. A simple studio light
+    // that follows the camera, no shadows or environment. 0 (rendered, the default) is the full shading below.
+    if (u_ViewMode != 0) {
+        vec3 c = pow(v_Color.rgb, vec3(2.2));
+        if (u_ViewMode == 2) c *= base.rgb;
+        if (v_Unlit == 0) {
+            vec3 N = normalize(v_Normal);
+            if (!gl_FrontFacing) N = -N;                         // grass is drawn without culling
+            vec3 V = normalize(u_ViewPos - v_WorldPos);
+            vec3 L = normalize(V + vec3(0.25, 0.9, 0.1));         // from above the camera
+            float key = max(dot(N, L), 0.0);
+            float sky = 0.5 + 0.5 * N.y;
+            c *= 0.12 + 0.18 * sky + 0.5 * key;               // white peaks at 0.8, so shapes never clip
+        }
+        FragColor = vec4(c * alpha, alpha);
+        return;
+    }
+
     if (v_Unlit == 1) {
         FragColor = vec4(albedo * kUnlitGlow * alpha, alpha);
         return;
@@ -243,6 +263,7 @@ void main() {
     roughness = clamp(roughness, 0.04, 1.0);                 // 0 would make an infinitely sharp highlight
 
     vec3 Ng = normalize(v_Normal);                           // geometric normal, used for shadows
+    if (u_DoubleSided == 1 && !gl_FrontFacing) Ng = -Ng;    // the back of a double-sided part faces the other way
     vec3 N = Ng;
     if (u_UseNormalMap == 1) {
         vec3 m = texture(u_NormalMap, v_TexCoord).xyz * 2.0 - 1.0;

@@ -55,6 +55,7 @@
 #include <functional>
 #include <unordered_map>
 #include <unordered_set>
+#include <sstream>
 
 class EditorApp : public Engine::Application {
 public:
@@ -237,6 +238,14 @@ public:
             m_Builder.Start(Projects::Current(), Projects::EngineDir(), out);
             m_ShowBuildGame = true;
         }
+        // Test hooks for the viewport: MDB_VIEW_MODE=wireframe|xray|solid|textured|rendered, MDB_SELECT=<entity name>
+        if (auto vm = EnvVar("MDB_VIEW_MODE"); !vm.empty()) {
+            if (vm == "wireframe" || vm == "xray") m_ViewMode = ViewMode::Wireframe;
+            else if (vm == "solid") m_ViewMode = ViewMode::Solid;
+            else if (vm == "textured") m_ViewMode = ViewMode::Textured;
+            m_WireXRay = vm == "xray";
+        }
+        m_PendingSelect = EnvVar("MDB_SELECT");     // selected once the scene has it (loads are queued)
         if (EnvVar("MDB_AUTOPLAY") == "1") m_PlayCmd = PlayCmd::Play;
         if (auto q = EnvVar("MDB_QUIT_AFTER"); !q.empty()) m_QuitAfter = std::strtof(q.c_str(), nullptr);
         if (EnvVar("MDB_NO_VSYNC") == "1") GetWindow().SetVSync(false);   // test hook: uncapped frame rate, for timing
@@ -321,6 +330,9 @@ public:
         const bool kz = EdgePressed(Key::Z, m_ZDown), ky = EdgePressed(Key::Y, m_YDown);
         const bool kd = EdgePressed(Key::D, m_DDown), ks = EdgePressed(Key::S, m_SDown);
         const bool kn = EdgePressed(Key::N, m_NDown);
+        const bool ka = EdgePressed(Key::A, m_ADown);
+        const bool kgGroup = ctrl && Engine::Input::IsKeyDown(Key::G) && !m_GDown;   // Ctrl+G (G's edge is read below)
+        SyncSelection();
         if (EdgePressed(Key::F11, m_F11Down)) m_ToggleFullscreen = true;
         if (ctrl && !typing && !interacting && !dialogueKeys && m_PlayState == PlayState::Edit) {
             if (kz && !shift) UndoStep();
@@ -329,6 +341,8 @@ public:
             if (ks && shift) m_OpenSaveAs = true;
             else if (ks) SaveScene(m_SceneFile);
             if (kn && !shift) RequestNewScene();
+            if (kgGroup && !m_ViewingGame) GroupSelected();
+            if (ka && !m_ViewingGame) SelectAll();
         }
 
         bool f5 = EdgePressed(Key::F5, m_F5Down);
@@ -342,6 +356,8 @@ public:
         bool knSpawn = kn && !ctrl;                      // plain N spawns a cube (Ctrl+N is New Scene)
         bool kdel = EdgePressed(Key::Delete, m_DelDown);
         bool kt = EdgePressed(Key::T, m_TDown);
+        const bool kShade[4] = { EdgePressed(Key::Num1, m_Num1Down), EdgePressed(Key::Num2, m_Num2Down),
+                                 EdgePressed(Key::Num3, m_Num3Down), EdgePressed(Key::Num4, m_Num4Down) };
         if (kp && ImGui::GetIO().KeyCtrl)
             m_PlayCmd = (m_PlayState == PlayState::Edit) ? PlayCmd::Play : PlayCmd::Stop;
 
@@ -356,17 +372,22 @@ public:
             }
             if (knSpawn) SpawnCube();
             if (f && !ImGui::GetIO().KeyAlt) FrameSelected();
-            if (kdel && m_Selected != entt::null && m_Scene.Registry().valid(m_Selected)) {
-                m_Scene.DestroyEntity(Engine::Entity(m_Selected, &m_Scene));
-                m_Selected = entt::null;
-            }
-            if (g)  DeleteLastSpawned();
+            if (kdel) DeleteSelected();
+            if (g && !ctrl) DeleteLastSpawned();
             if (f1) m_ShowUI = !m_ShowUI;
             if (!ImGui::GetIO().KeyAlt) {
                 if (kq) m_SelectTool = true;
                 if (kw) { m_SelectTool = false; m_GizmoOp = ImGuizmo::TRANSLATE; }
                 if (ke) { m_SelectTool = false; m_GizmoOp = ImGuizmo::ROTATE; }
                 if (kr) { m_SelectTool = false; m_GizmoOp = ImGuizmo::SCALE; }
+            }
+            // 1-4: Wireframe / Solid / Textured / Rendered (pressing 1 again in wireframe toggles X-ray)
+            if (editorKeys && !ctrl && !ImGui::GetIO().KeyAlt && !shift) {
+                for (int i = 0; i < 4; i++) {
+                    if (!kShade[i]) continue;
+                    if (i == 0 && m_ViewMode == ViewMode::Wireframe) m_WireXRay = !m_WireXRay;
+                    m_ViewMode = (ViewMode)i;
+                }
             }
             if (kt && m_PlayState == PlayState::Play)
                 SpawnBody(true, m_Camera->Position + m_Camera->GetFront() * 1.5f, m_Camera->GetFront() * 14.0f, false);
@@ -396,7 +417,7 @@ public:
                 Engine::SceneSettings s = GatherSettings();
                 if (m_Session->ApplyPending(s)) {
                     m_Renderer->ApplySettings(s);
-                    m_Selected = entt::null;      // the old handles are gone
+                    ClearSelection();             // the old handles are gone
                     m_Spawned.clear();
                 }
             }
@@ -428,6 +449,32 @@ public:
         Camera& view = ViewCamera();
         m_Session->SetListener(view);
 
+        // Shading and the selection outline are editor views: the game camera shows the game as it is
+        m_Renderer->Mode = m_ViewingGame ? ViewMode::Rendered : m_ViewMode;
+        m_Renderer->XRay = m_WireXRay;
+        m_Renderer->Highlight.clear();
+        if (!m_PendingSelect.empty()) {         // MDB_SELECT: names separated by commas (the first entity of each)
+            std::vector<entt::entity> found;
+            std::stringstream names(m_PendingSelect);
+            for (std::string name; std::getline(names, name, ',');)
+                for (auto [e, tag] : m_Scene.Registry().view<Engine::TagComponent>().each())
+                    if (tag.Tag == name) { found.push_back(e); break; }
+            if (!found.empty()) {
+                m_PendingSelect.clear();
+                SelectOnly(found.front());
+                for (auto e : found) AddToSelection(e);
+            }
+        }
+        SyncSelection();
+        if (m_ShowOutline && !m_ViewingGame && !m_Selection.empty()) {
+            // every selected entity and everything under it
+            const std::unordered_set<entt::entity> selected(m_Selection.begin(), m_Selection.end());
+            for (auto e : m_Scene.Registry().view<Engine::MeshRendererComponent>()) {
+                int guard = 0;
+                for (entt::entity p = e; p != entt::null && guard++ < 256; p = m_Scene.GetParent(p))
+                    if (selected.count(p)) { m_Renderer->Highlight.push_back((uint32_t)entt::to_integral(e)); break; }
+            }
+        }
         { PROFILE_SCOPE("Render"); m_Renderer->Render(m_Scene, view, vw, vh); }
 
         glViewport(0, 0, (int)GetWindow().GetWidth(), (int)GetWindow().GetHeight());
@@ -480,6 +527,7 @@ public:
     void UndoStep() {
         if (!m_History.CanUndo()) return;
         LOG_INFO("Undo: {}", m_History.UndoLabel());
+        m_Selection.clear();        // the old handles are gone; the history gives back the active one
         m_Selected = m_History.Undo(m_Scene);
         m_Spawned.clear();          // those handles died with the restore
         m_MaybeChanged = false;
@@ -488,16 +536,31 @@ public:
     void RedoStep() {
         if (!m_History.CanRedo()) return;
         LOG_INFO("Redo: {}", m_History.RedoLabel());
+        m_Selection.clear();
         m_Selected = m_History.Redo(m_Scene);
         m_Spawned.clear();
         m_MaybeChanged = false;
     }
 
+    // Copies every selected entity (with its children) and selects the copies; the active one's copy stays active
     void DuplicateSelected() {
-        if (m_Selected == entt::null || !m_Scene.Registry().valid(m_Selected)) return;
-        Engine::Entity copy = m_Scene.DuplicateEntity(Engine::Entity(m_Selected, &m_Scene));
-        m_Selected = copy.GetHandle();
-        m_History.Track(m_Scene, m_Selected, m_Resources->Registry(), "Duplicate " + copy.Get<Engine::TagComponent>().Tag);
+        const auto roots = SelectionRoots();
+        if (roots.empty()) return;
+        const entt::entity active = m_Selected;
+        std::vector<entt::entity> copies;
+        entt::entity activeCopy = entt::null;
+        std::string name;
+        for (entt::entity e : roots) {
+            Engine::Entity copy = m_Scene.DuplicateEntity(Engine::Entity(e, &m_Scene));
+            copies.push_back(copy.GetHandle());
+            if (e == active) activeCopy = copy.GetHandle();
+            name = copy.Get<Engine::TagComponent>().Tag;
+        }
+        m_Selection = copies;
+        if (activeCopy != entt::null) { std::erase(m_Selection, activeCopy); m_Selection.push_back(activeCopy); }
+        m_Selected = m_Selection.back();
+        m_History.Track(m_Scene, m_Selected, m_Resources->Registry(),
+            copies.size() == 1 ? "Duplicate " + name : "Duplicate " + std::to_string(copies.size()) + " objects");
     }
 
     // "MDB Editor - My Game - level.json *": the project, the scene, and a star for unsaved changes
@@ -731,6 +794,7 @@ public:
 
     void StopPlay() {
         if (m_PlayState == PlayState::Edit) return;
+        m_Selection.clear();
         m_Selected = m_Scene.Restore(m_Snapshot, m_SnapshotSelected);
         m_Snapshot.clear();
         m_Spawned.clear();            // those handles died with the old registry
@@ -940,7 +1004,7 @@ public:
 
         const float aspect = size.y > 0.0f ? size.x / size.y : 16.0f / 9.0f;
         for (auto [e, t, c] : m_Scene.Registry().view<TransformComponent, CameraComponent>().each()) {
-            const ImU32 col = e == m_Selected ? IM_COL32(255, 255, 255, 255) : IM_COL32(200, 200, 210, 150);
+            const ImU32 col = IsSelected(e) ? IM_COL32(255, 255, 255, 255) : IM_COL32(200, 200, 210, 150);
             glm::vec3 p, sc;                       // world placement: cameras can sit under a parent
             glm::quat q;
             Scene::Decompose(m_Scene.GetWorldMatrix(e), p, q, sc);
@@ -1300,10 +1364,13 @@ private:
             if (ImGui::MenuItem(undo.c_str(), "Ctrl+Z", false, !playing && m_History.CanUndo())) UndoStep();
             if (ImGui::MenuItem(redo.c_str(), "Ctrl+Y", false, !playing && m_History.CanRedo())) RedoStep();
             ImGui::Separator();
-            const bool selected = m_Selected != entt::null && m_Scene.Registry().valid(m_Selected);
+            const bool selected = HasSelection();
             if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, selected && !playing)) DuplicateSelected();
             if (ImGui::MenuItem("Delete", "Del", false, selected)) DeleteSelected();
-            if (ImGui::MenuItem("Deselect", nullptr, false, selected)) m_Selected = entt::null;
+            if (ImGui::MenuItem("Group", "Ctrl+G", false, selected && !playing)) GroupSelected();
+            ImGui::Separator();
+            if (ImGui::MenuItem("Select All", "Ctrl+A", false, !playing)) SelectAll();
+            if (ImGui::MenuItem("Deselect", nullptr, false, selected)) ClearSelection();
             ImGui::Separator();
             if (ImGui::MenuItem("Frame Selected", "F")) FrameSelected();
             ImGui::Separator();
@@ -1602,6 +1669,26 @@ private:
             ImGui::Checkbox("Gamma correction", &m_Renderer->Post.Gamma);
             ImGui::Checkbox("FXAA (anti-aliasing)", &m_Renderer->Post.FXAA);
 
+            ImGui::SeparatorText("Color grading");
+            auto& grade = m_Renderer->Post;
+            ImGui::SliderFloat("Contrast", &grade.Contrast, 0.5f, 2.0f);
+            ImGui::SetItemTooltip("Above 1: deeper shadows and brighter lights (around mid grey)");
+            ImGui::SliderFloat("Saturation", &grade.Saturation, 0.0f, 2.0f);
+            ImGui::SliderFloat("Temperature", &grade.Temperature, -1.0f, 1.0f);
+            ImGui::SetItemTooltip("White balance: left cooler (blue), right warmer (orange)");
+            ImGui::SliderFloat("Tint", &grade.Tint, -1.0f, 1.0f);
+            ImGui::SetItemTooltip("Left green, right magenta");
+            ImGui::ColorEdit3("Shadow tint", &grade.ShadowTint.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
+            ImGui::ColorEdit3("Highlight tint", &grade.HighlightTint.x, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
+            ImGui::SetItemTooltip("Cool shadows with warm highlights is the classic film look (white = none)");
+            ImGui::SliderFloat("Vignette", &grade.Vignette, 0.0f, 1.0f);
+            ImGui::SliderFloat("Film grain", &grade.Grain, 0.0f, 0.1f, "%.3f");
+            if (ImGui::Button("Reset grading")) {
+                const Engine::PostSettings d;
+                grade.Contrast = d.Contrast; grade.Saturation = d.Saturation; grade.Temperature = d.Temperature; grade.Tint = d.Tint;
+                grade.ShadowTint = d.ShadowTint; grade.HighlightTint = d.HighlightTint; grade.Vignette = d.Vignette; grade.Grain = d.Grain;
+            }
+
             ImGui::SeparatorText("Ambient occlusion");
             ImGui::Checkbox("Enabled##ao", &m_Renderer->Post.AOEnabled);
             ImGui::BeginDisabled(!m_Renderer->Post.AOEnabled);
@@ -1789,10 +1876,15 @@ private:
                 row("Alt + Middle drag", "Pan");
                 row("Alt + Right drag / wheel", "Zoom");
                 row("F", "Frame the selection");
+                row("1 / 2 / 3 / 4", "Wireframe / Solid / Textured / Rendered");
                 ImGui::SeparatorText("Tools");
                 row("Q / W / E / R", "Select / Move / Rotate / Scale");
                 row("N", "Spawn a cube");
                 row("Del", "Delete the selection");
+                row("Ctrl / Shift + click", "Add to or remove from the selection");
+                row("Drag on the scene", "Box select (Ctrl / Shift: add)");
+                row("Shift + click (Hierarchy)", "Select a range of rows");
+                row("Ctrl+G / Ctrl+A", "Group the selection / Select all");
                 ImGui::SeparatorText("Edit");
                 row("Ctrl+Z / Ctrl+Y", "Undo / Redo");
                 row("Ctrl+D", "Duplicate");
@@ -2011,10 +2103,93 @@ private:
         }
     }
 
+    // ---- Multiple selection. m_Selection holds every selected entity in the order picked; m_Selected is the
+    // active one (the last picked): the Inspector shows it and the gizmo sits on it. Code that sets m_Selected
+    // to something not in the selection makes it the only selection (SyncSelection), so single-select paths
+    // (spawn, place, undo...) need nothing extra.
+    void SyncSelection() {
+        auto& reg = m_Scene.Registry();
+        std::erase_if(m_Selection, [&](entt::entity e) { return !reg.valid(e); });
+        if (m_Selected != entt::null && !reg.valid(m_Selected))
+            m_Selected = m_Selection.empty() ? entt::null : m_Selection.back();
+        if (m_Selected == entt::null) m_Selection.clear();
+        else if (!IsSelected(m_Selected)) m_Selection = { m_Selected };
+    }
+    bool IsSelected(entt::entity e) const { return std::find(m_Selection.begin(), m_Selection.end(), e) != m_Selection.end(); }
+    void SelectOnly(entt::entity e) {
+        m_Selected = (e != entt::null && m_Scene.Registry().valid(e)) ? e : entt::null;
+        m_Selection.clear();
+        if (m_Selected != entt::null) m_Selection.push_back(m_Selected);
+    }
+    void AddToSelection(entt::entity e) {
+        if (e == entt::null || !m_Scene.Registry().valid(e)) return;
+        if (!IsSelected(e)) m_Selection.push_back(e);
+        m_Selected = e;
+    }
+    void ToggleSelected(entt::entity e) {
+        if (e == entt::null || !m_Scene.Registry().valid(e)) return;
+        if (IsSelected(e)) {
+            std::erase(m_Selection, e);
+            if (m_Selected == e) m_Selected = m_Selection.empty() ? entt::null : m_Selection.back();
+        }
+        else AddToSelection(e);
+    }
+    void ClearSelection() { m_Selected = entt::null; m_Selection.clear(); }
+    bool HasSelection() { return m_Selected != entt::null && m_Scene.Registry().valid(m_Selected); }
+
+    // The selected entities that have no selected ancestor: moving, deleting, duplicating or re-parenting these
+    // handles the whole selection once (a selected child goes along with its selected parent)
+    std::vector<entt::entity> SelectionRoots() {
+        SyncSelection();
+        std::vector<entt::entity> roots;
+        if (m_Selection.size() == 1) return m_Selection;
+        const std::unordered_set<entt::entity> selected(m_Selection.begin(), m_Selection.end());
+        for (entt::entity e : m_Selection) {
+            bool under = false;
+            int guard = 0;
+            for (entt::entity p = m_Scene.GetParent(e); p != entt::null && guard++ < 256; p = m_Scene.GetParent(p))
+                if (selected.count(p)) { under = true; break; }
+            if (!under) roots.push_back(e);
+        }
+        return roots;
+    }
+
     void DeleteSelected() {
-        if (m_Selected == entt::null || !m_Scene.Registry().valid(m_Selected)) return;
-        m_Scene.DestroyEntity(Engine::Entity(m_Selected, &m_Scene));
-        m_Selected = entt::null;
+        for (entt::entity e : SelectionRoots())
+            if (m_Scene.Registry().valid(e)) m_Scene.DestroyEntity(Engine::Entity(e, &m_Scene));
+        ClearSelection();
+    }
+
+    void UnparentSelected() {
+        for (entt::entity e : SelectionRoots()) m_Scene.SetParent(e, entt::null, true);
+    }
+
+    // Put the selection under a new empty entity "Group" at the middle of their positions. The group goes
+    // under the selection's common parent when they all share one, else it is a root. Selects the group.
+    void GroupSelected() {
+        using namespace Engine;
+        const auto roots = SelectionRoots();
+        if (roots.empty() || m_PlayState != PlayState::Edit) return;
+        entt::entity parent = m_Scene.GetParent(roots.front());
+        glm::vec3 center(0.0f);
+        for (entt::entity e : roots) {
+            center += glm::vec3(m_Scene.GetWorldMatrix(e)[3]);
+            if (m_Scene.GetParent(e) != parent) parent = entt::null;
+        }
+        center /= (float)roots.size();
+        Entity group = m_Scene.CreateEntity("Group");
+        m_Scene.SetWorldPosition(group.GetHandle(), center);
+        if (parent != entt::null) m_Scene.SetParent(group.GetHandle(), parent, true);
+        for (entt::entity e : roots) m_Scene.SetParent(e, group.GetHandle(), true);
+        m_HierarchyCollapsed.erase(m_Scene.GetID(group.GetHandle()));
+        SelectOnly(group.GetHandle());
+        m_History.Track(m_Scene, m_Selected, m_Resources->Registry(), "Group " + std::to_string(roots.size()) + " objects");
+    }
+
+    void SelectAll() {
+        m_Selection.clear();
+        for (auto e : m_Scene.Registry().view<Engine::TagComponent>()) m_Selection.push_back(e);
+        m_Selected = m_Selection.empty() ? entt::null : m_Selection.back();
     }
 
     // Stats drawn over the top-right corner of the viewport image
@@ -2076,13 +2251,15 @@ private:
             std::vector<entt::entity> matches;
             for (auto handle : reg.view<TagComponent>())
                 if (Lower(reg.get<TagComponent>(handle).Tag).find(filter) != std::string::npos) matches.push_back(handle);
+            m_RowOrder = matches;
             ImGuiListClipper clipper;
             clipper.Begin((int)matches.size());
             while (clipper.Step())
                 for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
                     const entt::entity handle = matches[i];
                     ImGui::PushID((int)entt::to_integral(handle));
-                    if (ImGui::Selectable(reg.get<TagComponent>(handle).Tag.c_str(), handle == m_Selected)) m_Selected = handle;
+                    ImGui::Selectable(reg.get<TagComponent>(handle).Tag.c_str(), IsSelected(handle));
+                    if (ImGui::IsItemClicked()) RowClicked(handle);
                     DrawRowContextMenu(handle);
                     ImGui::PopID();
                 }
@@ -2105,6 +2282,8 @@ private:
             };
             for (auto handle : reg.view<TagComponent>())
                 if (m_Scene.GetParent(handle) == entt::null) add(handle, 0);
+            m_RowOrder.clear();
+            for (const auto& r : m_HierarchyRows) m_RowOrder.push_back(r.E);
             ImGuiListClipper clipper;
             clipper.Begin((int)m_HierarchyRows.size());
             while (clipper.Step())
@@ -2122,7 +2301,14 @@ private:
             const std::string asset = AssetBrowser::AcceptDrop({ K::Model, K::Prefab });
             if (!asset.empty()) m_AssetDrop = { asset, entt::null, true };
         }
-        if (ImGui::IsItemClicked()) m_Selected = entt::null;           // a click on empty space deselects
+        if (ImGui::IsItemClicked() && !ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyShift) ClearSelection();   // a click on empty space deselects
+        // A plain click on a row that was already part of a multiple selection selects only it on release,
+        // unless the press started a drag (dragging moves the whole selection)
+        if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+            if (m_PendingRowClick != entt::null && !m_RowDragged) SelectOnly(m_PendingRowClick);
+            m_PendingRowClick = entt::null;
+            m_RowDragged = false;
+        }
         if (ImGui::BeginPopupContextWindow("HierarchyEmpty", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
             DrawCreateMenuItems();
             ImGui::EndPopup();
@@ -2132,8 +2318,12 @@ private:
 
         // Applied after the tree is drawn, so the views above aren't changed while being walked
         if (m_Reparent.Pending && reg.valid(m_Reparent.Child)) {
-            if (!m_Scene.SetParent(m_Reparent.Child, m_Reparent.Parent, true))
-                LOG_WARN("Can't parent an entity to itself or to one of its own children");
+            // Dragging a selected row moves the whole selection; any other row moves alone
+            std::vector<entt::entity> moving = IsSelected(m_Reparent.Child) ? SelectionRoots() : std::vector<entt::entity>{ m_Reparent.Child };
+            int refused = 0;
+            for (entt::entity e : moving)
+                if (e != m_Reparent.Parent && !m_Scene.SetParent(e, m_Reparent.Parent, true)) refused++;
+            if (refused) LOG_WARN("Can't parent an entity to itself or to one of its own children");
         }
         if (m_AssetDrop.Pending) {
             m_AssetDrop.Pending = false;
@@ -2148,27 +2338,61 @@ private:
             else ApplyAssetToEntity(m_AssetDrop.Path, m_AssetDrop.Target);
         }
         if (m_RowAction.Kind != RowAction::None && reg.valid(m_RowAction.Target)) {
-            m_Selected = m_RowAction.Target;
+            // the menu acts on the whole selection (right-clicking a row outside it selected that row alone)
             if (m_RowAction.Kind == RowAction::Duplicate) DuplicateSelected();
             else if (m_RowAction.Kind == RowAction::Delete) DeleteSelected();
-            else if (m_RowAction.Kind == RowAction::Unparent) m_Scene.SetParent(m_RowAction.Target, entt::null, true);
+            else if (m_RowAction.Kind == RowAction::Unparent) UnparentSelected();
+            else if (m_RowAction.Kind == RowAction::Group) GroupSelected();
         }
     }
 
-    // Right-click on a row: actions on that entity (applied after the list is drawn)
+    // A left click on a Hierarchy row. Ctrl: add or remove it. Shift: select the rows from the last clicked one
+    // to this one (Ctrl+Shift adds them). Plain: select only it (on release when it is part of a selection).
+    void RowClicked(entt::entity e) {
+        const ImGuiIO& io = ImGui::GetIO();
+        if (io.KeyShift && m_RowAnchor != entt::null && m_Scene.Registry().valid(m_RowAnchor)) {
+            auto a = std::find(m_RowOrder.begin(), m_RowOrder.end(), m_RowAnchor);
+            auto b = std::find(m_RowOrder.begin(), m_RowOrder.end(), e);
+            if (a != m_RowOrder.end() && b != m_RowOrder.end()) {
+                if (a > b) std::swap(a, b);
+                if (!io.KeyCtrl) m_Selection.clear();
+                for (auto it = a; it <= b; ++it) if (!IsSelected(*it)) m_Selection.push_back(*it);
+                std::erase(m_Selection, e);
+                m_Selection.push_back(e);        // the clicked row is the active one
+                m_Selected = e;
+                return;
+            }
+        }
+        m_RowAnchor = e;
+        if (io.KeyCtrl) ToggleSelected(e);
+        else if (IsSelected(e) && m_Selection.size() > 1) { m_PendingRowClick = e; m_Selected = e; std::erase(m_Selection, e); m_Selection.push_back(e); }
+        else SelectOnly(e);
+    }
+    std::vector<entt::entity> m_RowOrder;               // the rows of the list as shown (for Shift ranges)
+    entt::entity m_RowAnchor = entt::null;              // where a Shift range starts
+    entt::entity m_PendingRowClick = entt::null;        // plain click inside a selection, applied on release
+    bool m_RowDragged = false;
+
+    // Right-click on a row: actions on the selection (applied after the list is drawn). A row outside the
+    // selection becomes the only selected one first.
     void DrawRowContextMenu(entt::entity e) {
         if (!ImGui::BeginPopupContextItem()) return;     // keyed to the row just drawn
-        m_Selected = e;
+        if (!IsSelected(e)) SelectOnly(e);
         const bool playing = m_PlayState != PlayState::Edit;
+        const size_t n = m_Selection.size();
+        if (n > 1) ImGui::TextDisabled("%zu objects", n);
+        bool anyParent = false;
+        for (entt::entity s : m_Selection) if (m_Scene.GetParent(s) != entt::null) anyParent = true;
         if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, !playing)) m_RowAction = { RowAction::Duplicate, e };
         if (ImGui::MenuItem("Delete", "Del")) m_RowAction = { RowAction::Delete, e };
-        if (ImGui::MenuItem("Unparent", nullptr, false, m_Scene.GetParent(e) != entt::null)) m_RowAction = { RowAction::Unparent, e };
+        if (ImGui::MenuItem("Group", "Ctrl+G", false, !playing)) m_RowAction = { RowAction::Group, e };
+        if (ImGui::MenuItem("Unparent", nullptr, false, anyParent)) m_RowAction = { RowAction::Unparent, e };
         ImGui::Separator();
         if (ImGui::MenuItem("Frame", "F")) FrameSelected();
         ImGui::EndPopup();
     }
 
-    enum class RowAction { None, Duplicate, Delete, Unparent };
+    enum class RowAction { None, Duplicate, Delete, Unparent, Group };
     struct PendingRowAction { RowAction Kind; entt::entity Target; };
     PendingRowAction m_RowAction{ RowAction::None, entt::null };
 
@@ -2189,7 +2413,7 @@ private:
         ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth
             | ImGuiTreeNodeFlags_NoTreePushOnOpen;
         if (!row.HasChildren) flags |= ImGuiTreeNodeFlags_Leaf;
-        if (e == m_Selected) flags |= ImGuiTreeNodeFlags_Selected;
+        if (IsSelected(e)) flags |= ImGuiTreeNodeFlags_Selected;
 
         if (row.Depth > 0) ImGui::Indent(row.Depth * ImGui::GetStyle().IndentSpacing);
         const bool instance = reg.all_of<PrefabComponent>(e);
@@ -2203,12 +2427,14 @@ private:
             if (open) m_HierarchyCollapsed.erase(id);
             else m_HierarchyCollapsed.insert(id);
         }
-        if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) m_Selected = e;
+        if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) RowClicked(e);
         DrawRowContextMenu(e);
 
         if (ImGui::BeginDragDropSource()) {
+            m_RowDragged = true;
             ImGui::SetDragDropPayload("MDB_ENTITY", &e, sizeof(e));
-            ImGui::Text("%s", reg.get<TagComponent>(e).Tag.c_str());
+            if (IsSelected(e) && m_Selection.size() > 1) ImGui::Text("%zu objects", m_Selection.size());
+            else ImGui::Text("%s", reg.get<TagComponent>(e).Tag.c_str());
             ImGui::EndDragDropSource();
         }
         if (ImGui::BeginDragDropTarget()) {
@@ -2333,6 +2559,17 @@ private:
                 ImGui::MenuItem("Camera Frustums", nullptr, &m_ShowFrustums);
                 ImGui::MenuItem("Navigation Grid", nullptr, &m_ShowNavGrid);
                 ImGui::MenuItem("Fog of War", nullptr, &m_Renderer->ShowFog);   // off: see through the fog while play-testing
+                ImGui::MenuItem("Selection Outline", nullptr, &m_ShowOutline);
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Shading")) {
+                static const char* kNames[] = { "Wireframe", "Solid", "Textured", "Rendered" };
+                static const char* kKeys[] = { "1", "2", "3", "4" };
+                for (int i = 0; i < 4; i++)
+                    if (ImGui::MenuItem(kNames[i], kKeys[i], m_ViewMode == (ViewMode)i)) m_ViewMode = (ViewMode)i;
+                ImGui::Separator();
+                ImGui::MenuItem("X-Ray Wireframe", nullptr, &m_WireXRay);
+                ImGui::TextDisabled("The game camera always shows Rendered");
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Debug")) {
@@ -2346,6 +2583,30 @@ private:
                 ImGui::SliderFloat("Orbit speed", &m_Camera->OrbitSensitivity, 0.05f, 1.0f);
                 ImGui::TextDisabled("Alt + left / middle / right drag: orbit / pan / zoom");
                 ImGui::EndMenu();
+            }
+            // The shading modes as a row of toggles on the right of the bar
+            {
+                static const char* kShort[] = { "Wire", "Solid", "Textured", "Rendered" };
+                static const char* kTips[] = { "Wireframe (1; press again for X-ray)", "Solid: colours, no textures (2)",
+                                               "Textured: colours and textures, simple light (3)", "Rendered: full lighting (4)" };
+                const ImGuiStyle& st = ImGui::GetStyle();
+                float w = 0.0f;
+                for (const char* n : kShort) w += ImGui::CalcTextSize(n).x + st.FramePadding.x * 2.0f + st.ItemSpacing.x;
+                const float x = ImGui::GetWindowContentRegionMax().x - w;
+                if (x > ImGui::GetCursorPosX()) ImGui::SetCursorPosX(x);
+                ImGui::BeginDisabled(m_ViewingGame);
+                for (int i = 0; i < 4; i++) {
+                    const bool on = m_ViewMode == (ViewMode)i;
+                    if (on) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                    else ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                    if (ImGui::SmallButton(kShort[i])) {
+                        if (i == 0 && on) m_WireXRay = !m_WireXRay;
+                        m_ViewMode = (ViewMode)i;
+                    }
+                    ImGui::PopStyleColor();
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", kTips[i]);
+                }
+                ImGui::EndDisabled();
             }
             ImGui::EndMenuBar();
         }
@@ -2432,24 +2693,60 @@ private:
                 glm::value_ptr(model), nullptr, m_Snap ? snapValues : nullptr);
 
             if (ImGuizmo::IsUsing()) {
-                m_Scene.SetWorldMatrix(m_Selected, model);   // back to a transform local to the parent
+                // The gizmo sits on the active entity; every selected entity gets the same change, so a group
+                // moves together, and rotates and scales about the active one's pivot
+                const glm::mat4 before = m_Scene.GetWorldMatrix(m_Selected);
+                const glm::mat4 delta = model * glm::inverse(before);
+                for (entt::entity r : SelectionRoots())
+                    m_Scene.SetWorldMatrix(r, r == m_Selected ? model : delta * m_Scene.GetWorldMatrix(r));   // back to local transforms
             }
             gizmoBusy = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
             m_GizmoBusy = ImGuizmo::IsUsing();
         }
 
-        // ---- Click to select (not while interacting with the gizmo)
+        // ---- Click to select, drag on the scene for a selection box (not while using the gizmo)
+        // Plain: select only that. Ctrl or Shift: add or remove it (a box adds everything inside it).
+        auto& fb = m_Renderer->GetFramebuffer();
         if (!m_ViewingGame && imageHovered && !gizmoBusy && !navigating && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !m_MouseLook) {
-            ImVec2 mouse = ImGui::GetMousePos();
-            int px = (int)(mouse.x - origin.x);
-            int py = (int)m_Renderer->GetFramebuffer().GetHeight() - 1 - (int)(mouse.y - origin.y);
-
-            int id = m_Renderer->GetFramebuffer().ReadEntityID(px, py);
-            entt::entity picked = id < 0 ? entt::null : static_cast<entt::entity>(id);
-            m_Selected = (picked != entt::null && m_Scene.Registry().valid(picked)) ? picked : entt::null;
+            m_BoxSelecting = true;
+            m_BoxStart = ImGui::GetMousePos();
+        }
+        if (m_BoxSelecting) {
+            const ImVec2 mouse = ImGui::GetMousePos();
+            const bool dragged = std::abs(mouse.x - m_BoxStart.x) > 4.0f || std::abs(mouse.y - m_BoxStart.y) > 4.0f;
+            const ImVec2 a(std::clamp(std::min(m_BoxStart.x, mouse.x), origin.x, origin.x + size.x), std::clamp(std::min(m_BoxStart.y, mouse.y), origin.y, origin.y + size.y));
+            const ImVec2 b(std::clamp(std::max(m_BoxStart.x, mouse.x), origin.x, origin.x + size.x), std::clamp(std::max(m_BoxStart.y, mouse.y), origin.y, origin.y + size.y));
+            if (dragged && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                dl->AddRectFilled(a, b, IM_COL32(255, 140, 25, 30));
+                dl->AddRect(a, b, IM_COL32(255, 140, 25, 200));
+            }
+            if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) || m_GizmoBusy || m_ViewingGame) {
+                m_BoxSelecting = false;
+                const bool add = io.KeyCtrl || io.KeyShift;
+                const int fbH = (int)fb.GetHeight();
+                if (!m_GizmoBusy && !m_ViewingGame && dragged) {
+                    // every entity with a visible pixel inside the box (entity-ID buffer, origin bottom-left)
+                    const int x0 = (int)(a.x - origin.x), x1 = (int)(b.x - origin.x);
+                    const int y0 = fbH - (int)(b.y - origin.y), y1 = fbH - (int)(a.y - origin.y);
+                    if (!add) ClearSelection();
+                    for (int id : fb.ReadEntityIDs(x0, y0, x1 - x0, y1 - y0))
+                        AddToSelection(static_cast<entt::entity>(id));
+                }
+                else if (!m_GizmoBusy && !m_ViewingGame) {
+                    const int px = (int)(m_BoxStart.x - origin.x);
+                    const int py = fbH - 1 - (int)(m_BoxStart.y - origin.y);
+                    const int id = fb.ReadEntityID(px, py);
+                    const entt::entity picked = id < 0 ? entt::null : static_cast<entt::entity>(id);
+                    if (add) ToggleSelected(picked);       // a click on nothing keeps the selection
+                    else SelectOnly(picked);
+                }
+            }
         }
         ImGui::End();
     }
+    bool m_BoxSelecting = false;     // the left button went down on the scene: a click or a selection box
+    ImVec2 m_BoxStart{ 0.0f, 0.0f };
 
     // The standard layout (Unity / Godot style): Hierarchy left, Viewport centre, Console below it,
     // Inspector and Scene Settings as tabs on the right. Built when there is no editor.ini yet, or on
@@ -2498,6 +2795,14 @@ private:
 
         Entity e(m_Selected, &m_Scene);
         bool deleteRequested = false;
+
+        if (m_Selection.size() > 1) {    // the Inspector edits one entity: the active one (last picked)
+            ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.3f, 1.0f), "%zu objects selected", m_Selection.size());
+            ImGui::SameLine();
+            ImGui::TextDisabled("(showing the active one)");
+            ImGui::SetItemTooltip("Move, rotate, scale, delete, duplicate, group and re-parent act on all of them.\n"
+                                  "The fields below edit only this one. Ctrl+click it to deselect it.");
+        }
 
         // Name
         {
@@ -2576,6 +2881,16 @@ private:
             ImGui::Checkbox("Static", &mr.Static);
             ImGui::SetItemTooltip("Never moves or changes during Play: merged with other static\n"
                 "parts of the same material when Play starts (fewer draws)");
+            ImGui::SameLine();
+            ImGui::Checkbox("Double-sided", &mr.DoubleSided);
+            ImGui::SetItemTooltip("Draw the back faces too, lit from their own side, so a single plane\n"
+                "(a leaf, a sign, cloth) is visible from behind. Back faces cost extra only on this object.");
+            if (!mr.DoubleSided && mr.UseModelMaterials && mr.Geometry) {
+                uint32_t doubleSided = 0;
+                for (uint32_t i = 0; i < mr.Geometry->SubmeshCount(); i++)
+                    if (const auto* m = mr.Geometry->GetSubmeshMaterial(i); m && m->DoubleSided) doubleSided++;
+                if (doubleSided) ImGui::TextDisabled("%u model material(s) are double-sided (from the file)", doubleSided);
+            }
             ImGui::DragFloat("Wind", &mr.Wind, 0.01f, 0.0f, 5.0f);
             ImGui::SetItemTooltip("Sway in the scene's wind (Scene Settings > Wind): 0 = still, 1 = a tree.\n"
                 "The top of the mesh moves most, its base stays put.");
@@ -3125,8 +3440,14 @@ private:
         glm::vec3 mn(FLT_MAX), mx(-FLT_MAX);
         auto& reg = m_Scene.Registry();
 
-        if (m_Selected != entt::null && reg.valid(m_Selected)) {
-            GetWorldBounds(m_Selected, mn, mx);
+        SyncSelection();
+        if (!m_Selection.empty()) {             // the box around everything selected
+            for (entt::entity e : m_Selection) {
+                glm::vec3 a, b;
+                GetWorldBounds(e, a, b);
+                mn = glm::min(mn, a);
+                mx = glm::max(mx, b);
+            }
         }
         else {
             bool any = false;
@@ -3196,7 +3517,8 @@ private:
     std::shared_ptr<Engine::Mesh>  m_Plane;
     std::shared_ptr<Engine::Model> m_ModelResource;
     std::vector<Engine::Entity> m_Spawned;
-    entt::entity m_Selected = entt::null;
+    entt::entity m_Selected = entt::null;              // the active entity (Inspector, gizmo pivot)
+    std::vector<entt::entity> m_Selection;             // every selected entity, m_Selected last (see SyncSelection)
     std::mt19937 m_Rng{ std::random_device{}() };
     std::string m_SceneFile = "scene.json";      // in Assets/Scenes
     std::string m_PendingSceneLoad;              // queued Load: applied at the start of OnUpdate
@@ -3224,6 +3546,13 @@ private:
     std::unordered_map<const Engine::Renderable*, CollisionWire> m_CollisionWires;
     std::vector<glm::vec3> m_WireScratch;
     bool  m_ShowNavGrid = true;      // the navigation grid, once a script baked it (Play)
+    // Viewport shading (keys 1-4) and the selection outline; looking through the game camera always renders
+    using ViewMode = Engine::SceneRenderer::ViewMode;
+    ViewMode m_ViewMode = ViewMode::Rendered;
+    bool  m_WireXRay = false;        // wireframe: show the edges behind surfaces too
+    bool  m_ShowOutline = true;
+    std::string m_PendingSelect;     // MDB_SELECT test hook
+    bool  m_Num1Down = false, m_Num2Down = false, m_Num3Down = false, m_Num4Down = false;
 
     // Editor shell (menu bar, toolbar, panels)
     bool  m_ShowHierarchy = true, m_ShowInspector = true, m_ShowSceneSettings = true, m_ShowConsole = true;
@@ -3270,6 +3599,7 @@ private:
     bool m_GizmoLocal = false;
     bool m_Snap = false;
     bool m_WDown = false, m_EDown = false, m_RDown = false;
+    bool m_ADown = false;
     bool m_SelectTool = false;
     bool m_QDown = false, m_NDown = false, m_DelDown = false;
 

@@ -93,8 +93,8 @@ namespace Engine {
         void BuildDrawList(DrawList& list, const Camera& camera, const ShadowContext* shadows);
         void RenderShadows(ShadowContext& ctx, const DrawList& list);
         // Opaque: opaque and cutout surfaces. Transparent: see-through (Blend) ones, sorted back to front,
-        // drawn after the sky.
-        enum class RenderPass { Opaque, Transparent };
+        // drawn after the sky. Selected: the parts in DrawList::Selected (the editor's selection outline mask).
+        enum class RenderPass { Opaque, Transparent, Selected };
         void Render(const Camera& camera, Shader& shader, const DrawList& list, const ShadowContext* shadows = nullptr,
             const Environment* env = nullptr, RenderPass pass = RenderPass::Opaque);
 

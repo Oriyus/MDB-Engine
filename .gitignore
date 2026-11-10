@@ -68,3 +68,4 @@ Desktop.ini
 !/EngineAssets/**/*.obj
 # File > Build Game output
 /Examples/Build/
+*.gltf

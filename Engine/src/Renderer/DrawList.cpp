@@ -15,6 +15,7 @@ namespace Engine {
         if (Emissive != o.Emissive) return std::less<>()(Emissive, o.Emissive);
         if (Mode != o.Mode) return Mode < o.Mode;
         if (Cutoff != o.Cutoff) return Cutoff < o.Cutoff;
+        if (DoubleSided != o.DoubleSided) return DoubleSided < o.DoubleSided;
         return std::less<>()(Bones, o.Bones);
     }
 
@@ -26,6 +27,7 @@ namespace Engine {
         Indices.clear();
         Opaque.clear();
         Transparent.clear();
+        Selected.clear();
         for (auto& v : ShadowViews) v.clear();
         Views.clear();
         CascadeSplits = glm::vec4(0.0f);

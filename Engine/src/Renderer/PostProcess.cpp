@@ -76,6 +76,18 @@ namespace Engine {
         shader.SetInt("u_UseBloom", (s.BloomEnabled && bloom) ? 1 : 0);
         shader.SetFloat("u_BloomIntensity", s.BloomIntensity);
 
+        // Colour grading. White balance as channel gains that keep the brightness (so it only shifts the colour)
+        glm::vec3 wb(1.0f + 0.2f * s.Temperature + 0.1f * s.Tint, 1.0f - 0.1f * s.Tint, 1.0f - 0.2f * s.Temperature + 0.1f * s.Tint);
+        wb /= glm::dot(wb, glm::vec3(0.2126f, 0.7152f, 0.0722f));
+        shader.SetVec3("u_WhiteBalance", wb);
+        shader.SetFloat("u_Contrast", std::max(s.Contrast, 0.01f));
+        shader.SetFloat("u_Saturation", std::max(s.Saturation, 0.0f));
+        shader.SetVec3("u_ShadowTint", s.ShadowTint);
+        shader.SetVec3("u_HighlightTint", s.HighlightTint);
+        shader.SetFloat("u_Vignette", std::clamp(s.Vignette, 0.0f, 1.0f));
+        shader.SetFloat("u_Grain", std::max(s.Grain, 0.0f));
+        shader.SetFloat("u_GrainSeed", (float)(m_Frame++ % 997));     // a new pattern every frame
+
         glBindTextureUnit(0, hdr);
         glBindTextureUnit(1, ao);       // 0 simply unbinds when the effect is off
         glBindTextureUnit(2, bloom);

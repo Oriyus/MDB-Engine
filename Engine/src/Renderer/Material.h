@@ -24,6 +24,7 @@ namespace Engine {
         float Alpha = 1.0f;                       // multiplies the albedo texture's alpha
         AlphaMode Mode = AlphaMode::Opaque;
         float AlphaCutoff = 0.5f;                 // Cutout only
+        bool DoubleSided = false;                 // back faces drawn too, lit from their own side (glTF doubleSided)
     };
 
 } // namespace Engine

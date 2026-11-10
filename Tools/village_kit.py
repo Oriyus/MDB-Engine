@@ -1252,15 +1252,18 @@ def export(ob, path):
         bpy.ops.export_scene.gltf(**kw, export_image_quality=88)
     except TypeError:
         bpy.ops.export_scene.gltf(**kw)
-    # Alpha-cut materials: make sure the file says MASK with our cutoff (the engine reads it as Cutout)
-    if CLIPPED:
-        with open(path, encoding="utf-8") as f: g = json.load(f)
-        changed = False
-        for m in g.get("materials", []):
-            if m.get("name") in CLIPPED:
-                m["alphaMode"] = "MASK"; m["alphaCutoff"] = CLIPPED[m["name"]]; changed = True
-        if changed:
-            with open(path, "w", encoding="utf-8") as f: json.dump(g, f, indent=2)
+    # Alpha-cut materials: make sure the file says MASK with our cutoff (the engine reads it as Cutout).
+    # And no material is double-sided: Blender writes doubleSided true whenever backface culling is off (its
+    # default), but every kit piece is closed or has real back faces (leaf cards are two faces), and the engine
+    # would draw all their back faces too.
+    with open(path, encoding="utf-8") as f: g = json.load(f)
+    changed = False
+    for m in g.get("materials", []):
+        if m.get("name") in CLIPPED:
+            m["alphaMode"] = "MASK"; m["alphaCutoff"] = CLIPPED[m["name"]]; changed = True
+        if m.pop("doubleSided", False): changed = True
+    if changed:
+        with open(path, "w", encoding="utf-8") as f: json.dump(g, f, indent=2)
 
 # ============================================================================ previews (Cycles, CPU)
 def render_previews(objs, folder):
@@ -1474,15 +1477,18 @@ class SceneOut:
             "ao": {"bias": 0.025, "enabled": True, "radius": 0.5, "samples": 16, "strength": 1.0},
             "bloom": {"enabled": True, "intensity": 0.08, "knee": 0.5, "maxBrightness": 8.0, "radius": 1.0, "threshold": 1.0},
             "camera": {"focusDistance": 30.0, "pitch": -30.0, "position": [16.0, 15.0, 20.0], "yaw": -127.0},
-            "environment": {"blur": 0.0, "intensity": 0.55, "map": "", "rotation": 0.0, "showSky": True},
+            "environment": {"blur": 0.0, "intensity": 0.75, "map": "", "rotation": 0.0, "showSky": True},
             # a misty morning: low fog with drifting wisps, the low sun behind the village throwing shafts through it
-            "volumetricFog": {"enabled": True, "density": 0.032, "heightFalloff": 1.8, "baseHeight": 0.0, "color": [0.9, 0.9, 0.92],
-                              "anisotropy": 0.7, "sunIntensity": 2.4, "ambientIntensity": 0.6, "pointLightIntensity": 1.0,
+            "volumetricFog": {"enabled": True, "density": 0.022, "heightFalloff": 1.5, "baseHeight": 0.0, "color": [0.80, 0.84, 0.92],
+                              "anisotropy": 0.78, "sunIntensity": 1.5, "ambientIntensity": 0.3, "pointLightIntensity": 1.0,
                               "noiseScale": 0.12, "noiseAmount": 0.6, "windSpeed": 0.6, "windDirection": 35.0,
                               "maxDistance": 70.0, "steps": 32},
             "wind": {"direction": 35.0, "speed": 1.0, "strength": 1.0},       # sways the trees (grass has its own)
             "physics": {"gravity": 9.81},
-            "post": {"exposure": 1.0, "fxaa": True, "gamma": True, "toneMap": 2},
+            # the grade: deeper contrast and richer colour, cool shadows against warm lights, darker corners, a little grain
+            "post": {"exposure": 1.45, "fxaa": True, "gamma": True, "toneMap": 2, "contrast": 1.14, "saturation": 1.22,
+                     "temperature": 0.12, "tint": 0.0, "shadowTint": [0.88, 0.97, 1.08], "highlightTint": [1.08, 1.0, 0.88],
+                     "vignette": 0.42, "grain": 0.022},
             "shadows": {"cascadeCount": 4, "cascadeSplit": 0.75, "enabled": True, "pointBias": 0.05, "pointFar": 30.0,
                         "shadowDistance": 60.0, "sunBias": 0.002, "sunCascades": True, "sunDistance": 30.0, "sunExtent": 16.0}}}
 

@@ -3,6 +3,7 @@
 #include <string>
 #include <memory>
 #include <cstddef>
+#include <vector>
 
 namespace Engine {
 
@@ -25,12 +26,23 @@ namespace Engine {
         uint32_t GetHeight() const { return m_Height; }
         uint32_t GetID() const { return m_ID; }        // the GL texture (0 if loading failed)
 
+        // Alpha-tested (Cutout) use: rebuild the smaller mip levels so the share of pixels at or above `cutoff`
+        // stays what it is at full size. Plain mipmaps average thin leaves into faint alpha that falls below the
+        // cutoff, so alpha-cut foliage thins out and vanishes with distance. Done once, on first use (the
+        // first cutoff wins: a texture is rarely cut at two different cutoffs); cheap to call every frame.
+        // Only textures with transparency keep the full-size pixels this needs, until it has run.
+        void PreserveAlphaCoverage(float cutoff) const;
+
     private:
         Texture2D() = default;
         void Create(const uint8_t* pixels, bool srgb);
 
         uint32_t m_ID = 0;
         uint32_t m_Width = 0, m_Height = 0;
+        uint32_t m_Levels = 1;
+        bool m_SRGB = true;
+        mutable std::vector<uint8_t> m_Pixels;          // level 0 RGBA, kept while coverage may still be fixed
+        mutable bool m_CoverageDone = false;
     };
 
 } // namespace Engine

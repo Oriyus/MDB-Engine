@@ -54,8 +54,24 @@ namespace Engine {
         void ApplySettings(const SceneSettings& s);
         void GatherSettings(SceneSettings& s) const;
 
+        // How the scene is shaded (an editor view setting, not saved; the game always renders).
+        //   Wireframe  every triangle's edges, no lighting (XRay: also the edges behind surfaces)
+        //   Solid      object colours under a simple light that follows the camera, no textures
+        //   Textured   the same with albedo textures
+        //   Rendered   the full pipeline: lights, shadows, environment, fog, post-processing
+        // The first three skip shadows, the sky, volumetric fog, fog of war, bloom and colour grading.
+        enum class ViewMode { Wireframe, Solid, Textured, Rendered };
+        ViewMode Mode = ViewMode::Rendered;
+        bool XRay = false;
+
+        // Selection outline: entity handles (entt integral) whose Mesh Renderers get an outline over the final
+        // image, bright where visible and dimmer where hidden. The editor sets it each frame; empty = none.
+        std::vector<uint32_t> Highlight;
+        glm::vec3 OutlineColor{ 1.0f, 0.55f, 0.1f };   // sRGB
+        float OutlineWidth = 2.0f;                      // pixels
+
         PostSettings Post;
-        bool ShowFog = true;                   // draw fog of war when a script turned it on (the editor can hide it)
+        bool ShowFog = true;                  // draw fog of war when a script turned it on (the editor can hide it)
         VolumetricFogSettings VolFog;          // volumetric fog (part of the level settings)
         ShadowSettings& Shadows();
         SSAO& GetSSAO();

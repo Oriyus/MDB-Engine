@@ -1,9 +1,9 @@
 {
   "title": "AbandonedVillage",
   "scene": "village.json",
-  "width": 1280,
-  "height": 720,
-  "fullscreen": false,
+  "width": 1920,
+  "height": 1080,
+  "fullscreen": true,
   "vsync": true,
   "exclude": [
     "Scripts/*_test.lua"

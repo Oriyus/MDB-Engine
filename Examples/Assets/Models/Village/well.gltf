@@ -20,7 +20,6 @@
 	],
 	"materials":[
 		{
-			"doubleSided":true,
 			"name":"Village",
 			"pbrMetallicRoughness":{
 				"baseColorTexture":{
@@ -31,7 +30,6 @@
 			}
 		},
 		{
-			"doubleSided":true,
 			"name":"Water",
 			"pbrMetallicRoughness":{
 				"baseColorFactor":[
@@ -45,7 +43,6 @@
 			}
 		},
 		{
-			"doubleSided":true,
 			"name":"Rope",
 			"pbrMetallicRoughness":{
 				"baseColorFactor":[
@@ -59,7 +56,6 @@
 			}
 		},
 		{
-			"doubleSided":true,
 			"name":"Iron",
 			"pbrMetallicRoughness":{
 				"baseColorFactor":[

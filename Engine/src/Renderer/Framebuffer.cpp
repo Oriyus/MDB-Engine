@@ -94,6 +94,23 @@ namespace Engine {
         return id;
     }
 
+    std::vector<int> Framebuffer::ReadEntityIDs(int x, int y, int w, int h) const {
+        const int x0 = std::max(x, 0), y0 = std::max(y, 0);
+        const int x1 = std::min(x + w, (int)m_Width), y1 = std::min(y + h, (int)m_Height);
+        std::vector<int> ids;
+        if (x1 <= x0 || y1 <= y0) return ids;
+        std::vector<GLint> px(size_t(x1 - x0) * size_t(y1 - y0));
+        glNamedFramebufferReadBuffer(m_FBO, GL_COLOR_ATTACHMENT1);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, m_FBO);
+        glPixelStorei(GL_PACK_ALIGNMENT, 4);
+        glReadPixels(x0, y0, x1 - x0, y1 - y0, GL_RED_INTEGER, GL_INT, px.data());
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+        std::sort(px.begin(), px.end());
+        px.erase(std::unique(px.begin(), px.end()), px.end());
+        for (GLint id : px) if (id >= 0) ids.push_back(id);
+        return ids;
+    }
+
     float Framebuffer::ReadDepth(int x, int y) const {
         if (x < 0 || y < 0 || x >= (int)m_Width || y >= (int)m_Height) return 1.0f;
         float depth = 1.0f;

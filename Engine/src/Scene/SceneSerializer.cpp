@@ -22,7 +22,9 @@ namespace Engine {
                 { "environment", { { "map", s.EnvironmentMap },{ "showSky", s.ShowSky },{ "blur", s.SkyBlur },
                                    { "rotation", s.SkyRotation },{ "intensity", ambient } } },
                 { "post", { { "exposure", p.Exposure },{ "toneMap", p.ToneMap },{ "gamma", p.Gamma },
-                            { "fxaa", p.FXAA } } },
+                            { "fxaa", p.FXAA },{ "contrast", p.Contrast },{ "saturation", p.Saturation },
+                            { "temperature", p.Temperature },{ "tint", p.Tint },{ "shadowTint", p.ShadowTint },
+                            { "highlightTint", p.HighlightTint },{ "vignette", p.Vignette },{ "grain", p.Grain } } },
                 { "ao", { { "enabled", p.AOEnabled },{ "strength", p.AOStrength },{ "radius", s.AORadius },
                           { "bias", s.AOBias },{ "samples", s.AOSamples } } },
                 { "bloom", { { "enabled", p.BloomEnabled },{ "intensity", p.BloomIntensity },
@@ -66,6 +68,14 @@ namespace Engine {
                 p.ToneMap = std::clamp(e->value("toneMap", p.ToneMap), 0, 2);
                 p.Gamma = e->value("gamma", p.Gamma);
                 p.FXAA = e->value("fxaa", p.FXAA);
+                p.Contrast = e->value("contrast", p.Contrast);
+                p.Saturation = e->value("saturation", p.Saturation);
+                p.Temperature = e->value("temperature", p.Temperature);
+                p.Tint = e->value("tint", p.Tint);
+                if (e->contains("shadowTint")) p.ShadowTint = e->at("shadowTint").get<glm::vec3>();
+                if (e->contains("highlightTint")) p.HighlightTint = e->at("highlightTint").get<glm::vec3>();
+                p.Vignette = e->value("vignette", p.Vignette);
+                p.Grain = e->value("grain", p.Grain);
             }
             if (auto* e = section("ao")) {
                 p.AOEnabled = e->value("enabled", p.AOEnabled);

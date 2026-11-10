@@ -270,6 +270,21 @@ e.Add&lt;RigidBodyComponent&gt;().Type = BodyType::Static;</code></pre>
 <div class="note">A swaying part is never merged into a static batch (merged parts can't move). The village demo's forest (308 trees, 140 bushes) costs about 2.5 ms a frame in a Release build.</div>
 </section>
 
+<section class="doc" data-group="Engine" id="engine-grading">
+<h2>Color grading</h2>
+<p>Scene Settings &gt; Post Processing &gt; <b>Color grading</b> shapes the final picture. It is saved with the level; the default values change nothing, and <b>Reset grading</b> goes back to them.</p>
+<table>
+<tr><th>Setting</th><th>What it does</th></tr>
+<tr><td>Contrast</td><td>Above 1, shadows get deeper and lights brighter (around mid grey).</td></tr>
+<tr><td>Saturation</td><td>0 is black and white, above 1 is richer colour.</td></tr>
+<tr><td>Temperature, Tint</td><td>White balance: cooler (blue) or warmer (orange), and green against magenta.</td></tr>
+<tr><td>Shadow tint, Highlight tint</td><td>A colour for the dark parts and one for the bright parts. Cool shadows with warm highlights is the classic film look.</td></tr>
+<tr><td>Vignette</td><td>Darkens the corners, drawing the eye to the middle.</td></tr>
+<tr><td>Film grain</td><td>Fine moving noise; about 0.02 is visible without being distracting.</td></tr>
+</table>
+<div class="note"><b>If the picture looks washed out,</b> look at the volumetric fog first. Fog adds light over everything, so a near-white fog colour, strong sun shafts or sky light turn every shadow grey. Lower those (and the density), then use Exposure and Contrast. With a low sun behind the scene, check a view that looks away from the sun too: it is mostly shade, and too much contrast makes it black.</div>
+</section>
+
 <section class="doc" data-group="Engine" id="engine-volfog">
 <h2>Volumetric fog</h2>
 <p>Scene Settings &gt; <b>Volumetric Fog</b> fills the air with fog that is lit by the scene: the sun shines through it, and wherever the sun is blocked (behind a house, a tree) the fog stays dark, so you see <b>light shafts</b>. The sky lights it from all around, and point lights glow in it. It is saved with the level (the <code>volumetricFog</code> section of the scene's settings).</p>
@@ -355,6 +370,13 @@ e.Add&lt;RigidBodyComponent&gt;().Type = BodyType::Static;</code></pre>
 <p>Alpha = texture alpha × material alpha × opacity. Blend surfaces are sorted per entity, back to front, and write no depth. Setting opacity below 1 on an opaque mesh switches it to Blend.</p>
 <pre><code class="lua">self.mesh.opacity = 0.4          -- now see-through
 self:add_mesh{ geometry = "cube", texture = "texture:Textures/fence.png", alpha_mode = "cutout" }</code></pre>
+<h3>Cut-out foliage at a distance</h3>
+<p>Smaller mipmap levels of a texture are averages of the bigger ones. For thin cut-out shapes (willow leaves, grass blades, chain links), that turns solid alpha into faint alpha below the cutoff, so leaves used to thin out and disappear as trees got further away. When a texture is first drawn as Cutout, the engine rebuilds its mipmaps so that each smaller level lets as many pixels through the cutoff as the full-size image does. Distant foliage then stays as dense as it looks up close. It happens automatically, once per texture, for model materials and Mesh Renderer textures alike. All textures also use anisotropic filtering (up to 16×), which keeps surfaces seen at a slant (ground, roofs, hanging leaf cards) sharp in the distance.</p>
+<h3>Double-sided</h3>
+<p>Normally only the front of a surface is drawn: from behind, a single plane (a leaf card, a sign, a flag, a paper sheet) is invisible. Tick <b>Double-sided</b> on the Mesh Renderer to draw the back faces too. Each side is lit as facing its own way, so the back is not dark, and the part casts a shadow whichever side faces the light. A model's materials can also ask for it: glTF <code>doubleSided</code> is read on import, and with <b>Use model materials</b> a part is double-sided when either the Mesh Renderer or its material says so (the Inspector tells you when the file does).</p>
+<p>Use it only where it's needed: back faces cost drawing time on those objects. A closed object (a box, a barrel) never needs it. Note that Blender writes <code>doubleSided: true</code> for any material with Backface Culling off, which is its default; tick Backface Culling in the material settings before exporting a closed model. <code>Tools/village_kit.py</code> removes the flag from the village kit for this reason.</p>
+<pre><code class="lua">self.mesh.double_sided = true
+self:add_mesh{ geometry = "plane", texture = "texture:Textures/fence.png", alpha_mode = "cutout", double_sided = true }</code></pre>
 </section>
 
 <section class="doc" data-group="Engine" id="engine-lighting">
@@ -691,8 +713,18 @@ MDBEditor.exe &gt; log.txt</code></pre>
 <tr><td>Alt + right drag, or wheel</td><td>Dolly (zoom)</td></tr>
 <tr><td>F</td><td>Frame the selection</td></tr>
 <tr><td>Click</td><td>Select the entity under the mouse (entity-ID picking)</td></tr>
+<tr><td>1 / 2 / 3 / 4</td><td>Shading: Wireframe / Solid / Textured / Rendered (1 again in Wireframe toggles X-ray)</td></tr>
 </table>
-<p>Viewport menus: <b>View</b> (Stats, Colliders, Camera Frustums, Navigation Grid), <b>Debug</b> (Ambient Occlusion Only, Shadow Cascades), <b>Camera</b> (Frame Selected, orbit speed). Colliders draw as outlines (triggers in magenta); mesh and convex-hull colliders show their full wireframe only when selected and a bounding box otherwise, so levels built from many mesh-collider pieces stay fast to edit. Cameras draw as frustums.</p>
+<p><b>Shading modes</b> (the Shading menu, the Wire / Solid / Textured / Rendered buttons on the right of the Viewport's menu bar, or keys 1–4). They are an editor view and are not saved with the scene. Looking through the game camera always shows Rendered.</p>
+<ul>
+  <li><b>Wireframe</b>: every triangle's edges on a dark background, with hidden edges removed. <b>X-ray</b> (Shading menu, or 1 again) also shows the edges behind surfaces. Clicking picks the surface under the mouse, not only the lines. Grass is not drawn.</li>
+  <li><b>Solid</b>: object colours without textures, under a simple light that follows the camera. Cutout textures (leaves, fences) still cut.</li>
+  <li><b>Textured</b>: the same light with the albedo textures.</li>
+  <li><b>Rendered</b>: the full picture (lights, shadows, sky, fog, post-processing).</li>
+</ul>
+<p>Solid and Textured skip shadows, the sky, volumetric fog, fog of war, bloom and colour grading. That makes a busy level such as the village much easier to read, and the frame is cheaper. Ambient occlusion stays on if the scene has it.</p>
+<p><b>Selection outline</b>: the selected entity and all of its children get an orange outline. Parts hidden behind other objects get a dimmer outline and a faint orange fill, so you can find a selected object behind walls or trees. View › Selection Outline turns it off.</p>
+<p>Viewport menus: <b>View</b> (Stats, Colliders, Camera Frustums, Navigation Grid, Fog of War, Selection Outline), <b>Shading</b>, <b>Debug</b> (Ambient Occlusion Only, Shadow Cascades), <b>Camera</b> (Frame Selected, orbit speed). Colliders draw as outlines (triggers in magenta); mesh and convex-hull colliders show their full wireframe only when selected and a bounding box otherwise, so levels built from many mesh-collider pieces stay fast to edit. Cameras draw as frustums.</p>
 </section>
 
 <section class="doc" data-group="Editor" id="editor-gizmo">
@@ -702,6 +734,15 @@ MDBEditor.exe &gt; log.txt</code></pre>
   <li><b>Local / World</b> space (Scale is always local), <b>Snap</b> (0.5 m, 15°, 0.1).</li>
   <li>The gizmo works in world space; children keep their local transforms.</li>
   <li><b>N</b> spawns a cube, <b>G</b> deletes the last spawned one, <b>Delete</b> removes the selection, <b>Ctrl+D</b> duplicates it.</li>
+</ul>
+<h3>Selecting several objects</h3>
+<ul>
+  <li><b>Viewport:</b> a click selects one object. <b>Ctrl+click</b> or <b>Shift+click</b> adds an object to the selection, or removes it if it is already selected. <b>Drag</b> on the scene draws a selection box. It selects every object with a visible pixel inside the box; with Ctrl or Shift held, they are added to the selection.</li>
+  <li><b>Hierarchy:</b> <b>Ctrl+click</b> adds or removes a row, and <b>Shift+click</b> selects every row between the last clicked row and this one. A plain click on a row that is already selected keeps the whole selection while you drag it, so you can drop all of it onto a new parent at once.</li>
+  <li>The last object you picked is the <b>active</b> one. The Inspector shows it (with "N objects selected" above), and the gizmo sits on it. The gizmo moves, rotates and scales every selected object around the active one's pivot.</li>
+  <li><b>Delete</b>, <b>Duplicate</b> (Ctrl+D), <b>Unparent</b> and the Hierarchy's right-click menu act on the whole selection. When a selected object is inside another selected object, it moves with its parent and is only handled once.</li>
+  <li><b>Group</b> (Ctrl+G, Edit menu or right-click): puts the selection under a new empty entity "Group", placed at the middle of their positions. If they all share a parent, the Group goes under that parent. <b>Select All</b> is Ctrl+A.</li>
+  <li>Every selected object is outlined. Where selected objects touch, a thin line divides them.</li>
 </ul>
 </section>
 
@@ -928,7 +969,8 @@ copy.position = self.position + self.right * 2</code></pre>
 <pre><code class="lua">self:add_mesh{ geometry = "model:Models/Fox.glb", fit = 1.6 }      -- scaled to 1.6 m, standing on the origin
 self:add_mesh{ geometry = "capsule" }        -- also "cube" "sphere" "plane" "cylinder" "cone"
 self:add_mesh{ geometry = "cube", texture = "checker", color = vec3(0.3, 0.6, 1),
-               metallic = 0, roughness = 0.4, emissive = vec3(0, 0, 0), cast_shadows = true, static = false }
+               metallic = 0, roughness = 0.4, emissive = vec3(0, 0, 0), cast_shadows = true, static = false,
+               double_sided = false }   -- double_sided: back faces drawn too
 
 local m = self.mesh                 -- nil without a Mesh Renderer
 m.color = vec3(1, 0.2, 0.2)

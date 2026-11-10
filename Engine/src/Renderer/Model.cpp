@@ -131,6 +131,9 @@ namespace Engine {
                 if (m.Alpha < 0.999f) m.Mode = AlphaMode::Blend;
             }
 
+            int twoSided = 0;                       // glTF doubleSided (FBX / OBJ exporters set it too, sometimes)
+            if (am->Get(AI_MATKEY_TWOSIDED, twoSided) == AI_SUCCESS) m.DoubleSided = twoSided != 0;
+
             aiString tp;
             if (am->GetTexture(aiTextureType_BASE_COLOR, 0, &tp) == AI_SUCCESS ||
                 am->GetTexture(aiTextureType_DIFFUSE, 0, &tp) == AI_SUCCESS)

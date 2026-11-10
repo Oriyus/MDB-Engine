@@ -32,6 +32,7 @@ namespace Engine {
         const Texture2D* Emissive = nullptr;
         AlphaMode Mode = AlphaMode::Opaque;
         float Cutoff = 0.5f;
+        bool DoubleSided = false;           // back faces drawn too (culling off for this batch)
         const std::vector<glm::mat4>* Bones = nullptr;   // skinned: this entity's bone palette (never shared)
 
         uint32_t First = 0;                 // into DrawList::Indices
@@ -40,6 +41,7 @@ namespace Engine {
         bool SameState(const DrawBatch& o) const {
             return Geometry == o.Geometry && Part == o.Part && Albedo == o.Albedo && Normal == o.Normal &&
                 MetalRough == o.MetalRough && Emissive == o.Emissive && Mode == o.Mode && Cutoff == o.Cutoff &&
+                DoubleSided == o.DoubleSided &&
                 Bones == o.Bones;
         }
         bool operator<(const DrawBatch& o) const;   // groups equal states together
@@ -79,6 +81,9 @@ namespace Engine {
         std::vector<InstanceData> Instances;
         std::vector<uint32_t> Indices;
         std::vector<DrawBatch> Opaque, Transparent;
+        std::vector<DrawBatch> Selected;    // the highlighted parts inside the view (editor outline), albedo only for alpha tests
+        // Input, kept across Clear: entity handles (entt integral, sorted) to collect into Selected. Null or empty: none.
+        const std::vector<uint32_t>* Highlight = nullptr;
         std::vector<std::vector<DrawBatch>> ShadowViews;    // the casters in each of Views
         std::vector<ShadowView> Views;      // this frame's shadow views (each point-light face, then the sun cascades)
         glm::vec4 CascadeSplits{ 0.0f };    // view depth where each sun cascade ends

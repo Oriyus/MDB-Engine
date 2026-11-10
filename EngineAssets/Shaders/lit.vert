@@ -34,6 +34,7 @@ flat out vec2  v_Surface;
 flat out vec3  v_Emissive;
 flat out int   v_EntityID;
 flat out int   v_Unlit;
+invariant gl_Position;    // the selection mask (select_mask.frag) compares its depth with this pass's
 
 
 // Sway in the scene's wind (MeshRenderer Wind > 0: trees, bushes; Scene::Wind). The higher a vertex sits in its
