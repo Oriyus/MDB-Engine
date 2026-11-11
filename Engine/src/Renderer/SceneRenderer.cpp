@@ -27,6 +27,7 @@ namespace Engine {
         std::string AssetDir;                    // the project's Assets (Environments)
         std::string EngineDir;                   // the engine's files (Shaders)
         std::unique_ptr<Shader> Lit, PointDepth, SunDepth, Post, SSAOShader, SSAOBlur, BloomDown, BloomUp, FXAA, ParticleShader, DecalShader;
+        std::unique_ptr<Shader> AOApply;                  // ao_apply.frag: AO multiplied into the opaque scene
         std::unique_ptr<DecalRenderer> Decals;
         std::unique_ptr<Shader> FoliageShader;           // foliage.vert + lit.frag: grass lit like everything else
         std::unique_ptr<FoliageRenderer> Foliage;
@@ -345,6 +346,7 @@ namespace Engine {
         I.Post = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("tonemap.frag"));
         I.SSAOShader = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("ssao.frag"));
         I.SSAOBlur = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("ssao_blur.frag"));
+        I.AOApply = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("ao_apply.frag"));
         I.BloomDown = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("bloom_down.frag"));
         I.BloomUp = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("bloom_up.frag"));
         I.FXAA = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("fxaa.frag"));
@@ -407,6 +409,9 @@ namespace Engine {
         }
         else I.HistoryValid = false;                          // starts fresh when TAA comes back
         const glm::mat4 curViewProj = camera.GetUnjitteredViewProjection();
+        // AO on the opaque scene (not in wireframe, nor the plain motion-vector debug view)
+        const bool aoOn = Post.AOEnabled && !wireframe && !(taa && ShowMotionVectors);
+        const bool aoDebug = aoOn && Post.AODebug && rendered;   // Debug > Ambient Occlusion Only: the tone map shows the buffer
         if (!I.HasPrevViewProj) { I.PrevViewProj = curViewProj; I.HasPrevViewProj = true; }
         for (Shader* s : { I.Lit.get(), I.FoliageShader.get(), I.Wire.get(), I.SelectMask.get() }) {
             s->SetMat4("u_CurViewProjection", curViewProj);
@@ -474,6 +479,39 @@ namespace Engine {
                 glDepthFunc(GL_LESS);
                 glDepthMask(GL_TRUE);
             }
+            // Ambient occlusion, on the opaque scene only: computed from its depth and multiplied into the HDR colour
+            // now, before the sky, glass, volumetric fog and particles (which it must not darken: fog in front of a
+            // crevice hides it) and before the TAA resolve (which averages AO's noise away). It used to multiply the
+            // finished picture in the tone map, so it darkened the fog and flickered with the TAA jitter.
+            if (aoOn) {
+                PROFILE_SCOPE("SSAO");
+                Framebuffer::Unbind();
+                // Half resolution: a quarter of the cost (1.0 -> 0.3 ms at 1080p on an RTX 2060); AO is soft
+                I.AO->Resize(std::max(width / 2, 1u), std::max(height / 2, 1u));
+                I.SSAOShader->SetFloat("u_NoiseOffset", taa ? std::fmod(I.FrameIndex * 0.618034f, 1.0f) : 0.0f);
+                I.AO->Compute(I.HDR->GetDepthAttachment(), view.GetProjection(), *I.SSAOShader, *I.SSAOBlur);
+                I.HDR->Bind();
+                if (!aoDebug) {
+                    glDisable(GL_DEPTH_TEST);
+                    glDepthMask(GL_FALSE);
+                    glEnable(GL_BLEND);
+                    glBlendFunci(0, GL_DST_COLOR, GL_ZERO);              // colour x AO
+                    glColorMaski(1, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);   // keep the entity IDs
+                    I.AOApply->Bind();
+                    I.AOApply->SetInt("u_AO", 0);
+                    I.AOApply->SetFloat("u_AOStrength", Post.AOStrength);
+                    glBindTextureUnit(0, I.AO->GetOutput());
+                    if (!I.FogVAO) glCreateVertexArrays(1, &I.FogVAO);   // the empty VAO the fullscreen passes share
+                    glBindVertexArray(I.FogVAO);
+                    glDrawArrays(GL_TRIANGLES, 0, 3);
+                    glBindVertexArray(0);
+                    glColorMaski(1, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+                    glDisable(GL_BLEND);
+                    glDepthMask(GL_TRUE);
+                    glEnable(GL_DEPTH_TEST);
+                }
+                I.Gpu.Mark("SSAO");
+            }
             if (rendered) I.Env->DrawSkybox(view, scene.AmbientIntensity);
             I.Gpu.Mark("sky");
             // Decals and fog both read the depth; it is copied once (after the opaque scene, the only depth writer)
@@ -528,15 +566,11 @@ namespace Engine {
         }
 
         // 3) Screen-space effects
+        // (AO is already in the scene colour, applied after the opaque passes; the tone map only shows the AO buffer
+        // itself for Viewport > Debug > Ambient Occlusion Only)
         uint32_t aoTex = 0, bloomTex = 0;
-        if (post.AOEnabled) {
-            // Half resolution: a quarter of the cost (1.0 -> 0.3 ms at 1080p on an RTX 2060); AO is soft, and the
-            // tone map samples it with linear filtering
-            I.AO->Resize(std::max(width / 2, 1u), std::max(height / 2, 1u));
-            I.AO->Compute(I.HDR->GetDepthAttachment(), view.GetProjection(), *I.SSAOShader, *I.SSAOBlur);
-            aoTex = I.AO->GetOutput();
-            I.Gpu.Mark("SSAO");
-        }
+        if (aoDebug) aoTex = I.AO->GetOutput();
+        else post.AOEnabled = false;
         if (post.BloomEnabled) {
             I.Glow->Resize(width, height);
             I.Glow->Compute(sceneColor, *I.BloomDown, *I.BloomUp);
@@ -572,7 +606,7 @@ namespace Engine {
     void SceneRenderer::ReloadShaders() {
         Impl& I = *m_Impl;
         for (auto* s : { I.Lit.get(), I.PointDepth.get(), I.SunDepth.get(), I.Post.get(), I.SSAOShader.get(),
-                         I.SSAOBlur.get(), I.BloomDown.get(), I.BloomUp.get(), I.FXAA.get(), I.ParticleShader.get(), I.DecalShader.get(), I.FogShader.get(), I.FoliageShader.get(), I.VolFogMarch.get(), I.VolFogComposite.get(),
+                         I.SSAOBlur.get(), I.AOApply.get(), I.BloomDown.get(), I.BloomUp.get(), I.FXAA.get(), I.ParticleShader.get(), I.DecalShader.get(), I.FogShader.get(), I.FoliageShader.get(), I.VolFogMarch.get(), I.VolFogComposite.get(),
                          I.Wire.get(), I.SelectMask.get(), I.Outline.get(), I.TAAResolve.get(), I.Prepass.get(), I.FoliagePrepass.get() })
             s->Reload();
         I.Env->ReloadSkyShader();

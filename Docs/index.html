@@ -359,11 +359,10 @@ e.Add&lt;RigidBodyComponent&gt;().Type = BodyType::Static;</code></pre>
 <ol>
   <li><b>Draw list</b>: everything the camera or a light can see, culled and batched for instancing.</li>
   <li><b>Depth pre-pass</b>: the solid scene and the grass are drawn once without lighting, so the lighting below runs once per pixel instead of once per overlapping leaf or grass blade.</li>
-  <li><b>Scene</b> into an HDR framebuffer (colour, entity-ID for click picking, motion vectors, depth). PBR shading, then the sky, then <b>decals</b> (projected from a copy of the depth), then see-through surfaces back to front.</li>
+  <li><b>Scene</b> into an HDR framebuffer (colour, entity-ID for click picking, motion vectors, depth): the solid scene and the grass with PBR shading, then <b>SSAO</b> multiplied into them, then the sky, <b>decals</b> (projected from a copy of the depth), see-through surfaces back to front, volumetric fog and particles.</li>
   <li><b>Temporal anti-aliasing</b>: the frame, drawn shifted by a sub-pixel amount, is blended with the frames before it.</li>
-  <li><b>Scene</b> into an HDR framebuffer (colour, entity-ID for click picking, depth). PBR shading, then the sky, then <b>decals</b> (projected from a copy of the depth), then see-through surfaces back to front.</li>
-  <li><b>SSAO</b>, then <b>bloom</b>.</li>
-  <li><b>Post</b>: AO, bloom, exposure, tone mapping (ACES by default), gamma.</li>
+  <li><b>Bloom</b>.</li>
+  <li><b>Post</b>: bloom, exposure, tone mapping (ACES by default), colour grading, gamma.</li>
   <li><b>FXAA</b> (only when TAA is off). The result is a texture shown by the app.</li>
 </ol>
 <p>Every scene draw is instanced: per-object data lives in a storage buffer; objects that share geometry, textures and alpha state are drawn with one call.</p>
@@ -425,7 +424,7 @@ lamp:add_light{ color = vec3(1, 0.7, 0.4), intensity = 2, shadows = true }</code
 <section class="doc" data-group="Engine" id="engine-post">
 <h2>Post-processing</h2>
 <ul>
-  <li><b>SSAO</b>: radius, bias, samples, strength (a post-multiply; Viewport &gt; Debug shows it alone). Computed at half resolution: AO is soft, and that costs a quarter as much.</li>
+  <li><b>SSAO</b>: radius, bias, samples, strength (Viewport &gt; Debug shows it alone). Computed at half resolution (AO is soft, and that costs a quarter as much) and applied to the opaque scene before the sky, glass, volumetric fog and particles, so fog in front of a corner is not darkened, and before TAA, which smooths its noise (it no longer flickers through fog).</li>
   <li><b>Bloom</b>: threshold with soft knee, radius, intensity, brightness ceiling (no fireflies).</li>
   <li><b>Tone mapping</b>: ACES (default) and others, exposure, gamma.</li>
   <li><b>Temporal anti-aliasing (TAA)</b>, on by default: every frame is drawn shifted by a different fraction of a pixel (8 positions) and blended with the frames before it, following each surface as it moves. Edges, thin leaves, grass and noisy effects (volumetric fog) stay smooth and steady in motion instead of shimmering. To avoid smearing, the old frames are only allowed colours found around each pixel in the new frame. A thin object moving fast close to the camera can still look slightly soft. Viewport   <li><b>FXAA</b> anti-aliasing.</li>gt; Debug   <li><b>FXAA</b> anti-aliasing.</li>gt; Motion Vectors shows how far each pixel moved (red = sideways, green = up/down, 16 pixels = full colour). The editor's Wireframe / Solid / Textured views do not use it.</li>

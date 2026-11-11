@@ -9,6 +9,7 @@ uniform mat4  u_InvProj;
 uniform float u_Radius;     // view-space units
 uniform float u_Bias;
 uniform int   u_Samples;
+uniform float u_NoiseOffset;   // 0..1, a new value every frame while TAA is on (0 without TAA: a steady pattern)
 
 const float PI = 3.14159265359;
 
@@ -39,7 +40,8 @@ void main() {
     vec3 N = normalize(cross(dx, dy));          // faces the camera (+Z in view space)
 
     // Random rotation per pixel, so the blur pass can average the pattern away
-    float rnd = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+    // (with TAA the rotations change every frame, u_NoiseOffset, and the resolve averages them over frames)
+    float rnd = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))) + u_NoiseOffset);
     float ang = rnd * 2.0 * PI;
     vec3 up = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
     vec3 T = normalize(cross(up, N));
