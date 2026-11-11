@@ -3,6 +3,7 @@
 #include "Renderer/Model.h"
 #include "Renderer/Texture.h"
 #include "Scene/Terrain.h"
+#include "Animation/AnimGraph.h"
 #include "Core/Log.h"
 
 #include <filesystem>
@@ -85,6 +86,29 @@ namespace Engine {
         return true;
     }
 
+    std::shared_ptr<const AnimGraph> ResourceLibrary::LoadAnimGraph(const std::string& path) {
+        namespace fs = std::filesystem;
+        auto it = m_Graphs.find(path);
+        if (it != m_Graphs.end() && it->second.Live) return it->second.Data;   // the editor's copy wins
+        std::error_code ec;
+        const fs::path file = fs::u8path(m_AssetDir + path);
+        const auto stamp = fs::last_write_time(file, ec);
+        if (ec) {
+            if (it == m_Graphs.end()) { ENGINE_WARN("AnimGraph {}: no such file", path); m_Graphs[path] = { nullptr, {}, false }; }
+            return it != m_Graphs.end() ? it->second.Data : nullptr;
+        }
+        if (it != m_Graphs.end() && it->second.Stamp == stamp) return it->second.Data;
+        std::string error;
+        auto graph = AnimGraph::Load(file.string(), &error);
+        if (!graph) ENGINE_WARN("AnimGraph {}: {}", path, error);
+        m_Graphs[path] = { graph, stamp, false };
+        return graph;
+    }
+
+    void ResourceLibrary::SetAnimGraph(const std::string& path, std::shared_ptr<const AnimGraph> graph) {
+        m_Graphs[path] = { std::move(graph), {}, true };
+    }
+
     std::shared_ptr<Model> ResourceLibrary::LoadModel(const std::string& path) {
         if (auto it = m_Models.find(path); it != m_Models.end()) return it->second;
         auto model = std::make_shared<Model>(m_AssetDir + path);
@@ -134,6 +158,7 @@ namespace Engine {
             return nullptr;
         };
         r.LoadTerrain = [this](const std::string& path) { return LoadTerrain(path); };
+        r.LoadAnimGraph = [this](const std::string& path) { return LoadAnimGraph(path); };
         return r;
     }
 

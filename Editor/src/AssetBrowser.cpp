@@ -63,6 +63,7 @@ namespace {
         case K::Environment: return { "HDR", IM_COL32(90, 140, 210, 255) };
         case K::Shader:      return { upper.c_str(), IM_COL32(110, 120, 150, 255) };
         case K::Dialogue:    return { "TALK", IM_COL32(220, 170, 70, 255) };
+        case K::AnimGraph:   return { "ANIM", IM_COL32(230, 110, 90, 255) };
         case K::Texture:     return { upper.c_str(), IM_COL32(200, 90, 130, 255) };
         default:             return { upper.empty() ? "FILE" : upper.c_str(), IM_COL32(120, 124, 132, 255) };
         }
@@ -86,6 +87,7 @@ AssetBrowser::Kind AssetBrowser::KindOf(const std::string& path) {
         if (folder.rfind("prefabs", 0) == 0) return Kind::Prefab;
         if (folder.rfind("scenes", 0) == 0) return Kind::Scene;
         if (folder.rfind("dialogues", 0) == 0) return Kind::Dialogue;
+        if (folder.rfind("animgraphs", 0) == 0) return Kind::AnimGraph;
     }
     return Kind::Other;
 }
@@ -97,6 +99,7 @@ const char* AssetBrowser::KindName(Kind k) {
     case Kind::Script: return "Script";        case Kind::Sound: return "Sound";
     case Kind::Scene: return "Scene";          case Kind::Environment: return "Sky (HDR)";
     case Kind::Shader: return "Shader";        case Kind::Dialogue: return "Dialogue";
+    case Kind::AnimGraph: return "Animation graph";
     default: return "File";
     }
 }
@@ -401,6 +404,7 @@ void AssetBrowser::HandleItem(const Entry& e) {
         case Kind::Sound: m_Actions.push_back({ Action::PlaySound, e.Path }); break;
         case Kind::Environment: m_Actions.push_back({ Action::SetSky, e.Path }); break;
         case Kind::Dialogue: m_Actions.push_back({ Action::OpenDialogue, e.Path }); break;
+        case Kind::AnimGraph: m_Actions.push_back({ Action::OpenAnimGraph, e.Path }); break;
         default: m_Actions.push_back({ Action::OpenExternal, e.Path }); break;
         }
     };

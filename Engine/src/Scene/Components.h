@@ -8,6 +8,7 @@
 #include <glm/gtc/quaternion.hpp>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace Engine {
@@ -326,9 +327,28 @@ namespace Engine {
         glm::vec3 Pole{ 0.0f };           // Limb: bend direction in entity space (0 = keep the current bend)
     };
 
+    // One layer of a running animation graph (runtime, not saved): its state, and the one it is fading out of
+    struct AnimGraphLayerState {
+        int State = -1;                   // state id (-1: not started: the layer enters its Entry state)
+        float Phase = 0.0f;               // 0..1 through the state (loops wrap)
+        int From = -1;                    // the state fading out (-1: none)
+        float FromPhase = 0.0f;
+        float Fade = 1.0f;                // 0 = all From, 1 = all State
+        float FadeDuration = 0.0f;
+        int Transition = -1;              // the transition being taken (index into the layer's list; -1: none)
+        float StateTime = 0.0f;           // seconds since the state was entered
+    };
+    struct AnimGraph;
+
     // Plays a skeletal animation on this entity's Mesh Renderer model (one with bones). Changing
     // Clip cross-fades from the old clip over BlendTime seconds. Layers go on top, in order.
+    // With a Graph, the graph's state machines make the base pose instead of Clip; Layers, IK and Events still apply.
     struct AnimatorComponent {
+        std::string Graph;                // "AnimGraphs/x.json" ("" = play Clip)
+        std::shared_ptr<const AnimGraph> GraphData;   // loaded from Graph (runtime; shared, never changed in place)
+        std::unordered_map<std::string, float> Params;   // runtime: the graph's parameter values (bools, triggers 0 / 1)
+        std::vector<AnimGraphLayerState> GraphLayers;    // runtime, one per graph layer
+
         std::string Clip;                 // animation name ("" = the rest pose)
         float Speed = 1.0f;
         bool  Loop = true;

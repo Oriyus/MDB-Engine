@@ -152,7 +152,11 @@ namespace Engine {
     //     way the entity faces (+Z); "limb" bends bone's parent and grandparent so bone reaches the target.
     //     Events fire on_anim_event(self, name, clip) when playback crosses their time; a non-looping clip
     //     also fires "end". An event named "sound:Sounds/x.wav" plays that sound at the entity instead.
-    //   e:add_animator{ clip, speed=1, loop=true, blend=0.25 }   needs a Mesh Renderer with an animated model
+    //   Animation graph (Animation/AnimGraph.h, AnimGraph Editor): e.animator.graph = "AnimGraphs/x.json" ("" = clips again),
+    //     set(name, number | bool), get(name), trigger(name), reset_trigger(name), state([layer=1]) -> name,
+    //     state_time([layer]) -> seconds in it, phase([layer]) -> 0..1, in_transition([layer]),
+    //     play_state(name [, layer=1, blend=0.2]). Entering a state calls on_anim_event(self, "enter", <state name>).
+    //   e:add_animator{ clip, speed=1, loop=true, blend=0.25, graph = "AnimGraphs/x.json" }   needs a Mesh Renderer with an animated model
     //
     // ---- Globals
     //   vec3(x, y, z): + - * / unary-, v:length(), v:normalize(), v:dot(w), v:cross(w)

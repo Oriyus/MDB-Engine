@@ -12,6 +12,7 @@
 #include "Renderer/DrawList.h"
 #include "Renderer/RenderStats.h"
 #include "Scene/Terrain.h"
+#include "Animation/AnimGraph.h"
 #include "Core/Log.h"
 #include <glad/glad.h>
 
@@ -334,50 +335,6 @@ namespace Engine {
         }
     }
 
-    // Advance a clip's time by `step` seconds and report the events it crossed into an.Fired.
-    // Looping clips wrap (either direction); others hold the end and fire "end" once when they reach it.
-    static float AdvanceClip(AnimatorComponent& an, const Model& model, int clip, const std::string& clipName,
-        float time, float step, bool loop) {
-        const float d = model.AnimationDuration(clip);
-        if (d <= 0.0f) return 0.0f;
-        if (step == 0.0f) return loop ? time : std::clamp(time, 0.0f, d);
-
-        // Fire every event of this clip with a time in the half-open range (a, b]
-        auto fire = [&](float a, float b) {
-            for (const auto& ev : an.Events)
-                if (ev.Clip == clipName && ev.Time > a && ev.Time <= b) an.Fired.emplace_back(ev.Name, clipName);
-        };
-        const float raw = time + step;
-        if (!loop) {
-            const float t = std::clamp(raw, 0.0f, d);
-            if (step > 0.0f) {
-                fire(time, t);
-                if (time < d && t >= d) an.Fired.emplace_back("end", clipName);
-            }
-            else {
-                fire(t - 1e-6f, time - 1e-6f);   // backwards: crossing from above
-                if (time > 0.0f && t <= 0.0f) an.Fired.emplace_back("end", clipName);
-            }
-            return t;
-        }
-        // Looping: walk the range one lap at a time (a big step can cross several laps)
-        float t = raw;
-        if (step > 0.0f) {
-            float from = time;
-            int guard = 0;
-            while (t > d && guard++ < 8) { fire(from, d); from = -1e-6f; t -= d; }   // -1e-6: an event at 0 fires on wrap
-            fire(from, t);
-        }
-        else {
-            float to = time;
-            int guard = 0;
-            while (t < 0.0f && guard++ < 8) { fire(-1e-6f, to - 1e-6f); to = d + 1e-6f; t += d; }
-            fire(t - 1e-6f, to - 1e-6f);
-        }
-        t = std::fmod(t, d);
-        return t < 0.0f ? t + d : t;
-    }
-
     void Scene::UpdateAnimations(float dt) {
         static thread_local std::vector<Model::NodePose> pose, from, layer;   // reused: no allocations per frame
         static thread_local std::vector<uint8_t> mask;
@@ -386,29 +343,58 @@ namespace Engine {
             const Model* model = dynamic_cast<const Model*>(mr.Geometry.get());
             if (!model || !model->IsSkinned()) { an.Palette.clear(); continue; }
 
-            // A new clip: fade out of the old one
-            if (an.Clip != an.ActiveClip) {
-                an.FadeFrom = an.ActiveClip;
-                an.FadeFromTime = an.Time;
-                an.Fade = (an.FadeFrom.empty() || an.BlendTime <= 0.0f) ? 1.0f : 0.0f;
-                an.ActiveClip = an.Clip;
-                an.Time = 0.0f;
+            // The base pose: the animation graph's layers, or Clip (cross-fading from the clip before it).
+            // clip / prevTime / curTime / step / loop: the clip that leads it, for root motion.
+            int clip = -1;
+            float prevTime = 0.0f, curTime = 0.0f, step = 0.0f;
+            bool loop = an.Loop;
+            if (an.GraphData) {
+                AnimGraphBase gb;
+                EvaluateAnimGraph(an, *model, dt, pose, gb);
+                clip = gb.Clip; prevTime = gb.PrevTime; curTime = gb.Time; step = gb.Step; loop = gb.Loop;
             }
-            const int clip = model->FindAnimation(an.ActiveClip);
-            const int fromClip = an.Fade < 1.0f ? model->FindAnimation(an.FadeFrom) : -1;
+            else {
+                // A new clip: fade out of the old one
+                if (an.Clip != an.ActiveClip) {
+                    an.FadeFrom = an.ActiveClip;
+                    an.FadeFromTime = an.Time;
+                    an.Fade = (an.FadeFrom.empty() || an.BlendTime <= 0.0f) ? 1.0f : 0.0f;
+                    an.ActiveClip = an.Clip;
+                    an.Time = 0.0f;
+                }
+                clip = model->FindAnimation(an.ActiveClip);
+                const int fromClip = an.Fade < 1.0f ? model->FindAnimation(an.FadeFrom) : -1;
 
-            const bool advancing = an.Playing && dt != 0.0f;
-            const float step = advancing ? dt * an.Speed : 0.0f;
-            if (advancing) {
-                if (an.Fade < 1.0f) an.Fade = std::min(1.0f, an.Fade + std::abs(dt) / std::max(an.BlendTime, 1e-4f));
-            }
-            else if (dt == 0.0f) {
-                an.Fade = 1.0f;                                  // no time passing (editor): no fade, just the clip
-            }
-            const float prevTime = an.Time;
-            an.Time = AdvanceClip(an, *model, clip, an.ActiveClip, an.Time, step, an.Loop);
+                const bool advancing = an.Playing && dt != 0.0f;
+                step = advancing ? dt * an.Speed : 0.0f;
+                if (advancing) {
+                    if (an.Fade < 1.0f) an.Fade = std::min(1.0f, an.Fade + std::abs(dt) / std::max(an.BlendTime, 1e-4f));
+                }
+                else if (dt == 0.0f) {
+                    an.Fade = 1.0f;                              // no time passing (editor): no fade, just the clip
+                }
+                prevTime = an.Time;
+                an.Time = AdvanceClip(an, *model, clip, an.ActiveClip, an.Time, step, an.Loop);
+                curTime = an.Time;
 
-            // Root motion: where the root bone goes sideways in this clip, the entity goes instead.
+                if (fromClip >= 0) {                             // the clip fading out keeps running, silently
+                    const float d = model->AnimationDuration(fromClip);
+                    float t = an.FadeFromTime + step;
+                    if (d > 0.0f) { t = an.Loop ? std::fmod(t, d) : std::clamp(t, 0.0f, d); if (t < 0.0f) t += d; }
+                    an.FadeFromTime = t;
+                }
+                model->SamplePose(clip, an.Time, pose);
+                if (fromClip >= 0 && an.Fade < 1.0f) {
+                    model->SamplePose(fromClip, an.FadeFromTime, from);
+                    for (size_t i = 0; i < pose.size(); i++) {
+                        pose[i].T = glm::mix(from[i].T, pose[i].T, an.Fade);
+                        pose[i].R = glm::slerp(from[i].R, pose[i].R, an.Fade);
+                        pose[i].S = glm::mix(from[i].S, pose[i].S, an.Fade);
+                    }
+                }
+            }
+
+            // Root motion: where the root bone goes sideways in the leading clip, the entity goes instead.
             // M takes the bone's translation (its parent's space) into the entity's own space.
             int motionRoot = -1;
             glm::mat3 toEntity(1.0f);
@@ -418,9 +404,9 @@ namespace Engine {
             }
             if (motionRoot >= 0 && step != 0.0f) {
                 const float d = model->AnimationDuration(clip);
-                glm::vec3 delta = model->SampleNodeTranslation(clip, motionRoot, an.Time) -
+                glm::vec3 delta = model->SampleNodeTranslation(clip, motionRoot, curTime) -
                                   model->SampleNodeTranslation(clip, motionRoot, prevTime);
-                if (an.Loop && d > 0.0f) {                       // whole laps carry the clip's full travel
+                if (loop && d > 0.0f) {                          // whole laps carry the clip's full travel
                     const float laps = std::floor((prevTime + step) / d);
                     if (laps != 0.0f)
                         delta += laps * (model->SampleNodeTranslation(clip, motionRoot, d) -
@@ -432,26 +418,9 @@ namespace Engine {
                 SetWorldPosition(e, glm::vec3(world[3]) + glm::mat3(world) * moveLocal);
             }
 
-            if (fromClip >= 0) {                                 // the clip fading out keeps running, silently
-                const float d = model->AnimationDuration(fromClip);
-                float t = an.FadeFromTime + step;
-                if (d > 0.0f) { t = an.Loop ? std::fmod(t, d) : std::clamp(t, 0.0f, d); if (t < 0.0f) t += d; }
-                an.FadeFromTime = t;
-            }
-
-            model->SamplePose(clip, an.Time, pose);
-            if (fromClip >= 0 && an.Fade < 1.0f) {
-                model->SamplePose(fromClip, an.FadeFromTime, from);
-                for (size_t i = 0; i < pose.size(); i++) {
-                    pose[i].T = glm::mix(from[i].T, pose[i].T, an.Fade);
-                    pose[i].R = glm::slerp(from[i].R, pose[i].R, an.Fade);
-                    pose[i].S = glm::mix(from[i].S, pose[i].S, an.Fade);
-                }
-            }
-
             // Root motion: keep the root bone where the clip started, sideways (the entity carries it)
             if (motionRoot >= 0 && motionRoot < (int)pose.size()) {
-                glm::vec3 offset = toEntity * (model->SampleNodeTranslation(clip, motionRoot, an.Time) -
+                glm::vec3 offset = toEntity * (model->SampleNodeTranslation(clip, motionRoot, curTime) -
                                                model->SampleNodeTranslation(clip, motionRoot, 0.0f));
                 offset.y = 0.0f;
                 pose[motionRoot].T -= glm::inverse(toEntity) * offset;

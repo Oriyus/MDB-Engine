@@ -14,6 +14,7 @@ namespace Engine {
     class Renderable;
     class Texture2D;
     class TerrainData;
+    struct AnimGraph;
     class PrefabLibrary;
 
     // Maps names stored in the file to live resources, and back
@@ -24,6 +25,8 @@ namespace Engine {
         std::function<std::shared_ptr<Texture2D>(const std::string&)>  FindTexture;
         // A terrain's heights and paint from its file under Assets ("Terrains/x.terrain"); null if there is none
         std::function<std::shared_ptr<TerrainData>(const std::string&)> LoadTerrain;
+        // An animation graph ("AnimGraphs/x.json"); null if missing or unreadable
+        std::function<std::shared_ptr<const AnimGraph>(const std::string&)> LoadAnimGraph;
     };
 
     // Everything about a level that isn't an entity. The scene's ambient intensity is saved

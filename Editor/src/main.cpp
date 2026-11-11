@@ -38,6 +38,8 @@
 #include "Projects.h"
 #include "GameBuilder.h"
 #include "TerrainEditor.h"
+#include "AnimGraphEditor.h"
+#include "Animation/AnimGraph.h"
 
 #include <cfloat>
 #include <glad/glad.h>
@@ -142,51 +144,36 @@ public:
             }
         }
 
-        // --- Orbiting point light, drawn as a small unlit cube
+        // --- Orbiting point light (the editor draws a lightbulb for it; nothing is rendered)
         {
             const glm::vec3 lightColor(1.0f, 0.95f, 0.85f);
             auto e = m_Scene.CreateEntity("Light");
-            e.Get<TransformComponent>().Scale = glm::vec3(0.15f);
             e.Add<PointLightComponent>().Color = lightColor;
             auto& orbit = e.Add<OrbitComponent>();
             orbit.Radius = 3.0f;
             orbit.Height = 1.5f;
             orbit.Speed = 1.0f;
-            auto& mr = e.Add<MeshRendererComponent>();
-            mr.Geometry = m_Cube;
-            mr.Color = lightColor;
-            mr.Unlit = true;
         }
 
         // --- Second point light: cool blue, slower, orbiting the other way
         {
             const glm::vec3 c(0.4f, 0.6f, 1.0f);
             auto e = m_Scene.CreateEntity("Light 2");
-            e.Get<TransformComponent>().Scale = glm::vec3(0.15f);
             e.Add<PointLightComponent>().Color = c;
             auto& orbit = e.Add<OrbitComponent>();
             orbit.Radius = 4.5f;
             orbit.Height = 2.5f;
             orbit.Speed = -0.6f;
             orbit.Angle = 3.14f;
-            auto& mr = e.Add<MeshRendererComponent>();
-            mr.Geometry = m_Cube;
-            mr.Color = c;
-            mr.Unlit = true;
         }
 
-        // --- Sun: the marker's long axis shows which way the light travels (local -Z)
+        // --- Sun: the light travels along local -Z (the editor draws arrows for it; nothing is rendered)
         {
             auto e = m_Scene.CreateEntity("Sun");
             auto& t = e.Get<TransformComponent>();
             t.Position = glm::vec3(0.0f, 6.0f, 0.0f);
             t.Rotation = glm::vec3(-0.9f, 0.5f, 0.0f);
-            t.Scale = glm::vec3(0.12f, 0.12f, 0.6f);
             e.Add<DirectionalLightComponent>();
-            auto& mr = e.Add<MeshRendererComponent>();
-            mr.Geometry = m_Cube;
-            mr.Color = glm::vec3(1.0f, 0.9f, 0.4f);
-            mr.Unlit = true;
         }
 
         m_Camera = std::make_unique<Camera>(60.0f, AspectRatio());
@@ -234,7 +221,18 @@ public:
             if (EnvVar("MDB_SAVE_DIALOGUE") == "1") m_Dialogue.SaveIfNamed();   // re-save it through the editor
             m_ShowDialogue = true;
         }
-        if (EnvVar("MDB_TEST_PICK_FOLDER") == "1")                 // test hook: the folder picker must show (it once hung)
+        // Every edit in the AnimGraph Editor goes live at once: the animators using that file play the new graph
+        // (their states are kept by id), and so does anything that loads it from now on (until saved or discarded)
+        m_AnimGraph.OnChanged = [this](const std::string& path, std::shared_ptr<const Engine::AnimGraph> graph) {
+            m_Resources->SetAnimGraph(path, graph);
+            for (auto [e, an] : m_Scene.Registry().view<Engine::AnimatorComponent>().each())
+                if (an.Graph == path) an.GraphData = graph;
+        };
+        if (auto ag = EnvVar("MDB_OPEN_ANIMGRAPH"); !ag.empty()) {   // test hook: "AnimGraphs/x.json"
+            m_AnimGraph.Open(ag);
+            m_ShowAnimGraph = true;
+        }
+        if (EnvVar("MDB_TEST_PICK_FOLDER") == "1")                // test hook: the folder picker must show (it once hung)
             LOG_INFO("Picked: '{}'", Platform::PickFolder("Test: pick a folder", Projects::Current().Root));
         if (auto out = EnvVar("MDB_BUILD_GAME"); !out.empty()) {   // File > Build Game into <out> (the editor waits for it on quit)
             m_Builder.Start(Projects::Current(), Projects::EngineDir(), out);
@@ -330,7 +328,7 @@ public:
 
         bool kesc = EdgePressed(Key::Escape, m_EscDown);
         bool kp = EdgePressed(Key::P, m_PDown);
-        const bool dialogueKeys = m_ShowDialogue && m_Dialogue.IsFocused();   // the Dialogue Editor has its own shortcuts
+        const bool dialogueKeys = (m_ShowDialogue && m_Dialogue.IsFocused()) || (m_ShowAnimGraph && m_AnimGraph.IsFocused());   // those editors have their own shortcuts
         if (!typing && kesc && !dialogueKeys) {
             if (m_PlayState != PlayState::Edit) m_PlayCmd = PlayCmd::Stop;
             else RequestQuit();
@@ -526,6 +524,13 @@ public:
                 ImGui::SetNextWindowDockID(vp->DockId, ImGuiCond_FirstUseEver);
             m_Dialogue.Draw(&m_ShowDialogue);
         }
+        if (m_ShowAnimGraph) {
+            if (ImGuiWindow* vp = ImGui::FindWindowByName("Viewport"); vp && vp->DockId)
+                ImGui::SetNextWindowDockID(vp->DockId, ImGuiCond_FirstUseEver);
+            LinkAnimGraphEditor();
+            m_AnimGraph.Draw(&m_ShowAnimGraph);
+        }
+        DrawGraphQuitModal();
         DrawDialogueQuitModal();
         DrawUnsavedChangesModal();
         DrawBuildGameWindow();
@@ -586,6 +591,7 @@ public:
 
     // Quit (Esc in Edit mode or the window's close button): ask first if there are unsaved changes
     void RequestQuit() {
+        if (m_AnimGraph.IsDirty() && !m_GraphDiscarded) { m_AskGraphQuit = true; m_ShowAnimGraph = true; return; }
         if (m_Dialogue.IsDirty() && !m_DialogueDiscarded) { m_AskDialogueQuit = true; m_ShowDialogue = true; return; }
         if (m_History.IsDirty()) m_Confirm = ConfirmAction::Quit;
         else Close();
@@ -715,10 +721,73 @@ public:
     }
 
     bool OnCloseRequested() override {
+        if (m_AnimGraph.IsDirty() && !m_GraphDiscarded && !m_QuitConfirmed) { m_AskGraphQuit = true; m_ShowAnimGraph = true; return false; }
         if (m_Dialogue.IsDirty() && !m_DialogueDiscarded && !m_QuitConfirmed) { m_AskDialogueQuit = true; m_ShowDialogue = true; return false; }
         if (m_QuitConfirmed || !m_History.IsDirty()) return true;
         m_Confirm = ConfirmAction::Quit;
         return false;
+    }
+
+    // Quitting with unsaved changes in the AnimGraph Editor: asked first, like the Dialogue Editor's
+    void DrawGraphQuitModal() {
+        if (m_AskGraphQuit && !ImGui::IsPopupOpen("Unsaved animation graph changes")) ImGui::OpenPopup("Unsaved animation graph changes");
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        if (!ImGui::BeginPopupModal("Unsaved animation graph changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+        const std::string path = m_AnimGraph.Path();
+        ImGui::Text("The animation graph %s has unsaved changes.", path.empty() ? "(not saved yet)" : path.c_str());
+        if (path.empty()) ImGui::TextDisabled("Use File > Save As in the AnimGraph Editor to keep it.");
+        ImGui::Spacing();
+        if (!path.empty() && ImGui::Button("Save", ImVec2(110, 0)) && m_AnimGraph.SaveIfNamed()) {
+            m_AskGraphQuit = false;
+            ImGui::CloseCurrentPopup();
+            RequestQuit();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Discard", ImVec2(110, 0))) {
+            m_AskGraphQuit = false;
+            m_GraphDiscarded = true;
+            ImGui::CloseCurrentPopup();
+            RequestQuit();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(110, 0))) { m_AskGraphQuit = false; m_SwitchProject.clear(); ImGui::CloseCurrentPopup(); }
+        ImGui::EndPopup();
+    }
+
+    // The AnimGraph Editor's live link: the Animator it shows (the selected entity's if it uses the open graph, else
+    // the first one that does) and the clips and bones of a model for its pickers (that entity's, else the selection's)
+    void LinkAnimGraphEditor() {
+        using namespace Engine;
+        auto& reg = m_Scene.Registry();
+        auto skinned = [&](entt::entity e) -> const Model* {
+            const auto* mr = reg.try_get<MeshRendererComponent>(e);
+            const Model* m = mr ? dynamic_cast<const Model*>(mr->Geometry.get()) : nullptr;
+            return m && m->IsSkinned() ? m : nullptr;
+        };
+        const std::string& path = m_AnimGraph.Path();
+        entt::entity liveEntity = entt::null;
+        if (!path.empty()) {
+            const bool selectedUses = m_Selected != entt::null && reg.valid(m_Selected) &&
+                reg.all_of<AnimatorComponent>(m_Selected) && reg.get<AnimatorComponent>(m_Selected).Graph == path;
+            if (selectedUses) liveEntity = m_Selected;
+            else for (auto [e, an] : reg.view<AnimatorComponent>().each()) if (an.Graph == path && an.GraphData) { liveEntity = e; break; }
+        }
+        if (liveEntity != entt::null && skinned(liveEntity))
+            m_AnimGraph.SetLive(&reg.get<AnimatorComponent>(liveEntity), reg.get<TagComponent>(liveEntity).Tag);
+        else m_AnimGraph.SetLive(nullptr, "");
+        const Model* model = liveEntity != entt::null ? skinned(liveEntity) : nullptr;
+        if (!model && m_Selected != entt::null && reg.valid(m_Selected)) model = skinned(m_Selected);
+        if (model) m_AnimGraph.SetModel(model->AnimationNames(), model->NodeNames());
+        else m_AnimGraph.SetModel({}, {});
+    }
+
+    static std::vector<std::string> ListAnimGraphFiles() {
+        std::vector<std::string> out;
+        std::error_code ec;
+        for (const auto& f : std::filesystem::directory_iterator(std::filesystem::u8path(Projects::Current().AssetDir()) / "AnimGraphs", ec))
+            if (f.is_regular_file() && f.path().extension() == ".json") out.push_back("AnimGraphs/" + f.path().filename().string());
+        std::sort(out.begin(), out.end());
+        return out;
     }
 
     // Quitting with unsaved changes in the Dialogue Editor: asked before the scene's own question
@@ -1051,6 +1120,137 @@ public:
             line(k[3] + u * 0.1f, p + f * d + u * (h + 0.3f), col);      // a little "up" roof
             line(k[2] + u * 0.1f, p + f * d + u * (h + 0.3f), col);
             line(k[3] + u * 0.1f, k[2] + u * 0.1f, col);
+        }
+    }
+
+    // Suns (Directional Lights) are only light: the editor shows each as a ring with a few parallel arrows pointing
+    // the way the light travels (local -Z), the same size on screen at any distance. Drawn with ImGui over the
+    // Viewport, so never rendered (nor in the game). Clicking the gizmo selects the sun (SunGizmoAt).
+    struct SunGizmo { entt::entity E; glm::vec3 Pos, Dir, U, V; float Size; };
+    std::vector<SunGizmo> GatherSunGizmos() {
+        using namespace Engine;
+        std::vector<SunGizmo> out;
+        const glm::vec3 eye = ViewCamera().Position;
+        for (auto [e, light] : m_Scene.Registry().view<DirectionalLightComponent>().each()) {
+            glm::vec3 p, sc;
+            glm::quat q;
+            Scene::Decompose(m_Scene.GetWorldMatrix(e), p, q, sc);
+            const glm::vec3 dir = glm::normalize(q * glm::vec3(0, 0, -1));
+            const glm::vec3 u = glm::normalize(q * glm::vec3(1, 0, 0)), v = glm::normalize(q * glm::vec3(0, 1, 0));
+            out.push_back({ e, p, dir, u, v, std::max(glm::length(p - eye) * 0.085f, 0.05f) });
+        }
+        return out;
+    }
+    bool ProjectToViewport(const glm::vec3& w, const ImVec2& origin, const ImVec2& size, ImVec2& out) {
+        const glm::vec4 c = ViewCamera().GetViewProjection() * glm::vec4(w, 1.0f);
+        if (c.w <= 0.01f) return false;
+        out = ImVec2(origin.x + (c.x / c.w * 0.5f + 0.5f) * size.x, origin.y + (1.0f - (c.y / c.w * 0.5f + 0.5f)) * size.y);
+        return true;
+    }
+    void DrawSunGizmos(const ImVec2& origin, const ImVec2& size) {
+        using namespace Engine;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        for (const SunGizmo& g : GatherSunGizmos()) {
+            const bool selected = IsSelected(g.E);
+            const glm::vec3 c = glm::clamp(m_Scene.Registry().get<DirectionalLightComponent>(g.E).Color, 0.0f, 1.0f);
+            const ImU32 col = selected ? IM_COL32(255, 255, 255, 255)
+                                       : IM_COL32((int)(150 + 105 * c.r), (int)(150 + 105 * c.g), (int)(110 + 100 * c.b), 210);
+            const float thick = selected ? 2.2f : 1.5f;
+            auto line = [&](const glm::vec3& a, const glm::vec3& b) {
+                ImVec2 pa, pb;
+                if (ProjectToViewport(a, origin, size, pa) && ProjectToViewport(b, origin, size, pb)) dl->AddLine(pa, pb, col, thick);
+            };
+            const float s = g.Size, ring = 0.45f * s, len = 1.5f * s, head = 0.28f * s;
+            // the ring the light comes through
+            const int n = 24;
+            for (int i = 0; i < n; i++) {
+                const float a0 = 6.2831853f * i / n, a1 = 6.2831853f * (i + 1) / n;
+                line(g.Pos + (g.U * std::cos(a0) + g.V * std::sin(a0)) * ring, g.Pos + (g.U * std::cos(a1) + g.V * std::sin(a1)) * ring);
+            }
+            // parallel arrows: one from the centre, four from the ring
+            const glm::vec3 starts[5] = { g.Pos, g.Pos + g.U * ring, g.Pos - g.U * ring, g.Pos + g.V * ring, g.Pos - g.V * ring };
+            for (int i = 0; i < 5; i++) {
+                const glm::vec3 a = starts[i], b = a + g.Dir * (i == 0 ? len * 1.25f : len);
+                line(a, b);
+                const glm::vec3 back = b - g.Dir * head;
+                line(b, back + g.U * head * 0.45f);
+                line(b, back - g.U * head * 0.45f);
+                line(b, back + g.V * head * 0.45f);
+                line(b, back - g.V * head * 0.45f);
+            }
+            ImVec2 p;
+            if (ProjectToViewport(g.Pos, origin, size, p)) dl->AddCircleFilled(p, selected ? 4.5f : 3.5f, col);
+        }
+    }
+    // The light whose gizmo is under a point of the Viewport (a sun's centre, ring or centre arrow; a bulb), or entt::null
+    entt::entity LightGizmoAt(const ImVec2& mouse, const ImVec2& origin, const ImVec2& size) {
+        entt::entity best = entt::null;
+        float bestDist = 10.0f;                                   // pixels
+        auto segDist = [](ImVec2 p, ImVec2 a, ImVec2 b) {
+            const ImVec2 ab(b.x - a.x, b.y - a.y), ap(p.x - a.x, p.y - a.y);
+            const float l2 = ab.x * ab.x + ab.y * ab.y;
+            const float t = l2 > 0.0f ? std::clamp((ap.x * ab.x + ap.y * ab.y) / l2, 0.0f, 1.0f) : 0.0f;
+            const float dx = p.x - (a.x + ab.x * t), dy = p.y - (a.y + ab.y * t);
+            return std::sqrt(dx * dx + dy * dy);
+        };
+        for (const SunGizmo& g : GatherSunGizmos()) {
+            ImVec2 c, tip, r;
+            if (!ProjectToViewport(g.Pos, origin, size, c)) continue;
+            float d = std::sqrt((mouse.x - c.x) * (mouse.x - c.x) + (mouse.y - c.y) * (mouse.y - c.y));
+            if (ProjectToViewport(g.Pos + g.U * 0.45f * g.Size, origin, size, r)) {   // anywhere inside the ring
+                const float ringPx = std::sqrt((r.x - c.x) * (r.x - c.x) + (r.y - c.y) * (r.y - c.y));
+                if (d < ringPx) d = std::min(d, 4.0f);
+            }
+            if (ProjectToViewport(g.Pos + g.Dir * 1.9f * g.Size, origin, size, tip)) d = std::min(d, segDist(mouse, c, tip));
+            if (d < bestDist) { bestDist = d; best = g.E; }
+        }
+        // point lights: the lightbulb icon
+        for (auto [e, light] : m_Scene.Registry().view<Engine::PointLightComponent>().each()) {
+            ImVec2 c;
+            if (!ProjectToViewport(glm::vec3(m_Scene.GetWorldMatrix(e)[3]), origin, size, c)) continue;
+            const float r = kBulbRadius;
+            const ImVec2 glass(c.x, c.y - r * 0.35f);
+            float d = std::sqrt((mouse.x - glass.x) * (mouse.x - glass.x) + (mouse.y - glass.y) * (mouse.y - glass.y)) - r;
+            if (mouse.x > c.x - r * 0.6f && mouse.x < c.x + r * 0.6f && mouse.y > glass.y && mouse.y < c.y + r * 1.25f) d = 0.0f;   // the base
+            d = std::max(d, 0.0f);
+            if (d < 4.0f && d < bestDist) { bestDist = d; best = e; }
+        }
+        return best;
+    }
+
+    // Point lights are only light too: the editor draws a lightbulb icon in the light's colour at each one (the same
+    // size at any distance), never rendered.
+    static constexpr float kBulbRadius = 13.0f;     // pixels
+    void DrawPointLightGizmos(const ImVec2& origin, const ImVec2& size) {
+        using namespace Engine;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        for (auto [e, light] : m_Scene.Registry().view<PointLightComponent>().each()) {
+            ImVec2 c;
+            if (!ProjectToViewport(glm::vec3(m_Scene.GetWorldMatrix(e)[3]), origin, size, c)) continue;
+            const bool selected = IsSelected(e);
+            const float r = kBulbRadius * (selected ? 1.15f : 1.0f);
+            const glm::vec3 lc = glm::clamp(light.Color, 0.0f, 1.0f);
+            const ImU32 glassCol = IM_COL32((int)(90 + 165 * lc.r), (int)(90 + 165 * lc.g), (int)(90 + 165 * lc.b), 235);
+            const ImU32 edge = selected ? IM_COL32(255, 255, 255, 255) : IM_COL32(25, 25, 30, 220);
+            const float th = selected ? 2.2f : 1.4f;
+            const ImVec2 glass(c.x, c.y - r * 0.35f);
+            // a soft glow, the glass, the filament
+            dl->AddCircleFilled(glass, r * 1.6f, (glassCol & 0x00FFFFFFu) | (40u << 24));
+            dl->AddCircleFilled(glass, r, glassCol);
+            dl->AddCircle(glass, r, edge, 0, th);
+            const ImU32 wire = IM_COL32(120, 80, 20, 230);
+            dl->AddLine(ImVec2(glass.x - r * 0.35f, glass.y + r * 0.55f), ImVec2(glass.x - r * 0.35f, glass.y), wire, 1.2f);
+            dl->AddLine(ImVec2(glass.x + r * 0.35f, glass.y + r * 0.55f), ImVec2(glass.x + r * 0.35f, glass.y), wire, 1.2f);
+            dl->AddBezierQuadratic(ImVec2(glass.x - r * 0.35f, glass.y), ImVec2(glass.x, glass.y - r * 0.6f), ImVec2(glass.x + r * 0.35f, glass.y), wire, 1.2f);
+            // the screw base: a grey collar with threads and a dark tip
+            const float bw = r * 0.55f, top = glass.y + r * 0.82f, bottom = top + r * 0.62f;
+            dl->AddRectFilled(ImVec2(c.x - bw, top), ImVec2(c.x + bw, bottom), IM_COL32(165, 168, 178, 255), 2.0f);
+            dl->AddRect(ImVec2(c.x - bw, top), ImVec2(c.x + bw, bottom), edge, 2.0f, 0, selected ? 1.6f : 1.0f);
+            for (int i = 1; i < 3; i++) {
+                const float y = top + (bottom - top) * i / 3.0f;
+                dl->AddLine(ImVec2(c.x - bw, y), ImVec2(c.x + bw, y), IM_COL32(90, 92, 100, 255), 1.0f);
+            }
+            dl->AddRectFilled(ImVec2(c.x - bw * 0.45f, bottom), ImVec2(c.x + bw * 0.45f, bottom + r * 0.22f), IM_COL32(40, 40, 46, 255), 1.5f);
         }
     }
 
@@ -1463,6 +1663,7 @@ private:
             ImGui::MenuItem("Console", nullptr, &m_ShowConsole);
             ImGui::MenuItem("Assets", nullptr, &m_ShowAssets);
             ImGui::MenuItem("Dialogue Editor", nullptr, &m_ShowDialogue);
+            ImGui::MenuItem("AnimGraph Editor", nullptr, &m_ShowAnimGraph);
             ImGui::Separator();
             if (ImGui::MenuItem("Hide Panels", "F1", !m_ShowUI)) m_ShowUI = !m_ShowUI;
             if (ImGui::MenuItem("Full Screen", "F11", GetWindow().IsFullscreen())) m_ToggleFullscreen = true;
@@ -1530,23 +1731,14 @@ private:
         ImGui::SeparatorText("Lights");
         if (ImGui::MenuItem("Point Light")) {
             Entity e = m_Scene.CreateEntity("Point Light");
-            e.Get<TransformComponent>().Scale = glm::vec3(0.15f);
-            e.Add<PointLightComponent>();
-            auto& mr = e.Add<MeshRendererComponent>();       // a small glowing marker
-            mr.Geometry = m_Cube;
-            mr.Unlit = true;
+            e.Add<PointLightComponent>();                     // shown in the editor as a lightbulb, never rendered
             place(e);
         }
         if (ImGui::MenuItem("Directional Light (Sun)")) {
             Entity e = m_Scene.CreateEntity("Sun");
             auto& t = e.Get<TransformComponent>();
             t.Rotation = glm::vec3(-0.9f, 0.5f, 0.0f);
-            t.Scale = glm::vec3(0.12f, 0.12f, 0.6f);
-            e.Add<DirectionalLightComponent>();
-            auto& mr = e.Add<MeshRendererComponent>();
-            mr.Geometry = m_Cube;
-            mr.Color = glm::vec3(1.0f, 0.9f, 0.4f);
-            mr.Unlit = true;
+            e.Add<DirectionalLightComponent>();       // shown in the editor as arrows (DrawSunGizmos), never rendered
             place(e);
         }
         if (ImGui::BeginMenu("Effects")) {
@@ -2003,13 +2195,9 @@ private:
             auto& t = e.Get<TransformComponent>();
             t.Position = glm::vec3(0.0f, 6.0f, 0.0f);
             t.Rotation = glm::vec3(-0.9f, 0.5f, 0.0f);
-            t.Scale = glm::vec3(0.12f, 0.12f, 0.6f);
-            e.Add<DirectionalLightComponent>();
-            auto& mr = e.Add<MeshRendererComponent>();
-            mr.Geometry = m_Cube;
-            mr.Color = glm::vec3(1.0f, 0.9f, 0.4f);
-            mr.Unlit = true;
+            e.Add<DirectionalLightComponent>();       // shown in the editor as arrows, never rendered
         }
+        m_Renderer->VolFog = Engine::VolumetricFogSettings{};   // a new scene has no fog (not the last scene's)
         {
             Entity e = m_Scene.CreateEntity("Floor");
             e.Get<TransformComponent>().Position = glm::vec3(0.0f, -1.0f, 0.0f);
@@ -2127,6 +2315,10 @@ private:
             case AssetBrowser::Action::SetSky:
                 if (a.Path.rfind("Environments/", 0) == 0) m_Renderer->RequestEnvironment(a.Path.substr(13));
                 else LOG_WARN("Sky maps load from Assets/Environments ({} is elsewhere)", a.Path);
+                break;
+            case AssetBrowser::Action::OpenAnimGraph:
+                m_AnimGraph.Open(a.Path);
+                m_ShowAnimGraph = true;
                 break;
             case AssetBrowser::Action::OpenDialogue:
                 m_Dialogue.Open(a.Path);
@@ -2264,7 +2456,7 @@ private:
         m_Scene.SetWorldPosition(group.GetHandle(), center);
         if (parent != entt::null) m_Scene.SetParent(group.GetHandle(), parent, true);
         for (entt::entity e : roots) m_Scene.SetParent(e, group.GetHandle(), true);
-        m_HierarchyCollapsed.erase(m_Scene.GetID(group.GetHandle()));
+        m_HierarchyExpanded.insert(m_Scene.GetID(group.GetHandle()));   // show what went into it
         SelectOnly(group.GetHandle());
         m_History.Track(m_Scene, m_Selected, m_Resources->Registry(), "Group " + std::to_string(roots.size()) + " objects");
     }
@@ -2355,12 +2547,21 @@ private:
                 const entt::entity parent = m_Scene.GetParent(child);
                 if (parent != entt::null && parent != child) children[parent].push_back(child);
             }
+            // Something newly selected (in the Viewport, say) inside folded groups: unfold its parents so its row shows
+            if (m_Selected != m_HierarchyRevealed) {
+                m_HierarchyRevealed = m_Selected;
+                if (m_Selected != entt::null && reg.valid(m_Selected)) {
+                    int guard = 0;
+                    for (entt::entity p = m_Scene.GetParent(m_Selected); p != entt::null && guard++ < 64; p = m_Scene.GetParent(p))
+                        m_HierarchyExpanded.insert(m_Scene.GetID(p));
+                }
+            }
             m_HierarchyRows.clear();
             std::function<void(entt::entity, int)> add = [&](entt::entity e, int depth) {
                 auto it = children.find(e);
                 const bool hasChildren = it != children.end();
                 m_HierarchyRows.push_back({ e, depth, hasChildren });
-                if (hasChildren && depth < 64 && !m_HierarchyCollapsed.count(m_Scene.GetID(e)))
+                if (hasChildren && depth < 64 && m_HierarchyExpanded.count(m_Scene.GetID(e)))
                     for (auto c : it->second) add(c, depth + 1);
             };
             for (auto handle : reg.view<TagComponent>())
@@ -2482,10 +2683,11 @@ private:
     struct PendingReparent { entt::entity Child, Parent; bool Pending; };
     PendingReparent m_Reparent{ entt::null, entt::null, false };
 
-    // One row of the flattened tree (DrawHierarchyPanel): indented by depth; open state kept in m_HierarchyCollapsed
+    // One row of the flattened tree (DrawHierarchyPanel): indented by depth; open state kept in m_HierarchyExpanded
     struct HierarchyRow { entt::entity E; int Depth; bool HasChildren; };
     std::vector<HierarchyRow> m_HierarchyRows;
-    std::unordered_set<uint64_t> m_HierarchyCollapsed;    // entity IDs whose children are folded away
+    std::unordered_set<uint64_t> m_HierarchyExpanded;     // entity IDs whose children are shown (everything starts folded)
+    entt::entity m_HierarchyRevealed = entt::null;        // the selection whose parents were last unfolded
 
     void DrawHierarchyRow(const HierarchyRow& row) {
         using namespace Engine;
@@ -2501,14 +2703,14 @@ private:
         if (row.Depth > 0) ImGui::Indent(row.Depth * ImGui::GetStyle().IndentSpacing);
         const bool instance = reg.all_of<PrefabComponent>(e);
         if (instance) ImGui::PushStyleColor(ImGuiCol_Text, kPrefabColor);
-        const bool wasOpen = row.HasChildren && !m_HierarchyCollapsed.count(id);
+        const bool wasOpen = row.HasChildren && m_HierarchyExpanded.count(id);
         if (row.HasChildren) ImGui::SetNextItemOpen(wasOpen);
         const bool open = ImGui::TreeNodeEx((void*)(uintptr_t)id, flags, "%s", reg.get<TagComponent>(e).Tag.c_str());
         if (instance) ImGui::PopStyleColor();
         if (row.Depth > 0) ImGui::Unindent(row.Depth * ImGui::GetStyle().IndentSpacing);
         if (row.HasChildren && open != wasOpen) {
-            if (open) m_HierarchyCollapsed.erase(id);
-            else m_HierarchyCollapsed.insert(id);
+            if (open) m_HierarchyExpanded.insert(id);
+            else m_HierarchyExpanded.erase(id);
         }
         if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) RowClicked(e);
         DrawRowContextMenu(e);
@@ -2640,6 +2842,8 @@ private:
                 ImGui::MenuItem("Stats", nullptr, &m_ShowStatsOverlay);
                 ImGui::MenuItem("Colliders", nullptr, &m_ShowColliders);
                 ImGui::MenuItem("Camera Frustums", nullptr, &m_ShowFrustums);
+                ImGui::MenuItem("Light Gizmos", nullptr, &m_ShowLightGizmos);
+                ImGui::SetItemTooltip("Arrows for suns and lightbulbs for point lights (editor only, never rendered)");
                 ImGui::MenuItem("Navigation Grid", nullptr, &m_ShowNavGrid);
                 ImGui::MenuItem("Fog of War", nullptr, &m_Renderer->ShowFog);   // off: see through the fog while play-testing
                 ImGui::MenuItem("Selection Outline", nullptr, &m_ShowOutline);
@@ -2746,6 +2950,7 @@ private:
 
         if (m_ShowColliders && !m_ViewingGame) DrawColliders(origin, size);
         if (!m_ViewingGame && m_ShowFrustums) DrawCameraFrustums(origin, size);
+        if (!m_ViewingGame && m_ShowLightGizmos) { DrawSunGizmos(origin, size); DrawPointLightGizmos(origin, size); }
         if (!m_ViewingGame && m_ShowNavGrid && m_PlayState != PlayState::Edit) DrawNavGrid(origin, size);
         if (m_PlayState != PlayState::Edit)   // kept while paused: the scripts did not run again
             DrawScriptUI(ImGui::GetWindowDrawList(), m_GameFonts, m_Session->Scripts().UIItems(), origin, size, &m_UITextures);
@@ -2824,12 +3029,24 @@ private:
                     if (!add) ClearSelection();
                     for (int id : fb.ReadEntityIDs(x0, y0, x1 - x0, y1 - y0))
                         AddToSelection(static_cast<entt::entity>(id));
+                    if (m_ShowLightGizmos) {               // lights aren't rendered: their gizmo's centre counts
+                        auto inBox = [&](const glm::vec3& w) {
+                            ImVec2 p;
+                            return ProjectToViewport(w, origin, size, p) && p.x >= a.x && p.x <= b.x && p.y >= a.y && p.y <= b.y;
+                        };
+                        for (const SunGizmo& g : GatherSunGizmos()) if (inBox(g.Pos)) AddToSelection(g.E);
+                        for (auto [le, light] : m_Scene.Registry().view<Engine::PointLightComponent>().each())
+                            if (inBox(glm::vec3(m_Scene.GetWorldMatrix(le)[3]))) AddToSelection(le);
+                    }
                 }
                 else if (!m_GizmoBusy && !m_ViewingGame) {
                     const int px = (int)(m_BoxStart.x - origin.x);
                     const int py = fbH - 1 - (int)(m_BoxStart.y - origin.y);
                     const int id = fb.ReadEntityID(px, py);
-                    const entt::entity picked = id < 0 ? entt::null : static_cast<entt::entity>(id);
+                    entt::entity picked = id < 0 ? entt::null : static_cast<entt::entity>(id);
+                    // a light's gizmo (drawn over the scene) wins over what is rendered behind it
+                    if (m_ShowLightGizmos)
+                        if (const entt::entity light = LightGizmoAt(m_BoxStart, origin, size); light != entt::null) picked = light;
                     if (add) ToggleSelected(picked);       // a click on nothing keeps the selection
                     else SelectOnly(picked);
                 }
@@ -2867,6 +3084,7 @@ private:
         ImGui::DockBuilderDockWindow("Assets", bottom);
         ImGui::DockBuilderDockWindow("Viewport", center);
         ImGui::DockBuilderDockWindow("###DialogueEditor", center);   // a tab beside the Viewport: it wants room
+        ImGui::DockBuilderDockWindow("###AnimGraphEditor", center);
         ImGui::DockBuilderFinish(dockspace);
         m_FocusInspector = true;           // the Inspector tab in front of Scene Settings
     }
@@ -3247,19 +3465,58 @@ private:
                 ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "Needs a Mesh Renderer with an animated model");
             }
             else {
-                if (ImGui::BeginCombo("Clip", an.Clip.empty() ? "(rest pose)" : an.Clip.c_str())) {
+                // Animation graph: state machines instead of a single clip (AnimGraph Editor)
+                auto setGraph = [&](const std::string& path) {
+                    an.Graph = path;
+                    an.GraphData = path.empty() ? nullptr : m_Resources->LoadAnimGraph(path);
+                    an.GraphLayers.clear();
+                };
+                if (ImGui::BeginCombo("Graph", an.Graph.empty() ? "(none: play a clip)" : an.Graph.c_str())) {
+                    if (ImGui::Selectable("(none: play a clip)", an.Graph.empty())) setGraph("");
+                    for (const auto& f : ListAnimGraphFiles())
+                        if (ImGui::Selectable(f.c_str(), an.Graph == f)) setGraph(f);
+                    ImGui::EndCombo();
+                }
+                ImGui::SetItemTooltip("An animation graph (Assets/AnimGraphs): states, blends, layers and transitions\n"
+                                      "driven by parameters. Drop one from the Assets panel.");
+                if (auto drop = AssetBrowser::AcceptDrop({ AssetBrowser::Kind::AnimGraph }); !drop.empty()) setGraph(drop);
+                if (!an.Graph.empty()) {
+                    if (ImGui::Button("Edit graph")) { m_AnimGraph.Open(an.Graph); m_ShowAnimGraph = true; }
+                    if (!an.GraphData) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "Can't load %s", an.Graph.c_str());
+                    else {
+                        const AnimGraph& g = *an.GraphData;
+                        for (size_t l = 0; l < g.Layers.size(); l++)
+                            ImGui::TextDisabled("%s: %s", g.Layers[l].Name.c_str(), AnimGraphStateName(an, l).c_str());
+                        // the parameters' current values (Edit mode: a preview; Play: the running game's)
+                        for (const AnimParam& p : g.Params) {
+                            auto it = an.Params.find(p.Name);
+                            float& v = it != an.Params.end() ? it->second : (an.Params[p.Name] = p.Default);
+                            const std::string label = p.Name + "##gp";
+                            switch (p.Type) {
+                            case AnimParamType::Float: ImGui::DragFloat(label.c_str(), &v, 0.01f); break;
+                            case AnimParamType::Int: { int iv = (int)std::round(v); if (ImGui::DragInt(label.c_str(), &iv)) v = (float)iv; break; }
+                            case AnimParamType::Bool: { bool b = v > 0.5f; if (ImGui::Checkbox(label.c_str(), &b)) v = b ? 1.0f : 0.0f; break; }
+                            case AnimParamType::Trigger:
+                                if (ImGui::Button(("Fire " + label).c_str())) v = 1.0f;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (an.Graph.empty() && ImGui::BeginCombo("Clip", an.Clip.empty() ? "(rest pose)" : an.Clip.c_str())) {
                     if (ImGui::Selectable("(rest pose)", an.Clip.empty())) an.Clip.clear();
                     for (const auto& name : model->AnimationNames())
                         if (ImGui::Selectable(name.c_str(), an.Clip == name)) an.Clip = name;
                     ImGui::EndCombo();
                 }
                 ImGui::SliderFloat("Speed##anim", &an.Speed, -2.0f, 3.0f);
-                ImGui::Checkbox("Loop##anim", &an.Loop);
-                ImGui::SameLine();
+                if (an.Graph.empty()) { ImGui::Checkbox("Loop##anim", &an.Loop); ImGui::SameLine(); }
                 ImGui::Checkbox("Playing##anim", &an.Playing);
-                ImGui::DragFloat("Blend time", &an.BlendTime, 0.01f, 0.0f, 2.0f, "%.2f s");
-                const float duration = model->AnimationDuration(model->FindAnimation(an.ActiveClip));
-                if (duration > 0.0f) ImGui::SliderFloat("Time##anim", &an.Time, 0.0f, duration, "%.2f s");
+                if (an.Graph.empty()) {
+                    ImGui::DragFloat("Blend time", &an.BlendTime, 0.01f, 0.0f, 2.0f, "%.2f s");
+                    const float duration = model->AnimationDuration(model->FindAnimation(an.ActiveClip));
+                    if (duration > 0.0f) ImGui::SliderFloat("Time##anim", &an.Time, 0.0f, duration, "%.2f s");
+                }
                 ImGui::TextDisabled("%u bones, %d animations. Plays during Play; drag Time to preview.",
                     model->BoneCount(), (int)model->AnimationNames().size());
 
@@ -3682,7 +3939,7 @@ private:
     float m_RunTime = 0.0f;
     float m_QuitAfter = 0.0f;        // MDB_QUIT_AFTER test hook (0 = never)
     float m_Gravity = 9.81f;
-    bool  m_ShowColliders = true;
+    bool  m_ShowColliders = false;        // Viewport > View > Colliders (off by default)
     std::unordered_map<const Engine::Renderable*, CollisionWire> m_CollisionWires;
     std::vector<glm::vec3> m_WireScratch;
     bool  m_ShowNavGrid = true;      // the navigation grid, once a script baked it (Play)
@@ -3697,10 +3954,14 @@ private:
     // Editor shell (menu bar, toolbar, panels)
     bool  m_ShowHierarchy = true, m_ShowInspector = true, m_ShowSceneSettings = true, m_ShowConsole = true;
     bool  m_ShowStatsOverlay = true, m_ShowFrustums = true, m_ShowControls = false;
+    bool  m_ShowLightGizmos = true;       // Viewport > View > Light Gizmos: sun arrows and point-light bulbs
     AssetBrowser m_Assets{ Projects::Current().AssetDir() };   // the Assets panel
     bool  m_ShowAssets = true;
     DialogueEditor m_Dialogue{ Projects::Current().AssetDir() };   // the Dialogue Editor window (Window menu, or a dialogue in Assets)
     TerrainEditor m_TerrainEditor;        // the terrain brushes (Inspector > Terrain, used in the Viewport)
+    AnimGraphEditor m_AnimGraph{ Projects::Current().AssetDir() };   // the AnimGraph Editor window (Window menu, or a graph in Assets)
+    bool  m_ShowAnimGraph = false;
+    bool  m_AskGraphQuit = false, m_GraphDiscarded = false;           // quitting with an unsaved graph
     bool  m_ShowDialogue = false;
     bool  m_AskDialogueQuit = false, m_DialogueDiscarded = false;   // quitting with an unsaved dialogue
     struct AssetDrop { std::string Path; entt::entity Target = entt::null; bool Pending = false; };

@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "params": [
+    { "name": "speed", "type": "float", "default": 0.0 },
+    { "name": "look_around", "type": "trigger", "default": 0.0 },
+    { "name": "head", "type": "float", "default": 0.0 }
+  ],
+  "layers": [
+    {
+      "name": "Base",
+      "mask": "",
+      "weight": 1.0,
+      "weightParam": "",
+      "additive": false,
+      "entry": 1,
+      "entryPos": [ 20.0, 40.0 ],
+      "anyPos": [ 20.0, 250.0 ],
+      "states": [
+        { "id": 1, "name": "Idle", "kind": "clip", "clip": "Survey", "speed": 1.0, "speedParam": "", "loop": true, "pos": [ 190.0, 30.0 ] },
+        { "id": 2, "name": "Locomotion", "kind": "blend1d", "param": "speed",
+          "points": [ { "clip": "Walk", "threshold": 1.1, "speed": 1.0 }, { "clip": "Run", "threshold": 3.6, "speed": 1.0 } ],
+          "speed": 1.0, "speedParam": "", "loop": true, "pos": [ 450.0, 30.0 ] },
+        { "id": 3, "name": "Look", "kind": "clip", "clip": "Survey", "speed": 1.5, "speedParam": "", "loop": false, "pos": [ 320.0, 230.0 ] }
+      ],
+      "transitions": [
+        { "from": 1, "to": 2, "duration": 0.25, "exitTime": null, "conditions": [ { "param": "speed", "op": ">", "value": 0.2 } ] },
+        { "from": 2, "to": 1, "duration": 0.3, "exitTime": null, "conditions": [ { "param": "speed", "op": "<", "value": 0.15 } ] },
+        { "from": "any", "to": 3, "duration": 0.2, "exitTime": null, "conditions": [ { "param": "look_around", "op": "true", "value": 0.0 } ] },
+        { "from": 3, "to": 2, "duration": 0.3, "exitTime": 1.0, "conditions": [ { "param": "speed", "op": ">", "value": 0.2 } ] },
+        { "from": 3, "to": 1, "duration": 0.3, "exitTime": 1.0, "conditions": [] }
+      ]
+    },
+    {
+      "name": "Head",
+      "mask": "b_Neck_04",
+      "weight": 1.0,
+      "weightParam": "head",
+      "additive": true,
+      "entry": 1,
+      "entryPos": [ 20.0, 40.0 ],
+      "anyPos": [ 20.0, 200.0 ],
+      "states": [
+        { "id": 1, "name": "Look about", "kind": "clip", "clip": "Survey", "speed": 1.0, "speedParam": "", "loop": true, "pos": [ 260.0, 30.0 ] }
+      ],
+      "transitions": []
+    }
+  ]
+}

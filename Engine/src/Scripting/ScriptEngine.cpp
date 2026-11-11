@@ -3,6 +3,7 @@
 #include "Scene/Entity.h"
 #include "Scene/Components.h"
 #include "Scene/Terrain.h"
+#include "Animation/AnimGraph.h"
 #include "Scene/SceneSerializer.h"
 #include "Physics/PhysicsWorld.h"
 #include "Audio/AudioEngine.h"
@@ -448,7 +449,7 @@ namespace Engine {
                 if (e.Has<AnimatorComponent>()) return AnimatorRef{ e };
                 return sol::nullopt;
             }),
-            "add_animator", [](const ScriptEntity& e, sol::optional<sol::table> opts) {
+            "add_animator", [this](const ScriptEntity& e, sol::optional<sol::table> opts) {
                 if (!e.Valid()) throw std::runtime_error("entity no longer exists");
                 AnimatorComponent a;
                 if (opts) {
@@ -456,6 +457,11 @@ namespace Engine {
                     a.Speed = opts->get_or<float>("speed", a.Speed);
                     a.Loop = opts->get_or<bool>("loop", a.Loop);
                     a.BlendTime = opts->get_or<float>("blend", a.BlendTime);
+                    a.Graph = opts->get_or<std::string>("graph", a.Graph);   // an animation graph instead of a clip
+                    if (!a.Graph.empty()) {
+                        a.GraphData = Resources.LoadAnimGraph ? Resources.LoadAnimGraph(a.Graph) : nullptr;
+                        if (!a.GraphData) throw std::runtime_error("can't load the animation graph \"" + a.Graph + "\"");
+                    }
                 }
                 e.Owner->Registry().emplace_or_replace<AnimatorComponent>(e.Handle, a);
                 return AnimatorRef{ e };
@@ -1031,6 +1037,67 @@ namespace Engine {
                 an.Playing = true;
             },
             "stop", [](const AnimatorRef& a) { a.E.Get<AnimatorComponent>().Playing = false; },
+            // ---- animation graph (Animation/AnimGraph.h). graph = "AnimGraphs/x.json" switches to it ("" = back to clip)
+            "graph", sol::property(
+                [](const AnimatorRef& a) { return a.E.Get<AnimatorComponent>().Graph; },
+                [this](const AnimatorRef& a, const std::string& path) {
+                    auto& an = a.E.Get<AnimatorComponent>();
+                    std::shared_ptr<const AnimGraph> g;
+                    if (!path.empty()) {
+                        g = Resources.LoadAnimGraph ? Resources.LoadAnimGraph(path) : nullptr;
+                        if (!g) throw std::runtime_error("can't load the animation graph \"" + path + "\"");
+                    }
+                    an.Graph = path;
+                    an.GraphData = g;
+                    an.GraphLayers.clear();                         // starts in its entry states
+                }),
+            // set(name, number or bool), get(name) -> number (bools and triggers 0 / 1), trigger(name), reset_trigger(name)
+            "set", [](const AnimatorRef& a, const std::string& name, sol::object v) {
+                auto& an = a.E.Get<AnimatorComponent>();
+                if (an.GraphData && !an.GraphData->FindParam(name))
+                    throw std::runtime_error("the animation graph has no parameter \"" + name + "\"");
+                if (v.is<bool>()) an.Params[name] = v.as<bool>() ? 1.0f : 0.0f;
+                else if (v.is<float>()) an.Params[name] = v.as<float>();
+                else throw std::runtime_error("set(name, value): value must be a number or a boolean");
+            },
+            "get", [](const AnimatorRef& a, const std::string& name) -> float {
+                const auto& an = a.E.Get<AnimatorComponent>();
+                if (auto it = an.Params.find(name); it != an.Params.end()) return it->second;
+                const AnimParam* p = an.GraphData ? an.GraphData->FindParam(name) : nullptr;
+                return p ? p->Default : 0.0f;
+            },
+            "trigger", [](const AnimatorRef& a, const std::string& name) {
+                auto& an = a.E.Get<AnimatorComponent>();
+                if (an.GraphData && !an.GraphData->FindParam(name))
+                    throw std::runtime_error("the animation graph has no parameter \"" + name + "\"");
+                an.Params[name] = 1.0f;
+            },
+            "reset_trigger", [](const AnimatorRef& a, const std::string& name) { a.E.Get<AnimatorComponent>().Params[name] = 0.0f; },
+            // state([layer = 1]) -> the current state's name ("" without a graph); state_time([layer]) -> seconds in it;
+            // phase([layer]) -> 0..1 through it; in_transition([layer]) -> cross-fading into it
+            "state", [](const AnimatorRef& a, sol::optional<int> layer) {
+                return AnimGraphStateName(a.E.Get<AnimatorComponent>(), (size_t)std::max(layer.value_or(1) - 1, 0));
+            },
+            "state_time", [](const AnimatorRef& a, sol::optional<int> layer) {
+                const auto& an = a.E.Get<AnimatorComponent>();
+                const size_t l = (size_t)std::max(layer.value_or(1) - 1, 0);
+                return l < an.GraphLayers.size() ? an.GraphLayers[l].StateTime : 0.0f;
+            },
+            "phase", [](const AnimatorRef& a, sol::optional<int> layer) {
+                const auto& an = a.E.Get<AnimatorComponent>();
+                const size_t l = (size_t)std::max(layer.value_or(1) - 1, 0);
+                return l < an.GraphLayers.size() ? an.GraphLayers[l].Phase : 0.0f;
+            },
+            "in_transition", [](const AnimatorRef& a, sol::optional<int> layer) {
+                const auto& an = a.E.Get<AnimatorComponent>();
+                const size_t l = (size_t)std::max(layer.value_or(1) - 1, 0);
+                return l < an.GraphLayers.size() && an.GraphLayers[l].Fade < 1.0f;
+            },
+            // play_state(name [, layer = 1, blend = 0.2]): go to a state now, whatever the transitions say
+            "play_state", [](const AnimatorRef& a, const std::string& name, sol::optional<int> layer, sol::optional<float> blend) {
+                if (!AnimGraphPlayState(a.E.Get<AnimatorComponent>(), (size_t)std::max(layer.value_or(1) - 1, 0), name, blend.value_or(0.2f)))
+                    throw std::runtime_error("no state \"" + name + "\" in that layer of the animation graph");
+            },
             // ---- IK (1-based): set_ik(n, { type = "look"|"limb", bone, target = vec3 or entity, offset = vec3,
             //      weight, max_angle (degrees), chain, pole = vec3 (entity space) }) creates or changes one
             "set_ik", [](const AnimatorRef& a, int n, sol::table opts) {

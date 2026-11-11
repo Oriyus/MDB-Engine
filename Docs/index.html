@@ -305,7 +305,7 @@ e.Add&lt;RigidBodyComponent&gt;().Type = BodyType::Static;</code></pre>
 
 <section class="doc" data-group="Engine" id="engine-volfog">
 <h2>Volumetric fog</h2>
-<p>Scene Settings &gt; <b>Volumetric Fog</b> fills the air with fog that is lit by the scene: the sun shines through it, and wherever the sun is blocked (behind a house, a tree) the fog stays dark, so you see <b>light shafts</b>. The sky lights it from all around, and point lights glow in it. It is saved with the level (the <code>volumetricFog</code> section of the scene's settings).</p>
+<p>Off by default; each scene keeps its own setting (a scene without one has no fog). Scene Settings &gt; <b>Volumetric Fog</b> fills the air with fog that is lit by the scene: the sun shines through it, and wherever the sun is blocked (behind a house, a tree) the fog stays dark, so you see <b>light shafts</b>. The sky lights it from all around, and point lights glow in it. It is saved with the level (the <code>volumetricFog</code> section of the scene's settings).</p>
 <table>
 <tr><th>Setting</th><th>What it does</th></tr>
 <tr><td>Density, Base height, Height falloff</td><td>How thick the fog is at and below the base height, and how quickly it thins above it (to about a third every falloff metres): low ground mist, or a whole valley.</td></tr>
@@ -447,6 +447,7 @@ ui.text(s.draw_calls .. " draws, " .. s.static_merged .. " merged", 0.02, 0.95)<
 <p>Models with bones (glTF/FBX) keep their skeleton and clips; the GPU skins up to 128 bones, 4 weights per vertex.</p>
 <ul>
   <li><b>Clips</b> with cross-fade when the clip changes.</li>
+  <li><b>Animation graphs</b>: state machines, 1D blends, layers and conditions (<a href="#engine-animgraph">below</a>).</li>
   <li><b>Layers</b>: another clip on a bone and its descendants (mask), override or <b>additive</b>, with fading weights.</li>
   <li><b>Events</b> at clip times → <code>on_anim_event</code>, or <code>"sound:Sounds/x.wav"</code> plays a sound.</li>
   <li><b>Root motion</b>: the root bone's travel moves the entity.</li>
@@ -456,6 +457,21 @@ ui.text(s.draw_calls .. " draws, " .. s.static_merged .. " merged", 0.02, 0.95)<
 self.animator:set_layer(1, { clip = "Survey", mask = "b_Neck_04", weight = 0, additive = true })
 self.animator:layer_weight(1, 1, 0.6)                       -- fade in over 0.6 s
 self.animator:set_ik(1, { type = "look", bone = "b_Head_05", target = player, max_angle = 75, chain = 2 })</code></pre>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-animgraph">
+<h2>Animation graphs</h2>
+<p>An <b>animation graph</b> (<code>Assets/AnimGraphs/&lt;name&gt;.json</code>, made in the <a href="#editor-animgraph">AnimGraph Editor</a>) is a set of state machines driven by parameters. Pick it as an Animator's <b>Graph</b> (Inspector) and it makes the pose instead of the Animator's clip; the Animator's own layers, IK, events and root motion still apply on top.</p>
+<table>
+<tr><th>Part</th><th>What it does</th></tr>
+<tr><td>Parameters</td><td>Named values of type float, int, bool or <b>trigger</b> (a bool that the transition using it resets). Scripts set them (<code>set</code>, <code>trigger</code>); the editor can change them while the game runs.</td></tr>
+<tr><td>Layers</td><td>The first layer makes the base pose. Each further layer runs its own state machine over its <b>mask</b> (a bone and everything below it), replacing the pose by its <b>weight</b> (optionally times a parameter, so scripts can fade it) or, when <b>additive</b>, adding its motion relative to the state's first frame (a head turn or breathing over any walk).</td></tr>
+<tr><td>States</td><td>Play one clip, or a <b>1D blend</b>: clips placed along a number parameter (walk at 1.1, run at 3.6). The two clips around the value are blended and share one phase, so feet stay matched; past either end the end clip plays. Speed, an optional speed parameter, loop or play once.</td></tr>
+<tr><td>Transitions</td><td>From a state (or from <b>Any State</b>) to another, when <b>all conditions</b> hold (<code>&gt; &lt; == !=</code> on numbers, is true / false, a trigger fired) and, with an <b>exit time</b>, once the state has played that share of its length (an exit time alone moves on at the end, like a one-shot attack). The two states cross-fade over its <b>blend</b> time. Any State transitions are checked first and also during a cross-fade; the others wait for it. In a list, the first that can be taken wins.</td></tr>
+<tr><td>Events</td><td>Entering a state calls <code>on_anim_event(self, "enter", stateName)</code>. Clip events fire from the clip that leads a blend.</td></tr>
+</table>
+<p>The example <code>AnimGraphs/fox.json</code>: Idle (Survey), Locomotion (Walk ↔ Run on <code>speed</code>), a one-shot Look reached from Any State by the <code>look_around</code> trigger and left by exit time, and an additive Head layer on <code>b_Neck_04</code> weighted by <code>head</code>. <code>Scripts/wander_graph.lua</code> drives it.</p>
+<div class="note">Graphs are read once and shared; the editor makes every edit live at once for the animators using that file (their states are kept by id). Not saved in scene files or save games: the parameters' values and the current states (a loaded game starts each layer in its entry state; scripts can restore what matters with <code>play_state</code> in <code>on_load</code>).</div>
 </section>
 
 <section class="doc" data-group="Engine" id="engine-particles">
@@ -657,6 +673,7 @@ self:add_audio("Sounds/lava_loop.wav", { loop = true, min_distance = 2, max_dist
 <tr><td><code>save_test.lua</code></td><td>Saves, loads, level changes, restart (46)</td></tr>
 <tr><td><code>ui_test.lua</code></td><td>Laid-out UI with a simulated pointer (19)</td></tr>
 <tr><td><code>dialogue_test.lua</code></td><td>Dialogue runner on the Sage's dialogue (31)</td></tr>
+<tr><td><code>anim_graph_test.lua</code></td><td>Animation graphs on a spawned fox: states, blend, conditions, triggers, Any State, exit time, play_state, an additive layer weight (17)</td></tr>
 <tr><td><code>transform_test.lua</code></td><td>Rotations through Euler angles near gimbal lock (4)</td></tr>
 <tr><td><code>engine_features_test.lua</code></td><td>world_to_screen, decals, line of sight, cover, primitives, flash (22)</td></tr>
 <tr><td><code>fog_test.lua</code></td><td>Fog of war: reveal, explore, save / load, e.visible (17)</td></tr>
@@ -680,6 +697,7 @@ MDBEditor.exe &gt; log.txt</code></pre>
 <tr><td><code>MDB_PROFILE=1</code></td><td>Every 300 frames, log the average milliseconds per frame of each timed section (update, render passes, draw list, foliage, physics, UI panels), nested. Add a section in C++ with <code>PROFILE_SCOPE("Name")</code> (<code>Core/Profiler.h</code>). Profile in Release to see what a player gets; Debug is many times slower on per-object work.</td></tr>
 <tr><td><code>MDB_SAVE_DIR</code></td><td>Save slot folder while play-testing</td></tr>
 <tr><td><code>MDB_OPEN_DIALOGUE=Dialogues/x.json[#node]</code></td><td>Open the Dialogue Editor on a file (and select a node)</td></tr>
+<tr><td><code>MDB_OPEN_ANIMGRAPH=AnimGraphs/x.json</code></td><td>Open the AnimGraph Editor on a file</td></tr>
 <tr><td><code>MDB_SAVE_DIALOGUE=1</code></td><td>Re-save that dialogue through the editor</td></tr>
 </table>
 </section>
@@ -690,7 +708,7 @@ MDBEditor.exe &gt; log.txt</code></pre>
   <li>Only the first sun and 4 point lights are used.</li>
   <li>Transparency is sorted per entity, not per triangle; glass boxes show front faces only.</li>
   <li>SSAO darkens direct light too; its blur is not depth-aware.</li>
-  <li>Animation: no blend trees or full-body IK.</li>
+  <li>Animation: graphs blend in one dimension only (no 2D blend spaces or nested graphs), no full-body IK; graph states are not kept in save games.</li>
   <li>Compound bodies don't rebuild when parts move during Play; Inspector body changes apply on the next Play.</li>
   <li>Navigation bakes once, single-threaded, from static bodies only.</li>
   <li>Terrain: no level of detail, one material blend of 4 layers (no per-layer normal maps), no holes; scripts can read it but not sculpt it.</li>
@@ -754,7 +772,7 @@ MDBEditor.exe &gt; log.txt</code></pre>
 </ul>
 <p>Solid and Textured skip shadows, the sky, volumetric fog, fog of war, bloom and colour grading. That makes a busy level such as the village much easier to read, and the frame is cheaper. Ambient occlusion stays on if the scene has it.</p>
 <p><b>Selection outline</b>: the selected entity and all of its children get an orange outline. Parts hidden behind other objects get a dimmer outline and a faint orange fill, so you can find a selected object behind walls or trees. View › Selection Outline turns it off.</p>
-<p>Viewport menus: <b>View</b> (Stats, Colliders, Camera Frustums, Navigation Grid, Fog of War, Selection Outline), <b>Shading</b>, <b>Debug</b> (Ambient Occlusion Only, Shadow Cascades), <b>Camera</b> (Frame Selected, orbit speed). Colliders draw as outlines (triggers in magenta); mesh and convex-hull colliders show their full wireframe only when selected and a bounding box otherwise, so levels built from many mesh-collider pieces stay fast to edit. Cameras draw as frustums.</p>
+<p>Viewport menus: <b>View</b> (Stats, Colliders (off by default), Camera Frustums, Light Gizmos, Navigation Grid, Fog of War, Selection Outline), <b>Shading</b>, <b>Debug</b> (Ambient Occlusion Only, Shadow Cascades), <b>Camera</b> (Frame Selected, orbit speed). Colliders draw as outlines (triggers in magenta); mesh and convex-hull colliders show their full wireframe only when selected and a bounding box otherwise, so levels built from many mesh-collider pieces stay fast to edit. Cameras draw as frustums. Lights have no mesh and are never rendered: a sun shows as a ring of parallel arrows pointing the way its light travels, a point light as a lightbulb in its colour, both the same size on screen at any distance; click them (or box-select) to select them. Older scenes' glowing marker cubes on lights are removed when they load.</p>
 </section>
 
 <section class="doc" data-group="Editor" id="editor-gizmo">
@@ -781,6 +799,7 @@ MDBEditor.exe &gt; log.txt</code></pre>
 <p>A tree of entities with a <b>+</b> button, search, and right-click Create. Row menu: Duplicate, Delete, Unparent, Frame.</p>
 <ul>
   <li><b>Drag</b> an entity onto another to parent it, or onto empty space to make it a root (world placement is kept).</li>
+  <li>Groups start folded; selecting something inside one (in the Viewport, say) unfolds its parents.</li>
   <li>Prefab instances are shown in blue.</li>
   <li>Drop assets on a row: a model or prefab becomes its child; textures, scripts and sounds are applied to it.</li>
 </ul>
@@ -895,6 +914,19 @@ MDBEditor.exe &gt; log.txt</code></pre>
 <tr><td><b>Terrain</b> (<code>terrain.json</code>)</td><td>120 × 120 m of generated hills painted by their shape (grass, rock on slopes, sand by the water; textures from <code>Tools/terrain_textures.py</code>), grass growing on the grass layer, water, balls rolling down the slopes. Select the Terrain to sculpt and paint it.</td></tr>
 </table>
 <p>File &gt; Example Levels builds them in code (undoable); the saved scene files can also be opened directly.</p>
+</section>
+
+<section class="doc" data-group="Editor" id="editor-animgraph">
+<h2>AnimGraph Editor</h2>
+<p><b>Window &gt; AnimGraph Editor</b>, double-click a graph in <code>Assets/AnimGraphs</code>, or <b>Edit graph</b> on an Animator. It opens as a tab beside the Viewport, on the same canvas as the Dialogue Editor.</p>
+<ul>
+  <li><b>Left</b>: the layers (add, order, delete; name, mask bone, weight, weight parameter, additive) and the parameters (name, type, default; renaming one updates every use).</li>
+  <li><b>Centre</b>: the selected layer's states (blue: a clip, purple: a blend), the <b>Entry</b> and <b>Any State</b> nodes, and transitions as arrows (red: one that can never be taken).
+    Drag a node's pin onto a state to make a transition (from Entry: choose the entry state). Click an arrow to select it. Double-click empty space for a new state; right-click for menus (add a state for a clip, set as entry, a transition to itself, duplicate, delete). Wheel zooms, right or middle drag pans, <b>F</b> frames everything.</li>
+  <li><b>Right</b>: the selected state (clip or blend clips with their thresholds and speeds, speed, loop) or transition (target, blend time, exit time, conditions, order), and the <b>problems</b> list: missing clips or parameters, unreachable states, transitions that never fire. Clip names are checked against the model of the watched or selected entity.</li>
+  <li><b>Live</b>: during Play (and in Edit mode as a preview) it watches an Animator using the file (the selected entity's, else the first). The current state of each layer lights up green with a progress bar, the state fading out orange, the transition being taken green; the parameters get a <b>Live</b> column to change values or fire triggers, and a state's menu has <b>Play Now</b>. Each condition shows whether it holds now.</li>
+  <li>Every edit goes live at once, even unsaved, so a graph can be tuned while the game runs. <b>Ctrl+S</b> saves (Save As into <code>AnimGraphs/</code>), <b>Ctrl+Z / Ctrl+Y</b> undo and redo (its own history), <b>Delete</b>, <b>Ctrl+D</b>. Quitting or opening another graph asks about unsaved changes; discarding puts the saved version back into the game.</li>
+</ul>
 </section>
 
 <section class="doc" data-group="Editor" id="editor-dialogue">
@@ -1117,6 +1149,16 @@ a:set_ik(1, { type = "look", bone = "b_Head_05", target = scene.find("Player"), 
 a:set_ik(2, { type = "limb", bone = "b_RightHand", target = vec3(1, 1, 0), pole = vec3(0, 0, 1) })
 a:ik_weight(1, 0.5)
 local head = a:bone_position("b_Head_05")</code></pre>
+<h3>Animation graphs</h3>
+<pre><code class="lua">self:add_animator{ graph = "AnimGraphs/fox.json" }   -- or set a.graph = "AnimGraphs/fox.json" ("" = back to clips)
+a:set("speed", 2.4)                      -- a number, or true / false for a bool
+a:trigger("look_around")                 -- fires a trigger (reset when a transition uses it); a:reset_trigger(name)
+local v = a:get("speed")                 -- bools and triggers read 0 / 1
+log(a:state(), a:state(2))               -- the current state of layer 1 (base) and layer 2
+log(a:state_time(), a:phase(), a:in_transition())   -- seconds in it, 0..1 through it, cross-fading?
+a:play_state("Look", 1, 0.2)             -- go there now (layer, blend seconds), whatever the transitions say
+function on_anim_event(self, name, state) if name == "enter" then log("now " .. state) end end</code></pre>
+<p>Setting a parameter the graph doesn't have, or playing a missing state, is an error.</p>
 </section>
 
 <section class="doc" data-group="Scripting" id="script-scene">

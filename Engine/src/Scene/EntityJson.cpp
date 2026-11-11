@@ -117,6 +117,7 @@ namespace Engine {
             auto& a = e.Get<AnimatorComponent>();
             j["animator"] = { { "clip", a.Clip },{ "speed", a.Speed },{ "loop", a.Loop },{ "playing", a.Playing },
                               { "blendTime", a.BlendTime } };
+            if (!a.Graph.empty()) j["animator"]["graph"] = a.Graph;      // only when set (no new prefab overrides)
             // Only when present, so animators without them keep their old JSON (no prefab overrides appear)
             if (!a.Layers.empty()) {
                 json layers = json::array();
@@ -311,6 +312,8 @@ namespace Engine {
             const auto& ja = j["animator"];
             AnimatorComponent a;
             a.Clip = ja.value("clip", std::string());
+            a.Graph = ja.value("graph", std::string());
+            if (!a.Graph.empty() && res.LoadAnimGraph) a.GraphData = res.LoadAnimGraph(a.Graph);
             a.Speed = ja.value("speed", 1.0f);
             a.Loop = ja.value("loop", true);
             a.Playing = ja.value("playing", true);
