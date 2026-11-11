@@ -704,6 +704,7 @@ self:add_audio("Sounds/lava_loop.wav", { loop = true, min_distance = 2, max_dist
 <tr><td><code>terrain_test.lua</code></td><td>Terrain on <code>terrain.json</code>: height lookups, physics agreeing with the drawn surface, navigation, grass on a layer, bodies resting on it (10)</td></tr>
 <tr><td><code>scatter_test.lua</code></td><td>The terrain Scatter brush's Fill on <code>terrain.json</code> (with <code>MDB_SELECT=Terrain MDB_TERRAIN_TOOL=scatter:... MDB_SCATTER_FILL=1</code>) (10)</td></tr>
 <tr><td><code>database_test.lua</code></td><td>The game database and NPCs on <code>tactics_test.json</code>: lookups, stats, inventory, equipment, effects, death and loot (34)</td></tr>
+<tr><td><code>ui_layout_test.lua</code></td><td><code>ui.show</code> on <code>UI/test_layout.json</code>: text expressions, repeats, visible conditions, vars, a broken expression, a click on a repeated button (its on_click and event) (15)</td></tr>
 </table>
 <pre><code class="sh">set MDB_PROJECT=Examples &amp; set MDB_WINDOWED=1 &amp; set MDB_SCENE=tactics_test.json &amp; set MDB_AUTOPLAY=1
 set MDB_TEST_SCRIPT=Scripts/nav_test.lua &amp; set MDB_QUIT_AFTER=8
@@ -716,6 +717,7 @@ MDBEditor.exe &gt; log.txt</code></pre>
 <tr><td><code>MDB_DEMO=script|coinrush|tactics|cellar|terrain</code></td><td>Build an example level</td></tr>
 <tr><td><code>MDB_TERRAIN_TOOL=raise|smooth|flatten|noise|paint[:1-4]|scatter[:items]</code></td><td>Pick that terrain brush (with <code>MDB_SELECT=Terrain</code>), for scripted brush tests; <code>scatter:a.gltf,b.gltf</code> also sets the items</td></tr>
 <tr><td><code>MDB_OPEN_DATABASE=1|npc:&lt;id&gt;|item:&lt;id&gt;</code></td><td>Open the Database window (on that entry); with <code>MDB_SAVE_DATABASE=1</code> it saves the database through the editor</td></tr>
+<tr><td><code>MDB_OPEN_UI=UI/x.json[#widget]</code></td><td>Open the UI Editor on that layout (that widget selected); with <code>MDB_SAVE_UI=1</code> it saves it through the editor</td></tr>
 <tr><td><code>MDB_SCATTER_FILL=1</code></td><td>With the scatter tool and a selected terrain: run Fill terrain once (then <code>MDB_AUTOPLAY</code> presses Play)</td></tr>
 <tr><td><code>MDB_SCENE</code> / <code>MDB_SAVE_SCENE</code></td><td>Load a scene first / save last</td></tr>
 <tr><td><code>MDB_AUTOPLAY=1</code></td><td>Press Play</td></tr>
@@ -983,6 +985,32 @@ MDBEditor.exe &gt; log.txt</code></pre>
   <li><b>NPC stats</b>: tick a stat to give the NPC its own value; unticked ones use the stat's default. <b>Inventory</b> rows: item, count, chance, drop, equipped (only items with a slot). Drag an item from the Items list onto a row's item.</li>
   <li><b>Placing</b>: drag an NPC (or an item) from the list into the Viewport, use <b>Place in scene</b>, or <b>Create &gt; NPC</b> / <b>Create &gt; Item Pickup</b>. An NPC gets its model scaled to its height (or its prefab), its animation graph, script and capsule body. Changing those in the database updates the NPCs already placed. The Inspector's <b>NPC</b> section picks the id, opens it in the Database window, applies its looks again, and while playing shows its live stats (editable), inventory and effects.</li>
   <li>Its own undo (<b>Ctrl+Z</b> / <b>Ctrl+Y</b>), <b>Ctrl+S</b>, <b>Ctrl+D</b> and <b>Delete</b> while it has focus; quitting asks about unsaved changes. Every edit applies at once, even while the game runs.</li>
+</ul>
+</section>
+
+<section class="doc" data-group="Editor" id="editor-ui">
+<h2>UI Editor</h2>
+<p><b>Window &gt; UI Editor</b> (or double-click a file in <code>Assets/UI</code>) designs game UI as <b>layouts</b>: files in <code>Assets/UI/&lt;name&gt;.json</code> that a script draws every frame with <a href="#script-ui-layouts"><code>ui.show</code></a>. A layout is a tree of the same widgets scripts place with <code>ui.begin_panel</code> and friends, drawn by the same layout code, so the preview is exactly what the game shows.</p>
+<ul>
+  <li><b>Left: the widget tree.</b> Panels sit at the top. Inside them go rows, columns and scroll regions, which hold labels, buttons, images, bars, slots, spaces and separators. Use <b>+ Add</b> or the Add menu: a new widget goes into the selected container, or after the selected widget. The right-click menu has Add inside, Add after, Duplicate, Move Up/Down and Delete. Drag a row onto a container to put it inside, or onto another row to put it before that row. The problems list underneath catches widgets outside a panel, empty containers, buttons nothing can detect, repeated names and missing images.</li>
+  <li><b>Middle: the preview</b>, at 16:9, 16:10, 4:3, 21:9 or phone 9:16, with the game's fonts.
+    <ul>
+      <li>Click a widget to select it, and drag to move its panel. Panel positions are 0..1 of the view, so they hold at any resolution.</li>
+      <li><b>Zoom and pan</b>: the wheel zooms around the pointer (Ctrl+wheel while trying it, where the wheel scrolls the UI), right or middle drag pans, <b>F</b> (or Frame) zooms onto the selected widget, <b>Home</b> (or Fit) shows the whole view again.</li>
+      <li>Expressions are worked out on the layout's <b>Preview data</b>: sample values written as JSON, such as <code>{ "game": { "gold": 120 }, "hp": 7 }</code>. Texts, bars, counts, conditions and repeats then show realistic content. Any expression that fails on those values is listed under the preview.</li>
+      <li><b>Try it</b> makes the pointer work the layout as in the game. Buttons light up and click, and their <code>on_click</code> runs on the preview values, so a button that sets <code>open = false</code> really hides its panel. <b>Reset values</b> puts the values back.</li>
+    </ul></li>
+  <li><b>Right: the selected widget's properties.</b>
+    <ul>
+      <li>Panels: title, position, anchor, size, padding, close button, colour and alpha, a 9-slice frame image.</li>
+      <li>Labels: text with markup, size, colour, alignment, bold, muted, wrap.</li>
+      <li>Buttons: text, on click, event, disabled, selected, size, fill.</li>
+      <li>Images, bars and slots: image, value, count, colours.</li>
+      <li>On every widget: <b>Name</b>, <b>Visible</b> (a condition), <b>Repeat</b> (a count or a list) and <b>Tooltip</b>.</li>
+      <li>Number and on/off values have an <b>f</b> button that turns them into a Lua expression. For example, a bar's value becomes <code>hp / max_hp</code>, or a button's Disabled becomes <code>game.gold &lt; 10</code>.</li>
+    </ul></li>
+  <li><b>Live editing.</b> Every change goes live at once, even unsaved, so a game running in the editor shows the new layout while you edit it.</li>
+  <li><b>Keys and files.</b> The UI Editor has its own undo (<b>Ctrl+Z</b> / <b>Ctrl+Y</b>), plus <b>Ctrl+S</b>, <b>Ctrl+D</b> and <b>Delete</b> while it has focus. Save As writes into <code>UI/</code>. Quitting or opening another layout asks about unsaved changes.</li>
 </ul>
 </section>
 
@@ -1451,6 +1479,33 @@ local held = ui.dragging()                    -- the dragged value, or nil
 local x, y, w, h = ui.last_rect()             -- the widget just placed (0..1)
 local width = ui.text_width("Hello", 18, true)
 ui.simulate_pointer(0.5, 0.5, true)           -- tests: fake the pointer (call with no args to stop)</code></pre>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-ui-layouts">
+<h2>UI: layouts from the UI Editor</h2>
+<p>A layout made in the <a href="#editor-ui">UI Editor</a> is drawn with one call each frame, in place of the <code>ui.begin_panel</code> ... <code>ui.end_panel</code> code it stands for. It returns the <b>name</b> of the button or slot clicked this frame (or of the panel whose x was clicked), plus its repeat index.</p>
+<pre><code class="lua">function on_update(self, dt)
+    local clicked, index = ui.show("UI/pause.json", { vars = { score = score } })
+    if clicked == "resume" then paused = false end
+    if clicked == "slot" then use_item(index) end
+end</code></pre>
+<ul>
+  <li><b>Where values come from.</b> Text takes markup and <code>{=expr}</code>, for example <code>Gold: {=game.gold}</code>. Numbers and switches can be expressions, such as a bar's <code>hp / max_hp</code> or a button's disabled <code>game.gold &lt; 10</code>.
+    <ul>
+      <li>Expressions run in the <b>calling script's environment</b>, so they see its globals and the shared ones (<code>game</code>, <code>shared</code>, <code>db</code> ...).</li>
+      <li>A script's <code>local</code> variables are invisible to them. Pass those in <code>vars</code>, which take priority over the script's own names.</li>
+      <li><code>on_click</code> and <code>on_close</code> are Lua statements. Their assignments go to the script, so <code>open = false</code> sets the script's own <code>open</code>.</li>
+    </ul></li>
+  <li><b>Conditions and repeats.</b>
+    <ul>
+      <li><code>visible</code> hides a widget and everything inside it while the condition is false or nil.</li>
+      <li><code>repeat</code> draws a widget once per entry of a count or list, with <code>index</code> and <code>item</code> set for its expressions. For example, a row of slots with repeat <code>game.bag</code> can use the icon <code>{=item.icon}</code>.</li>
+    </ul></li>
+  <li><b>Events.</b> A widget's <code>event</code> sends <code>events.emit(name, { ui = path, widget = name, index })</code>.</li>
+  <li><b>Errors.</b> A broken expression is reported once in the Console, its text shows <code>?</code>, and the rest of the layout still draws.</li>
+  <li><b>Options.</b> <code>id</code> keeps two copies of one layout apart. The default is the path.</li>
+</ul>
+<p>Example: the tactics HUD (<code>UI/tactics_hud.json</code>, drawn by <code>tactics.lua</code> with its locals passed as <code>vars</code>), and the goblin card shown while the pointer is over a goblin (<code>UI/target.json</code>), whose loot row repeats one slot per item carried. The file format is described in <code>Runtime/UIDocument.h</code>.</p>
 </section>
 
 <section class="doc" data-group="Scripting" id="script-nav">

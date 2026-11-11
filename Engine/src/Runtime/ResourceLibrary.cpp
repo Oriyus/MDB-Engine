@@ -5,6 +5,7 @@
 #include "Scene/Terrain.h"
 #include "Animation/AnimGraph.h"
 #include "Runtime/GameDatabase.h"
+#include "Runtime/UIDocument.h"
 #include "Core/Log.h"
 
 #include <filesystem>
@@ -140,6 +141,30 @@ namespace Engine {
         m_DatabaseLive = true;
     }
 
+    std::shared_ptr<const UIDocument> ResourceLibrary::LoadUIDocument(const std::string& path) {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path file = fs::u8path(m_AssetDir + path);
+        const auto stamp = fs::last_write_time(file, ec);
+        auto it = m_UIDocs.find(path);
+        if (ec) {                                        // no file: the editor's copy (a new layout), else nothing
+            if (it == m_UIDocs.end()) { ENGINE_WARN("UI {}: no such file", path); m_UIDocs[path] = { nullptr, {}, true }; return nullptr; }
+            return it->second.Data;
+        }
+        if (it != m_UIDocs.end() && !it->second.Missing && it->second.Stamp == stamp) return it->second.Data;   // also the live copy
+        std::string error;
+        auto doc = UIDocument::Load(file.string(), &error);
+        if (!doc) ENGINE_WARN("UI {}: {}", path, error);
+        m_UIDocs[path] = { doc, stamp, false };
+        return doc;
+    }
+
+    void ResourceLibrary::SetUIDocument(const std::string& path, std::shared_ptr<const UIDocument> doc) {
+        std::error_code ec;
+        const auto stamp = std::filesystem::last_write_time(std::filesystem::u8path(m_AssetDir + path), ec);
+        m_UIDocs[path] = { std::move(doc), stamp, false };   // until the file is written again
+    }
+
     std::shared_ptr<Model> ResourceLibrary::LoadModel(const std::string& path) {
         if (auto it = m_Models.find(path); it != m_Models.end()) return it->second;
         auto model = std::make_shared<Model>(m_AssetDir + path);
@@ -191,6 +216,7 @@ namespace Engine {
         r.LoadTerrain = [this](const std::string& path) { return LoadTerrain(path); };
         r.LoadAnimGraph = [this](const std::string& path) { return LoadAnimGraph(path); };
         r.LoadDatabase = [this]() { return LoadDatabase(); };
+        r.LoadUIDocument = [this](const std::string& path) { return LoadUIDocument(path); };
         return r;
     }
 

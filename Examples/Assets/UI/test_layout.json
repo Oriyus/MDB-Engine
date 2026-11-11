@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "preview": { "myvar": 7, "show_me": true, "picked": 0 },
+  "widgets": [
+    {
+      "type": "panel", "name": "info", "x": 0.98, "y": 0.02, "anchor": "topright", "w": 360,
+      "children": [
+        { "type": "label", "text": "ticks {=tick()}" },
+        { "type": "label", "repeat": 3, "text": "entry {=note(index)}" },
+        { "type": "label", "visible": false, "text": "{=boom()}" },
+        { "type": "label", "visible": "show_me", "text": "{=seen()}" },
+        { "type": "label", "visible": "hide_me", "text": "{=boom()}" },
+        { "type": "label", "visible": "nothing_here", "text": "{=boom()}" },
+        { "type": "label", "visible": "game.no_such_flag", "text": "{=boom()}" },
+        { "type": "label", "text": "{=check_var(myvar)}" },
+        { "type": "label", "text": "broken {=nil + 1} then {=after()}" },
+        { "type": "row", "children": [
+            { "type": "label", "repeat": "list", "text": "{=note_item(item, index)}" }
+          ] },
+        { "type": "bar", "value": "bar_value()", "w": 200 }
+      ]
+    },
+    {
+      "type": "panel", "name": "picker", "x": 0.5, "y": 0.5, "anchor": "center", "w": 300,
+      "children": [
+        { "type": "button", "name": "pick", "repeat": 3, "fill": true, "text": "Pick {=index}",
+          "on_click": "picked = index; clicks = clicks + 1", "event": "picked_event" }
+      ]
+    }
+  ]
+}

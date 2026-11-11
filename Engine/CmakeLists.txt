@@ -48,7 +48,7 @@ target_compile_definitions(Engine PUBLIC GLFW_INCLUDE_NONE)
 if(MSVC)
     target_compile_options(Engine PUBLIC /utf-8)
     # sol2's bindings produce more sections than a default .obj can hold
-    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/src/Scripting/ScriptEngine.cpp
+    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/src/Scripting/ScriptEngine.cpp ${CMAKE_CURRENT_SOURCE_DIR}/src/Runtime/UIPreview.cpp
         PROPERTIES COMPILE_OPTIONS /bigobj)
 endif()
 

@@ -331,31 +331,17 @@ end
 -- ---- UI (laid out: ui.begin_panel ... ui.end_panel; see ScriptEngine.h)
 local function clock(t) return string.format("%d:%02d", math.floor(t / 60), math.floor(t % 60)) end
 
--- Top left: what you can do now, gold, the level and the quest
+-- Top left: what you can do now, gold, the level and the quest. The panel is a layout made in the editor's
+-- UI Editor (Assets/UI/tactics_hud.json); its expressions see this script's globals (game, level ...) and the
+-- vars given here (this script's locals aren't visible to it otherwise).
 local function draw_hud()
-    local combat = mode == "combat"
-    ui.begin_panel("hud", { x = 0.012, y = 0.02, anchor = "topleft", w = 420, title = "Tactics Test", alpha = 0.78 })
-    if not combat then
-        ui.label("Exploring: click the ground to walk. Walk near an enemy, or press {b}C{/b}, to fight.")
-        ui.label("Q / E turn the camera.  I inventory.  F6 / F9 quicksave / quickload.", { muted = true, size = 16 })
-    else
-        local u = units[turn]
-        ui.label("Combat: " .. (u.enemy and (u.name .. " is moving...") or "{#9fd0ff}your turn{/}"))
-        ui.bar(math.max(points, 0) / move_points, { h = 20, color = vec3(0.25, 0.5, 0.95),
-            text = string.format("Movement %.1f / %d", math.max(points, 0), move_points) })
-        ui.label(string.format("Click a blue cell to move (diagonals cost %.1f), a goblin next to you to attack. Space ends the turn.", diagonal),
-            { muted = true, size = 16 })
-    end
-    ui.begin_row(8)
-    ui.image("Textures/coin_icon.png", { w = 22 })
-    ui.label(string.format("{#ffcc66}%d{/}", game.gold or 0), { bold = true })
-    ui.space(10)
-    ui.label(level.current() .. "   " .. clock(level.play_time()), { muted = true, size = 16 })
-    ui.end_row()
-    if game.quest_cellar then
-        ui.label("{#ffcc66}Quest:{/} explore the cellar (the glowing pad in the south-west corner).", { size = 16 })
-    end
-    ui.end_panel()
+    local u = units[turn]
+    ui.show("UI/tactics_hud.json", { vars = {
+        combat = mode == "combat",
+        turn_name = mode == "combat" and u and u.enemy and u.name or nil,
+        points = math.max(points, 0), move_points = move_points, diagonal = diagonal,
+        place = level.current() .. "   " .. clock(level.play_time()),
+    } })
     if message and message_time > 0 then
         ui.text(message, 0.5, 0.08, { size = 28, align = "center", alpha = math.min(1, message_time) })
     end
@@ -422,6 +408,24 @@ local function draw_toolbar(hero_turn)
     if ui.button(mode == "explore" and "Start combat" or "Leave combat") then toggle_combat() end
     ui.end_row()
     ui.end_panel()
+end
+
+-- Top centre: the goblin under the mouse, from the game database (a UI Editor layout, Assets/UI/target.json:
+-- its panel is shown only while `target` is set; its loot row repeats one slot per item carried)
+local function draw_target(mx, my, inside)
+    local foe = inside and enemy_under(mx, my)
+    local npc = foe and foe.e:valid() and foe.e.npc
+    local target = false
+    if npc and npc.alive then
+        local carries = {}
+        for _, c in ipairs(npc:inventory()) do
+            local it = db.item(c.item)
+            table.insert(carries, { item = c.item, count = c.count, name = c.name, icon = it and it.icon })
+        end
+        target = { name = npc.name, health = npc:stat("health"), max_health = npc:stat("max_health"),
+                   armour = npc:stat("armour"), carries = carries }
+    end
+    ui.show("UI/target.json", { vars = { target = target or nil } })
 end
 
 -- ---- callbacks
@@ -494,6 +498,7 @@ function on_update(self, dt)
     draw_hud()
     draw_toolbar(hero_turn)
     draw_save_menu()
+    draw_target(mx, my, inside)
     if input.key_pressed(Key.C) then toggle_combat() end
     if hero_turn and input.key_pressed(Key.Space) then end_turn() end
     if input.key_pressed(Key.F6) then save_to("quick") end

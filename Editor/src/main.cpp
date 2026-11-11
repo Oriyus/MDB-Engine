@@ -40,6 +40,7 @@
 #include "TerrainEditor.h"
 #include "AnimGraphEditor.h"
 #include "DatabaseEditor.h"
+#include "UIEditor.h"
 #include "Runtime/GameDatabase.h"
 #include "Runtime/Characters.h"
 #include "Animation/AnimGraph.h"
@@ -199,6 +200,8 @@ public:
         }
         m_GameFonts = LoadGameFonts();   // before the first ImGui frame builds the font atlas
         m_Session->Scripts().SetUIFonts(m_GameFonts.Bold, m_GameFonts.Regular);   // ui.label measures with them
+        m_UIEditor.SetFonts(m_GameFonts);   // the UI Editor previews layouts with the game's fonts
+        m_UIEditor.SetTextures(&m_UITextures);
         m_Camera->Position = glm::vec3(0.0f, 1.0f, 6.0f);
 
         // Test hooks, for running the app unattended:
@@ -262,6 +265,16 @@ public:
             if (od.rfind("npc:", 0) == 0) m_Database.SelectNpc(od.substr(4));
             if (od.rfind("item:", 0) == 0) m_Database.SelectItem(od.substr(5));
             if (EnvVar("MDB_SAVE_DATABASE") == "1") m_Database.Save();   // re-save it through the editor
+        }
+        // The UI Editor: every edit goes live (ui.show draws the new layout at once while playing)
+        m_UIEditor.OnChanged = [this](const std::string& path, std::shared_ptr<const Engine::UIDocument> doc) { m_Resources->SetUIDocument(path, doc); };
+        m_UIEditor.TextureId = [this](const std::string& p) -> uint32_t { auto t = m_Resources->LoadTexture(p); return t ? t->GetID() : 0; };
+        if (auto ul = EnvVar("MDB_OPEN_UI"); !ul.empty()) {   // test hook: "UI/x.json[#widget name]"
+            const size_t hash = ul.find('#');
+            m_UIEditor.Open(ul.substr(0, hash));
+            if (hash != std::string::npos) m_UIEditor.SelectName(ul.substr(hash + 1));
+            if (EnvVar("MDB_SAVE_UI") == "1") m_UIEditor.SaveIfNamed();   // re-save it through the editor
+            m_ShowUIEditor = true;
         }
         if (auto ag = EnvVar("MDB_OPEN_ANIMGRAPH"); !ag.empty()) {   // test hook: "AnimGraphs/x.json"
             m_AnimGraph.Open(ag);
@@ -370,7 +383,7 @@ public:
         bool kesc = EdgePressed(Key::Escape, m_EscDown);
         bool kp = EdgePressed(Key::P, m_PDown);
         const bool dialogueKeys = (m_ShowDialogue && m_Dialogue.IsFocused()) || (m_ShowAnimGraph && m_AnimGraph.IsFocused()) ||
-                                  (m_ShowDatabase && m_Database.IsFocused());   // those editors have their own shortcuts
+                                  (m_ShowDatabase && m_Database.IsFocused()) || (m_ShowUIEditor && m_UIEditor.IsFocused());   // those editors have their own shortcuts
         if (!typing && kesc && !dialogueKeys) {
             if (m_PlayState != PlayState::Edit) m_PlayCmd = PlayCmd::Stop;
             else RequestQuit();
@@ -584,7 +597,13 @@ public:
                 ImGui::SetNextWindowDockID(vp->DockId, ImGuiCond_FirstUseEver);
             m_Database.Draw(&m_ShowDatabase);
         }
+        if (m_ShowUIEditor) {
+            if (ImGuiWindow* vp = ImGui::FindWindowByName("Viewport"); vp && vp->DockId)
+                ImGui::SetNextWindowDockID(vp->DockId, ImGuiCond_FirstUseEver);
+            m_UIEditor.Draw(&m_ShowUIEditor);
+        }
         DrawDatabaseQuitModal();
+        DrawUIQuitModal();
         DrawGraphQuitModal();
         DrawDialogueQuitModal();
         DrawUnsavedChangesModal();
@@ -647,6 +666,7 @@ public:
     // Quit (Esc in Edit mode or the window's close button): ask first if there are unsaved changes
     void RequestQuit() {
         if (m_Database.IsDirty() && !m_DbDiscarded) { m_AskDbQuit = true; m_ShowDatabase = true; return; }
+        if (m_UIEditor.IsDirty() && !m_UIDiscarded) { m_AskUIQuit = true; m_ShowUIEditor = true; return; }
         if (m_AnimGraph.IsDirty() && !m_GraphDiscarded) { m_AskGraphQuit = true; m_ShowAnimGraph = true; return; }
         if (m_Dialogue.IsDirty() && !m_DialogueDiscarded) { m_AskDialogueQuit = true; m_ShowDialogue = true; return; }
         if (m_History.IsDirty()) m_Confirm = ConfirmAction::Quit;
@@ -778,6 +798,7 @@ public:
 
     bool OnCloseRequested() override {
         if (m_Database.IsDirty() && !m_DbDiscarded && !m_QuitConfirmed) { m_AskDbQuit = true; m_ShowDatabase = true; return false; }
+        if (m_UIEditor.IsDirty() && !m_UIDiscarded && !m_QuitConfirmed) { m_AskUIQuit = true; m_ShowUIEditor = true; return false; }
         if (m_AnimGraph.IsDirty() && !m_GraphDiscarded && !m_QuitConfirmed) { m_AskGraphQuit = true; m_ShowAnimGraph = true; return false; }
         if (m_Dialogue.IsDirty() && !m_DialogueDiscarded && !m_QuitConfirmed) { m_AskDialogueQuit = true; m_ShowDialogue = true; return false; }
         if (m_QuitConfirmed || !m_History.IsDirty()) return true;
@@ -808,6 +829,32 @@ public:
         }
         ImGui::SameLine();
         if (ImGui::Button("Cancel", ImVec2(110, 0))) { m_AskGraphQuit = false; m_SwitchProject.clear(); ImGui::CloseCurrentPopup(); }
+        ImGui::EndPopup();
+    }
+
+    // Quitting with unsaved changes in the UI Editor: asked first
+    void DrawUIQuitModal() {
+        if (m_AskUIQuit && !ImGui::IsPopupOpen("Unsaved UI layout changes")) ImGui::OpenPopup("Unsaved UI layout changes");
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        if (!ImGui::BeginPopupModal("Unsaved UI layout changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+        const std::string path = m_UIEditor.Path();
+        ImGui::Text("The UI layout %s has unsaved changes.", path.empty() ? "(not saved yet)" : path.c_str());
+        if (path.empty()) ImGui::TextDisabled("Use File > Save As in the UI Editor to keep it.");
+        ImGui::Spacing();
+        if (!path.empty() && ImGui::Button("Save", ImVec2(110, 0)) && m_UIEditor.SaveIfNamed()) {
+            m_AskUIQuit = false;
+            ImGui::CloseCurrentPopup();
+            RequestQuit();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Discard", ImVec2(110, 0))) {
+            m_AskUIQuit = false;
+            m_UIDiscarded = true;
+            ImGui::CloseCurrentPopup();
+            RequestQuit();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(110, 0))) { m_AskUIQuit = false; m_SwitchProject.clear(); ImGui::CloseCurrentPopup(); }
         ImGui::EndPopup();
     }
 
@@ -1849,6 +1896,7 @@ private:
             ImGui::MenuItem("Dialogue Editor", nullptr, &m_ShowDialogue);
             ImGui::MenuItem("AnimGraph Editor", nullptr, &m_ShowAnimGraph);
             ImGui::MenuItem("Database", nullptr, &m_ShowDatabase);
+            ImGui::MenuItem("UI Editor", nullptr, &m_ShowUIEditor);
             ImGui::Separator();
             if (ImGui::MenuItem("Hide Panels", "F1", !m_ShowUI)) m_ShowUI = !m_ShowUI;
             if (ImGui::MenuItem("Full Screen", "F11", GetWindow().IsFullscreen())) m_ToggleFullscreen = true;
@@ -2541,6 +2589,11 @@ private:
             case AssetBrowser::Action::SetSky:
                 if (a.Path.rfind("Environments/", 0) == 0) m_Renderer->RequestEnvironment(a.Path.substr(13));
                 else LOG_WARN("Sky maps load from Assets/Environments ({} is elsewhere)", a.Path);
+                break;
+            case AssetBrowser::Action::OpenUILayout:
+                m_UIEditor.Open(a.Path);
+                m_ShowUIEditor = true;
+                ImGui::SetWindowFocus("###UIEditor");
                 break;
             case AssetBrowser::Action::OpenAnimGraph:
                 m_AnimGraph.Open(a.Path);
@@ -4326,6 +4379,9 @@ private:
     DatabaseEditor m_Database{ Projects::Current().AssetDir() };   // the Database window (items, NPCs, stats)
     bool  m_ShowDatabase = false;
     bool  m_AskDbQuit = false, m_DbDiscarded = false;
+    UIEditor m_UIEditor{ Projects::Current().AssetDir() };   // the UI Editor (layouts in Assets/UI for ui.show)
+    bool  m_ShowUIEditor = false;
+    bool  m_AskUIQuit = false, m_UIDiscarded = false;
     std::shared_ptr<const Engine::GameDatabase> m_LastDb;   // the database before the last edit (to see what changed)
     bool  m_AskGraphQuit = false, m_GraphDiscarded = false;           // quitting with an unsaved graph
     bool  m_ShowDialogue = false;

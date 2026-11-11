@@ -15,6 +15,7 @@
 #include "Navigation/FogOfWar.h"
 #include "Scene/EntityJson.h"          // glm <-> json
 #include "Runtime/UILayout.h"
+#include "Runtime/UIDocument.h"
 #include "Runtime/GameDatabase.h"
 #include "Runtime/Characters.h"
 #include "Core/Input.h"
@@ -22,6 +23,7 @@
 
 #define SOL_ALL_SAFETIES_ON 1
 #define SOL_PRINT_ERRORS 0          // errors are reported through the engine log instead
+#include <optional>
 #include <tuple>
 #include <cmath>
 #include <sol/sol.hpp>
@@ -157,6 +159,12 @@ namespace Engine {
         bool PtrRightDown = false;
         UIContext UIC;                                    // laid-out ui (panels, labels, slots...)
         sol::object DragPayload;                          // the value of the slot being dragged (after Lua: dies first)
+        // ui.show: compiled layout expressions ("e:" / "s:" + code), the ones that failed (reported once), and the
+        // helper that makes each call's environment (vars over the calling script's globals)
+        std::unordered_map<std::string, sol::protected_function> UICode;
+        std::unordered_set<std::string> UICodeFailed;
+        sol::protected_function UIProxy;
+        void BindUIDocuments();
         bool SimPointer = false;                          // ui.simulate_pointer is on
         UIPointerState Sim;
         bool UIWarned = false;
@@ -1800,9 +1808,176 @@ namespace Engine {
         });
 
         BindDatabase();             // db.*, e.npc, e.pickup, scene.spawn_npc / spawn_pickup / pickups / npcs
+        BindUIDocuments();          // ui.show
     }
 
     // ---------------------------------------------------------------- game database, NPCs, pickups
+
+    // ---------------------------------------------------------------- ui.show: layouts from the UI Editor
+    namespace {
+        void SetChunkEnv(const sol::protected_function& f, const sol::table& env) {   // a loaded chunk's _ENV (first upvalue)
+            lua_State* L = f.lua_state();
+            f.push();
+            env.push();
+            if (!lua_setupvalue(L, -2, 1)) lua_pop(L, 1);
+            lua_pop(L, 1);
+        }
+
+        // A layout's expressions, run in one environment (made per ui.show call)
+        class LuaUIEval final : public UIDocEvaluator {
+        public:
+            LuaUIEval(ScriptEngine::Impl& m, sol::table env, std::string path) : M(m), Env(std::move(env)), Path(std::move(path)) {}
+
+            std::string Text(const std::string& text) override {
+                std::string out;
+                size_t i = 0;
+                while (i < text.size()) {
+                    const size_t start = text.find("{=", i);
+                    if (start == std::string::npos) { out += text.substr(i); break; }
+                    const size_t end = text.find('}', start + 2);
+                    if (end == std::string::npos) { out += text.substr(i); break; }
+                    out += text.substr(i, start - i);
+                    const auto v = Eval(text.substr(start + 2, end - start - 2), true);
+                    out += v ? ToString(*v) : std::string("?");
+                    i = end + 1;
+                }
+                return out;
+            }
+            bool Bool(const std::string& expr, bool fallback) override {
+                const auto v = Eval(expr, true);
+                if (!v) return fallback;                          // failed (reported once)
+                if (!v->valid()) return false;                    // nil
+                return v->get_type() != sol::type::lua_nil && v->get_type() != sol::type::none &&
+                       !(v->get_type() == sol::type::boolean && !v->as<bool>());
+            }
+            float Number(const std::string& expr, float fallback) override {
+                const auto v = Eval(expr, true);
+                return v && v->valid() && v->get_type() == sol::type::number ? v->as<float>() : fallback;
+            }
+            int BeginRepeat(const std::string& expr) override {
+                Frame f;
+                f.Index = Env.raw_get<sol::object>("index");
+                f.Item = Env.raw_get<sol::object>("item");
+                const auto v = Eval(expr, true);
+                int n = 0;
+                if (v && v->valid() && v->get_type() == sol::type::number) n = (int)v->as<double>();
+                else if (v && v->valid() && v->get_type() == sol::type::table) { f.List = v->as<sol::table>(); n = (int)f.List.size(); }
+                Stack.push_back(std::move(f));
+                return n;
+            }
+            void SetRepeat(int index) override {
+                if (Stack.empty()) return;
+                const Frame& f = Stack.back();
+                Env.raw_set("index", index);
+                if (f.List.valid()) Env.raw_set("item", f.List.raw_get<sol::object>(index));
+                else Env.raw_set("item", sol::lua_nil);
+            }
+            void EndRepeat() override {
+                if (Stack.empty()) return;
+                Env.raw_set("index", Stack.back().Index);
+                Env.raw_set("item", Stack.back().Item);
+                Stack.pop_back();
+            }
+            void Run(const std::string& code) override { Eval(code, false); }
+            void Event(const std::string& name, const UINode& node, int index) override;
+
+        private:
+            struct Frame { sol::object Index, Item; sol::table List; };
+            ScriptEngine::Impl& M;
+            sol::table Env;
+            std::string Path;
+            std::vector<Frame> Stack;
+
+            std::optional<sol::object> Eval(const std::string& code, bool expression);   // nullopt: it failed
+            static std::string ToString(const sol::object& v) {
+                if (!v.valid()) return "";                    // nil
+                switch (v.get_type()) {
+                case sol::type::lua_nil: case sol::type::none: return "";
+                case sol::type::number: {
+                    const double d = v.as<double>();
+                    char buf[64];
+                    if (std::floor(d) == d && std::abs(d) < 1e15) std::snprintf(buf, sizeof buf, "%lld", (long long)d);
+                    else std::snprintf(buf, sizeof buf, "%g", d);
+                    return buf;
+                }
+                case sol::type::string: return v.as<std::string>();
+                case sol::type::boolean: return v.as<bool>() ? "true" : "false";
+                default: {
+                    sol::state_view lua(v.lua_state());
+                    sol::protected_function ts = lua["tostring"];
+                    auto r = ts(v);
+                    return r.valid() ? r.get<std::string>() : "?";
+                }
+                }
+            }
+        };
+    }
+
+    // A chunk is compiled once per text (with no environment) and pointed at this call's environment each time
+    std::optional<sol::object> LuaUIEval::Eval(const std::string& code, bool expression) {
+        sol::state& lua = *M.Lua;
+        const std::string key = (expression ? "e:" : "s:") + code;
+        auto it = M.UICode.find(key);
+        if (it == M.UICode.end()) {
+            sol::load_result chunk = lua.load(expression ? "return " + code : code, "=" + Path, sol::load_mode::text);
+            if (!chunk.valid()) {
+                sol::error err = chunk;
+                if (M.UICodeFailed.insert(Path + "|" + key).second) M.ReportError("ui " + Path + ": " + err.what());
+                M.UICode[key] = sol::protected_function();
+                return std::nullopt;
+            }
+            it = M.UICode.emplace(key, chunk.get<sol::protected_function>()).first;
+        }
+        if (!it->second.valid()) return std::nullopt;
+        SetChunkEnv(it->second, Env);
+        sol::protected_function_result r = it->second();
+        if (!r.valid()) {
+            sol::error err = r;
+            if (M.UICodeFailed.insert(Path + "|" + key).second) M.ReportError("ui " + Path + " (" + code + "): " + err.what());
+            return std::nullopt;
+        }
+        if (r.return_count() == 0) return sol::make_object(lua, sol::lua_nil);
+        return r.get<sol::object>(0);
+    }
+
+    void LuaUIEval::Event(const std::string& name, const UINode& node, int index) {
+        if (M.Events.size() >= 1024) return;
+        sol::table data = M.Lua->create_table_with("ui", Path, "widget", node.Name, "index", index);
+        M.Events.push_back({ name, data });
+    }
+
+    void ScriptEngine::Impl::BindUIDocuments() {
+        sol::state& lua = *Lua;
+        // vars first, then the script's own globals (which fall back to the shared ones); assignments go to the script
+        UIProxy = lua.safe_script(R"(
+            return function(vars, env)
+                return setmetatable({}, {
+                    __index = function(_, k)
+                        if vars ~= nil then local v = vars[k]; if v ~= nil then return v end end
+                        return env[k]
+                    end,
+                    __newindex = env })
+            end)").get<sol::protected_function>();
+
+        sol::table ui = lua["ui"];
+        ui.set_function("show", [this](sol::this_environment te, const std::string& path, sol::optional<sol::table> opts)
+            -> std::tuple<sol::object, int> {
+            sol::object none = sol::make_object(*Lua, sol::lua_nil);
+            if (!Resources.LoadUIDocument) return { none, 0 };
+            auto doc = Resources.LoadUIDocument(path);
+            if (!doc) return { none, 0 };
+            sol::table callerEnv = te ? sol::table(static_cast<sol::environment&>(te)) : sol::table(Lua->globals());
+            sol::object vars = opts ? opts->get<sol::object>("vars") : none;
+            auto made = UIProxy(vars, callerEnv);
+            if (!made.valid()) return { none, 0 };
+            sol::table env = made.get<sol::table>();
+            const std::string id = opts ? opts->get<sol::optional<std::string>>("id").value_or(path) : path;
+            LuaUIEval eval(*this, env, path);
+            const UIDocResult r = DrawUIDocument(UIC, *doc, eval, id, UI);
+            if (r.Clicked.empty()) return { none, 0 };
+            return { sol::make_object(*Lua, r.Clicked), r.Index };
+        });
+    }
 
     void ScriptEngine::Impl::RefreshDatabase() {
         auto db = Resources.LoadDatabase ? Resources.LoadDatabase() : nullptr;
@@ -2481,6 +2656,8 @@ namespace Engine {
         m.QuitRequested = false;
         m.RestartRequested = false;
         m.Events.clear();           // they hold Lua values
+        m.UICode.clear();           // so do these
+        m.UIProxy = sol::protected_function();
         m.Lua.reset();
         m.ActiveScene = nullptr;
     }

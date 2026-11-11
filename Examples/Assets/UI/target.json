@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "preview": {
+    "target": {
+      "name": "Goblin",
+      "health": 7,
+      "max_health": 12,
+      "armour": 1,
+      "carries": [
+        { "item": "gold", "count": 8, "name": "Gold Coins", "icon": "Textures/coin_icon.png" },
+        { "item": "potion", "count": 1, "name": "Healing Potion", "icon": "Textures/Icons/potion.png" }
+      ]
+    }
+  },
+  "widgets": [
+    {
+      "type": "panel",
+      "name": "target",
+      "visible": "target ~= nil",
+      "x": 0.5,
+      "y": 0.02,
+      "anchor": "top",
+      "w": 300,
+      "alpha": 0.82,
+      "children": [
+        { "type": "row", "spacing": 8, "children": [
+            { "type": "label", "bold": true, "size": 20, "text": "{#ff9a7a}{=target.name}{/}" },
+            { "type": "label", "muted": true, "size": 15, "text": "armour {=target.armour}", "tooltip": "Taken off every hit" }
+          ] },
+        { "type": "bar", "value": "target.health / target.max_health", "h": 18, "color": [0.85, 0.25, 0.2], "back": [0.15, 0.05, 0.05],
+          "text": "{=math.ceil(target.health)} / {=target.max_health}" },
+        { "type": "label", "visible": "#target.carries > 0", "muted": true, "size": 14, "text": "Carries (drops when it dies)" },
+        { "type": "row", "spacing": 6, "children": [
+            { "type": "slot", "name": "loot", "repeat": "target.carries", "size": 40, "icon": "{=item.icon}", "count": "item.count",
+              "tooltip": "{b}{=item.name}{/b}" }
+          ] }
+      ]
+    }
+  ]
+}

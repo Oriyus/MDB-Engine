@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "preview": {
+    "combat": false,
+    "points": 3.5,
+    "move_points": 6,
+    "diagonal": 1.5,
+    "place": "tactics_test.json   2:15",
+    "game": { "gold": 42, "quest_cellar": true }
+  },
+  "widgets": [
+    {
+      "type": "panel",
+      "name": "hud",
+      "title": "Tactics Test",
+      "x": 0.012,
+      "y": 0.02,
+      "anchor": "topleft",
+      "w": 420,
+      "alpha": 0.78,
+      "children": [
+        { "type": "label", "visible": "not combat",
+          "text": "Exploring: click the ground to walk. Walk near an enemy, or press {b}C{/b}, to fight." },
+        { "type": "label", "visible": "not combat", "muted": true, "size": 16,
+          "text": "Q / E turn the camera.  I inventory.  F6 / F9 quicksave / quickload." },
+        { "type": "label", "visible": "combat and turn_name ~= nil", "text": "Combat: {=turn_name} is moving..." },
+        { "type": "label", "visible": "combat and turn_name == nil", "text": "Combat: {#9fd0ff}your turn{/}" },
+        { "type": "bar", "visible": "combat", "value": "points / move_points", "h": 20, "color": [0.25, 0.5, 0.95],
+          "text": "Movement {=string.format('%.1f', points)} / {=move_points}" },
+        { "type": "label", "visible": "combat", "muted": true, "size": 16,
+          "text": "Click a blue cell to move (diagonals cost {=string.format('%.1f', diagonal)}), a goblin next to you to attack. Space ends the turn." },
+        { "type": "row", "spacing": 8, "children": [
+            { "type": "image", "path": "Textures/coin_icon.png", "w": 22 },
+            { "type": "label", "bold": true, "text": "{#ffcc66}{=game.gold or 0}{/}", "tooltip": "Gold: chests, goblins and the Sage's errands" },
+            { "type": "space", "h": 10 },
+            { "type": "label", "muted": true, "size": 16, "text": "{=place}" }
+          ] },
+        { "type": "label", "visible": "game.quest_cellar", "size": 16,
+          "text": "{#ffcc66}Quest:{/} explore the cellar (the glowing pad in the south-west corner)." }
+      ]
+    }
+  ]
+}

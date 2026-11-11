@@ -14,6 +14,7 @@ namespace Engine {
     class TerrainData;
     struct AnimGraph;
     struct GameDatabase;
+    struct UIDocument;
 
     // The shared meshes and textures that scene and prefab files refer to by name:
     //   geometry "cube" (unit cube), "plane" (12 x 12), "sphere" (diameter 1), "model" (Models/BoomBox.glb),
@@ -56,6 +57,10 @@ namespace Engine {
         std::shared_ptr<const GameDatabase> LoadDatabase();
         // The editor's live copy (edited while the game runs): what LoadDatabase returns until the file changes again
         void SetDatabase(std::shared_ptr<const GameDatabase> db);
+        // A UI layout ("UI/x.json", made in the UI Editor), cached until the file changes. Null if missing or unreadable.
+        std::shared_ptr<const UIDocument> LoadUIDocument(const std::string& path);
+        // The editor's live copy (edited while the game runs): what LoadUIDocument returns until the file changes again
+        void SetUIDocument(const std::string& path, std::shared_ptr<const UIDocument> doc);
 
         // Name <-> resource mapping for SceneSerializer, PrefabLibrary and ScriptEngine.
         // The functions keep a pointer to this library, so it must outlive their users.
@@ -75,6 +80,8 @@ namespace Engine {
         std::shared_ptr<const GameDatabase> m_Database;
         std::filesystem::file_time_type m_DatabaseStamp{};
         bool m_DatabaseLive = false;
+        struct CachedUI { std::shared_ptr<const UIDocument> Data; std::filesystem::file_time_type Stamp; bool Missing = false; };
+        std::unordered_map<std::string, CachedUI> m_UIDocs;                       // by path
     };
 
 } // namespace Engine

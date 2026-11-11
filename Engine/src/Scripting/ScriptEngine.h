@@ -198,6 +198,12 @@ namespace Engine {
     //             padding, spacing, rounding, slot_color, slot_size, slot_image, slot_slice, tooltip_width }
     //   ui.wants_mouse() -> true when the pointer is over UI (or dragging): don't treat the click as a world click
     //   ui.dragging() -> the dragged value or nil, ui.last_rect() -> x, y, w, h (0..1), ui.text_width(text [, size [, bold]])
+    //   ui.show(path [, { vars = {...}, id }]) -> clicked, index    draws a layout made in the UI Editor (Assets/UI/x.json,
+    //       Runtime/UIDocument.h) this frame. Its expressions ({=expr} in text, visible, value, disabled, on_click ...)
+    //       run in this script's environment, with vars on top and `index` / `item` inside a repeat. clicked: the
+    //       name of the button or slot clicked this frame (or the panel whose x was clicked), index its repeat entry.
+    //       Edits in the editor show at once while playing. A widget's event = "name" sends events.emit(name,
+    //       { ui = path, widget, index }).
     //   ui.simulate_pointer(x, y, down [, wheel [, right]]) / ui.simulate_pointer()   test hook: overrides the pointer
     //   scene.raycast(origin, dir, max_dist [, ignore_entity]) -> nil or { entity, point, normal, distance }
     //   scene.screen_ray(x, y) -> origin, dir          through the game camera, x, y 0..1 of the view (ui.mouse())
@@ -317,8 +323,8 @@ namespace Engine {
         bool ConsumeQuitRequest();                              // true once after scene.quit()
         bool ConsumeRestartRequest();                           // true once after scene.restart()
 
+        struct Impl;                           // keeps sol2 out of everything else (named here so helpers in the .cpp can use it)
     private:
-        struct Impl;                           // keeps sol2 out of everything else
         std::unique_ptr<Impl> m_Impl;
     };
 
