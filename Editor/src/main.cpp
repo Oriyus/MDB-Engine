@@ -39,6 +39,9 @@
 #include "GameBuilder.h"
 #include "TerrainEditor.h"
 #include "AnimGraphEditor.h"
+#include "DatabaseEditor.h"
+#include "Runtime/GameDatabase.h"
+#include "Runtime/Characters.h"
 #include "Animation/AnimGraph.h"
 
 #include <cfloat>
@@ -80,6 +83,10 @@ public:
         m_Resources = std::make_unique<ResourceLibrary>(Projects::Current().AssetDir(), Projects::EngineDir());
         m_Renderer = std::make_unique<SceneRenderer>(Projects::EngineDir(), Projects::Current().AssetDir());
         m_Session = std::make_unique<GameSession>(m_Scene, Projects::Current().AssetDir(), Projects::EngineDir(), m_Resources->Registry());
+        m_TerrainEditor.SetCreateAsset([this](const std::string& path) {
+            const Entity e = CreateAsset(path);
+            return e ? e.GetHandle() : entt::null;
+        });
         {   // save slots while play-testing: MDB_SAVE_DIR, else %APPDATA%/MDB Engine/Editor Saves/<project title>
             std::string dir = EnvVar("MDB_SAVE_DIR");
             if (dir.empty()) {
@@ -228,6 +235,34 @@ public:
             for (auto [e, an] : m_Scene.Registry().view<Engine::AnimatorComponent>().each())
                 if (an.Graph == path) an.GraphData = graph;
         };
+        // The Database window: every edit goes live (a running game reads the new values), and in Edit mode the
+        // NPCs placed in the scene take a changed model, height, graph, script or body at once
+        m_Database.OnChanged = [this](std::shared_ptr<const Engine::GameDatabase> db) {
+            using namespace Engine;
+            m_Resources->SetDatabase(db);
+            if (m_PlayState == PlayState::Edit && m_LastDb) {
+                const auto res = m_Resources->Registry();
+                for (auto [e, n] : m_Scene.Registry().view<NpcComponent>().each()) {
+                    const NpcDef* now = db->Npc(n.Id);
+                    const NpcDef* before = m_LastDb->Npc(n.Id);
+                    if (!now || !before) continue;
+                    if (now->Model != before->Model || now->Height != before->Height || now->AnimGraph != before->AnimGraph ||
+                        now->Script != before->Script || now->Collider != before->Collider || now->Radius != before->Radius)
+                        Characters::ApplyLook(m_Scene, e, *now, res);
+                }
+            }
+            m_LastDb = db;
+        };
+        m_Database.OnOpenDialogue = [this](const std::string& p) { m_Dialogue.Open(p); m_ShowDialogue = true; ImGui::SetWindowFocus("###DialogueEditor"); };
+        m_Database.OnOpenAnimGraph = [this](const std::string& p) { m_AnimGraph.Open(p); m_ShowAnimGraph = true; };
+        m_Database.OnPlaceNpc = [this](const std::string& id) { PlaceNpc(id, m_Camera->Position + m_Camera->GetFront() * 4.0f); };
+        m_Database.TextureId = [this](const std::string& p) -> uint32_t { auto t = m_Resources->LoadTexture(p); return t ? t->GetID() : 0; };
+        if (auto od = EnvVar("MDB_OPEN_DATABASE"); !od.empty()) {   // test hook: the Database window ("1", "npc:<id>", "item:<id>")
+            m_ShowDatabase = true;
+            if (od.rfind("npc:", 0) == 0) m_Database.SelectNpc(od.substr(4));
+            if (od.rfind("item:", 0) == 0) m_Database.SelectItem(od.substr(5));
+            if (EnvVar("MDB_SAVE_DATABASE") == "1") m_Database.Save();   // re-save it through the editor
+        }
         if (auto ag = EnvVar("MDB_OPEN_ANIMGRAPH"); !ag.empty()) {   // test hook: "AnimGraphs/x.json"
             m_AnimGraph.Open(ag);
             m_ShowAnimGraph = true;
@@ -246,16 +281,22 @@ public:
             m_WireXRay = vm == "xray";
         }
         m_PendingSelect = EnvVar("MDB_SELECT");     // selected once the scene has it (loads are queued)
-        // MDB_TERRAIN_TOOL=raise|smooth|flatten|noise|paint[:layer 1-4]: that terrain brush is chosen (with MDB_SELECT=Terrain)
+        // MDB_TERRAIN_TOOL=raise|smooth|flatten|noise|paint[:layer 1-4]|scatter[:items]: that terrain brush is chosen (with MDB_SELECT=Terrain)
         if (auto tt = EnvVar("MDB_TERRAIN_TOOL"); !tt.empty()) {
             using T = TerrainEditor::Tool;
             const std::string tool = tt.substr(0, tt.find(':'));
             m_TerrainEditor.SetTool(tool == "raise" ? T::Raise : tool == "smooth" ? T::Smooth : tool == "flatten" ? T::Flatten
-                                  : tool == "noise" ? T::Noise : tool == "paint" ? T::Paint : T::None);
+                                  : tool == "noise" ? T::Noise : tool == "paint" ? T::Paint : tool == "scatter" ? T::Scatter : T::None);
+            // scatter:<path>[,<path>...]: the items to scatter
+            if (tool == "scatter" && tt.size() > 8) {
+                std::stringstream items(tt.substr(8));
+                for (std::string p; std::getline(items, p, ',');) m_TerrainEditor.Scatter().Items.push_back({ p, 1.0f, 1.0f });
+            }
             if (tool == "paint" && tt.size() > 6) m_TerrainEditor.SetPaintLayer(std::atoi(tt.c_str() + 6) - 1);
         }
         if (EnvVar("MDB_MOTION_VECTORS") == "1") m_Renderer->ShowMotionVectors = true;   // Viewport > Debug > Motion Vectors
-        if (EnvVar("MDB_AUTOPLAY") == "1") m_PlayCmd = PlayCmd::Play;
+        // (with MDB_SCATTER_FILL, Play starts after the fill)
+        if (EnvVar("MDB_AUTOPLAY") == "1" && EnvVar("MDB_SCATTER_FILL") != "1") m_PlayCmd = PlayCmd::Play;
         if (auto q = EnvVar("MDB_QUIT_AFTER"); !q.empty()) m_QuitAfter = std::strtof(q.c_str(), nullptr);
         if (EnvVar("MDB_NO_VSYNC") == "1") GetWindow().SetVSync(false);   // test hook: uncapped frame rate, for timing
 
@@ -328,7 +369,8 @@ public:
 
         bool kesc = EdgePressed(Key::Escape, m_EscDown);
         bool kp = EdgePressed(Key::P, m_PDown);
-        const bool dialogueKeys = (m_ShowDialogue && m_Dialogue.IsFocused()) || (m_ShowAnimGraph && m_AnimGraph.IsFocused());   // those editors have their own shortcuts
+        const bool dialogueKeys = (m_ShowDialogue && m_Dialogue.IsFocused()) || (m_ShowAnimGraph && m_AnimGraph.IsFocused()) ||
+                                  (m_ShowDatabase && m_Database.IsFocused());   // those editors have their own shortcuts
         if (!typing && kesc && !dialogueKeys) {
             if (m_PlayState != PlayState::Edit) m_PlayCmd = PlayCmd::Stop;
             else RequestQuit();
@@ -476,6 +518,13 @@ public:
                 m_PendingSelect.clear();
                 SelectOnly(found.front());
                 for (auto e : found) AddToSelection(e);
+                // MDB_SCATTER_FILL=1 (with MDB_TERRAIN_TOOL=scatter:<items>): Fill terrain on the selected terrain
+                if (EnvVar("MDB_SCATTER_FILL") == "1" && m_Scene.Registry().all_of<Engine::TerrainComponent>(found.back())) {
+                    const int n = m_TerrainEditor.ScatterFill(m_Scene, found.back());
+                    LOG_INFO("Scatter fill: {} placed", n);
+                    m_MaybeChanged = true;
+                    if (EnvVar("MDB_AUTOPLAY") == "1") m_PlayCmd = PlayCmd::Play;
+                }
             }
         }
         SyncSelection();
@@ -530,6 +579,12 @@ public:
             LinkAnimGraphEditor();
             m_AnimGraph.Draw(&m_ShowAnimGraph);
         }
+        if (m_ShowDatabase) {
+            if (ImGuiWindow* vp = ImGui::FindWindowByName("Viewport"); vp && vp->DockId)
+                ImGui::SetNextWindowDockID(vp->DockId, ImGuiCond_FirstUseEver);
+            m_Database.Draw(&m_ShowDatabase);
+        }
+        DrawDatabaseQuitModal();
         DrawGraphQuitModal();
         DrawDialogueQuitModal();
         DrawUnsavedChangesModal();
@@ -591,6 +646,7 @@ public:
 
     // Quit (Esc in Edit mode or the window's close button): ask first if there are unsaved changes
     void RequestQuit() {
+        if (m_Database.IsDirty() && !m_DbDiscarded) { m_AskDbQuit = true; m_ShowDatabase = true; return; }
         if (m_AnimGraph.IsDirty() && !m_GraphDiscarded) { m_AskGraphQuit = true; m_ShowAnimGraph = true; return; }
         if (m_Dialogue.IsDirty() && !m_DialogueDiscarded) { m_AskDialogueQuit = true; m_ShowDialogue = true; return; }
         if (m_History.IsDirty()) m_Confirm = ConfirmAction::Quit;
@@ -721,6 +777,7 @@ public:
     }
 
     bool OnCloseRequested() override {
+        if (m_Database.IsDirty() && !m_DbDiscarded && !m_QuitConfirmed) { m_AskDbQuit = true; m_ShowDatabase = true; return false; }
         if (m_AnimGraph.IsDirty() && !m_GraphDiscarded && !m_QuitConfirmed) { m_AskGraphQuit = true; m_ShowAnimGraph = true; return false; }
         if (m_Dialogue.IsDirty() && !m_DialogueDiscarded && !m_QuitConfirmed) { m_AskDialogueQuit = true; m_ShowDialogue = true; return false; }
         if (m_QuitConfirmed || !m_History.IsDirty()) return true;
@@ -752,6 +809,51 @@ public:
         ImGui::SameLine();
         if (ImGui::Button("Cancel", ImVec2(110, 0))) { m_AskGraphQuit = false; m_SwitchProject.clear(); ImGui::CloseCurrentPopup(); }
         ImGui::EndPopup();
+    }
+
+    // Quitting with unsaved changes in the Database window: asked first
+    void DrawDatabaseQuitModal() {
+        if (m_AskDbQuit && !ImGui::IsPopupOpen("Unsaved database changes")) ImGui::OpenPopup("Unsaved database changes");
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        if (!ImGui::BeginPopupModal("Unsaved database changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+        ImGui::Text("The database (%s) has unsaved changes.", Engine::GameDatabase::kPath);
+        ImGui::Spacing();
+        if (ImGui::Button("Save", ImVec2(110, 0)) && m_Database.Save()) {
+            m_AskDbQuit = false;
+            ImGui::CloseCurrentPopup();
+            RequestQuit();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Discard", ImVec2(110, 0))) {
+            m_AskDbQuit = false;
+            m_DbDiscarded = true;
+            ImGui::CloseCurrentPopup();
+            RequestQuit();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(110, 0))) { m_AskDbQuit = false; m_SwitchProject.clear(); ImGui::CloseCurrentPopup(); }
+        ImGui::EndPopup();
+    }
+
+    // An NPC of the database placed in the scene (its model, graph, script and body), selected
+    void PlaceNpc(const std::string& id, const glm::vec3& at) {
+        using namespace Engine;
+        auto db = m_Resources->LoadDatabase();
+        if (!db->Npc(id)) { LOG_WARN("No NPC \"{}\" in the database", id); return; }
+        const entt::entity e = Characters::MakeNpc(m_Scene, *db, id, m_Resources->Registry(), &m_Session->Prefabs());
+        m_Scene.SetWorldPosition(e, at);
+        SelectOnly(e);
+        m_MaybeChanged = true;
+    }
+
+    // An item of the database lying in the scene (a pickup), selected
+    void PlacePickup(const std::string& id, const glm::vec3& at) {
+        using namespace Engine;
+        auto db = m_Resources->LoadDatabase();
+        if (!db->Item(id)) { LOG_WARN("No item \"{}\" in the database", id); return; }
+        const entt::entity e = Characters::MakePickup(m_Scene, *db, id, 1, at, m_Resources->Registry(), &m_Session->Prefabs());
+        SelectOnly(e);
+        m_MaybeChanged = true;
     }
 
     // The AnimGraph Editor's live link: the Animator it shows (the selected entity's if it uses the open graph, else
@@ -1746,6 +1848,7 @@ private:
             ImGui::MenuItem("Assets", nullptr, &m_ShowAssets);
             ImGui::MenuItem("Dialogue Editor", nullptr, &m_ShowDialogue);
             ImGui::MenuItem("AnimGraph Editor", nullptr, &m_ShowAnimGraph);
+            ImGui::MenuItem("Database", nullptr, &m_ShowDatabase);
             ImGui::Separator();
             if (ImGui::MenuItem("Hide Panels", "F1", !m_ShowUI)) m_ShowUI = !m_ShowUI;
             if (ImGui::MenuItem("Full Screen", "F11", GetWindow().IsFullscreen())) m_ToggleFullscreen = true;
@@ -1847,6 +1950,22 @@ private:
             if (TerrainSurfaceAt(m_Scene, t.Position.x, t.Position.z, y)) t.Position.y = y;
         }
         ImGui::SeparatorText("Gameplay");
+        if (ImGui::BeginMenu("NPC")) {                          // the NPCs of the database (Window > Database)
+            auto db = m_Resources->LoadDatabase();
+            for (const auto& n : db->Npcs)
+                if (ImGui::MenuItem((n.Name + "##" + n.Id).c_str())) PlaceNpc(n.Id, spot);
+            if (db->Npcs.empty()) ImGui::TextDisabled("No NPCs yet");
+            ImGui::Separator();
+            if (ImGui::MenuItem("Open Database...")) { m_ShowDatabase = true; ImGui::SetWindowFocus("###DatabaseEditor"); }
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Item Pickup")) {                  // an item of the database lying on the ground
+            auto db = m_Resources->LoadDatabase();
+            for (const auto& it : db->Items)
+                if (ImGui::MenuItem((it.Name + "##" + it.Id).c_str())) PlacePickup(it.Id, spot);
+            if (db->Items.empty()) ImGui::TextDisabled("No items yet");
+            ImGui::EndMenu();
+        }
         if (ImGui::MenuItem("Camera")) {
             Entity e = m_Scene.CreateEntity("Camera");
             e.Add<CameraComponent>();
@@ -2320,34 +2439,51 @@ private:
     }
 
     // Put a model or prefab into the scene at a world position (as a child of `parent` if given)
-    void PlaceAsset(const std::string& path, const glm::vec3& position, entt::entity parent = entt::null) {
+    // A kit piece (a model whose folder has kit.json): placed at its own size, snapped to the 0.5 m grid
+    static bool IsKitPiece(Engine::Entity e) {
+        if (!e.Has<Engine::MeshRendererComponent>()) return false;
+        const auto* model = dynamic_cast<const Engine::Model*>(e.Get<Engine::MeshRendererComponent>().Geometry.get());
+        return model && model->NativeSize;
+    }
+
+    // An instance of a model or prefab at the origin, unparented and not selected (PlaceAsset, the Scatter brush).
+    // A kit piece becomes still level geometry: Static, with a static mesh body.
+    Engine::Entity CreateAsset(const std::string& path) {
         using namespace Engine;
         Entity e;
         if (AssetBrowser::KindOf(path) == AssetBrowser::Kind::Prefab) {
             e = m_Session->Prefabs().Instantiate(m_Scene, path);
-            if (!e) { LOG_WARN("Can't load the prefab {}", path); return; }
+            if (!e) { LOG_WARN("Can't load the prefab {}", path); return {}; }
         }
         else {
             e = m_Scene.CreateEntity(std::filesystem::path(path).stem().string());
             auto& mr = e.Add<MeshRendererComponent>();
-            if (!AssignModel(mr, path)) { m_Scene.DestroyEntity(e); return; }
+            if (!AssignModel(mr, path)) { m_Scene.DestroyEntity(e); return {}; }
             // An animated model gets an Animator playing its first clip
             if (const auto* model = dynamic_cast<const Model*>(mr.Geometry.get()); model && model->IsSkinned()) {
                 auto& an = e.Add<AnimatorComponent>();
                 if (!model->AnimationNames().empty()) an.Clip = model->AnimationNames().front();
             }
         }
-        glm::vec3 at = position;
-        // A kit piece snaps to the 0.5 m grid (X/Z) and becomes still level geometry: Static, with a static mesh body
-        if (e.Has<MeshRendererComponent>()) {
-            if (const auto* model = dynamic_cast<const Model*>(e.Get<MeshRendererComponent>().Geometry.get()); model && model->NativeSize) {
-                at.x = std::round(at.x * 2.0f) * 0.5f;
-                at.z = std::round(at.z * 2.0f) * 0.5f;
-                e.Get<MeshRendererComponent>().Static = true;
+        if (IsKitPiece(e)) {
+            e.Get<MeshRendererComponent>().Static = true;
+            if (!e.Has<RigidBodyComponent>()) {
                 auto& rb = e.Add<RigidBodyComponent>();
                 rb.Type = BodyType::Static;
                 rb.Shape = ColliderShape::Mesh;
             }
+        }
+        return e;
+    }
+
+    void PlaceAsset(const std::string& path, const glm::vec3& position, entt::entity parent = entt::null) {
+        using namespace Engine;
+        Entity e = CreateAsset(path);
+        if (!e) return;
+        glm::vec3 at = position;
+        if (IsKitPiece(e)) {
+            at.x = std::round(at.x * 2.0f) * 0.5f;
+            at.z = std::round(at.z * 2.0f) * 0.5f;
         }
         m_Scene.SetWorldPosition(e.GetHandle(), at);
         if (parent != entt::null && m_Scene.Registry().valid(parent)) m_Scene.SetParent(e.GetHandle(), parent, true);
@@ -2416,6 +2552,7 @@ private:
                 ImGui::SetWindowFocus("###DialogueEditor");
                 break;
             case AssetBrowser::Action::OpenExternal:
+                if (a.Path == Engine::GameDatabase::kPath) { m_ShowDatabase = true; ImGui::SetWindowFocus("###DatabaseEditor"); break; }
                 if (!Platform::OpenWithSystem(m_Assets.Absolute(a.Path))) LOG_WARN("No program opens {}", a.Path);
                 break;
             }
@@ -2452,6 +2589,14 @@ private:
     // An asset dropped on the viewport image (call right after the image item)
     void AcceptViewportDrop(const ImVec2& origin, const ImVec2& size) {
         using K = AssetBrowser::Kind;
+        if (ImGui::BeginDragDropTarget()) {                  // an NPC or item from the Database window
+            std::string npc, item;
+            if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload(DatabaseEditor::NpcPayload)) npc.assign((const char*)p->Data, p->DataSize);
+            if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload(DatabaseEditor::ItemPayload)) item.assign((const char*)p->Data, p->DataSize);
+            ImGui::EndDragDropTarget();
+            if (!npc.empty()) PlaceNpc(npc, PointUnderMouse(origin, size));
+            if (!item.empty()) PlacePickup(item, PointUnderMouse(origin, size));
+        }
         const std::string path = AssetBrowser::AcceptDrop({ K::Model, K::Prefab, K::Texture, K::Script, K::Sound, K::Environment });
         if (path.empty()) return;
         entt::entity hit = entt::null;
@@ -3514,6 +3659,76 @@ private:
             ImGui::PopID();
         }
 
+        if (e.Has<NpcComponent>() && ImGui::CollapsingHeader("NPC", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto& n = e.Get<NpcComponent>();
+            auto db = m_Resources->LoadDatabase();
+            const NpcDef* def = db->Npc(n.Id);
+            ImGui::PushID("npc");
+            const std::string preview = def ? def->Name + "  (" + n.Id + ")" : n.Id + " (not in the database)";
+            if (ImGui::BeginCombo("NPC", preview.c_str())) {
+                for (const auto& d : db->Npcs)
+                    if (ImGui::Selectable((d.Name + "  (" + d.Id + ")").c_str(), d.Id == n.Id)) { n = NpcComponent{ d.Id }; def = db->Npc(d.Id); }
+                ImGui::EndCombo();
+            }
+            if (ImGui::BeginDragDropTarget()) {
+                if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload(DatabaseEditor::NpcPayload))
+                    n = NpcComponent{ std::string((const char*)p->Data, p->DataSize) };
+                ImGui::EndDragDropTarget();
+            }
+            if (ImGui::Button("Edit in Database")) { m_Database.SelectNpc(n.Id); m_ShowDatabase = true; ImGui::SetWindowFocus("###DatabaseEditor"); }
+            ImGui::SameLine();
+            if (def && ImGui::Button("Apply looks")) Characters::ApplyLook(m_Scene, e.GetHandle(), *def, m_Resources->Registry());
+            ImGui::SetItemTooltip("Its model, height, animation graph, script and body from the database again");
+            if (!n.Ready) ImGui::TextDisabled("Comes to life when the game runs: stats and inventory from the database");
+            else {
+                // while playing: its live state (the stats' bases can be changed)
+                ImGui::TextColored(n.Dead ? ImVec4(1.0f, 0.45f, 0.4f, 1.0f) : ImVec4(0.5f, 0.9f, 0.5f, 1.0f), n.Dead ? "Dead" : "Alive");
+                for (auto& [id, base] : n.Stats) {
+                    const float v = Characters::Value(n, *db, id);
+                    const StatDef* s = db->Stat(id);
+                    char label[96];
+                    std::snprintf(label, sizeof(label), "%s##st", s ? s->Name.c_str() : id.c_str());
+                    float b = base;
+                    if (ImGui::DragFloat(label, &b, 0.1f, 0.0f, 0.0f, v != base ? "%.1f (base)" : "%.1f")) Characters::SetBase(n, *db, id, b);
+                    if (v != base) { ImGui::SameLine(); ImGui::TextDisabled("= %.1f", v); }
+                }
+                ImGui::TextDisabled("Inventory");
+                for (const auto& it : n.Inventory) {
+                    const ItemDef* d = db->Item(it.Item);
+                    ImGui::BulletText("%s x%d%s%s", d ? d->Name.c_str() : it.Item.c_str(), it.Count, it.Equipped ? "  (equipped)" : "",
+                                      it.Drop ? "" : "  (kept)");
+                }
+                if (n.Inventory.empty()) ImGui::BulletText("(nothing)");
+                for (const auto& fx : n.Effects)
+                    ImGui::BulletText("%s %+g%s from %s%s", fx.Stat.c_str(), fx.Amount, fx.OverTime ? "/s" : "", fx.Source.c_str(),
+                                      fx.Remaining >= 0.0f ? (", " + std::to_string((int)std::ceil(fx.Remaining)) + " s left").c_str() : "");
+            }
+            if (ImGui::Button("Remove##npc")) e.Remove<NpcComponent>();
+            ImGui::PopID();
+        }
+
+        if (e.Has<PickupComponent>() && ImGui::CollapsingHeader("Item Pickup", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto& p = e.Get<PickupComponent>();
+            auto db = m_Resources->LoadDatabase();
+            const ItemDef* def = db->Item(p.Item);
+            ImGui::PushID("pickup");
+            const std::string preview = def ? def->Name + "  (" + p.Item + ")" : p.Item + " (not in the database)";
+            if (ImGui::BeginCombo("Item", preview.c_str())) {
+                for (const auto& d : db->Items)
+                    if (ImGui::Selectable((d.Name + "  (" + d.Id + ")").c_str(), d.Id == p.Item)) p.Item = d.Id;
+                ImGui::EndCombo();
+            }
+            if (ImGui::BeginDragDropTarget()) {
+                if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload(DatabaseEditor::ItemPayload))
+                    p.Item.assign((const char*)pl->Data, pl->DataSize);
+                ImGui::EndDragDropTarget();
+            }
+            if (ImGui::DragInt("Count", &p.Count, 0.2f, 1, 100000)) p.Count = std::max(1, p.Count);
+            ImGui::TextDisabled("Scripts pick it up: e.pickup, scene.pickups(pos, radius)");
+            if (ImGui::Button("Remove##pickup")) e.Remove<PickupComponent>();
+            ImGui::PopID();
+        }
+
         if (e.Has<GrassBlockerComponent>() && ImGui::CollapsingHeader("Grass Blocker", ImGuiTreeNodeFlags_DefaultOpen)) {
             auto& b = e.Get<GrassBlockerComponent>();
             ImGui::PushID("grassblocker");
@@ -3884,6 +4099,14 @@ private:
             if (!e.Has<ParticleEmitterComponent>() && ImGui::MenuItem("Particle Emitter")) e.Add<ParticleEmitterComponent>();
             if (!e.Has<FoliageComponent>() && ImGui::MenuItem("Foliage")) e.Add<FoliageComponent>();
             if (!e.Has<GrassBlockerComponent>() && ImGui::MenuItem("Grass Blocker")) e.Add<GrassBlockerComponent>();
+            if (!e.Has<NpcComponent>() && ImGui::MenuItem("NPC")) {
+                auto db = m_Resources->LoadDatabase();
+                e.Add<NpcComponent>().Id = db->Npcs.empty() ? std::string() : db->Npcs.front().Id;
+            }
+            if (!e.Has<PickupComponent>() && ImGui::MenuItem("Item Pickup")) {
+                auto db = m_Resources->LoadDatabase();
+                e.Add<PickupComponent>().Item = db->Items.empty() ? std::string() : db->Items.front().Id;
+            }
             if (!e.Has<TerrainComponent>() && ImGui::MenuItem("Terrain")) {
                 auto& t = e.Add<TerrainComponent>();
                 t.Data = std::make_shared<TerrainData>(129);
@@ -4100,6 +4323,10 @@ private:
     TerrainEditor m_TerrainEditor;        // the terrain brushes (Inspector > Terrain, used in the Viewport)
     AnimGraphEditor m_AnimGraph{ Projects::Current().AssetDir() };   // the AnimGraph Editor window (Window menu, or a graph in Assets)
     bool  m_ShowAnimGraph = false;
+    DatabaseEditor m_Database{ Projects::Current().AssetDir() };   // the Database window (items, NPCs, stats)
+    bool  m_ShowDatabase = false;
+    bool  m_AskDbQuit = false, m_DbDiscarded = false;
+    std::shared_ptr<const Engine::GameDatabase> m_LastDb;   // the database before the last edit (to see what changed)
     bool  m_AskGraphQuit = false, m_GraphDiscarded = false;           // quitting with an unsaved graph
     bool  m_ShowDialogue = false;
     bool  m_AskDialogueQuit = false, m_DialogueDiscarded = false;   // quitting with an unsaved dialogue

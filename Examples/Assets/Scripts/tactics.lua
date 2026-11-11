@@ -6,6 +6,9 @@
 -- reach with its movement points are shown, the path under the mouse is previewed with its cost, and a
 -- click walks it cell by cell. Diagonal steps cost `diagonal`. Space or "End turn" passes. Enemies walk
 -- towards the hero on their turn (as far as their points go) and stop next to it.
+-- The hero attacks a goblin next to it by clicking it (once a turn): the goblins are NPCs of the game database
+-- (Data/database.json: health, armour, loot). A dead one drops its loot, which the hero picks up by walking over it
+-- (inventory.lua).
 --
 -- Units have no rigid body: this script moves them. Occupied cells are blocked on the grid during
 -- combat, so paths go around units.
@@ -141,6 +144,7 @@ end
 local function begin_turn()
     local u = units[turn]
     points = move_points
+    u.attacked = false
     acted, wait = false, 0.5
     reach = nil
     if u.enemy then say(u.name .. "'s turn") else say("Your turn") end
@@ -209,9 +213,50 @@ local function update_explore(dt, mx, my, click)
     else destination = nil end
 end
 
+-- The enemy under the mouse (around its body on screen), if any
+local function enemy_under(mx, my)
+    for _, e in ipairs(units) do
+        if e.enemy and e.seen ~= false then
+            local x, y, visible = scene.world_to_screen(e.e.position + vec3(0, 0.9, 0))
+            if visible and math.abs(x - mx) < 0.03 and math.abs(y - my) < 0.08 then return e end
+        end
+    end
+end
+
+-- The hero hits a goblin: damage from the equipped weapon (its stats in the game database, Data/database.json)
+-- less the goblin's armour, then the weapon's "hit" effects (the rusty dagger's festering wound). A goblin
+-- at 0 health dies: its loot falls to the ground (npc_died, below) and walking over it picks it up.
+local function attack(u, target)
+    local weapon = game.equip and game.equip.weapon and game.equip.weapon.id
+    local w = weapon and db.item(weapon)
+    local stats = w and w.stats or {}
+    local lo, hi = math.floor(stats.damage_min or 1), math.floor(stats.damage_max or 2)
+    local npc = target.e.npc
+    local armour = npc and npc:stat("armour") or 0
+    local damage = math.max(1, math.random(lo, math.max(lo, hi)) - math.floor(armour))
+    u.attacked = true
+    target.e:flash(vec3(1, 0.25, 0.15), 0.4)
+    float_text("-" .. damage, target.e.position + vec3(0, 1.8, 0), vec3(1, 0.45, 0.35))
+    audio.play("Sounds/coin.wav")
+    if not npc then return end
+    if weapon then npc:apply(weapon, "hit") end
+    if npc:damage(damage) then say(target.name .. " is defeated!")
+    else say(string.format("You hit %s for %d", target.name, damage)) end
+end
+
 local function update_hero_turn(dt, mx, my, click)
     local u = units[turn]
     if u.moving then return end
+    -- an enemy under the mouse: attack it if it is next to the hero (once a turn)
+    local foe = enemy_under(mx, my)
+    if foe and foe.cell then
+        local near = adjacent(u, foe)
+        ring(nav.cell_position(foe.cell), vec3(1, 0.2, 0.15), 0.95, 1.2)
+        ui.text(u.attacked and "Already attacked this turn" or near and "Attack" or "Too far: step next to it first",
+            mx, my - 0.045, { size = 18, align = "center", color = near and not u.attacked and vec3(1, 0.6, 0.4) or vec3(0.8, 0.8, 0.85) })
+        if click and near and not u.attacked then attack(u, foe) end
+        return
+    end
     if not reach then refresh_reach() end
 
     for cell, r in pairs(reach) do
@@ -298,7 +343,7 @@ local function draw_hud()
         ui.label("Combat: " .. (u.enemy and (u.name .. " is moving...") or "{#9fd0ff}your turn{/}"))
         ui.bar(math.max(points, 0) / move_points, { h = 20, color = vec3(0.25, 0.5, 0.95),
             text = string.format("Movement %.1f / %d", math.max(points, 0), move_points) })
-        ui.label(string.format("Click a blue cell to move (diagonals cost %.1f). Space ends the turn.", diagonal),
+        ui.label(string.format("Click a blue cell to move (diagonals cost %.1f), a goblin next to you to attack. Space ends the turn.", diagonal),
             { muted = true, size = 16 })
     end
     ui.begin_row(8)
@@ -384,6 +429,21 @@ end
 -- Events from other scripts and dialogues (events.emit). The Sage's dialogue sends "quest_started".
 function on_event(self, name, data)
     if name == "quest_started" then say("New quest: explore the cellar") end
+    -- a goblin died (its loot is on the ground already): out of the fight, and the fight ends with the last one
+    if name == "npc_died" then
+        for i, u in ipairs(units) do
+            if u.e == data.entity then
+                if u.cell then nav.set_blocked(u.cell, false) end
+                table.remove(units, i)
+                if i < turn then turn = turn - 1 end
+                if turn > #units then turn = 1 end
+                break
+            end
+        end
+        local left = 0
+        for _, u in ipairs(units) do if u.enemy then left = left + 1 end end
+        if left == 0 and mode == "combat" then leave_combat(); say("Victory! Pick up the loot") end
+    end
 end
 
 function on_create(self)
@@ -469,6 +529,11 @@ function on_update(self, dt)
             local x, y, visible = scene.world_to_screen(u.e.position + vec3(0, 2.0, 0))
             if visible and (not u.enemy or u.seen) then
                 ui.text(u.name, x, y, { size = 16, align = "center", color = u.enemy and vec3(1, 0.55, 0.5) or vec3(0.6, 0.8, 1) })
+                local npc = u.e.npc                  -- its health, from its NPC state (game database)
+                if npc then
+                    ui.text(string.format("%d / %d", math.ceil(npc:stat("health")), math.ceil(npc:stat("max_health"))),
+                        x, y + 0.026, { size = 14, align = "center", color = vec3(0.95, 0.75, 0.7) })
+                end
             end
         end
     end

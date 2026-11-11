@@ -673,6 +673,21 @@ self:add_audio("Sounds/lava_loop.wav", { loop = true, min_distance = 2, max_dist
 <p>Keys: <b>Esc</b> pause menu (Resume / Restart / Quit; R and Q work too), <b>F11</b> or <b>Alt+Enter</b> full screen. Release builds have no console window. File › Build Game (or the <code>package_game</code> target, for Examples) builds a ready-to-zip folder.</p>
 </section>
 
+<section class="doc" data-group="Engine" id="engine-database">
+<h2>Game database: items, NPCs, stats</h2>
+<p>The design data of a game lives in one file, <code>Assets/Data/database.json</code>, edited in the editor's <a href="#editor-database">Database window</a> and read by scripts through <a href="#script-database"><code>db</code> and <code>e.npc</code></a>. It holds:</p>
+<table>
+<tr><th>Part</th><th>What it says</th></tr>
+<tr><td><b>Stats</b></td><td>What every NPC has (health, attack, armour...): a default, a range, and optionally a <i>ceiling</i> stat (health can't pass max_health). One stat is the <b>death stat</b> (health): an NPC dies when it reaches its minimum.</td></tr>
+<tr><td><b>Items</b></td><td>Name, description (UI markup), kind, equipment slot, icon, model (how it looks lying on the ground), value, stacking, consumable, its own numbers (damage_min...) and <b>effects</b>.</td></tr>
+<tr><td><b>NPCs</b></td><td>Name, description, model and height, animation graph, script, dialogue, a capsule body, its stats (overriding the defaults), whether its body stays when it dies, a death event, and its <b>starting inventory</b>: items with a count, a chance, whether they drop when it dies, whether they start equipped.</td></tr>
+</table>
+<p><b>Effects</b> of an item happen <i>on use</i> (<code>npc:use</code>; a consumable is used up), <i>while equipped</i>, or <i>on hit</i> (<code>npc:apply(item, "hit")</code> on what a weapon hits). Kinds: <b>add</b> (at once: a heal, damage), <b>modifier</b> (+amount while it lasts: for some seconds, for good, or while equipped), <b>over time</b> (amount per second: poison, regeneration), <b>event</b> (a script event: <code>events.emit(name, { entity, item, amount })</code>).</p>
+<p><b>NPCs in a scene</b> are entities with an <b>NPC</b> component (just the database id in the scene file). When the game runs each comes to life: its stats from the database and its inventory rolled from the starting one (each chance once). From then on that state belongs to the entity: health, inventory, running effects and whether it is dead are saved with the level (save games, level changes). A stat's value is its base plus running modifiers plus the modifiers of equipped items, kept in its range.</p>
+<p><b>Death</b>: what it carries with <i>drop</i> falls to the ground in a ring round it as <b>pickups</b> (entities with an Item Pickup component: the item's model, or a small gold box, turning slowly). Every script gets <code>on_event(self, "npc_died", { entity, npc, position, drops })</code> (and the NPC's own death event), then the entity is removed, unless the NPC keeps its body. Picking things up is the game's job (<code>scene.pickups(pos, radius)</code>, give it, destroy it), as <code>inventory.lua</code> does.</p>
+<p>The file is re-read when it changes, and the editor's unsaved edits apply at once, also while playing. The tactics example uses it: the goblins and the Sage are NPCs of the database, the inventory's items come from it, and on the hero's turn in combat clicking a goblin next to it attacks it with the equipped weapon's damage less the goblin's armour; a dead goblin drops its gold and loot, and walking over it picks it up.</p>
+</section>
+
 <section class="doc" data-group="Engine" id="engine-testing">
 <h2>Testing &amp; test hooks</h2>
 <p>Test scripts run unattended in the editor and print PASS/FAIL lines to the log:</p>
@@ -687,6 +702,8 @@ self:add_audio("Sounds/lava_loop.wav", { loop = true, min_distance = 2, max_dist
 <tr><td><code>engine_features_test.lua</code></td><td>world_to_screen, decals, line of sight, cover, primitives, flash (22)</td></tr>
 <tr><td><code>fog_test.lua</code></td><td>Fog of war: reveal, explore, save / load, e.visible (17)</td></tr>
 <tr><td><code>terrain_test.lua</code></td><td>Terrain on <code>terrain.json</code>: height lookups, physics agreeing with the drawn surface, navigation, grass on a layer, bodies resting on it (10)</td></tr>
+<tr><td><code>scatter_test.lua</code></td><td>The terrain Scatter brush's Fill on <code>terrain.json</code> (with <code>MDB_SELECT=Terrain MDB_TERRAIN_TOOL=scatter:... MDB_SCATTER_FILL=1</code>) (10)</td></tr>
+<tr><td><code>database_test.lua</code></td><td>The game database and NPCs on <code>tactics_test.json</code>: lookups, stats, inventory, equipment, effects, death and loot (34)</td></tr>
 </table>
 <pre><code class="sh">set MDB_PROJECT=Examples &amp; set MDB_WINDOWED=1 &amp; set MDB_SCENE=tactics_test.json &amp; set MDB_AUTOPLAY=1
 set MDB_TEST_SCRIPT=Scripts/nav_test.lua &amp; set MDB_QUIT_AFTER=8
@@ -697,7 +714,9 @@ MDBEditor.exe &gt; log.txt</code></pre>
 <tr><td><code>MDB_BUILD_GAME=folder</code></td><td>Run File › Build Game into the folder (the editor waits for it when quitting)</td></tr>
 <tr><td><code>MDB_WINDOWED=1</code></td><td>A plain 1600 × 900 window instead of maximized</td></tr>
 <tr><td><code>MDB_DEMO=script|coinrush|tactics|cellar|terrain</code></td><td>Build an example level</td></tr>
-<tr><td><code>MDB_TERRAIN_TOOL=raise|smooth|flatten|noise|paint[:1-4]</code></td><td>Pick that terrain brush (with <code>MDB_SELECT=Terrain</code>), for scripted brush tests</td></tr>
+<tr><td><code>MDB_TERRAIN_TOOL=raise|smooth|flatten|noise|paint[:1-4]|scatter[:items]</code></td><td>Pick that terrain brush (with <code>MDB_SELECT=Terrain</code>), for scripted brush tests; <code>scatter:a.gltf,b.gltf</code> also sets the items</td></tr>
+<tr><td><code>MDB_OPEN_DATABASE=1|npc:&lt;id&gt;|item:&lt;id&gt;</code></td><td>Open the Database window (on that entry); with <code>MDB_SAVE_DATABASE=1</code> it saves the database through the editor</td></tr>
+<tr><td><code>MDB_SCATTER_FILL=1</code></td><td>With the scatter tool and a selected terrain: run Fill terrain once (then <code>MDB_AUTOPLAY</code> presses Play)</td></tr>
 <tr><td><code>MDB_SCENE</code> / <code>MDB_SAVE_SCENE</code></td><td>Load a scene first / save last</td></tr>
 <tr><td><code>MDB_AUTOPLAY=1</code></td><td>Press Play</td></tr>
 <tr><td><code>MDB_TEST_SCRIPT=Scripts/x.lua</code></td><td>Add a "Test" entity running it</td></tr>
@@ -898,6 +917,7 @@ MDBEditor.exe &gt; log.txt</code></pre>
 <tr><td><b>Flatten</b></td><td>Levels to the height where the stroke starts (or a fixed Target height). <b>Ctrl+click</b> picks the height under the mouse.</td></tr>
 <tr><td><b>Noise</b></td><td>Roughens the ground with bumps of the chosen size.</td></tr>
 <tr><td><b>Paint</b></td><td>Paints the chosen layer (the round button beside each layer picks it).</td></tr>
+<tr><td><b>Scatter</b></td><td>Places models or prefabs on the ground (trees, rocks, bushes) up to the density; hold <b>Shift</b> to erase the group's instances under the brush. See <a href="#editor-scatter">Scatter brush</a>.</td></tr>
 </table>
 <ul>
   <li><b>Brush</b>: Radius (or <b>[</b> and <b>]</b> over the Viewport), Strength, Falloff (0: full strength to the edge, 1: fading from the centre). A ring on the ground shows it, with an inner ring where full strength ends.</li>
@@ -910,6 +930,21 @@ MDBEditor.exe &gt; log.txt</code></pre>
   <li><b>Auto paint</b>: paint everything by the ground's shape: one layer on slopes steeper than an angle, one below a height, one above a height, one everywhere else.</li>
   <li><b>Import heightmap</b>: a grey image under Assets (16-bit PNG keeps the most detail): black is Lowest, white is Lowest + Range; the image's top edge is the terrain's −Z side.</li>
 </ul>
+</section>
+
+<section class="doc" data-group="Editor" id="editor-scatter">
+<h2>Scatter brush</h2>
+<p>The terrain's <b>Scatter</b> tool paints instances of models and prefabs onto the ground. Each instance is an ordinary entity (select, move or delete any one of them) inside a top-level <b>group</b> entity; moving the group moves them all. A stroke is one undo step.</p>
+<ul>
+  <li><b>Items</b>: drop models or prefabs from the Assets panel on <b>+ Item</b> (or pick from the list). Each has a weight (how often it is picked against the others) and its own scale. Models arrive 2 m tall like a dropped model (kit pieces at their own size), so give a big tree a scale of 4 or so.</li>
+  <li><b>Group</b>: the name of the group entity. Erasing, Re-snap and Clear touch only this group, so keep trees and rocks in two groups to edit them apart. The number beside it is how many it holds.</li>
+  <li><b>Density</b> (per 100 m²) is how full the brush gets: painting over a full spot adds nothing. <b>Spacing</b> is the least distance between two instances of the group.</li>
+  <li><b>Scale</b> range, <b>Random turn</b> about the up axis, <b>lean with slope</b> (0 upright, for trees; 1 tilted to the ground, for rocks), <b>Sink</b> (how far into the ground, so no gap shows on slopes).</li>
+  <li><b>Rules</b>: Max slope, a Height range, and a paint layer (only where that layer is painted at least so much: trees on grass, not on rock).</li>
+  <li><b>Instances</b>: Static (on by default: merged in Play, and the grass clears around the trunk), Wind (sway; 0 keeps the item's own), Collider: <i>As made</i> (a prefab keeps its body; kit pieces get a mesh body), <i>None</i>, <i>Trunk box</i> (a static box of the given width and height at the base, default) or <i>Mesh</i>.</li>
+  <li><b>Fill terrain</b> scatters over the whole terrain by the same rules (with its Seed). <b>Re-snap to ground</b> stands every instance of the group on the ground again after sculpting (keeps turn and lean). <b>Clear group</b> deletes the group.</li>
+</ul>
+<p>The settings belong to the editor session and are not saved with the scene.</p>
 </section>
 
 <section class="doc" data-group="Editor" id="editor-examples">
@@ -935,6 +970,19 @@ MDBEditor.exe &gt; log.txt</code></pre>
   <li><b>Right</b>: the selected state (clip or blend clips with their thresholds and speeds, speed, loop) or transition (target, blend time, exit time, conditions, order), and the <b>problems</b> list: missing clips or parameters, unreachable states, transitions that never fire. Clip names are checked against the model of the watched or selected entity.</li>
   <li><b>Live</b>: during Play (and in Edit mode as a preview) it watches an Animator using the file (the selected entity's, else the first). The current state of each layer lights up green with a progress bar, the state fading out orange, the transition being taken green; the parameters get a <b>Live</b> column to change values or fire triggers, and a state's menu has <b>Play Now</b>. Each condition shows whether it holds now.</li>
   <li>Every edit goes live at once, even unsaved, so a graph can be tuned while the game runs. <b>Ctrl+S</b> saves (Save As into <code>AnimGraphs/</code>), <b>Ctrl+Z / Ctrl+Y</b> undo and redo (its own history), <b>Delete</b>, <b>Ctrl+D</b>. Quitting or opening another graph asks about unsaved changes; discarding puts the saved version back into the game.</li>
+</ul>
+</section>
+
+<section class="doc" data-group="Editor" id="editor-database">
+<h2>Database window</h2>
+<p><b>Window &gt; Database</b> (or double-click <code>Data/database.json</code> in Assets) edits the <a href="#engine-database">game database</a> in three tabs: <b>Items</b>, <b>NPCs</b> and <b>Stats</b>. Left: the list with a search box, <b>+ New</b>, and a right-click menu (Duplicate, Delete). Right: the selected entry. At the bottom: the problems (repeated or empty ids, unknown items or stats, missing files, consumables that do nothing); hover to read them.</p>
+<ul>
+  <li><b>Ids</b> are what scripts use (<code>db.item("potion")</code>). Renaming one (Enter, or leaving the field) updates the references inside the database (inventories, effects, NPC stat values, ceilings); scenes keep the NPC ids they have.</li>
+  <li><b>Pickers</b> for icon, model, animation graph, script and dialogue list the files under Assets; you can also drop a file from the Assets panel on them. An NPC's dialogue and animation graph have <b>Edit</b> buttons that open them in their editors.</li>
+  <li><b>Effects</b> are rows: when (On use / Equipped / On hit), kind (Add / Modifier / Over time / Event), stat (or event name), amount and, where it applies, seconds. Each shows a plain summary below it ("On hit: -1 health per second for 4 s").</li>
+  <li><b>NPC stats</b>: tick a stat to give the NPC its own value; unticked ones use the stat's default. <b>Inventory</b> rows: item, count, chance, drop, equipped (only items with a slot). Drag an item from the Items list onto a row's item.</li>
+  <li><b>Placing</b>: drag an NPC (or an item) from the list into the Viewport, use <b>Place in scene</b>, or <b>Create &gt; NPC</b> / <b>Create &gt; Item Pickup</b>. An NPC gets its model scaled to its height (or its prefab), its animation graph, script and capsule body. Changing those in the database updates the NPCs already placed. The Inspector's <b>NPC</b> section picks the id, opens it in the Database window, applies its looks again, and while playing shows its live stats (editable), inventory and effects.</li>
+  <li>Its own undo (<b>Ctrl+Z</b> / <b>Ctrl+Y</b>), <b>Ctrl+S</b>, <b>Ctrl+D</b> and <b>Delete</b> while it has focus; quitting asks about unsaved changes. Every edit applies at once, even while the game runs.</li>
 </ul>
 </section>
 
@@ -1134,6 +1182,44 @@ local clumps = scene.render_stats().foliage   -- clumps drawn last frame</code><
 local y2 = terrain.height(self.position)    -- or give a vec3 (its y is ignored)
 local n = terrain.normal(x, z)              -- unit vec3, world space: n.y near 1 is level ground
 if y then self.position = vec3(x, y + 0.5, z) end   -- stand something on the ground</code></pre>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-database">
+<h2>Game database and NPCs</h2>
+<p>Records of the <a href="#engine-database">game database</a> come back as tables with the file's fields (<code>name</code>, <code>description</code>, <code>kind</code>, <code>slot</code>, <code>icon</code>, <code>value</code>, <code>stackable</code>, <code>consumable</code>, <code>stats</code>, <code>effects</code>; NPCs: <code>model</code>, <code>dialogue</code>, <code>inventory</code>...).</p>
+<pre><code class="lua">local sword = db.item("sword")            -- or nil
+log(sword.name, sword.stats.damage_max)
+for _, it in ipairs(db.items()) do log(it.id) end   -- also db.npcs(), db.stats(), db.npc(id), db.stat(id)
+
+local g = scene.spawn_npc("goblin", vec3(4, 0, 2))   -- its model, graph, script, body from the database
+local n = g.npc                           -- nil if the entity is not an NPC
+log(n.name, n:stat("health"), n:stat("armour"))   -- values with effects and equipment
+n:set("attack", 5); n:add("attack", 1); log(n:base("attack"))
+if n:damage(4) then log("killed it") end  -- off the death stat; true if that killed it
+n:heal(2)                                 -- n:kill() kills it outright
+
+n:give("potion", 3); n:take("potion"); log(n:count("gold"))
+for _, s in ipairs(n:inventory()) do log(s.item, s.count, s.equipped, s.drop) end
+local ok, err = n:equip("shield")         -- one per slot; n:unequip("shield"), n:equipped("shield")
+n:use("potion")                           -- its "use" effects; a consumable is used up
+n:apply("rusty_dagger", "hit")            -- what a weapon does to what it hits
+n:add_effect("armour", 5, 10)             -- +5 armour for 10 s (nil or 0: for good)
+n:add_effect("health", -2, 3, true)       -- -2 health a second for 3 s
+local p = n:drop("gem")                   -- onto the ground next to it: the pickup entity
+local me = self:add_npc("sage")           -- make an entity an NPC (its looks are not changed)
+
+function on_event(self, name, data)
+    if name == "npc_died" then            -- data.entity, data.npc (id), data.position, data.drops (pickups)
+        log(data.npc .. " died and dropped " .. #data.drops .. " things")
+    end
+end
+
+for _, p in ipairs(scene.pickups(self.position, 1.5)) do   -- items lying near, nearest first
+    log(p.pickup.item, p.pickup.count, p.pickup.name)
+    p:destroy()                           -- picked up
+end
+scene.spawn_pickup("gold", 10, vec3(0, 0, 0))
+for _, e in ipairs(scene.npcs("goblin")) do end    -- living NPCs (of an id); scene.npcs(id, true) adds the dead</code></pre>
 </section>
 
 <section class="doc" data-group="Scripting" id="script-animation">

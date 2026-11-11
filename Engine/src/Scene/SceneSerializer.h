@@ -15,6 +15,7 @@ namespace Engine {
     class Texture2D;
     class TerrainData;
     struct AnimGraph;
+    struct GameDatabase;
     class PrefabLibrary;
 
     // Maps names stored in the file to live resources, and back
@@ -27,6 +28,8 @@ namespace Engine {
         std::function<std::shared_ptr<TerrainData>(const std::string&)> LoadTerrain;
         // An animation graph ("AnimGraphs/x.json"); null if missing or unreadable
         std::function<std::shared_ptr<const AnimGraph>(const std::string&)> LoadAnimGraph;
+        // The game database (Assets/Data/database.json); an empty one if there is no file. Cheap to call (cached).
+        std::function<std::shared_ptr<const GameDatabase>()> LoadDatabase;
     };
 
     // Everything about a level that isn't an entity. The scene's ambient intensity is saved

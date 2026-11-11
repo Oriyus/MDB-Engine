@@ -227,6 +227,7 @@ namespace {
     void AddEnemy(Scene& scene, const LevelAssets& a, const glm::vec3& pos) {
         Entity e = scene.CreateEntity("Enemy");
         e.Get<TransformComponent>().Position = pos;
+        e.Add<NpcComponent>().Id = "goblin";          // its stats and loot: the database (Data/database.json)
         const glm::vec3 red(0.78f, 0.16f, 0.12f), dark(0.35f, 0.08f, 0.07f);
         const auto& body = a.Capsule ? a.Capsule : a.Cube;
         AddPart(scene, e, "Body", body, glm::vec3(0.0f, 0.62f, 0.0f), glm::vec3(0.56f, 0.32f, 0.56f), red, 0.55f);
@@ -305,6 +306,7 @@ namespace {
     void AddSage(Scene& scene, const LevelAssets& a, const glm::vec3& pos) {
         Entity e = scene.CreateEntity("Sage");
         e.Get<TransformComponent>().Position = pos;
+        e.Add<NpcComponent>().Id = "sage";
         auto& mr = e.Add<MeshRendererComponent>();
         mr.Geometry = a.Cube;
         mr.Color = glm::vec3(0.25f, 0.7f, 0.65f);

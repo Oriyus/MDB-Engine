@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "deathStat": "health",
+  "stats": [
+    { "id": "health", "name": "Health", "default": 20, "min": 0, "max": 9999, "maxStat": "max_health",
+      "description": "Hit points: an NPC dies at 0" },
+    { "id": "max_health", "name": "Max health", "default": 20, "min": 1, "max": 9999 },
+    { "id": "attack", "name": "Attack", "default": 2, "min": 0, "max": 100, "description": "Unarmed damage" },
+    { "id": "armour", "name": "Armour", "default": 0, "min": 0, "max": 100, "description": "Taken off every hit" }
+  ],
+  "items": [
+    { "id": "sword", "name": "Iron Sword", "kind": "weapon", "slot": "weapon", "icon": "Textures/Icons/sword.png", "value": 15,
+      "description": "A plain, honest blade.\n{#ffcc66}Damage 4-8{/}",
+      "stats": { "damage_min": 4, "damage_max": 8 } },
+    { "id": "shield", "name": "Kite Shield", "kind": "armour", "slot": "shield", "icon": "Textures/Icons/shield.png", "value": 12,
+      "description": "Blue and gold, a little dented.\n{#9fd0ff}Armour +2{/}",
+      "effects": [ { "trigger": "equip", "kind": "modifier", "stat": "armour", "amount": 2 } ] },
+    { "id": "helmet", "name": "Iron Helm", "kind": "armour", "slot": "head", "icon": "Textures/Icons/helmet.png", "value": 8,
+      "description": "Heavy, but it keeps your ears on.\n{#9fd0ff}Armour +1{/}",
+      "effects": [ { "trigger": "equip", "kind": "modifier", "stat": "armour", "amount": 1 } ] },
+    { "id": "potion", "name": "Healing Potion", "kind": "consumable", "icon": "Textures/Icons/potion.png", "value": 5,
+      "stackable": true, "maxStack": 20, "consumable": true,
+      "description": "Restores {#7fd27f}10 health{/}.\n{#a0a8b8}Right-click to drink.{/}",
+      "effects": [ { "trigger": "use", "kind": "add", "stat": "health", "amount": 10 } ] },
+    { "id": "gem", "name": "Emerald", "kind": "treasure", "icon": "Textures/Icons/gem.png", "value": 50,
+      "stackable": true, "maxStack": 99,
+      "description": "Worth {#ffcc66}50 gold{/} to the right buyer." },
+    { "id": "scroll", "name": "Old Letter", "kind": "quest", "icon": "Textures/Icons/scroll.png", "value": 0,
+      "description": "{b}To whoever finds this:{/b} the cellar key was never lost. It was hidden." },
+    { "id": "gold", "name": "Gold Coins", "kind": "treasure", "icon": "Textures/coin_icon.png", "value": 1,
+      "stackable": true, "maxStack": 9999,
+      "description": "Goes straight into your purse." },
+    { "id": "rusty_dagger", "name": "Rusty Dagger", "kind": "weapon", "slot": "weapon", "icon": "Textures/Icons/sword.png", "value": 4,
+      "description": "Notched and filthy.\n{#ffcc66}Damage 2-5{/}, and the wound festers: {#e07070}-1 health a second for 4 s{/}.",
+      "stats": { "damage_min": 2, "damage_max": 5 },
+      "effects": [ { "trigger": "hit", "kind": "overTime", "stat": "health", "amount": -1, "duration": 4 } ] }
+  ],
+  "npcs": [
+    { "id": "goblin", "name": "Goblin", "height": 1.8, "collider": false, "removeOnDeath": true,
+      "description": "A small, angry thing with glowing eyes and a pointed hat. Carries whatever it found.",
+      "stats": { "health": 12, "max_health": 12, "attack": 3, "armour": 1 },
+      "inventory": [
+        { "item": "rusty_dagger", "count": 1, "chance": 0.5, "equipped": true },
+        { "item": "gold", "count": 8 },
+        { "item": "potion", "count": 1, "chance": 0.5 },
+        { "item": "gem", "count": 1, "chance": 0.25 }
+      ] },
+    { "id": "sage", "name": "Sage", "height": 1.8, "collider": false, "removeOnDeath": false,
+      "description": "Knows more than it says. Sells potions.",
+      "script": "Scripts/npc.lua", "dialogue": "Dialogues/sage.json",
+      "stats": { "health": 30, "max_health": 30 },
+      "inventory": [
+        { "item": "potion", "count": 5, "drop": false },
+        { "item": "scroll", "count": 1, "drop": false }
+      ] }
+  ]
+}

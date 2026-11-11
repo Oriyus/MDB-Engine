@@ -103,6 +103,25 @@ namespace Engine {
             static const char* kShapes[] = { "box", "circle", "capsule" };
             j["grassBlocker"] = { { "shape", kShapes[std::clamp((int)b.Shape, 0, 2)] },{ "size", b.Size },{ "softness", b.Softness } };
         }
+        if (e.Has<NpcComponent>()) {
+            auto& n = e.Get<NpcComponent>();
+            json jn = { { "id", n.Id } };
+            if (n.Ready) {               // alive in a running game: its own state (save games keep it)
+                json inv = json::array(), fx = json::array();
+                for (const auto& it : n.Inventory)
+                    inv.push_back({ { "item", it.Item },{ "count", it.Count },{ "equipped", it.Equipped },{ "drop", it.Drop } });
+                for (const auto& ef : n.Effects)
+                    fx.push_back({ { "stat", ef.Stat },{ "source", ef.Source },{ "amount", ef.Amount },{ "remaining", ef.Remaining },{ "overTime", ef.OverTime } });
+                json stats = json::object();
+                for (const auto& [k, v] : n.Stats) stats[k] = v;
+                jn["state"] = { { "dead", n.Dead },{ "stats", stats },{ "inventory", inv },{ "effects", fx } };
+            }
+            j["npc"] = jn;
+        }
+        if (e.Has<PickupComponent>()) {
+            auto& p = e.Get<PickupComponent>();
+            j["pickup"] = { { "item", p.Item },{ "count", p.Count } };
+        }
         if (e.Has<TerrainComponent>()) {
             auto& t = e.Get<TerrainComponent>();
             json layers = json::array();
@@ -302,6 +321,29 @@ namespace Engine {
             b.Softness = jb.value("softness", 0.0f);
             e.Add<GrassBlockerComponent>(b);
         }
+        if (j.contains("npc")) {
+            const auto& jn = j["npc"];
+            NpcComponent n;
+            n.Id = jn.value("id", std::string());
+            if (auto st = jn.find("state"); st != jn.end() && st->is_object()) {
+                n.Ready = true;
+                n.Dead = st->value("dead", false);
+                if (auto s = st->find("stats"); s != st->end() && s->is_object())
+                    for (auto it = s->begin(); it != s->end(); ++it) n.Stats[it.key()] = it->get<float>();
+                if (auto s = st->find("inventory"); s != st->end() && s->is_array())
+                    for (const auto& r : *s)
+                        n.Inventory.push_back({ r.value("item", std::string()), r.value("count", 1), r.value("equipped", false), r.value("drop", true) });
+                if (auto s = st->find("effects"); s != st->end() && s->is_array())
+                    for (const auto& r : *s)
+                        n.Effects.push_back({ r.value("stat", std::string()), r.value("source", std::string()), r.value("amount", 0.0f),
+                                              r.value("remaining", -1.0f), r.value("overTime", false) });
+            }
+            e.Add<NpcComponent>(n);
+        }
+        if (j.contains("pickup")) {
+            const auto& jp = j["pickup"];
+            e.Add<PickupComponent>(PickupComponent{ jp.value("item", std::string()), std::max(1, jp.value("count", 1)) });
+        }
         if (j.contains("terrain")) {
             const auto& jt = j["terrain"];
             TerrainComponent t;
@@ -409,6 +451,8 @@ namespace Engine {
         if (e.Has<FoliageComponent>())          e.Remove<FoliageComponent>();
         if (e.Has<TerrainComponent>())          e.Remove<TerrainComponent>();
         if (e.Has<GrassBlockerComponent>())     e.Remove<GrassBlockerComponent>();
+        if (e.Has<NpcComponent>())              e.Remove<NpcComponent>();
+        if (e.Has<PickupComponent>())           e.Remove<PickupComponent>();
     }
 
     bool HasComponentKeys(const json& j) {

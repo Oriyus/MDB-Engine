@@ -396,6 +396,7 @@
     {
       "id": 17784842239026777214,
       "name": "Enemy",
+      "npc": { "id": "goblin" },
       "transform": {
         "position": [
           3.5,

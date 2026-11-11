@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -395,6 +396,42 @@ namespace Engine {
     // Path is relative to the asset directory, e.g. "Scripts/bob.lua".
     struct ScriptComponent {
         std::string Path;
+    };
+
+    // ---- characters and items from the game database (Runtime/GameDatabase.h, Runtime/Characters.h)
+
+    // An item stack an NPC carries
+    struct NpcItem {
+        std::string Item;
+        int Count = 1;
+        bool Equipped = false;
+        bool Drop = true;                // dropped when the NPC dies
+    };
+    // A running effect: +Amount to Stat (Modifier) or Amount per second (OverTime), for Remaining seconds
+    // (below 0: for good)
+    struct NpcEffect {
+        std::string Stat, Source;        // source: the item it came from
+        float Amount = 0.0f;
+        float Remaining = -1.0f;
+        bool OverTime = false;
+    };
+    // An NPC of the database (its id). In a scene file only the id is stored; when the game runs it comes to
+    // life (Ready): stats from the database, its inventory rolled from the starting one. From then on the
+    // state below is the NPC's own and is kept by save games (written to JSON only once Ready).
+    struct NpcComponent {
+        std::string Id;
+        bool Ready = false;
+        bool Dead = false;
+        std::map<std::string, float> Stats;          // base values (effects and equipment come on top)
+        std::vector<NpcItem> Inventory;
+        std::vector<NpcEffect> Effects;
+    };
+
+    // An item lying in the world (an NPC's drop, or placed in the editor). Scripts pick it up (e.pickup,
+    // scene.pickups), give it to someone and destroy the entity.
+    struct PickupComponent {
+        std::string Item;
+        int Count = 1;
     };
 
 } // namespace Engine

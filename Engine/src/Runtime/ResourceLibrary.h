@@ -13,6 +13,7 @@ namespace Engine {
     class Texture2D;
     class TerrainData;
     struct AnimGraph;
+    struct GameDatabase;
 
     // The shared meshes and textures that scene and prefab files refer to by name:
     //   geometry "cube" (unit cube), "plane" (12 x 12), "sphere" (diameter 1), "model" (Models/BoomBox.glb),
@@ -51,6 +52,10 @@ namespace Engine {
         std::shared_ptr<const AnimGraph> LoadAnimGraph(const std::string& path);
         // The editor's live copy of a graph (it edits it while the game runs): what LoadAnimGraph returns from now on
         void SetAnimGraph(const std::string& path, std::shared_ptr<const AnimGraph> graph);
+        // The game database (GameDatabase::kPath), cached until the file changes; an empty one if there is none
+        std::shared_ptr<const GameDatabase> LoadDatabase();
+        // The editor's live copy (edited while the game runs): what LoadDatabase returns until the file changes again
+        void SetDatabase(std::shared_ptr<const GameDatabase> db);
 
         // Name <-> resource mapping for SceneSerializer, PrefabLibrary and ScriptEngine.
         // The functions keep a pointer to this library, so it must outlive their users.
@@ -67,6 +72,9 @@ namespace Engine {
         std::unordered_map<std::string, CachedTerrain> m_Terrains;                // by path
         struct CachedGraph { std::shared_ptr<const AnimGraph> Data; std::filesystem::file_time_type Stamp; bool Live = false; };
         std::unordered_map<std::string, CachedGraph> m_Graphs;                    // by path
+        std::shared_ptr<const GameDatabase> m_Database;
+        std::filesystem::file_time_type m_DatabaseStamp{};
+        bool m_DatabaseLive = false;
     };
 
 } // namespace Engine

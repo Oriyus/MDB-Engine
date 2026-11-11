@@ -43,6 +43,8 @@ namespace Engine {
         std::optional<FoliageComponent>             Foliage;
         std::optional<TerrainComponent>             Terrain;
         std::optional<GrassBlockerComponent>        GrassBlocker;
+        std::optional<NpcComponent>                 Npc;
+        std::optional<PickupComponent>              Pickup;
         std::optional<PrefabComponent>              Prefab;
         bool                                        Transient = false;
     };

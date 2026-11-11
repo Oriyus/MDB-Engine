@@ -212,6 +212,34 @@ namespace Engine {
     //   ---- foliage: grass and flowers (FoliageComponent). Moving dynamic and kinematic bodies bend it by themselves.
     //   foliage.push(pos [, radius = 0.5, strength = 1])   press the grass around pos this frame (call every frame while
     //       something without a body walks through it); it springs back over the field's Recovery seconds
+    //   ---- db: the game database (Assets/Data/database.json, the editor's Window > Database): read-only records
+    //   db.item(id), db.npc(id), db.stat(id) -> the record as a table (fields as in the file: name, description, kind,
+    //       slot, icon, model, value, stackable, consumable, stats = { name = n }, effects = {...}; NPCs: inventory...)
+    //       or nil. db.items(), db.npcs(), db.stats() -> arrays of them. db.death_stat() -> "health"
+    //   ---- NPCs (NpcComponent): an entity that is an NPC of the database. It comes to life when the game starts (or
+    //   when spawned): stats from the database, its starting inventory rolled. Its state is saved with the level.
+    //   e.npc -> nil or Npc: id, name, data (its record), dead, alive
+    //     stat(name) -> value with effects and equipment, base(name), set(name, v), add(name, delta)   (set / add return
+    //       true if that killed it), damage(n) -> killed, heal(n), kill()
+    //     inventory() -> { { item, count, equipped, drop, name }... }, count(item), give(item [, n]) -> added,
+    //       take(item [, n]) -> bool, drop(item [, n]) -> the pickup entity next to it (or nil)
+    //     equip(item) / unequip(item) -> ok, err (one item per slot: the old one comes off), equipped(slot) -> item or nil
+    //     use(item) -> ok, err   its "use" effects; a consumable is used up
+    //     apply(item [, trigger = "hit"])   an item's effects of that trigger on this NPC (a weapon hitting it) -> killed
+    //     add_effect(stat, amount [, seconds [, over_time]])  +amount for a while (0/nil: for good), or amount per second
+    //     effects() -> { { stat, amount, source, remaining (-1 = for good), over_time }... }
+    //   Effects of items: add (at once), modifier (+amount while it lasts; equip: while equipped), overTime (per second),
+    //   event (events.emit(name, { entity, item, amount })). An NPC dies when the death stat reaches its minimum: what it
+    //   carries with "drop" falls to the ground as pickups, every script gets
+    //   on_event(self, "npc_died", { entity, npc = id, position, drops = { pickup entities } }) (and the NPC's own death
+    //   event if it has one), then the entity is removed (unless the NPC keeps its body: removeOnDeath false).
+    //   e:add_npc(id) -> Npc   make this entity that NPC (its looks are not changed)
+    //   scene.spawn_npc(id [, pos [, yaw]]) -> entity   a new one with its model, animation graph, script and body
+    //   scene.npcs([id [, dead = false]]) -> the NPC entities (of that id; dead ones only if asked)
+    //   ---- pickups (PickupComponent): items lying in the world. Picking up is the game's job: give it, destroy it.
+    //   e.pickup -> nil or { item, count, name }
+    //   scene.pickups([pos [, radius]]) -> pickup entities, nearest first
+    //   scene.spawn_pickup(item [, count = 1 [, pos]]) -> entity
     //   ---- terrain: heightmap terrains (TerrainComponent). No physics needed: works in on_create too.
     //   terrain.height(x, z) / terrain.height(pos) -> world y of the ground there, or nil off every terrain
     //   terrain.normal(x, z) / terrain.normal(pos) -> unit vec3 (world), or nil

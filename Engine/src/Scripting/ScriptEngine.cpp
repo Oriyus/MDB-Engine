@@ -15,6 +15,8 @@
 #include "Navigation/FogOfWar.h"
 #include "Scene/EntityJson.h"          // glm <-> json
 #include "Runtime/UILayout.h"
+#include "Runtime/GameDatabase.h"
+#include "Runtime/Characters.h"
 #include "Core/Input.h"
 #include "Core/Log.h"
 
@@ -30,6 +32,7 @@
 #include <filesystem>
 #include <fstream>
 #include <array>
+#include <random>
 #include <stdexcept>
 #include <typeinfo>
 #include <unordered_map>
@@ -76,6 +79,7 @@ namespace Engine {
         struct AudioRef  { ScriptEntity E; };
         struct AnimatorRef { ScriptEntity E; };
         struct ParticlesRef { ScriptEntity E; };
+        struct NpcRef { ScriptEntity E; };
 
         constexpr int kKeyFirst = 32, kKeyCount = 349;   // GLFW_KEY_SPACE .. GLFW_KEY_LAST
         constexpr int kMouseCount = 8;
@@ -133,6 +137,19 @@ namespace Engine {
         std::vector<QueuedEvent> Events;                  // events.emit, delivered after this frame's on_update
         void DispatchEvents();
         void LoadLibraries();
+        // ---- the game database and its NPCs (BindDatabase; Runtime/Characters)
+        std::shared_ptr<const GameDatabase> Db;
+        nlohmann::json DbJson;                            // Db as JSON (records handed to Lua as tables)
+        std::mt19937 Rng{ std::random_device{}() };
+        void BindDatabase();
+        void RefreshDatabase();                           // the current database (the editor may have changed it)
+        const GameDatabase& DB() { if (!Db) RefreshDatabase(); return *Db; }
+        NpcComponent& Npc(const ScriptEntity& e);       // brought to life first if needed
+        void PrepareNpcs(Scene& scene);
+        void TickNpcs(Scene& scene, float dt);
+        void Kill(entt::entity h);                        // dies: drops, "npc_died", removed (deferred)
+        void Outcome(entt::entity h, const std::string& item, const Characters::Outcome& o);
+        sol::object Record(const char* table, const std::string& id);   // a database record as a Lua table
         std::vector<ScriptUIItem> UI;                     // ui.* calls of the current frame
         float PtrX = 0.0f, PtrY = 0.0f;                   // pointer over the game view, 0..1
         bool PtrInside = false, PtrDown = false, PtrClicked = false;
@@ -1781,6 +1798,280 @@ namespace Engine {
                 return { sol::make_object(*Lua, sol::lua_nil), sol::make_object(*Lua, path + ": " + ex.what()) };
             }
         });
+
+        BindDatabase();             // db.*, e.npc, e.pickup, scene.spawn_npc / spawn_pickup / pickups / npcs
+    }
+
+    // ---------------------------------------------------------------- game database, NPCs, pickups
+
+    void ScriptEngine::Impl::RefreshDatabase() {
+        auto db = Resources.LoadDatabase ? Resources.LoadDatabase() : nullptr;
+        if (!db) db = std::make_shared<GameDatabase>();
+        if (db != Db) { Db = db; DbJson = Db->ToJson(); }
+    }
+
+    NpcComponent& ScriptEngine::Impl::Npc(const ScriptEntity& e) {
+        auto& n = e.Get<NpcComponent>();
+        if (!n.Ready) Characters::Prepare(n, DB(), Rng);
+        return n;
+    }
+
+    void ScriptEngine::Impl::PrepareNpcs(Scene& scene) {
+        for (auto [e, n] : scene.Registry().view<NpcComponent>().each())
+            if (!n.Ready) Characters::Prepare(n, DB(), Rng);
+    }
+
+    void ScriptEngine::Impl::TickNpcs(Scene& scene, float dt) {
+        std::vector<entt::entity> died;
+        for (auto [e, n] : scene.Registry().view<NpcComponent>().each())
+            if (n.Ready && Characters::Tick(n, DB(), dt)) died.push_back(e);
+        for (entt::entity e : died) Kill(e);
+    }
+
+    sol::object ScriptEngine::Impl::Record(const char* table, const std::string& id) {
+        if (auto it = DbJson.find(table); it != DbJson.end())
+            for (const auto& r : *it)
+                if (r.value("id", std::string()) == id) return FromJson(r);
+        return sol::make_object(*Lua, sol::lua_nil);
+    }
+
+    void ScriptEngine::Impl::Outcome(entt::entity h, const std::string& item, const Characters::Outcome& o) {
+        for (const auto& [name, amount] : o.Events)
+            Events.push_back({ name, sol::make_object(*Lua, Lua->create_table_with("entity", Wrap(h), "item", item, "amount", amount)) });
+        if (o.Died) Kill(h);
+    }
+
+    void ScriptEngine::Impl::Kill(entt::entity h) {
+        auto& reg = ActiveScene->Registry();
+        if (!reg.valid(h) || !reg.all_of<NpcComponent>(h)) return;
+        auto& n = reg.get<NpcComponent>(h);
+        if (!n.Ready) Characters::Prepare(n, DB(), Rng);
+        if (n.Dead) return;
+        const std::string id = n.Id;
+        const auto drops = Characters::Die(n);
+        const glm::vec3 pos = glm::vec3(ActiveScene->GetWorldMatrix(h)[3]);
+        // the loot lands in a ring round its feet
+        sol::table list = Lua->create_table();
+        std::uniform_real_distribution<float> U(0.0f, 1.0f);
+        const float turn = U(Rng) * 6.2831853f;
+        for (size_t i = 0; i < drops.size(); i++) {
+            const float a = turn + 6.2831853f * (float)i / (float)drops.size();
+            const float r = drops.size() == 1 ? 0.5f : 0.7f + 0.3f * U(Rng);
+            const entt::entity p = Characters::MakePickup(*ActiveScene, DB(), drops[i].Item, drops[i].Count,
+                                                          pos + glm::vec3(std::cos(a) * r, 0.0f, std::sin(a) * r), Resources, Prefabs);
+            list.add(Wrap(p));
+        }
+        const NpcDef* def = DB().Npc(id);
+        auto data = [&]() {
+            return sol::make_object(*Lua, Lua->create_table_with("entity", Wrap(h), "npc", id, "position", pos, "drops", list));
+        };
+        Events.push_back({ "npc_died", data() });
+        if (def && !def->DeathEvent.empty()) Events.push_back({ def->DeathEvent, data() });
+        if (!def || def->RemoveOnDeath) PendingDestroy.push_back(h);
+    }
+
+    void ScriptEngine::Impl::BindDatabase() {
+        sol::state& lua = *Lua;
+        RefreshDatabase();
+
+        // ---- db: the design data (read-only; Assets/Data/database.json, edited in the editor's Database window)
+        sol::table db = lua.create_named_table("db");
+        db.set_function("item", [this](const std::string& id) { return Record("items", id); });
+        db.set_function("npc", [this](const std::string& id) { return Record("npcs", id); });
+        db.set_function("stat", [this](const std::string& id) { return Record("stats", id); });
+        auto all = [this](const char* table) {
+            auto it = DbJson.find(table);
+            return it != DbJson.end() ? FromJson(*it) : sol::make_object(*Lua, Lua->create_table());
+        };
+        db.set_function("items", [all]() { return all("items"); });
+        db.set_function("npcs", [all]() { return all("npcs"); });
+        db.set_function("stats", [all]() { return all("stats"); });
+        db.set_function("death_stat", [this]() { return DB().DeathStat; });
+
+        auto trigger = [](const std::string& s) {
+            if (s == "use") return EffectTrigger::Use;
+            if (s == "equip") return EffectTrigger::Equip;
+            if (s == "hit") return EffectTrigger::Hit;
+            throw std::runtime_error("trigger must be \"use\", \"equip\" or \"hit\"");
+        };
+
+        // ---- e.npc: an NPC's live state
+        lua.new_usertype<NpcRef>("Npc", sol::no_constructor,
+            "id", sol::readonly_property([](const NpcRef& r) { return r.E.Get<NpcComponent>().Id; }),
+            "name", sol::readonly_property([this](const NpcRef& r) {
+                const NpcDef* d = DB().Npc(r.E.Get<NpcComponent>().Id);
+                return d ? d->Name : r.E.Get<NpcComponent>().Id;
+            }),
+            "data", sol::readonly_property([this](const NpcRef& r) { return Record("npcs", r.E.Get<NpcComponent>().Id); }),
+            "dead", sol::readonly_property([this](const NpcRef& r) { return Npc(r.E).Dead; }),
+            "alive", sol::readonly_property([this](const NpcRef& r) { return !Npc(r.E).Dead; }),
+            "stat", [this](const NpcRef& r, const std::string& s) { return Characters::Value(Npc(r.E), DB(), s); },
+            "base", [this](const NpcRef& r, const std::string& s) { return Characters::Base(Npc(r.E), DB(), s); },
+            "set", [this](const NpcRef& r, const std::string& s, float v) {
+                auto& n = Npc(r.E);
+                if (n.Dead) return false;
+                const bool died = Characters::SetBase(n, DB(), s, v);
+                if (died) Kill(r.E.Handle);
+                return died;
+            },
+            "add", [this](const NpcRef& r, const std::string& s, float d) {
+                auto& n = Npc(r.E);
+                if (n.Dead) return false;
+                const bool died = Characters::AddBase(n, DB(), s, d);
+                if (died) Kill(r.E.Handle);
+                return died;
+            },
+            // damage: off the death stat (health); returns true if this killed it
+            "damage", [this](const NpcRef& r, float amount) {
+                auto& n = Npc(r.E);
+                if (n.Dead || amount <= 0.0f) return false;
+                const bool died = Characters::AddBase(n, DB(), DB().DeathStat, -amount);
+                if (died) Kill(r.E.Handle);
+                return died;
+            },
+            "heal", [this](const NpcRef& r, float amount) {
+                auto& n = Npc(r.E);
+                if (!n.Dead && amount > 0.0f) Characters::AddBase(n, DB(), DB().DeathStat, amount);
+            },
+            "kill", [this](const NpcRef& r) { Npc(r.E); Kill(r.E.Handle); },
+            "inventory", [this](const NpcRef& r) {
+                sol::table t = Lua->create_table();
+                for (const auto& it : Npc(r.E).Inventory) {
+                    const ItemDef* d = DB().Item(it.Item);
+                    t.add(Lua->create_table_with("item", it.Item, "count", it.Count, "equipped", it.Equipped,
+                                                 "drop", it.Drop, "name", d ? d->Name : it.Item));
+                }
+                return t;
+            },
+            "count", [this](const NpcRef& r, const std::string& item) { return Characters::Count(Npc(r.E), item); },
+            "give", [this](const NpcRef& r, const std::string& item, sol::optional<int> n) {
+                if (!DB().Item(item)) throw std::runtime_error("no item \"" + item + "\" in the database");
+                return Characters::Give(Npc(r.E), DB(), item, n.value_or(1));
+            },
+            "take", [this](const NpcRef& r, const std::string& item, sol::optional<int> n) {
+                return Characters::Take(Npc(r.E), item, n.value_or(1));
+            },
+            "equip", [this](const NpcRef& r, const std::string& item) -> std::tuple<bool, sol::object> {
+                Characters::Outcome o;
+                std::string err;
+                if (!Characters::Equip(Npc(r.E), DB(), item, true, o, &err)) return { false, sol::make_object(*Lua, err) };
+                Outcome(r.E.Handle, item, o);
+                return { true, sol::make_object(*Lua, sol::lua_nil) };
+            },
+            "unequip", [this](const NpcRef& r, const std::string& item) -> std::tuple<bool, sol::object> {
+                Characters::Outcome o;
+                std::string err;
+                if (!Characters::Equip(Npc(r.E), DB(), item, false, o, &err)) return { false, sol::make_object(*Lua, err) };
+                return { true, sol::make_object(*Lua, sol::lua_nil) };
+            },
+            // the item equipped in a slot, or nil
+            "equipped", [this](const NpcRef& r, const std::string& slot) -> sol::object {
+                for (const auto& it : Npc(r.E).Inventory) {
+                    const ItemDef* d = it.Equipped ? DB().Item(it.Item) : nullptr;
+                    if (d && d->Slot == slot) return sol::make_object(*Lua, it.Item);
+                }
+                return sol::make_object(*Lua, sol::lua_nil);
+            },
+            "use", [this](const NpcRef& r, const std::string& item) -> std::tuple<bool, sol::object> {
+                Characters::Outcome o;
+                std::string err;
+                if (!Characters::Use(Npc(r.E), DB(), item, o, &err)) return { false, sol::make_object(*Lua, err) };
+                Outcome(r.E.Handle, item, o);
+                return { true, sol::make_object(*Lua, sol::lua_nil) };
+            },
+            // an item's effects of one trigger on this NPC, without it carrying the item (a weapon's "hit")
+            "apply", [this, trigger](const NpcRef& r, const std::string& item, sol::optional<std::string> when) {
+                if (!DB().Item(item)) throw std::runtime_error("no item \"" + item + "\" in the database");
+                const auto o = Characters::Apply(Npc(r.E), DB(), item, trigger(when.value_or("hit")));
+                Outcome(r.E.Handle, item, o);
+                return o.Died;
+            },
+            // a running effect: +amount to a stat for `seconds` (nil or 0: for good), or per second with over_time
+            "add_effect", [this](const NpcRef& r, const std::string& stat, float amount, sol::optional<float> seconds, sol::optional<bool> overTime) {
+                auto& n = Npc(r.E);
+                if (n.Dead) return;
+                const float s = seconds.value_or(0.0f);
+                n.Effects.push_back({ stat, "script", amount, s > 0.0f ? s : -1.0f, overTime.value_or(false) });
+            },
+            "effects", [this](const NpcRef& r) {
+                sol::table t = Lua->create_table();
+                for (const auto& e : Npc(r.E).Effects)
+                    t.add(Lua->create_table_with("stat", e.Stat, "amount", e.Amount, "source", e.Source,
+                                                 "remaining", e.Remaining, "over_time", e.OverTime));
+                return t;
+            },
+            // take n of an item out of its inventory and put it on the ground next to it; the pickup entity
+            "drop", [this](const NpcRef& r, const std::string& item, sol::optional<int> count) -> sol::object {
+                const int n = count.value_or(1);
+                if (!Characters::Take(Npc(r.E), item, n)) return sol::make_object(*Lua, sol::lua_nil);
+                const glm::vec3 pos = glm::vec3(ActiveScene->GetWorldMatrix(r.E.Handle)[3]);
+                std::uniform_real_distribution<float> U(0.0f, 6.2831853f);
+                const float a = U(Rng);
+                return MakeEntity(Characters::MakePickup(*ActiveScene, DB(), item, n, pos + glm::vec3(std::cos(a), 0.0f, std::sin(a)) * 0.7f,
+                                                         Resources, Prefabs));
+            });
+
+        sol::usertype<ScriptEntity> entity = lua["Entity"];
+        entity["npc"] = sol::readonly_property([](const ScriptEntity& e) -> sol::optional<NpcRef> {
+            if (e.Has<NpcComponent>()) return NpcRef{ e };
+            return sol::nullopt;
+        });
+        // make this entity an NPC of the database (state from its definition; its looks are not changed)
+        entity["add_npc"] = [this](const ScriptEntity& e, const std::string& id) {
+            if (!e.Valid()) throw std::runtime_error("entity no longer exists");
+            if (!DB().Npc(id)) throw std::runtime_error("no NPC \"" + id + "\" in the database");
+            e.Owner->Registry().emplace_or_replace<NpcComponent>(e.Handle, NpcComponent{ id });
+            Npc(e);
+            return NpcRef{ e };
+        };
+        entity["pickup"] = sol::readonly_property([this](const ScriptEntity& e) -> sol::object {
+            if (!e.Has<PickupComponent>()) return sol::make_object(*Lua, sol::lua_nil);
+            const auto& p = e.Get<PickupComponent>();
+            const ItemDef* d = DB().Item(p.Item);
+            return sol::make_object(*Lua, Lua->create_table_with("item", p.Item, "count", p.Count, "name", d ? d->Name : p.Item));
+        });
+
+        sol::table scene = lua["scene"];
+        // a new NPC of the database at a position (its model, graph, script and body from the database)
+        scene.set_function("spawn_npc", [this](const std::string& id, sol::optional<glm::vec3> pos, sol::optional<float> yaw) {
+            if (!DB().Npc(id)) throw std::runtime_error("no NPC \"" + id + "\" in the database");
+            const entt::entity e = Characters::MakeNpc(*ActiveScene, DB(), id, Resources, Prefabs);
+            auto& t = ActiveScene->Registry().get<TransformComponent>(e);
+            if (pos) t.Position = *pos;
+            if (yaw) t.Rotation.y = *yaw;
+            Characters::Prepare(ActiveScene->Registry().get<NpcComponent>(e), DB(), Rng);
+            return Wrap(e);
+        });
+        scene.set_function("spawn_pickup", [this](const std::string& item, sol::optional<int> count, sol::optional<glm::vec3> pos) {
+            if (!DB().Item(item)) throw std::runtime_error("no item \"" + item + "\" in the database");
+            return Wrap(Characters::MakePickup(*ActiveScene, DB(), item, count.value_or(1), pos.value_or(glm::vec3(0.0f)), Resources, Prefabs));
+        });
+        // the pickups (items lying in the world), nearest first; within `radius` of `pos` if given
+        scene.set_function("pickups", [this](sol::optional<glm::vec3> pos, sol::optional<float> radius) {
+            std::vector<std::pair<float, entt::entity>> found;
+            for (auto [e, p] : ActiveScene->Registry().view<PickupComponent>().each()) {
+                float d = 0.0f;
+                if (pos) {
+                    d = glm::length(glm::vec3(ActiveScene->GetWorldMatrix(e)[3]) - *pos);
+                    if (radius && d > *radius) continue;
+                }
+                found.push_back({ d, e });
+            }
+            std::sort(found.begin(), found.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+            sol::table t = Lua->create_table();
+            for (const auto& f : found) t.add(Wrap(f.second));
+            return t;
+        });
+        // every NPC (optionally only those with this database id), alive ones only unless `dead` is true
+        scene.set_function("npcs", [this](sol::optional<std::string> id, sol::optional<bool> dead) {
+            sol::table t = Lua->create_table();
+            for (auto [e, n] : ActiveScene->Registry().view<NpcComponent>().each()) {
+                if (id && !id->empty() && n.Id != *id) continue;
+                if (n.Dead && !dead.value_or(false)) continue;
+                t.add(Wrap(e));
+            }
+            return t;
+        });
     }
 
     // Every queued event goes to every script with on_event(self, name, data). Events emitted meanwhile
@@ -2048,6 +2339,7 @@ namespace Engine {
         }
 
         m.LoadLibraries();          // Scripts/Lib/*.lua: shared code (e.g. the dialogue runner) in the globals
+        m.PrepareNpcs(scene);       // NPCs come to life before any on_create reads their stats
 
         // Start everything now so on_create runs before the first frame
         m.StartNewInstances(scene.Registry());
@@ -2082,6 +2374,11 @@ namespace Engine {
 
         // Start scripted entities that appeared while playing (spawned, cloned, add_script)
         m.StartNewInstances(reg);
+
+        // NPCs: new ones come to life, running effects advance (deaths drop their loot)
+        m.RefreshDatabase();
+        m.PrepareNpcs(scene);
+        m.TickNpcs(scene, dt);
 
         // Snapshot the handles: on_update may add or remove instances (add_script, clone + start)
         std::vector<entt::entity> handles;

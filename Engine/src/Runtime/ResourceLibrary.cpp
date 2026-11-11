@@ -4,6 +4,7 @@
 #include "Renderer/Texture.h"
 #include "Scene/Terrain.h"
 #include "Animation/AnimGraph.h"
+#include "Runtime/GameDatabase.h"
 #include "Core/Log.h"
 
 #include <filesystem>
@@ -109,6 +110,36 @@ namespace Engine {
         m_Graphs[path] = { std::move(graph), {}, true };
     }
 
+    std::shared_ptr<const GameDatabase> ResourceLibrary::LoadDatabase() {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path file = fs::u8path(m_AssetDir + GameDatabase::kPath);
+        const auto stamp = fs::last_write_time(file, ec);
+        if (ec) {                                        // no file: the editor's copy, else an empty database
+            if (!m_Database) m_Database = std::make_shared<GameDatabase>();
+            return m_Database;
+        }
+        if (m_Database && stamp == m_DatabaseStamp) return m_Database;   // also the live copy, until the file is written
+        std::string error;
+        auto db = GameDatabase::Load(file.string(), &error);
+        if (!db) {
+            ENGINE_WARN("Database {}: {}", GameDatabase::kPath, error);
+            if (!m_Database) m_Database = std::make_shared<GameDatabase>();
+        }
+        else m_Database = db;
+        m_DatabaseStamp = stamp;
+        m_DatabaseLive = false;
+        return m_Database;
+    }
+
+    void ResourceLibrary::SetDatabase(std::shared_ptr<const GameDatabase> db) {
+        if (!db) return;
+        m_Database = std::move(db);
+        std::error_code ec;
+        m_DatabaseStamp = std::filesystem::last_write_time(std::filesystem::u8path(m_AssetDir + GameDatabase::kPath), ec);
+        m_DatabaseLive = true;
+    }
+
     std::shared_ptr<Model> ResourceLibrary::LoadModel(const std::string& path) {
         if (auto it = m_Models.find(path); it != m_Models.end()) return it->second;
         auto model = std::make_shared<Model>(m_AssetDir + path);
@@ -159,6 +190,7 @@ namespace Engine {
         };
         r.LoadTerrain = [this](const std::string& path) { return LoadTerrain(path); };
         r.LoadAnimGraph = [this](const std::string& path) { return LoadAnimGraph(path); };
+        r.LoadDatabase = [this]() { return LoadDatabase(); };
         return r;
     }
 

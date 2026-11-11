@@ -396,6 +396,7 @@
     {
       "id": 6377638336407723001,
       "name": "Enemy",
+      "npc": { "id": "goblin" },
       "transform": {
         "position": [
           9.5,
@@ -732,6 +733,7 @@
     {
       "id": 11846162907098622212,
       "name": "Enemy",
+      "npc": { "id": "goblin" },
       "transform": {
         "position": [
           8.5,
@@ -1068,6 +1070,7 @@
     {
       "id": 7186582986762875548,
       "name": "Enemy",
+      "npc": { "id": "goblin" },
       "transform": {
         "position": [
           7.5,
@@ -1284,6 +1287,7 @@
         "useModelMaterials": false
       },
       "name": "Sage",
+      "npc": { "id": "sage" },
       "rigidBody": {
         "center": [
           0.0,

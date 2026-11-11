@@ -1,33 +1,28 @@
 -- The party's inventory: a bag of 16 slots and three equipment slots, kept in `game` (so it is saved,
 -- and carried from level to level). I (or tactics.lua's Inventory button) opens it.
--- Drag items between slots; an equipment slot only takes its kind. Right-click a potion to drink it.
--- Other scripts give items by adding ids to game.pending_loot (chest.lua, sage.lua).
+-- Drag items between slots; an equipment slot only takes items for that slot. Right-click a consumable to use it.
+-- Other scripts give items by adding ids to game.pending_loot (chest.lua). Walking over an item lying on the
+-- ground (a pickup: what a dead goblin dropped) picks it up; gold goes into game.gold.
+--
+-- What the items are (name, icon, slot, stacking, description) comes from the game database,
+-- Assets/Data/database.json: edit them in the editor's Window > Database.
 
-local ITEMS = {
-    sword  = { name = "Iron Sword", icon = "Textures/Icons/sword.png", kind = "weapon",
-               text = "A plain, honest blade.\n{#ffcc66}Damage 4-8{/}" },
-    shield = { name = "Kite Shield", icon = "Textures/Icons/shield.png", kind = "shield",
-               text = "Blue and gold, a little dented.\n{#9fd0ff}Armour +2{/}" },
-    helmet = { name = "Iron Helm", icon = "Textures/Icons/helmet.png", kind = "head",
-               text = "Heavy, but it keeps your ears on.\n{#9fd0ff}Armour +1{/}" },
-    potion = { name = "Healing Potion", icon = "Textures/Icons/potion.png", kind = "consumable", stack = true,
-               text = "Restores {#7fd27f}10 health{/}.\n{#a0a8b8}Right-click to drink.{/}" },
-    gem    = { name = "Emerald", icon = "Textures/Icons/gem.png", kind = "treasure", stack = true,
-               text = "Worth {#ffcc66}50 gold{/} to the right buyer." },
-    scroll = { name = "Old Letter", icon = "Textures/Icons/scroll.png", kind = "quest",
-               text = "{b}To whoever finds this:{/b} the cellar key was never lost. It was hidden." },
-}
 local BAG = 16
 local EQUIP = { { key = "head", label = "Head" }, { key = "weapon", label = "Weapon" }, { key = "shield", label = "Shield" } }
+local PICKUP_RANGE = 1.3
 
 local open = false
+local hero
+
+local function item(id) return db.item(id) end
 
 -- Put n of an item in the bag: on its stack if it stacks, else in the first empty slot. False if full.
 local function give(id, n)
     n = n or 1
-    local item = ITEMS[id]
-    if not item then log("inventory.lua: unknown item " .. tostring(id)) return false end
-    if item.stack then
+    local it = item(id)
+    if not it then log("inventory.lua: unknown item " .. tostring(id)) return false end
+    if id == "gold" then game.gold = (game.gold or 0) + n return true end   -- coins go into the purse
+    if it.stackable then
         for i = 1, BAG do
             local e = game.bag[i]
             if e and e.id == id then e.count = e.count + n return true end
@@ -35,8 +30,8 @@ local function give(id, n)
     end
     for i = 1, BAG do
         if not game.bag[i] then
-            game.bag[i] = { id = id, count = item.stack and n or 1 }
-            if not item.stack and n > 1 then return give(id, n - 1) end
+            game.bag[i] = { id = id, count = it.stackable and n or 1 }
+            if not it.stackable and n > 1 then return give(id, n - 1) end
             return true
         end
     end
@@ -59,7 +54,8 @@ local function set(at, entry)
 end
 local function fits(entry, at)        -- can `entry` go into `at`?
     if not entry or at.where == "bag" then return true end
-    return ITEMS[entry.id].kind == at.key
+    local it = item(entry.id)
+    return it ~= nil and it.slot == at.key
 end
 
 -- Move what is at `from` to `to`; whatever was at `to` goes back to `from` (if it fits there)
@@ -67,8 +63,8 @@ local function move(from, to)
     if from.where == to.where and from.key == to.key then return end
     local a, b = get(from), get(to)
     if not fits(a, to) then shared.notice = "That doesn't go there" return end
-    if not fits(b, from) then shared.notice = "No room for the " .. ITEMS[b.id].name return end
-    if a and b and a.id == b.id and ITEMS[a.id].stack then    -- same stackable item: merge
+    if not fits(b, from) then shared.notice = "No room for the " .. item(b.id).name return end
+    if a and b and a.id == b.id and item(a.id).stackable then    -- same stackable item: merge
         b.count = b.count + a.count
         set(from, nil)
         return
@@ -78,19 +74,22 @@ local function move(from, to)
 end
 
 local function tooltip(entry)
-    local item = ITEMS[entry.id]
-    return "{b}" .. item.name .. "{/b}\n" .. item.text
+    local it = item(entry.id)
+    if not it then return entry.id end
+    local text = "{b}" .. it.name .. "{/b}\n" .. (it.description or "")
+    if it.value and it.value > 0 then text = text .. string.format("\n{#a0a8b8}Worth %d gold{/}", it.value) end
+    return text
 end
 
 local function use(at)
     local e = get(at)
     if not e then return end
-    if e.id == "potion" then
-        e.count = e.count - 1
-        if e.count <= 0 then set(at, nil) end
-        shared.notice = "You drink the potion. You feel better."
-        audio.play("Sounds/unlock.wav")
-    end
+    local it = item(e.id)
+    if not (it and it.consumable) then return end
+    e.count = e.count - 1
+    if e.count <= 0 then set(at, nil) end
+    shared.notice = e.id == "potion" and "You drink the potion. You feel better." or ("You use the " .. it.name)
+    audio.play("Sounds/unlock.wav")
 end
 
 -- One slot of the inventory. A drag carries where it came from.
@@ -99,9 +98,9 @@ local function item_slot(id, at)
     local held = ui.dragging()
     local accept = true
     if held then accept = fits(get(held), at) end
-    local item = e and ITEMS[e.id]
+    local it = e and item(e.id)
     local clicked, dropped, right = ui.slot(id, {
-        icon = item and item.icon, count = e and e.count or 0, tooltip = e and tooltip(e) or nil,
+        icon = it and it.icon, count = e and e.count or 0, tooltip = e and tooltip(e) or nil,
         drag = e and at or nil, accept = accept, highlight = at.where == "equip" and e ~= false and e ~= nil })
     if dropped then move(dropped, at) end
     if right then use(at) end
@@ -165,10 +164,24 @@ local function take(id, n)
     return true
 end
 
+-- Items lying near the hero go into the bag (the pickup entity is removed)
+local function collect()
+    if not (hero and hero:valid()) then hero = scene.find("Hero") end
+    if not hero then return end
+    for _, p in ipairs(scene.pickups(hero.position, PICKUP_RANGE)) do
+        local loot = p.pickup
+        if give(loot.item, loot.count) then
+            shared.notice = loot.count > 1 and string.format("Picked up %d %s", loot.count, loot.name) or ("Picked up: " .. loot.name)
+            audio.play("Sounds/coin.wav")
+            p:destroy()
+        end
+    end
+end
+
 function on_create(self)
     setup()
     -- Dialogue conditions and actions can use these (Lib/dialogue.lua): give("potion"), has_item("gem"), take("gem")
-    dialogue.helpers.give = function(id, n) setup(); local ok = give(id, n); if ok then shared.notice = "You got: " .. ITEMS[id].name end; return ok end
+    dialogue.helpers.give = function(id, n) setup(); local ok = give(id, n); if ok then shared.notice = "You got: " .. item(id).name end; return ok end
     dialogue.helpers.take = function(id, n) setup(); return take(id, n) end
     dialogue.helpers.has_item = function(id, n) setup(); return count(id) >= (n or 1) end
 end
@@ -178,10 +191,11 @@ function on_update(self, dt)
     -- items given by other scripts
     if game.pending_loot then
         for _, id in ipairs(game.pending_loot) do
-            if give(id) then shared.notice = "You got: " .. ITEMS[id].name end
+            if give(id) then shared.notice = "You got: " .. item(id).name end
         end
         game.pending_loot = nil
     end
+    collect()
     if input.key_pressed(Key.I) or shared.toggle_inventory then
         open = not open
         shared.toggle_inventory = nil
