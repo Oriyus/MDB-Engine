@@ -1193,7 +1193,7 @@ public:
             const float dx = p.x - (a.x + ab.x * t), dy = p.y - (a.y + ab.y * t);
             return std::sqrt(dx * dx + dy * dy);
         };
-        for (const SunGizmo& g : GatherSunGizmos()) {
+        if (m_ShowLightGizmos) for (const SunGizmo& g : GatherSunGizmos()) {
             ImVec2 c, tip, r;
             if (!ProjectToViewport(g.Pos, origin, size, c)) continue;
             float d = std::sqrt((mouse.x - c.x) * (mouse.x - c.x) + (mouse.y - c.y) * (mouse.y - c.y));
@@ -1204,8 +1204,23 @@ public:
             if (ProjectToViewport(g.Pos + g.Dir * 1.9f * g.Size, origin, size, tip)) d = std::min(d, segDist(mouse, c, tip));
             if (d < bestDist) { bestDist = d; best = g.E; }
         }
+        // grass blockers: the centre diamond or the outline (not the inside: clicks there pick what is on the ground)
+        if (m_ShowGrassBlockers)
+            for (auto [e, b] : m_Scene.Registry().view<Engine::GrassBlockerComponent>().each()) {
+                ImVec2 c;
+                float d = 1e9f;
+                if (ProjectToViewport(glm::vec3(m_Scene.GetWorldMatrix(e)[3]), origin, size, c))
+                    d = std::sqrt((mouse.x - c.x) * (mouse.x - c.x) + (mouse.y - c.y) * (mouse.y - c.y));
+                const auto pts = BlockerWorldOutline(e, b, 0.0f);
+                for (size_t i = 0; i < pts.size(); i++) {
+                    ImVec2 a, bb;
+                    if (ProjectToViewport(pts[i], origin, size, a) && ProjectToViewport(pts[(i + 1) % pts.size()], origin, size, bb))
+                        d = std::min(d, segDist(mouse, a, bb) + 2.0f);   // the diamond wins a close call
+                }
+                if (d < 7.0f && d < bestDist) { bestDist = d; best = e; }
+            }
         // point lights: the lightbulb icon
-        for (auto [e, light] : m_Scene.Registry().view<Engine::PointLightComponent>().each()) {
+        if (m_ShowLightGizmos) for (auto [e, light] : m_Scene.Registry().view<Engine::PointLightComponent>().each()) {
             ImVec2 c;
             if (!ProjectToViewport(glm::vec3(m_Scene.GetWorldMatrix(e)[3]), origin, size, c)) continue;
             const float r = kBulbRadius;
@@ -1216,6 +1231,73 @@ public:
             if (d < 4.0f && d < bestDist) { bestDist = d; best = e; }
         }
         return best;
+    }
+
+    // Grass Blockers: their shape as an outline lying on the ground (on a terrain, following it), a fainter inner one
+    // where a soft edge reaches full strength, and a small diamond at the centre. Editor only, never rendered.
+    static std::vector<glm::vec2> BlockerOutline(Engine::GrassBlockerShape shape, glm::vec2 size) {
+        using Engine::GrassBlockerShape;
+        std::vector<glm::vec2> out;
+        if (shape == GrassBlockerShape::Circle) {
+            for (int i = 0; i < 48; i++) {
+                const float a = 6.2831853f * i / 48;
+                out.push_back(glm::vec2(std::cos(a), std::sin(a)) * size.x * 0.5f);
+            }
+        }
+        else if (shape == GrassBlockerShape::Capsule) {
+            const float r = size.y * 0.5f, half = std::max(size.x * 0.5f - r, 0.0f);
+            for (int i = 0; i <= 24; i++) {                       // right end, then left end
+                const float a = -1.5707963f + 3.1415927f * i / 24;
+                out.push_back(glm::vec2(half + std::cos(a) * r, std::sin(a) * r));
+            }
+            for (int i = 0; i <= 24; i++) {
+                const float a = 1.5707963f + 3.1415927f * i / 24;
+                out.push_back(glm::vec2(-half + std::cos(a) * r, std::sin(a) * r));
+            }
+        }
+        else {
+            const glm::vec2 h = size * 0.5f;
+            const glm::vec2 c[4] = { { -h.x, -h.y }, { h.x, -h.y }, { h.x, h.y }, { -h.x, h.y } };
+            for (int s = 0; s < 4; s++)                           // each side in steps, to follow a terrain
+                for (int i = 0; i < 12; i++) out.push_back(glm::mix(c[s], c[(s + 1) % 4], i / 12.0f));
+        }
+        return out;
+    }
+    // A blocker's outline in world space, on the ground under it where there is a terrain
+    std::vector<glm::vec3> BlockerWorldOutline(entt::entity e, const Engine::GrassBlockerComponent& b, float inset) {
+        std::vector<glm::vec3> out;
+        glm::vec2 size = b.Size - glm::vec2(2.0f * inset);
+        if (b.Shape == Engine::GrassBlockerShape::Circle ? size.x <= 0.0f : (size.x <= 0.0f || size.y <= 0.0f)) return out;
+        const glm::mat4 M = m_Scene.GetWorldMatrix(e);
+        for (const glm::vec2& p : BlockerOutline(b.Shape, size)) {
+            glm::vec3 w = glm::vec3(M * glm::vec4(p.x, 0.0f, p.y, 1.0f));
+            float y;
+            if (Engine::TerrainSurfaceAt(m_Scene, w.x, w.z, y)) w.y = y + 0.03f;
+            out.push_back(w);
+        }
+        return out;
+    }
+    void DrawGrassBlockers(const ImVec2& origin, const ImVec2& size) {
+        using namespace Engine;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        for (auto [e, b] : m_Scene.Registry().view<GrassBlockerComponent>().each()) {
+            const bool selected = IsSelected(e);
+            const ImU32 col = selected ? IM_COL32(170, 255, 190, 255) : IM_COL32(90, 220, 120, 200);
+            auto loop = [&](const std::vector<glm::vec3>& pts, ImU32 c, float thick) {
+                for (size_t i = 0; i < pts.size(); i++) {
+                    ImVec2 a, bb;
+                    if (ProjectToViewport(pts[i], origin, size, a) && ProjectToViewport(pts[(i + 1) % pts.size()], origin, size, bb))
+                        dl->AddLine(a, bb, c, thick);
+                }
+            };
+            loop(BlockerWorldOutline(e, b, 0.0f), col, selected ? 2.2f : 1.5f);
+            if (b.Softness > 0.0f) loop(BlockerWorldOutline(e, b, b.Softness), (col & 0x00FFFFFFu) | (90u << 24), 1.0f);
+            ImVec2 c;
+            if (ProjectToViewport(glm::vec3(m_Scene.GetWorldMatrix(e)[3]), origin, size, c)) {
+                const float r = selected ? 6.0f : 5.0f;
+                dl->AddQuadFilled(ImVec2(c.x, c.y - r), ImVec2(c.x + r, c.y), ImVec2(c.x, c.y + r), ImVec2(c.x - r, c.y), col);
+            }
+        }
     }
 
     // Point lights are only light too: the editor draws a lightbulb icon in the light's colour at each one (the same
@@ -1755,6 +1837,14 @@ private:
             Entity e = m_Scene.CreateEntity("Grass");
             e.Add<FoliageComponent>();
             place(e);
+        }
+        if (ImGui::MenuItem("Grass Blocker")) {                 // an area kept free of grass (a path, a yard)
+            Entity e = m_Scene.CreateEntity("Grass Blocker");
+            e.Add<GrassBlockerComponent>();
+            place(e);
+            float y;                                            // on the ground under it, if it is over a terrain
+            auto& t = e.Get<TransformComponent>();
+            if (TerrainSurfaceAt(m_Scene, t.Position.x, t.Position.z, y)) t.Position.y = y;
         }
         ImGui::SeparatorText("Gameplay");
         if (ImGui::MenuItem("Camera")) {
@@ -2843,6 +2933,7 @@ private:
                 ImGui::MenuItem("Colliders", nullptr, &m_ShowColliders);
                 ImGui::MenuItem("Camera Frustums", nullptr, &m_ShowFrustums);
                 ImGui::MenuItem("Light Gizmos", nullptr, &m_ShowLightGizmos);
+                ImGui::MenuItem("Grass Blockers", nullptr, &m_ShowGrassBlockers);
                 ImGui::SetItemTooltip("Arrows for suns and lightbulbs for point lights (editor only, never rendered)");
                 ImGui::MenuItem("Navigation Grid", nullptr, &m_ShowNavGrid);
                 ImGui::MenuItem("Fog of War", nullptr, &m_Renderer->ShowFog);   // off: see through the fog while play-testing
@@ -2951,6 +3042,7 @@ private:
         if (m_ShowColliders && !m_ViewingGame) DrawColliders(origin, size);
         if (!m_ViewingGame && m_ShowFrustums) DrawCameraFrustums(origin, size);
         if (!m_ViewingGame && m_ShowLightGizmos) { DrawSunGizmos(origin, size); DrawPointLightGizmos(origin, size); }
+        if (!m_ViewingGame && m_ShowGrassBlockers) DrawGrassBlockers(origin, size);
         if (!m_ViewingGame && m_ShowNavGrid && m_PlayState != PlayState::Edit) DrawNavGrid(origin, size);
         if (m_PlayState != PlayState::Edit)   // kept while paused: the scripts did not run again
             DrawScriptUI(ImGui::GetWindowDrawList(), m_GameFonts, m_Session->Scripts().UIItems(), origin, size, &m_UITextures);
@@ -3029,15 +3121,19 @@ private:
                     if (!add) ClearSelection();
                     for (int id : fb.ReadEntityIDs(x0, y0, x1 - x0, y1 - y0))
                         AddToSelection(static_cast<entt::entity>(id));
-                    if (m_ShowLightGizmos) {               // lights aren't rendered: their gizmo's centre counts
-                        auto inBox = [&](const glm::vec3& w) {
-                            ImVec2 p;
-                            return ProjectToViewport(w, origin, size, p) && p.x >= a.x && p.x <= b.x && p.y >= a.y && p.y <= b.y;
-                        };
+                    // lights and grass blockers aren't rendered: their gizmo's centre counts
+                    auto inBox = [&](const glm::vec3& w) {
+                        ImVec2 p;
+                        return ProjectToViewport(w, origin, size, p) && p.x >= a.x && p.x <= b.x && p.y >= a.y && p.y <= b.y;
+                    };
+                    if (m_ShowLightGizmos) {
                         for (const SunGizmo& g : GatherSunGizmos()) if (inBox(g.Pos)) AddToSelection(g.E);
                         for (auto [le, light] : m_Scene.Registry().view<Engine::PointLightComponent>().each())
                             if (inBox(glm::vec3(m_Scene.GetWorldMatrix(le)[3]))) AddToSelection(le);
                     }
+                    if (m_ShowGrassBlockers)
+                        for (auto [ge, gb] : m_Scene.Registry().view<Engine::GrassBlockerComponent>().each())
+                            if (inBox(glm::vec3(m_Scene.GetWorldMatrix(ge)[3]))) AddToSelection(ge);
                 }
                 else if (!m_GizmoBusy && !m_ViewingGame) {
                     const int px = (int)(m_BoxStart.x - origin.x);
@@ -3045,8 +3141,9 @@ private:
                     const int id = fb.ReadEntityID(px, py);
                     entt::entity picked = id < 0 ? entt::null : static_cast<entt::entity>(id);
                     // a light's gizmo (drawn over the scene) wins over what is rendered behind it
-                    if (m_ShowLightGizmos)
-                        if (const entt::entity light = LightGizmoAt(m_BoxStart, origin, size); light != entt::null) picked = light;
+                    {
+                        if (const entt::entity g = LightGizmoAt(m_BoxStart, origin, size); g != entt::null) picked = g;   // each kind checks its own View toggle
+                    }
                     if (add) ToggleSelected(picked);       // a click on nothing keeps the selection
                     else SelectOnly(picked);
                 }
@@ -3205,6 +3302,19 @@ private:
             ImGui::Checkbox("Double-sided", &mr.DoubleSided);
             ImGui::SetItemTooltip("Draw the back faces too, lit from their own side, so a single plane\n"
                 "(a leaf, a sign, cloth) is visible from behind. Back faces cost extra only on this object.");
+            if (mr.Static) {
+                // Grass fields with "Avoid static objects" leave out this object's footprint
+                ImGui::Checkbox("Blocks grass", &mr.BlocksGrass);
+                ImGui::SetItemTooltip("Grass (Avoid static objects) leaves out this object's footprint: the outline of\n"
+                    "its vertices near the ground. Off: grass grows right through or under it.");
+                if (mr.BlocksGrass) {
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.45f);
+                    ImGui::DragFloat("##grassmargin", &mr.GrassMargin, 0.01f, -2.0f, 10.0f, "margin %.2f m");
+                    ImGui::SetItemTooltip("Grow the grass-free footprint by this much (negative: shrink it, so grass\n"
+                        "reaches in under the edges)");
+                }
+            }
             if (!mr.DoubleSided && mr.UseModelMaterials && mr.Geometry) {
                 uint32_t doubleSided = 0;
                 for (uint32_t i = 0; i < mr.Geometry->SubmeshCount(); i++)
@@ -3401,6 +3511,33 @@ private:
             ImGui::Checkbox("Destroy when done", &pe.DestroyWhenDone);
             ImGui::SetItemTooltip("Remove the entity once it stops emitting and its particles are gone (one-shot effects)");
             if (ImGui::Button("Remove##particles")) e.Remove<ParticleEmitterComponent>();
+            ImGui::PopID();
+        }
+
+        if (e.Has<GrassBlockerComponent>() && ImGui::CollapsingHeader("Grass Blocker", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto& b = e.Get<GrassBlockerComponent>();
+            ImGui::PushID("grassblocker");
+            int shape = (int)b.Shape;
+            if (ImGui::Combo("Shape", &shape, "Box\0Circle\0Capsule\0")) b.Shape = (GrassBlockerShape)shape;
+            switch (b.Shape) {
+            case GrassBlockerShape::Box:
+                ImGui::DragFloat2("Size", &b.Size.x, 0.05f, 0.05f, 1000.0f, "%.2f m");
+                ImGui::SetItemTooltip("X by Z, in the entity's space (its rotation and scale apply)");
+                break;
+            case GrassBlockerShape::Circle:
+                ImGui::DragFloat("Diameter", &b.Size.x, 0.05f, 0.05f, 1000.0f, "%.2f m");
+                break;
+            case GrassBlockerShape::Capsule:
+                ImGui::DragFloat("Length", &b.Size.x, 0.05f, 0.05f, 1000.0f, "%.2f m");
+                ImGui::SetItemTooltip("End to end, along the entity's X: rotate it to aim a path");
+                ImGui::DragFloat("Width", &b.Size.y, 0.05f, 0.05f, 1000.0f, "%.2f m");
+                break;
+            }
+            b.Size = glm::max(b.Size, glm::vec2(0.05f));
+            ImGui::DragFloat("Soft edge", &b.Softness, 0.01f, 0.0f, 50.0f, "%.2f m");
+            ImGui::SetItemTooltip("The grass thins out over this distance inside the edge, instead of stopping at a line");
+            ImGui::TextDisabled("Keeps every grass field out of this area. Editor only: never rendered.");
+            if (ImGui::Button("Remove##grassblocker")) e.Remove<GrassBlockerComponent>();
             ImGui::PopID();
         }
 
@@ -3746,6 +3883,7 @@ private:
             }
             if (!e.Has<ParticleEmitterComponent>() && ImGui::MenuItem("Particle Emitter")) e.Add<ParticleEmitterComponent>();
             if (!e.Has<FoliageComponent>() && ImGui::MenuItem("Foliage")) e.Add<FoliageComponent>();
+            if (!e.Has<GrassBlockerComponent>() && ImGui::MenuItem("Grass Blocker")) e.Add<GrassBlockerComponent>();
             if (!e.Has<TerrainComponent>() && ImGui::MenuItem("Terrain")) {
                 auto& t = e.Add<TerrainComponent>();
                 t.Data = std::make_shared<TerrainData>(129);
@@ -3955,6 +4093,7 @@ private:
     bool  m_ShowHierarchy = true, m_ShowInspector = true, m_ShowSceneSettings = true, m_ShowConsole = true;
     bool  m_ShowStatsOverlay = true, m_ShowFrustums = true, m_ShowControls = false;
     bool  m_ShowLightGizmos = true;       // Viewport > View > Light Gizmos: sun arrows and point-light bulbs
+    bool  m_ShowGrassBlockers = true;     // Viewport > View > Grass Blockers: their outlines
     AssetBrowser m_Assets{ Projects::Current().AssetDir() };   // the Assets panel
     bool  m_ShowAssets = true;
     DialogueEditor m_Dialogue{ Projects::Current().AssetDir() };   // the Dialogue Editor window (Window menu, or a dialogue in Assets)

@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <unordered_map>
 #include <vector>
 
@@ -141,6 +142,88 @@ namespace Engine {
 
         // Something that presses the grass this frame (world space)
         struct Presser { glm::vec3 Pos; float Radius, HalfHeight, Strength; };
+
+        // ---- grass-free regions: static meshes' footprints (convex hulls) and Grass Blockers
+        float Cross(glm::vec2 o, glm::vec2 a, glm::vec2 b) { return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x); }
+
+        // The convex hull of points in X/Z, counter-clockwise (Andrew's monotone chain). 1 or 2 points stay as they are.
+        std::vector<glm::vec2> ConvexHull(std::vector<glm::vec2> p) {
+            std::sort(p.begin(), p.end(), [](glm::vec2 a, glm::vec2 b) { return a.x < b.x || (a.x == b.x && a.y < b.y); });
+            p.erase(std::unique(p.begin(), p.end(), [](glm::vec2 a, glm::vec2 b) { return glm::distance(a, b) < 1e-4f; }), p.end());
+            if (p.size() < 3) return p;
+            std::vector<glm::vec2> h(p.size() * 2);
+            size_t k = 0;
+            for (size_t i = 0; i < p.size(); i++) {                      // lower hull
+                while (k >= 2 && Cross(h[k - 2], h[k - 1], p[i]) <= 0.0f) k--;
+                h[k++] = p[i];
+            }
+            for (size_t i = p.size() - 1, t = k + 1; i > 0; i--) {      // upper hull
+                while (k >= t && Cross(h[k - 2], h[k - 1], p[i - 1]) <= 0.0f) k--;
+                h[k++] = p[i - 1];
+            }
+            h.resize(k - 1);
+            return h;
+        }
+
+        float SegmentDistance(glm::vec2 p, glm::vec2 a, glm::vec2 b) {
+            const glm::vec2 ab = b - a;
+            const float l2 = glm::dot(ab, ab);
+            const float t = l2 > 0.0f ? std::clamp(glm::dot(p - a, ab) / l2, 0.0f, 1.0f) : 0.0f;
+            return glm::distance(p, a + ab * t);
+        }
+
+        // Signed distance from p to a convex polygon (counter-clockwise): negative inside. A point or a segment
+        // (a hull of 1 or 2 points: a post, a thin rail on the ground) is never "inside", only near.
+        float HullDistance(const std::vector<glm::vec2>& h, glm::vec2 p) {
+            if (h.empty()) return 1e30f;
+            if (h.size() == 1) return glm::distance(p, h[0]);
+            float d = 1e30f;
+            bool inside = h.size() >= 3;
+            for (size_t i = 0; i < h.size(); i++) {
+                const glm::vec2 a = h[i], b = h[(i + 1) % h.size()];
+                d = std::min(d, SegmentDistance(p, a, b));
+                if (Cross(a, b, p) < 0.0f) inside = false;
+            }
+            return inside ? -d : d;
+        }
+
+        // Signed distance to a Grass Blocker's shape in its own X/Z (negative inside)
+        float BlockerDistance(GrassBlockerShape shape, glm::vec2 size, glm::vec2 p) {
+            switch (shape) {
+            case GrassBlockerShape::Circle: return glm::length(p) - std::max(size.x, 0.0f) * 0.5f;
+            case GrassBlockerShape::Capsule: {
+                const float r = std::max(size.y, 0.0f) * 0.5f;
+                const float half = std::max(size.x * 0.5f - r, 0.0f);   // the straight part, along X
+                return SegmentDistance(p, glm::vec2(-half, 0.0f), glm::vec2(half, 0.0f)) - r;
+            }
+            default: {
+                const glm::vec2 q = glm::abs(p) - glm::max(size, glm::vec2(0.0f)) * 0.5f;
+                return glm::length(glm::max(q, glm::vec2(0.0f))) + std::min(std::max(q.x, q.y), 0.0f);
+            }
+            }
+        }
+
+        // A region grass does not grow in: a footprint (Hull, blocked within Margin of it, inside included) or a
+        // blocker (its shape in its entity's space, with a soft edge)
+        struct Region {
+            glm::vec2 Min{ 0.0f }, Max{ 0.0f };   // world X/Z bounds of what it can block
+            const std::vector<glm::vec2>* Hull = nullptr;
+            float Margin = 0.0f;
+            bool Blocker = false;
+            GrassBlockerShape Shape = GrassBlockerShape::Box;
+            glm::vec2 Size{ 0.0f };
+            float Softness = 0.0f;
+            glm::mat4 Inverse{ 1.0f };          // world -> the blocker's space
+            // rnd 0..1, fixed per grass spot: where the edge is soft, it decides which spots stay
+            bool Blocks(const glm::vec3& p, float rnd) const {
+                if (!Blocker) return HullDistance(*Hull, glm::vec2(p.x, p.z)) < Margin;
+                const glm::vec3 l = glm::vec3(Inverse * glm::vec4(p, 1.0f));
+                const float d = BlockerDistance(Shape, Size, glm::vec2(l.x, l.z));
+                if (d >= 0.0f) return false;
+                if (Softness <= 0.0f || -d >= Softness) return true;
+                return rnd < -d / Softness;               // thinning towards the edge
+            }
+        };
     }
 
     struct FoliageRenderer::Impl {
@@ -166,9 +249,20 @@ namespace Engine {
             }
         };
         std::unordered_map<uint64_t, std::unique_ptr<Field>> Fields;   // by the entity's IDComponent
-        struct Obstacle { Box Bounds; glm::mat4 World; std::shared_ptr<Renderable> Geometry; };
+        struct Obstacle {
+            Box Bounds; glm::mat4 World; std::shared_ptr<Renderable> Geometry;
+            float Margin = 0.0f;                  // the Mesh Renderer's GrassMargin
+            // its footprint, worked out for one ground (HullKey: the field's height and the terrains)
+            uint64_t HullKey = 0;
+            bool HullValid = false, Floats = true;
+            std::vector<glm::vec2> Hull;
+            glm::vec2 HullMin{ 0.0f }, HullMax{ 0.0f };
+        };
         std::vector<Obstacle> Obstacles;
         uint64_t ObstacleHash = 0;
+        struct Blocker { glm::mat4 World, Inverse; GrassBlockerComponent B; };
+        std::vector<Blocker> Blockers;
+        uint64_t BlockerHash = 0;
         // Collision vertices per geometry (for footprints), fetched once
         struct Points { std::weak_ptr<Renderable> Source; std::vector<glm::vec3> P; };
         std::unordered_map<const Renderable*, Points> PointCache;
@@ -184,18 +278,33 @@ namespace Engine {
             return p.P;
         }
 
-        // Where an obstacle meets the ground: the X/Z box of its vertices within 0.35 m of the field's plane, so
-        // grass grows under fence rails and branches but not on walls, posts, floors or trunks. Empty: it floats.
-        bool Footprint(const Obstacle& o, float plane, Box& out) {
-            glm::vec3 mn(1e30f), mx(-1e30f);
-            bool any = false;
+        // Where an obstacle meets the ground: the convex outline (X/Z) of its vertices from 0.5 m below to 0.35 m above
+        // the ground under each of them (a terrain's surface there, else the field's height), so grass grows under
+        // fence rails and branches but not on walls, posts, floors or trunks, and a rotated wall clears only its own
+        // strip. Cached per ground; false if nothing of it is that low (it floats).
+        bool Footprint(Obstacle& o, float plane, uint64_t key) {
+            if (o.HullValid && o.HullKey == key) return !o.Floats;
+            static thread_local std::vector<glm::vec2> pts;
+            pts.clear();
             for (const glm::vec3& v : PointsOf(o.Geometry)) {
                 const glm::vec3 w = glm::vec3(o.World * glm::vec4(v, 1.0f));
-                if (w.y > plane + 0.35f || w.y < plane - 0.5f) continue;
-                mn = glm::min(mn, w); mx = glm::max(mx, w); any = true;
+                if (Terrains.empty()) {
+                    if (w.y > plane + 0.35f || w.y < plane - 0.5f) continue;
+                }
+                else {
+                    if (w.y > TerrainMaxY + 0.35f && w.y > plane + 0.35f) continue;   // far above any ground: skip the lookup
+                    const float g = GroundAt(w.x, w.z, plane);
+                    if (w.y > g + 0.35f || w.y < g - 0.5f) continue;
+                }
+                pts.push_back(glm::vec2(w.x, w.z));
             }
-            out = { mn, mx };
-            return any;
+            o.Hull = ConvexHull(pts);
+            o.Floats = o.Hull.empty();
+            o.HullMin = glm::vec2(1e30f); o.HullMax = glm::vec2(-1e30f);
+            for (const glm::vec2& p : o.Hull) { o.HullMin = glm::min(o.HullMin, p); o.HullMax = glm::max(o.HullMax, p); }
+            o.HullKey = key;
+            o.HullValid = true;
+            return !o.Floats;
         }
         std::vector<Presser> Pressers;
         std::chrono::steady_clock::time_point Last = std::chrono::steady_clock::now();
@@ -211,9 +320,22 @@ namespace Engine {
         void GatherObstacles(Scene& scene) {
             auto& reg = scene.Registry();
             uint64_t h = 1469598103934665603ull;
+            // Grass Blockers: few, so their world placement is simply worked out every frame
+            {
+                uint64_t bh = 1469598103934665603ull;
+                Blockers.clear();
+                for (auto [e, b] : reg.view<GrassBlockerComponent>().each()) {
+                    const glm::mat4 M = scene.GetWorldMatrix(e);
+                    Blockers.push_back({ M, glm::inverse(M), b });
+                    Mix(bh, &M, sizeof(M));
+                    Mix(bh, &b, sizeof(b));
+                }
+                BlockerHash = bh;
+            }
             for (auto [e, mr, t] : reg.view<MeshRendererComponent, TransformComponent>().each()) {
-                if (!mr.Static || !mr.Geometry) continue;
+                if (!mr.Static || !mr.Geometry || !mr.BlocksGrass) continue;
                 Mix(h, &t.Position, sizeof(glm::vec3) * 3);              // position, rotation, scale
+                Mix(h, &mr.GrassMargin, sizeof(float));
                 Mix(h, &mr.LocalOffset, sizeof(glm::mat4));
                 const auto* g = mr.Geometry.get();
                 Mix(h, &g, sizeof(g));
@@ -227,14 +349,19 @@ namespace Engine {
             ObstacleHash = h;
             Obstacles.clear();
             for (auto [e, mr] : reg.view<MeshRendererComponent>().each()) {
-                if (!mr.Static || !mr.Geometry) continue;
+                if (!mr.Static || !mr.Geometry || !mr.BlocksGrass) continue;
                 glm::vec3 mn, mx;
                 mr.Geometry->GetLocalBounds(mn, mx);
                 const glm::mat4 M = scene.GetWorldMatrix(e) * mr.LocalOffset;
                 const glm::vec3 c = glm::vec3(M * glm::vec4((mn + mx) * 0.5f, 1.0f));
                 const glm::vec3 hh = (mx - mn) * 0.5f;
                 const glm::vec3 ext = glm::abs(glm::vec3(M[0])) * hh.x + glm::abs(glm::vec3(M[1])) * hh.y + glm::abs(glm::vec3(M[2])) * hh.z;
-                Obstacles.push_back({ { c - ext, c + ext }, M, mr.Geometry });
+                Obstacle o;
+                o.Bounds = { c - ext, c + ext };
+                o.World = M;
+                o.Geometry = mr.Geometry;
+                o.Margin = mr.GrassMargin;
+                Obstacles.push_back(std::move(o));
             }
         }
 
@@ -260,11 +387,12 @@ namespace Engine {
             scene.FoliagePushes.clear();
         }
 
-        static uint64_t HashOf(const FoliageComponent& f, const glm::mat4& world, uint64_t obstacles) {
+        static uint64_t HashOf(const FoliageComponent& f, const glm::mat4& world, uint64_t obstacles, uint64_t blockers) {
             Hasher h;
             h.Add(f.Size); h.Add(f.Density); h.Add(f.Seed); h.Add(f.Height); h.Add(f.HeightVariation); h.Add(f.Width);
             h.Add(f.DryAmount); h.Add(f.FlowerAmount); h.Add(f.AvoidStatic); h.Add(world);
             if (f.AvoidStatic) h.Add(obstacles);
+            h.Add(blockers);                       // Grass Blockers apply to every field
             h.Add(f.FollowTerrain); h.Add(f.TerrainLayer);
             return h.H;
         }
@@ -273,13 +401,30 @@ namespace Engine {
         // The terrains, placed, for standing clumps on them (looked up per clump while scattering)
         struct PlacedTerrain { const TerrainData* Data; glm::vec2 Size; glm::mat4 World, Inverse; };
         std::vector<PlacedTerrain> Terrains;
+        float TerrainMaxY = -1e30f;                // the highest terrain surface (world), to skip lookups far above it
         void GatherTerrains(Scene& scene) {
             Terrains.clear();
+            TerrainMaxY = -1e30f;
             for (auto [e, t] : scene.Registry().view<TerrainComponent>().each()) {
                 if (!t.Data) continue;
                 const glm::mat4 M = scene.GetWorldMatrix(e);
                 Terrains.push_back({ t.Data.get(), t.Size, M, glm::inverse(M) });
+                for (int i = 0; i < 8; i++) {          // the corners of its box
+                    const glm::vec3 c((i & 1 ? 0.5f : -0.5f) * t.Size.x, i & 2 ? t.Data->MaxHeight() : t.Data->MinHeight(), (i & 4 ? 0.5f : -0.5f) * t.Size.y);
+                    TerrainMaxY = std::max(TerrainMaxY, (M * glm::vec4(c, 1.0f)).y);
+                }
             }
+        }
+        // The ground under a world X/Z: the first terrain covering it, else `fallback` (the field's height)
+        float GroundAt(float x, float z, float fallback) const {
+            for (const PlacedTerrain& t : Terrains) {
+                glm::vec3 l = glm::vec3(t.Inverse * glm::vec4(x, 0.0f, z, 1.0f));
+                float h;
+                if (!t.Data->HeightAt(t.Size, l.x, l.z, h)) continue;
+                l.y = h;
+                return (t.World * glm::vec4(l, 1.0f)).y;
+            }
+            return fallback;
         }
         // The first terrain under p (world): its surface height there (world, straight down in the terrain's own
         // space, which is the same unless it is tilted) and the paint weights. False if none covers p.
@@ -303,22 +448,55 @@ namespace Engine {
             const int nx = (int)std::ceil(size.x / cell), nz = (int)std::ceil(size.y / cell);
             const int cx = std::max(1, (int)std::ceil(size.x / kChunk)), cz = std::max(1, (int)std::ceil(size.y / kChunk));
 
-            // Obstacles near the field only (its world bounds), when it avoids them
-            std::vector<Box> near;
+            // Grass-free regions near the field (its world bounds): static meshes' footprints when it avoids them,
+            // and every Grass Blocker
+            glm::vec3 fmn(1e30f), fmx(-1e30f);
+            for (int i = 0; i < 4; i++) {
+                const glm::vec3 p = glm::vec3(world * glm::vec4((i & 1 ? 0.5f : -0.5f) * size.x, 0.0f, (i & 2 ? 0.5f : -0.5f) * size.y, 1.0f));
+                fmn = glm::min(fmn, p); fmx = glm::max(fmx, p);
+            }
+            auto overlaps = [&](glm::vec2 mn, glm::vec2 mx) { return !(mx.x < fmn.x || mn.x > fmx.x || mx.y < fmn.z || mn.y > fmx.z); };
+            std::vector<Region> near;
             if (f.AvoidStatic) {
-                glm::vec3 mn(1e30f), mx(-1e30f);
-                for (int i = 0; i < 4; i++) {
-                    const glm::vec3 p = glm::vec3(world * glm::vec4((i & 1 ? 0.5f : -0.5f) * size.x, 0.0f, (i & 2 ? 0.5f : -0.5f) * size.y, 1.0f));
-                    mn = glm::min(mn, p); mx = glm::max(mx, p);
-                }
                 const float plane = world[3].y;
-                for (const Obstacle& o : Obstacles) {
+                uint64_t key = TerrainHash * 0x9E3779B97F4A7C15ull;
+                uint32_t planeBits;
+                std::memcpy(&planeBits, &plane, 4);
+                key ^= planeBits;
+                for (Obstacle& o : Obstacles) {
                     const Box& b = o.Bounds;
-                    if (b.Max.x < mn.x || b.Min.x > mx.x || b.Max.z < mn.z || b.Min.z > mx.z) continue;
-                    if (b.Max.y <= plane + 0.03f || b.Min.y >= plane + 1.0f) continue;   // the ground itself, or up in the air
-                    Box foot;
-                    if (Footprint(o, plane, foot)) near.push_back(foot);
+                    if (!overlaps(glm::vec2(b.Min.x, b.Min.z) - 1.0f, glm::vec2(b.Max.x, b.Max.z) + 1.0f)) continue;
+                    // the ground itself (a floor, a ground tile), or up in the air (a roof, a canopy): measured from the
+                    // ground under its middle
+                    const float g = Terrains.empty() ? plane : GroundAt((b.Min.x + b.Max.x) * 0.5f, (b.Min.z + b.Max.z) * 0.5f, plane);
+                    if (b.Max.y <= g + 0.03f || b.Min.y >= g + 1.0f) continue;
+                    if (!Footprint(o, plane, key)) continue;
+                    Region r;
+                    r.Hull = &o.Hull;
+                    r.Margin = 0.05f + o.Margin;
+                    const float grow = std::max(r.Margin, 0.0f);
+                    r.Min = o.HullMin - grow;
+                    r.Max = o.HullMax + grow;
+                    if (r.Margin > -1e-3f || o.Hull.size() >= 3) near.push_back(r);
                 }
+            }
+            for (const Blocker& bl : Blockers) {
+                Region r;
+                r.Blocker = true;
+                r.Shape = bl.B.Shape;
+                r.Size = bl.B.Size;
+                r.Softness = std::max(bl.B.Softness, 0.0f);
+                r.Inverse = bl.Inverse;
+                // world bounds: the corners of its local rectangle (a circle's square, a capsule's box)
+                const glm::vec2 half = bl.B.Shape == GrassBlockerShape::Circle ? glm::vec2(bl.B.Size.x * 0.5f)
+                                     : bl.B.Shape == GrassBlockerShape::Capsule ? glm::vec2(bl.B.Size.x, bl.B.Size.y) * 0.5f
+                                     : bl.B.Size * 0.5f;
+                r.Min = glm::vec2(1e30f); r.Max = glm::vec2(-1e30f);
+                for (int k = 0; k < 4; k++) {
+                    const glm::vec3 w = glm::vec3(bl.World * glm::vec4((k & 1 ? half.x : -half.x), 0.0f, (k & 2 ? half.y : -half.y), 1.0f));
+                    r.Min = glm::min(r.Min, glm::vec2(w.x, w.z)); r.Max = glm::max(r.Max, glm::vec2(w.x, w.z));
+                }
+                if (overlaps(r.Min, r.Max)) near.push_back(r);
             }
             // ... bucketed in 4 m cells over the field's area (local), so each clump checks only a few
             const float bucket = 4.0f;
@@ -328,7 +506,7 @@ namespace Engine {
             for (uint32_t i = 0; i < near.size(); i++) {
                 glm::vec2 lmn(1e30f), lmx(-1e30f);
                 for (int k = 0; k < 4; k++) {
-                    const glm::vec3 w((k & 1) ? near[i].Max.x : near[i].Min.x, 0.0f, (k & 2) ? near[i].Max.z : near[i].Min.z);
+                    const glm::vec3 w((k & 1) ? near[i].Max.x : near[i].Min.x, 0.0f, (k & 2) ? near[i].Max.y : near[i].Min.y);
                     const glm::vec3 l = glm::vec3(inv * glm::vec4(w, 1.0f));
                     lmn = glm::min(lmn, glm::vec2(l.x, l.z)); lmx = glm::max(lmx, glm::vec2(l.x, l.z));
                 }
@@ -368,11 +546,11 @@ namespace Engine {
                         const int b = std::clamp((int)((lz + size.y * 0.5f) / bucket), 0, bz - 1) * bx +
                                       std::clamp((int)((lx + size.x * 0.5f) / bucket), 0, bx - 1);
                         bool blocked = false;
+                        const float rnd = Hash2(ix, iz, f.Seed * 31u + 7u);   // fixed per spot: soft edges stay put
                         for (uint32_t i : buckets[b]) {
-                            const Box& o = near[i];
-                            if (p.x > o.Min.x - 0.05f && p.x < o.Max.x + 0.05f && p.z > o.Min.z - 0.05f && p.z < o.Max.z + 0.05f) {
-                                blocked = true; break;
-                            }
+                            const Region& r = near[i];
+                            if (p.x < r.Min.x || p.x > r.Max.x || p.z < r.Min.y || p.z > r.Max.y) continue;
+                            if (r.Blocks(p, rnd)) { blocked = true; break; }
                         }
                         if (blocked) continue;
                     }
@@ -535,7 +713,7 @@ namespace Engine {
             Impl::Field& field = *slot;
             field.Seen = true;
             const glm::mat4 world = scene.GetWorldMatrix(e);
-            const uint64_t hash = Impl::HashOf(f, world, I.ObstacleHash);
+            const uint64_t hash = Impl::HashOf(f, world, I.ObstacleHash, I.BlockerHash);
             // Terrain changes (sculpting, painting) scatter again at most every 0.25 s: a stroke changes it every frame
             const bool onTerrain = f.FollowTerrain || f.TerrainLayer >= 0;
             const bool terrainMoved = onTerrain && I.TerrainHash != field.TerrainHash && I.Time - field.ScatterTime > 0.25f;

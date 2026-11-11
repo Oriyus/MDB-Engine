@@ -125,6 +125,21 @@ namespace Engine {
         glm::vec3 FlashColor{ 0.0f };
         float FlashTime = 0.0f, FlashDuration = 0.0f;
         bool  Hidden = false;                     // runtime (e.visible = false in Lua, not saved): not drawn, casts no shadow
+        // Grass (FoliageComponent with Avoid static objects): a Static mesh keeps grass off its footprint, the outline
+        // of its vertices near the ground. GrassMargin grows it (metres; negative shrinks it); BlocksGrass off: none.
+        bool  BlocksGrass = true;
+        float GrassMargin = 0.0f;
+    };
+
+    // An area kept free of grass (every FoliageComponent), shaped by hand: paths, yards, under a table. Lies in the
+    // entity's X/Z (its rotation and scale apply). Drawn as an outline in the editor, never rendered.
+    //   Box: Size.x by Size.y.  Circle: diameter Size.x.  Capsule: Size.x long (end to end, along X), Size.y wide.
+    // Softness: the grass thins out over this many metres inside the edge, instead of stopping at a hard line.
+    enum class GrassBlockerShape : int { Box = 0, Circle = 1, Capsule = 2 };   // stored in scene files: append only
+    struct GrassBlockerComponent {
+        GrassBlockerShape Shape = GrassBlockerShape::Box;
+        glm::vec2 Size{ 2.0f, 2.0f };
+        float Softness = 0.0f;
     };
 
     struct PointLightComponent {

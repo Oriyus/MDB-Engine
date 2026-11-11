@@ -44,6 +44,8 @@ namespace Engine {
             if (mr.Wind != 0.0f) j["meshRenderer"]["wind"] = mr.Wind;
             if (mr.DoubleSided) j["meshRenderer"]["doubleSided"] = true;      // likewise only when set
             if (mr.Specular != 1.0f) j["meshRenderer"]["specular"] = mr.Specular;
+            if (!mr.BlocksGrass) j["meshRenderer"]["blocksGrass"] = false;          // likewise only when changed
+            if (mr.GrassMargin != 0.0f) j["meshRenderer"]["grassMargin"] = mr.GrassMargin;
         }
         if (e.Has<PointLightComponent>()) {
             auto& l = e.Get<PointLightComponent>();
@@ -95,6 +97,11 @@ namespace Engine {
             // Only when not the default, so existing fields keep their JSON (no prefab overrides appear)
             if (!f.FollowTerrain) j["foliage"]["followTerrain"] = false;
             if (f.TerrainLayer >= 0) j["foliage"]["terrainLayer"] = f.TerrainLayer;
+        }
+        if (e.Has<GrassBlockerComponent>()) {
+            auto& b = e.Get<GrassBlockerComponent>();
+            static const char* kShapes[] = { "box", "circle", "capsule" };
+            j["grassBlocker"] = { { "shape", kShapes[std::clamp((int)b.Shape, 0, 2)] },{ "size", b.Size },{ "softness", b.Softness } };
         }
         if (e.Has<TerrainComponent>()) {
             auto& t = e.Get<TerrainComponent>();
@@ -180,6 +187,8 @@ namespace Engine {
             mr.Wind = jm.value("wind", 0.0f);
             mr.DoubleSided = jm.value("doubleSided", false);
             mr.Specular = std::clamp(jm.value("specular", 1.0f), 0.0f, 1.0f);
+            mr.BlocksGrass = jm.value("blocksGrass", true);
+            mr.GrassMargin = jm.value("grassMargin", 0.0f);
             e.Add<MeshRendererComponent>(mr);
         }
         if (j.contains("pointLight")) {
@@ -283,6 +292,15 @@ namespace Engine {
             f.FollowTerrain = jf.value("followTerrain", f.FollowTerrain);
             f.TerrainLayer = jf.value("terrainLayer", f.TerrainLayer);
             e.Add<FoliageComponent>(f);
+        }
+        if (j.contains("grassBlocker")) {
+            const auto& jb = j["grassBlocker"];
+            GrassBlockerComponent b;
+            const std::string shape = jb.value("shape", std::string("box"));
+            b.Shape = shape == "circle" ? GrassBlockerShape::Circle : shape == "capsule" ? GrassBlockerShape::Capsule : GrassBlockerShape::Box;
+            if (jb.contains("size")) b.Size = jb["size"].get<glm::vec2>();
+            b.Softness = jb.value("softness", 0.0f);
+            e.Add<GrassBlockerComponent>(b);
         }
         if (j.contains("terrain")) {
             const auto& jt = j["terrain"];
@@ -390,6 +408,7 @@ namespace Engine {
         if (e.Has<ParticleEmitterComponent>())  e.Remove<ParticleEmitterComponent>();
         if (e.Has<FoliageComponent>())          e.Remove<FoliageComponent>();
         if (e.Has<TerrainComponent>())          e.Remove<TerrainComponent>();
+        if (e.Has<GrassBlockerComponent>())     e.Remove<GrassBlockerComponent>();
     }
 
     bool HasComponentKeys(const json& j) {

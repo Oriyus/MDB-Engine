@@ -252,7 +252,7 @@ e.Add&lt;RigidBodyComponent&gt;().Type = BodyType::Static;</code></pre>
 <table>
 <tr><th>Setting</th><th>What it does</th></tr>
 <tr><td>Size, Density, Seed</td><td>The area (metres, centred on the entity), clumps per m², and which random layout. <b>New seed</b> picks another.</td></tr>
-<tr><td>Avoid static objects</td><td>No grass where Static meshes meet the ground: walls, floors, posts, trunks, props. Grass still grows under fence rails and branches. Moving those objects scatters the grass again.</td></tr>
+<tr><td>Avoid static objects</td><td>No grass on the <b>footprint</b> of Static meshes: the outline (convex hull) of their vertices from 0.5 m below to 0.35 m above the ground under them (a terrain's surface, or the field's height), grown by 5 cm. So walls, posts, trunks and props keep their own shape (a rotated wall clears a thin strip, a round tower a circle), and grass still grows under fence rails and branches. Per object (Mesh Renderer, when Static): <b>Blocks grass</b> off lets grass grow through it; <b>margin</b> grows the footprint (negative shrinks it). Objects lying flat on the ground (floors, ground tiles) and ones starting 1 m or more above it are left out. Moving them scatters the grass again.</td></tr>
 <tr><td>Follow terrain</td><td>Over a <a href="#engine-terrain">terrain</a>, clumps stand on its surface instead of the entity's height (on by default; without a terrain nothing changes).</td></tr>
 <tr><td>Grows on</td><td>Anywhere, or only where one terrain layer is painted: paint grass layer → grass grows, paint rock over it → it goes. The share of paint decides, so edges thin out.</td></tr>
 <tr><td>Height, Height variation, Width</td><td>Clump size; flowers stand a little taller.</td></tr>
@@ -263,6 +263,16 @@ e.Add&lt;RigidBodyComponent&gt;().Type = BodyType::Static;</code></pre>
 </table>
 <p>What presses the grass: every <b>dynamic or kinematic</b> rigid body (not triggers) near it, sized by its collider, and <code>foliage.push</code> from scripts. Clicks go through the grass to whatever is under it. The village demo has 11,600 clumps (about 790,000 triangles), which cost about 0.7 ms a frame in a Debug build.</p>
 <div class="note">Grass receives shadows but casts none. Off a terrain it stands on the entity's flat plane. While a terrain is being sculpted or painted, the grass on it scatters again at most every quarter second.</div>
+</section>
+<section class="doc" data-group="Engine" id="engine-grass-blocker">
+<h2>Grass Blockers</h2>
+<p>A <b>Grass Blocker</b> (Create &gt; Grass Blocker, or Add Component) keeps every grass field out of an area you shape by hand: a path, a yard, the ground under a table. It lies in its entity's X/Z plane, so moving, rotating and scaling the entity moves, aims and stretches it.</p>
+<table>
+<tr><th>Setting</th><th>What it does</th></tr>
+<tr><td>Shape</td><td><b>Box</b> (size X by Z), <b>Circle</b> (diameter) or <b>Capsule</b> (length end to end along the entity's X, and width): rotate a capsule to lay a path.</td></tr>
+<tr><td>Soft edge</td><td>The grass thins out over this many metres inside the edge instead of stopping at a line (which spots stay is fixed, so it doesn't change between scatters).</td></tr>
+</table>
+<p>In the editor it shows as a green outline on the ground (following a terrain), a fainter inner outline where a soft edge reaches full strength, and a diamond at its centre; click the outline or the diamond to select it (clicks inside it still pick what is on the ground). Viewport &gt; View &gt; Grass Blockers hides them. It is never rendered, and it works whether or not a field avoids static objects.</p>
 </section>
 
 <section class="doc" data-group="Engine" id="engine-terrain">

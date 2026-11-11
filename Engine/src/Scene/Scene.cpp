@@ -542,6 +542,7 @@ namespace Engine {
         if (auto* c = m_Registry.try_get<ParticleEmitterComponent>(handle))  s.Particles = *c;
         if (auto* c = m_Registry.try_get<FoliageComponent>(handle))          s.Foliage = *c;
         if (auto* c = m_Registry.try_get<TerrainComponent>(handle))          s.Terrain = *c;
+        if (auto* c = m_Registry.try_get<GrassBlockerComponent>(handle))     s.GrassBlocker = *c;
         if (auto* c = m_Registry.try_get<PrefabComponent>(handle))           s.Prefab = *c;
         s.Transient = m_Registry.all_of<TransientComponent>(handle);
         return s;
@@ -570,6 +571,7 @@ namespace Engine {
         if (s.Particles)        m_Registry.emplace<ParticleEmitterComponent>(e, *s.Particles);
         if (s.Foliage)          m_Registry.emplace<FoliageComponent>(e, *s.Foliage);
         if (s.Terrain)          m_Registry.emplace<TerrainComponent>(e, *s.Terrain);
+        if (s.GrassBlocker)     m_Registry.emplace<GrassBlockerComponent>(e, *s.GrassBlocker);
         if (s.Prefab)           m_Registry.emplace<PrefabComponent>(e, *s.Prefab);
         if (s.Transient)        m_Registry.emplace<TransientComponent>(e);
         return e;

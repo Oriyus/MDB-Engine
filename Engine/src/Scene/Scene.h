@@ -42,6 +42,7 @@ namespace Engine {
         std::optional<ParticleEmitterComponent>     Particles;
         std::optional<FoliageComponent>             Foliage;
         std::optional<TerrainComponent>             Terrain;
+        std::optional<GrassBlockerComponent>        GrassBlocker;
         std::optional<PrefabComponent>              Prefab;
         bool                                        Transient = false;
     };
