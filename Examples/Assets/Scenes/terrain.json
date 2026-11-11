@@ -1,0 +1,853 @@
+{
+  "entities": [
+    {
+      "camera": {
+        "far": 500.0,
+        "fov": 55.0,
+        "near": 0.10000000149011612,
+        "primary": true
+      },
+      "id": 451472222478989472,
+      "name": "Main Camera",
+      "transform": {
+        "position": [
+          0.0,
+          20.191986083984375,
+          42.0
+        ],
+        "rotation": [
+          -0.3199999928474426,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 10798196452173392458,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.8999999761581421,
+          0.8500000238418579,
+          0.20000000298023224
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": false,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Ball",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 5.0,
+        "restitution": 0.20000000298023224,
+        "shape": 1,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 1
+      },
+      "transform": {
+        "position": [
+          17.59019660949707,
+          16.657894134521484,
+          -16.327430725097656
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 1934514537803005722,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.8999999761581421,
+          0.75,
+          0.20000000298023224
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": false,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Ball",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 5.0,
+        "restitution": 0.20000000298023224,
+        "shape": 1,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 1
+      },
+      "transform": {
+        "position": [
+          -5.340247631072998,
+          9.658086776733398,
+          -23.39832878112793
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 1010229980198805037,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.8999999761581421,
+          0.6499999761581421,
+          0.20000000298023224
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": false,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Ball",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 5.0,
+        "restitution": 0.20000000298023224,
+        "shape": 1,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 1
+      },
+      "transform": {
+        "position": [
+          -22.932273864746094,
+          11.261220932006836,
+          -7.078900337219238
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 8628781059523506022,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.8999999761581421,
+          0.550000011920929,
+          0.20000000298023224
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": false,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Ball",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 5.0,
+        "restitution": 0.20000000298023224,
+        "shape": 1,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 1
+      },
+      "transform": {
+        "position": [
+          -17.599864959716797,
+          9.415767669677734,
+          16.317007064819336
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 4447450864845076580,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.8999999761581421,
+          0.44999998807907104,
+          0.20000000298023224
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": false,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Ball",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 5.0,
+        "restitution": 0.20000000298023224,
+        "shape": 1,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 1
+      },
+      "transform": {
+        "position": [
+          5.326385974884033,
+          9.079593658447266,
+          23.401487350463867
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 9803854237858884202,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [
+          0.8999999761581421,
+          0.3499999940395355,
+          0.20000000298023224
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "sphere",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.699999988079071,
+        "static": false,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Ball",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.5,
+        "mass": 5.0,
+        "restitution": 0.20000000298023224,
+        "shape": 1,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 1
+      },
+      "transform": {
+        "position": [
+          22.928075790405273,
+          18.66010093688965,
+          7.092485427856445
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "foliage": {
+        "avoidStatic": true,
+        "baseColor": [
+          0.12999999523162842,
+          0.1899999976158142,
+          0.05999999865889549
+        ],
+        "density": 4.0,
+        "drawDistance": 55.0,
+        "dryAmount": 0.30000001192092896,
+        "dryColor": [
+          0.6600000262260437,
+          0.5799999833106995,
+          0.3199999928474426
+        ],
+        "flowerAmount": 0.03999999910593033,
+        "height": 0.44999998807907104,
+        "heightVariation": 0.4000000059604645,
+        "interaction": 1.0,
+        "recovery": 1.2000000476837158,
+        "roughness": 0.75,
+        "seed": 1,
+        "size": [
+          110.0,
+          110.0
+        ],
+        "terrainLayer": 0,
+        "tipColor": [
+          0.5,
+          0.6000000238418579,
+          0.2199999988079071
+        ],
+        "width": 1.0,
+        "windDirection": 30.0,
+        "windSpeed": 1.0,
+        "windStrength": 1.0
+      },
+      "id": 10905890556653609736,
+      "name": "Meadow grass",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": 16971634724532004018,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "blend",
+        "castShadows": false,
+        "color": [
+          0.1599999964237213,
+          0.3199999928474426,
+          0.3799999952316284
+        ],
+        "emissive": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "geometry": "plane",
+        "localOffset": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "metallic": 0.0,
+        "opacity": 0.699999988079071,
+        "roughness": 0.05999999865889549,
+        "static": false,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Water",
+      "transform": {
+        "position": [
+          0.0,
+          1.2999999523162842,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          10.0,
+          1.0,
+          10.0
+        ]
+      }
+    },
+    {
+      "id": 4535469645453313132,
+      "name": "Terrain",
+      "rigidBody": {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "friction": 0.800000011920929,
+        "mass": 1.0,
+        "restitution": 0.0,
+        "shape": 6,
+        "size": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "trigger": false,
+        "type": 0
+      },
+      "terrain": {
+        "blend": 0.5,
+        "castShadows": true,
+        "data": "Terrains/terrain.terrain",
+        "dataHash": "452dbe62ea28318b",
+        "layers": [
+          {
+            "color": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "roughness": 0.949999988079071,
+            "texture": "texture:Textures/Terrain/grass.jpg",
+            "tiling": 3.0
+          },
+          {
+            "color": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "roughness": 0.8999999761581421,
+            "texture": "texture:Textures/Terrain/earth.jpg",
+            "tiling": 4.0
+          },
+          {
+            "color": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "roughness": 0.800000011920929,
+            "texture": "texture:Textures/Terrain/rock.jpg",
+            "tiling": 7.0
+          },
+          {
+            "color": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "roughness": 0.949999988079071,
+            "texture": "texture:Textures/Terrain/sand.jpg",
+            "tiling": 4.0
+          }
+        ],
+        "resolution": 257,
+        "size": [
+          120.0,
+          120.0
+        ]
+      },
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "directionalLight": {
+        "castShadows": true,
+        "color": [
+          1.0,
+          0.949999988079071,
+          0.8999999761581421
+        ],
+        "intensity": 2.200000047683716
+      },
+      "id": 2794742171146444553,
+      "name": "Sun",
+      "transform": {
+        "position": [
+          0.0,
+          6.0,
+          0.0
+        ],
+        "rotation": [
+          -0.75,
+          0.8999999761581421,
+          0.0
+        ],
+        "scale": [
+          0.11999999731779099,
+          0.11999999731779099,
+          0.6000000238418579
+        ]
+      }
+    }
+  ],
+  "settings": {
+    "ao": {
+      "bias": 0.02500000037252903,
+      "enabled": true,
+      "radius": 0.5,
+      "samples": 16,
+      "strength": 1.0
+    },
+    "bloom": {
+      "enabled": true,
+      "intensity": 0.11999999731779099,
+      "knee": 0.5,
+      "maxBrightness": 8.0,
+      "radius": 1.0,
+      "threshold": 1.0
+    },
+    "camera": {
+      "focusDistance": 50.0,
+      "pitch": -24.0,
+      "position": [
+        0.0,
+        24.0,
+        46.0
+      ],
+      "yaw": -90.0
+    },
+    "environment": {
+      "blur": 0.0,
+      "intensity": 0.6000000238418579,
+      "map": "",
+      "rotation": 0.0,
+      "showSky": true
+    },
+    "physics": {
+      "gravity": 9.8100004196167
+    },
+    "post": {
+      "contrast": 1.0,
+      "exposure": 1.0,
+      "fxaa": true,
+      "gamma": true,
+      "grain": 0.0,
+      "highlightTint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "saturation": 1.0,
+      "shadowTint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "taa": true,
+      "temperature": 0.0,
+      "tint": 0.0,
+      "toneMap": 2,
+      "vignette": 0.0
+    },
+    "shadows": {
+      "cascadeCount": 4,
+      "cascadeSplit": 0.75,
+      "enabled": true,
+      "pointBias": 0.05000000074505806,
+      "pointFar": 30.0,
+      "pointInterval": 2,
+      "shadowDistance": 60.0,
+      "sunBias": 0.0020000000949949026,
+      "sunCascades": true,
+      "sunDistance": 30.0,
+      "sunExtent": 12.0
+    },
+    "volumetricFog": {
+      "ambientIntensity": 1.0,
+      "anisotropy": 0.6000000238418579,
+      "baseHeight": 0.0,
+      "color": [
+        0.8600000143051147,
+        0.8899999856948853,
+        0.9300000071525574
+      ],
+      "density": 0.03999999910593033,
+      "enabled": false,
+      "heightFalloff": 3.0,
+      "maxDistance": 80.0,
+      "noiseAmount": 0.6000000238418579,
+      "noiseScale": 0.11999999731779099,
+      "pointLightIntensity": 1.0,
+      "steps": 32,
+      "sunIntensity": 1.0,
+      "windDirection": 30.0,
+      "windSpeed": 0.5
+    },
+    "wind": {
+      "direction": 30.0,
+      "speed": 1.0,
+      "strength": 1.0
+    }
+  },
+  "version": 3
+}

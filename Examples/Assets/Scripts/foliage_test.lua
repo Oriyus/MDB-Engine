@@ -21,7 +21,9 @@ function on_update(self, dt)
     if frame == 5 then
         local s = scene.render_stats()
         check("grass drawn", s.foliage > 1000, tostring(s.foliage) .. " clumps")
-        check("drawn instanced", s.draw_calls < 400, tostring(s.draw_calls) .. " draw calls")
+        -- instanced: the whole frame takes far fewer draws than there are clumps (a fixed limit broke as the scene grew:
+        -- shadowed lamps add 6 cube faces each, and the depth pre-pass draws the grass twice)
+        check("drawn instanced", s.draw_calls < s.foliage / 10, tostring(s.draw_calls) .. " draw calls for " .. tostring(s.foliage) .. " clumps")
         -- a body rolling through the grass presses it by itself
         ball = scene.spawn("Rolling ball", vec3(-2, 0.3, 13))
         ball:add_mesh{ geometry = "sphere", color = vec3(0.8, 0.3, 0.2) }

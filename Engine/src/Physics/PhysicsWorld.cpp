@@ -12,6 +12,7 @@
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
+#include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/CastResult.h>
@@ -22,6 +23,7 @@
 #include "Physics/PhysicsWorld.h"
 #include "Scene/Scene.h"
 #include "Scene/Components.h"
+#include "Scene/Terrain.h"
 #include "Core/Log.h"
 
 #include <glm/gtc/quaternion.hpp>
@@ -304,11 +306,36 @@ namespace Engine {
             return ShapeCache[key] = result.Get();
         }
 
+        // The entity's terrain as a height field, in its space with the scale baked in. Its triangles are split the
+        // same way as the drawn ones (Scene/Terrain.h), so bodies rest exactly on what is seen.
+        JPH::ShapeRefC TerrainShape(entt::entity e, const glm::vec3& worldScale) {
+            const auto* t = Reg->try_get<TerrainComponent>(e);
+            if (!t || !t->Data) { WarnOnce(e, "a Terrain collider needs a Terrain component: using a box"); return nullptr; }
+            const TerrainData& d = *t->Data;
+            const uint32_t n = d.Resolution();
+            const glm::vec3 s = glm::abs(worldScale);
+            JPH::HeightFieldShapeSettings hs(d.Heights().data(),
+                JPH::Vec3(-0.5f * t->Size.x * s.x, 0.0f, -0.5f * t->Size.y * s.z),
+                JPH::Vec3(t->Size.x / (n - 1) * s.x, s.y, t->Size.y / (n - 1) * s.z), n);
+            hs.mBlockSize = 4;
+            hs.mBitsPerSample = hs.CalculateBitsPerSampleForError(0.005f);   // within 5 mm of the drawn surface
+            auto result = hs.Create();
+            if (result.HasError()) {
+                ENGINE_WARN("Physics: can't build the terrain of '{}' ({}): using a box", Reg->get<TagComponent>(e).Tag, result.GetError().c_str());
+                return nullptr;
+            }
+            return result.Get();
+        }
+
         // One collider shape in its entity's space: the scale baked in, Center applied. Never null
         // (anything that can't be built falls back to a box, with a warning).
         JPH::ShapeRefC BuildShape(entt::entity e, ColliderShape kind, const glm::vec3& size, const glm::vec3& center,
             const glm::vec3& worldScale, bool dynamic) {
             const glm::vec3 scale = glm::abs(worldScale);
+            if (kind == ColliderShape::Terrain) {
+                if (dynamic) WarnOnce(e, "a Terrain collider can't be dynamic: it stays where it is");
+                if (JPH::ShapeRefC s = TerrainShape(e, worldScale)) return s;
+            }
             if (kind == ColliderShape::ConvexHull || kind == ColliderShape::Mesh) {
                 // Jolt can't simulate a triangle mesh as a dynamic body: those get a convex hull
                 bool exact = kind == ColliderShape::Mesh;
@@ -414,6 +441,8 @@ namespace Engine {
             if (motion == JPH::EMotionType::Dynamic) {
                 bs.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
                 bs.mMassPropertiesOverride.mMass = std::max(rb.Mass, 0.001f);
+                if (rb.LockRotation)         // translation only: contacts and forces never turn it
+                    bs.mAllowedDOFs = JPH::EAllowedDOFs::TranslationX | JPH::EAllowedDOFs::TranslationY | JPH::EAllowedDOFs::TranslationZ;
             }
 
             auto& bi = System.GetBodyInterface();

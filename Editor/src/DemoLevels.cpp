@@ -5,6 +5,7 @@
 #include "Scene/Components.h"
 #include "Scene/Prefab.h"
 #include "Scene/Particles.h"
+#include "Scene/Terrain.h"
 #include "Renderer/Model.h"
 #include "Core/Log.h"
 
@@ -585,4 +586,99 @@ void BuildTacticsCellar(Scene& scene, const LevelAssets& a, PrefabLibrary&) {
     AddTacticsDirector(scene, glm::vec3(-4.5f, 7.0f, 9.0f));
     MarkStatic(scene);
     LOG_INFO("Tactics cellar built (the yard's stairs lead here: tactics_test.json).");
+}
+
+void BuildTerrainDemo(Scene& scene, const LevelAssets& a, PrefabLibrary&) {
+    scene.Clear();
+    AddSun(scene, 2.2f).Get<TransformComponent>().Rotation = glm::vec3(-0.75f, 0.9f, 0.0f);
+
+    // 120 x 120 m of fractal hills, painted by their shape: grass, rock on the slopes, sand down by the water
+    Entity ground = scene.CreateEntity("Terrain");
+    auto& t = ground.Add<TerrainComponent>();
+    t.Size = glm::vec2(120.0f, 120.0f);
+    t.DataPath = "Terrains/terrain.terrain";
+    t.Data = std::make_shared<TerrainData>(257);
+    TerrainNoise hills;
+    hills.Height = 16.0f;
+    hills.FeatureSize = 55.0f;
+    hills.Octaves = 5;
+    hills.Roughness = 0.42f;
+    hills.Ridges = 0.35f;
+    hills.Seed = 7;
+    t.Data->Generate(hills, t.Size);
+    // A level meadow in the middle (the brush, as the editor uses it)
+    TerrainBrush flat;
+    flat.Mode = TerrainBrushMode::Flatten;
+    flat.Radius = 14.0f;
+    flat.Falloff = 0.8f;
+    flat.Strength = 1.0f;
+    float meadow = 0.0f;
+    t.Data->HeightAt(t.Size, 0.0f, 0.0f, meadow);
+    flat.Target = std::max(meadow, 4.0f);
+    for (int i = 0; i < 40; i++) t.Data->ApplyBrush(flat, t.Size, glm::vec2(0.0f), 0.05f);
+    TerrainData::AutoPaintRules rules;
+    rules.BaseLayer = 0;
+    rules.SteepLayer = 2;  rules.SteepDegrees = 34.0f;
+    rules.LowLayer = 3;    rules.LowHeight = 2.2f;
+    t.Data->AutoPaint(t.Size, rules);
+    for (int i = 0; i < 4; i++) {
+        if (!a.TerrainLayers[i]) continue;
+        t.Layers[i].Texture = a.TerrainLayers[i];
+        t.Layers[i].Color = glm::vec3(1.0f);     // the textures carry the colour
+    }
+    t.Layers[0].Tiling = 3.0f;
+    t.Layers[2].Tiling = 7.0f;
+    auto& rb = ground.Add<RigidBodyComponent>();
+    rb.Type = BodyType::Static;
+    rb.Shape = ColliderShape::Terrain;
+    rb.Friction = 0.8f;
+    rb.Restitution = 0.0f;
+
+    // Water over the lowest ground
+    {
+        Entity w = scene.CreateEntity("Water");
+        auto& tr = w.Get<TransformComponent>();
+        tr.Position = glm::vec3(0.0f, 1.3f, 0.0f);
+        tr.Scale = glm::vec3(10.0f, 1.0f, 10.0f);          // the 12 m plane: 120 m
+        auto& mr = w.Add<MeshRendererComponent>();
+        mr.Geometry = a.Plane;
+        mr.Color = glm::vec3(0.16f, 0.32f, 0.38f);
+        mr.Roughness = 0.06f;
+        mr.Alpha = AlphaMode::Blend;
+        mr.Opacity = 0.7f;
+        mr.CastShadows = false;
+    }
+
+    // Grass only where layer 1 (grass) is painted, standing on the hills
+    {
+        Entity g = scene.CreateEntity("Meadow grass");
+        auto& f = g.Add<FoliageComponent>();
+        f.Size = glm::vec2(110.0f, 110.0f);
+        f.Density = 4.0f;
+        f.TerrainLayer = 0;
+        f.FollowTerrain = true;
+        f.DrawDistance = 55.0f;
+    }
+
+    // Balls dropped on the slopes roll down to the meadow and the water
+    for (int i = 0; i < 6; i++) {
+        const float ang = i * 1.047f + 0.3f;
+        const glm::vec3 p(std::cos(ang) * 24.0f, 0.0f, std::sin(ang) * 24.0f);
+        float y = 0.0f;
+        TerrainSurfaceAt(scene, p.x, p.z, y);
+        Entity b = AddBox(scene, a, "Ball", glm::vec3(p.x, y + 3.0f, p.z), glm::vec3(1.0f), glm::vec3(0.9f, 0.35f + 0.1f * i, 0.2f), BodyType::Dynamic);
+        b.Get<MeshRendererComponent>().Geometry = a.Sphere;
+        auto& brb = b.Get<RigidBodyComponent>();
+        brb.Shape = ColliderShape::Sphere;
+        brb.Mass = 5.0f;
+    }
+
+    {
+        Entity cam = scene.CreateEntity("Main Camera");
+        auto& tr = cam.Get<TransformComponent>();
+        tr.Position = glm::vec3(0.0f, flat.Target + 14.0f, 42.0f);
+        tr.Rotation = glm::vec3(-0.32f, 0.0f, 0.0f);
+        cam.Add<CameraComponent>().FOV = 55.0f;
+    }
+    LOG_INFO("Terrain demo built: select the Terrain for its brushes (Inspector > Terrain).");
 }

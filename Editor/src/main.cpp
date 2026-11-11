@@ -37,6 +37,7 @@
 #include "Platform.h"
 #include "Projects.h"
 #include "GameBuilder.h"
+#include "TerrainEditor.h"
 
 #include <cfloat>
 #include <glad/glad.h>
@@ -222,6 +223,7 @@ public:
         else if (demo == "coinrush") BuildLevel(BuildCoinRush);
         else if (demo == "tactics") BuildLevel(BuildTacticsTest);
         else if (demo == "cellar") BuildLevel(BuildTacticsCellar);
+        else if (demo == "terrain") BuildLevel(BuildTerrainDemo);
         if (auto ts = EnvVar("MDB_TEST_SCRIPT"); !ts.empty())
             m_Scene.CreateEntity("Test").Add<ScriptComponent>().Path = ts;
         if (auto sv = EnvVar("MDB_SAVE_SCENE"); !sv.empty()) SaveScene(sv);
@@ -246,6 +248,14 @@ public:
             m_WireXRay = vm == "xray";
         }
         m_PendingSelect = EnvVar("MDB_SELECT");     // selected once the scene has it (loads are queued)
+        // MDB_TERRAIN_TOOL=raise|smooth|flatten|noise|paint[:layer 1-4]: that terrain brush is chosen (with MDB_SELECT=Terrain)
+        if (auto tt = EnvVar("MDB_TERRAIN_TOOL"); !tt.empty()) {
+            using T = TerrainEditor::Tool;
+            const std::string tool = tt.substr(0, tt.find(':'));
+            m_TerrainEditor.SetTool(tool == "raise" ? T::Raise : tool == "smooth" ? T::Smooth : tool == "flatten" ? T::Flatten
+                                  : tool == "noise" ? T::Noise : tool == "paint" ? T::Paint : T::None);
+            if (tool == "paint" && tt.size() > 6) m_TerrainEditor.SetPaintLayer(std::atoi(tt.c_str() + 6) - 1);
+        }
         if (EnvVar("MDB_MOTION_VECTORS") == "1") m_Renderer->ShowMotionVectors = true;   // Viewport > Debug > Motion Vectors
         if (EnvVar("MDB_AUTOPLAY") == "1") m_PlayCmd = PlayCmd::Play;
         if (auto q = EnvVar("MDB_QUIT_AFTER"); !q.empty()) m_QuitAfter = std::strtof(q.c_str(), nullptr);
@@ -377,6 +387,7 @@ public:
             if (g && !ctrl) DeleteLastSpawned();
             if (f1) m_ShowUI = !m_ShowUI;
             if (!ImGui::GetIO().KeyAlt) {
+                if (kq || kw || ke || kr) m_TerrainEditor.SetTool(TerrainEditor::Tool::None);   // back to selecting / the gizmo
                 if (kq) m_SelectTool = true;
                 if (kw) { m_SelectTool = false; m_GizmoOp = ImGuizmo::TRANSLATE; }
                 if (ke) { m_SelectTool = false; m_GizmoOp = ImGuizmo::ROTATE; }
@@ -832,7 +843,7 @@ public:
         using namespace Engine;
         int s = (int)shape;
         // Same order as the enum (the numbers are stored in scene files)
-        const char* items = allowNone ? "Box\0Sphere\0Convex hull\0Mesh\0Capsule\0None (child colliders only)\0"
+        const char* items = allowNone ? "Box\0Sphere\0Convex hull\0Mesh\0Capsule\0None (child colliders only)\0Terrain\0"
                                       : "Box\0Sphere\0Convex hull\0Mesh\0Capsule\0";
         if (ImGui::Combo("Shape", &s, items)) shape = (ColliderShape)s;
         if (ImGui::IsItemHovered())
@@ -851,6 +862,11 @@ public:
         }
         else if (shape == ColliderShape::None) {
             ImGui::TextDisabled("Only the Collider components of child entities");
+        }
+        else if (shape == ColliderShape::Terrain) {
+            if (!e.Has<TerrainComponent>()) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "Needs a Terrain component (a box is used)");
+            else ImGui::TextDisabled("The terrain's heights as a height field, scaled with the entity");
+            if (dynamic) ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "A terrain can't be dynamic: use Static");
         }
         else {
             if (shape == ColliderShape::Sphere) ImGui::DragFloat("Diameter", &size.x, 0.02f, 0.01f, 100.0f);
@@ -944,6 +960,10 @@ public:
     bool SaveScene(const std::string& file) {
         if (m_PlayState != PlayState::Edit) { LOG_WARN("Stop Play before saving the scene"); return false; }
         const Engine::SceneSettings s = GatherSettings();
+        // Terrain heights and paint go to their own files (Assets/Terrains), which the scene file names
+        // Save As (another file name): the terrains get files of their own, so the two scenes don't share them
+        if (!TerrainEditor::SaveTerrains(m_Scene, *m_Resources, Projects::Current().AssetDir(), file, file != m_SceneFile))
+            LOG_WARN("A terrain could not be saved (see above)");
         if (!Engine::SceneSerializer(m_Scene, m_Resources->Registry(), &m_Session->Prefabs()).Save(ScenePath(file), &s))
             return false;
         m_History.Track(m_Scene, m_Selected, m_Resources->Registry());   // an edit not recorded yet is part of what was saved
@@ -975,15 +995,26 @@ public:
     }
 
     // ------------------------------------------------------------ example levels (DemoLevels.cpp)
-    LevelAssets MakeLevelAssets() { EnsureSphere(); return { m_Cube, m_Plane, m_Sphere, m_Checker, m_Resources->LoadModel("Models/Fox.glb"),
-        m_Resources->LoadTexture("Textures/fence.png"), m_Resources->LoadTexture("Textures/window.png"),
-        m_Resources->Capsule(), m_Resources->Cone() }; }
+    LevelAssets MakeLevelAssets() {
+        EnsureSphere();
+        LevelAssets a{ m_Cube, m_Plane, m_Sphere, m_Checker, m_Resources->LoadModel("Models/Fox.glb"),
+            m_Resources->LoadTexture("Textures/fence.png"), m_Resources->LoadTexture("Textures/window.png"),
+            m_Resources->Capsule(), m_Resources->Cone() };
+        const char* layers[4] = { "grass", "earth", "rock", "sand" };
+        for (int i = 0; i < 4; i++) a.TerrainLayers[i] = m_Resources->LoadTexture(std::string("Textures/Terrain/") + layers[i] + ".jpg");
+        return a;
+    }
     void BuildLevel(void (*build)(Engine::Scene&, const LevelAssets&, Engine::PrefabLibrary&)) {
         m_Selected = entt::null;
         m_Spawned.clear();
         build(m_Scene, MakeLevelAssets(), m_Session->Prefabs());
+        if (build == BuildTerrainDemo) {                   // above the hills, looking over the meadow
+            m_Camera->Position = glm::vec3(0.0f, 24.0f, 46.0f);
+            m_Camera->FocusDistance = 50.0f;
+            m_Camera->SetOrientation(-90.0f, -24.0f);
+        }
         m_History.Track(m_Scene, m_Selected, m_Resources->Registry(),
-            build == BuildCoinRush ? "Build Coin Rush" : build == BuildTacticsTest ? "Build tactics test" : build == BuildTacticsCellar ? "Build tactics cellar" : "Build script demo");   // undoable like any edit
+            build == BuildCoinRush ? "Build Coin Rush" : build == BuildTacticsTest ? "Build tactics test" : build == BuildTacticsCellar ? "Build tactics cellar" : build == BuildTerrainDemo ? "Build terrain demo" : "Build script demo");   // undoable like any edit
     }
 
     // ------------------------------------------------------------ game camera
@@ -1142,6 +1173,28 @@ public:
         auto drawShape = [&](entt::entity entity, ColliderShape shape, const glm::vec3& sz, const glm::vec3& center, ImU32 col) {
             const glm::mat4 M = m_Scene.GetWorldMatrix(entity);   // parents included
             if (shape == ColliderShape::None) return;
+
+            if (shape == ColliderShape::Terrain) {
+                // The height field's border, following the ground (the surface itself is what is drawn)
+                const auto* t = m_Scene.Registry().try_get<TerrainComponent>(entity);
+                if (!t || !t->Data) return;
+                const int n = 48;
+                for (int side = 0; side < 4; side++) {
+                    glm::vec3 prev(0.0f);
+                    for (int i = 0; i <= n; i++) {
+                        const float s = (float)i / n - 0.5f;
+                        const float x = (side == 0 ? s : side == 1 ? 0.5f : side == 2 ? -s : -0.5f) * t->Size.x;
+                        const float z = (side == 0 ? -0.5f : side == 1 ? s : side == 2 ? 0.5f : -s) * t->Size.y;
+                        float h = 0.0f;
+                        t->Data->HeightAt(t->Size, std::clamp(x, -0.4999f * t->Size.x, 0.4999f * t->Size.x),
+                                          std::clamp(z, -0.4999f * t->Size.y, 0.4999f * t->Size.y), h);
+                        const glm::vec3 p = glm::vec3(M * glm::vec4(x, h, z, 1.0f));
+                        if (i > 0) line(prev, p, col);
+                        prev = p;
+                    }
+                }
+                return;
+            }
 
             if (shape == ColliderShape::ConvexHull || shape == ColliderShape::Mesh) {
                 const auto* mr = m_Scene.Registry().try_get<MeshRendererComponent>(entity);
@@ -1333,6 +1386,7 @@ private:
                     if (ImGui::MenuItem("Coin Rush")) BuildLevel(BuildCoinRush);
                     if (ImGui::MenuItem("Tactics Test (navigation)")) BuildLevel(BuildTacticsTest);
                     if (ImGui::MenuItem("Tactics Cellar (second level)")) BuildLevel(BuildTacticsCellar);
+                    if (ImGui::MenuItem("Terrain (sculpt and paint)")) BuildLevel(BuildTerrainDemo);
                     ImGui::EndMenu();
                 }
             }
@@ -1459,6 +1513,20 @@ private:
         if (ImGui::MenuItem("Capsule")) shape("Capsule", m_Resources->Capsule(), 1.0f);
         if (ImGui::MenuItem("Cylinder")) shape("Cylinder", m_Resources->Cylinder(), 1.0f);
         if (ImGui::MenuItem("Cone")) shape("Cone", m_Resources->Cone(), 1.0f);
+        if (ImGui::MenuItem("Terrain")) {
+            // 64 x 64 m at the origin, solid (a static height field). Inspector > Terrain has the brushes.
+            Entity e = m_Scene.CreateEntity("Terrain");
+            auto& t = e.Add<TerrainComponent>();
+            t.Data = std::make_shared<TerrainData>(129);
+            t.DataPath = TerrainEditor::NewDataPath(m_Scene, Projects::Current().AssetDir(), m_SceneFile);
+            auto& rb = e.Add<RigidBodyComponent>();
+            rb.Type = BodyType::Static;
+            rb.Shape = ColliderShape::Terrain;
+            rb.Friction = 0.8f;
+            rb.Restitution = 0.0f;
+            m_Selected = e.GetHandle();
+            m_TerrainEditor.SetTool(TerrainEditor::Tool::Raise);
+        }
         ImGui::SeparatorText("Lights");
         if (ImGui::MenuItem("Point Light")) {
             Entity e = m_Scene.CreateEntity("Point Light");
@@ -2687,10 +2755,16 @@ private:
                 IM_COL32(255, 255, 255, 110), "Game camera (Play > Play Through Game Camera)");
         }
 
+        // ---- Terrain brushes (a terrain selected and a tool chosen in the Inspector): they own the left button
+        bool terrainTool = false;
+        if (!m_ViewingGame && m_PlayState == PlayState::Edit && !m_MouseLook && m_Selected != entt::null &&
+            m_Scene.Registry().valid(m_Selected) && m_Scene.Registry().all_of<Engine::TerrainComponent>(m_Selected))
+            terrainTool = m_TerrainEditor.Viewport(m_Scene, m_Selected, ViewCamera(), origin, size, imageHovered, navigating, io.DeltaTime);
+
         // ---- Gizmo for the selected entity (not while looking through the game camera)
         bool gizmoBusy = false;
         m_GizmoBusy = false;
-        if (!m_ViewingGame && !m_SelectTool && m_Selected != entt::null && m_Scene.Registry().valid(m_Selected) && !m_MouseLook) {
+        if (!m_ViewingGame && !m_SelectTool && !terrainTool && m_Selected != entt::null && m_Scene.Registry().valid(m_Selected) && !m_MouseLook) {
             Engine::Entity e(m_Selected, &m_Scene);
             auto& t = e.Get<Engine::TransformComponent>();
 
@@ -2725,7 +2799,7 @@ private:
         // ---- Click to select, drag on the scene for a selection box (not while using the gizmo)
         // Plain: select only that. Ctrl or Shift: add or remove it (a box adds everything inside it).
         auto& fb = m_Renderer->GetFramebuffer();
-        if (!m_ViewingGame && imageHovered && !gizmoBusy && !navigating && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !m_MouseLook) {
+        if (!m_ViewingGame && imageHovered && !gizmoBusy && !terrainTool && !navigating && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !m_MouseLook) {
             m_BoxSelecting = true;
             m_BoxStart = ImGui::GetMousePos();
         }
@@ -3023,6 +3097,12 @@ private:
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Reports overlaps to scripts (on_trigger_enter / exit) instead of colliding.\n"
                     "Triggers follow their transform like kinematic bodies and detect dynamic bodies.");
+            if (rb.Type == BodyType::Dynamic) {
+                ImGui::SameLine();
+                ImGui::Checkbox("Lock rotation", &rb.LockRotation);
+                ImGui::SetItemTooltip("Physics only moves it, never turns it: for characters (a pushed box\n"
+                    "would tip over). Scripts can still turn it. Applies on the next Play.");
+            }
 
             if (ImGui::Button("Remove##rb")) e.Remove<RigidBodyComponent>();
             if (rb.Type != BodyType::Static && (e.Has<SpinComponent>() || e.Has<OrbitComponent>()) && rb.Type == BodyType::Dynamic)
@@ -3120,6 +3200,14 @@ private:
             if (ImGui::DragInt("Seed", &seed, 1.0f, 0, INT_MAX)) f.Seed = (uint32_t)std::max(seed, 0);
             ImGui::Checkbox("Avoid static objects", &f.AvoidStatic);
             ImGui::SetItemTooltip("No grass under Static meshes standing on the ground: walls, floors, props.\nMoving them scatters it again.");
+            ImGui::Checkbox("Follow terrain", &f.FollowTerrain);
+            ImGui::SetItemTooltip("Over a terrain, the clumps stand on its surface instead of the entity's height");
+            {
+                const char* layers[] = { "Anywhere", "Terrain layer 1", "Terrain layer 2", "Terrain layer 3", "Terrain layer 4" };
+                int layer = std::clamp(f.TerrainLayer + 1, 0, 4);
+                if (ImGui::Combo("Grows on", &layer, layers, 5)) f.TerrainLayer = layer - 1;
+                ImGui::SetItemTooltip("Only where that layer of a terrain is painted (painting it there grows grass)");
+            }
             ImGui::DragFloat("Draw distance", &f.DrawDistance, 0.5f, 2.0f, 500.0f, "%.0f m");
             ImGui::SetItemTooltip("The grass thins out over the second half of this distance");
             ImGui::SeparatorText("Look");
@@ -3143,6 +3231,12 @@ private:
             ImGui::SetItemTooltip("Seconds for pressed grass to stand up again");
             if (ImGui::Button("Remove##foliage")) e.Remove<FoliageComponent>();
             ImGui::PopID();
+        }
+
+        if (e.Has<TerrainComponent>() && ImGui::CollapsingHeader("Terrain", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (m_PlayState != PlayState::Edit) ImGui::TextDisabled("Stop Play to edit the terrain");
+            else m_TerrainEditor.DrawInspector(m_Scene, e.GetHandle(), *m_Resources, Projects::Current().AssetDir());
+            if (ImGui::Button("Remove##terrain")) { m_TerrainEditor.SetTool(TerrainEditor::Tool::None); e.Remove<TerrainComponent>(); }
         }
 
         if (e.Has<AnimatorComponent>() && ImGui::CollapsingHeader("Animator", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -3395,6 +3489,11 @@ private:
             }
             if (!e.Has<ParticleEmitterComponent>() && ImGui::MenuItem("Particle Emitter")) e.Add<ParticleEmitterComponent>();
             if (!e.Has<FoliageComponent>() && ImGui::MenuItem("Foliage")) e.Add<FoliageComponent>();
+            if (!e.Has<TerrainComponent>() && ImGui::MenuItem("Terrain")) {
+                auto& t = e.Add<TerrainComponent>();
+                t.Data = std::make_shared<TerrainData>(129);
+                t.DataPath = TerrainEditor::NewDataPath(m_Scene, Projects::Current().AssetDir(), m_SceneFile);
+            }
             if (!e.Has<AnimatorComponent>() && ImGui::MenuItem("Animator")) {
                 auto& an = e.Add<AnimatorComponent>();
                 const auto* mr = e.Has<MeshRendererComponent>() ? &e.Get<MeshRendererComponent>() : nullptr;
@@ -3452,6 +3551,19 @@ private:
             for (int i = 0; i < 8; i++) {
                 glm::vec3 corner((i & 1) ? hi.x : lo.x, (i & 2) ? hi.y : lo.y, (i & 4) ? hi.z : lo.z);
                 glm::vec3 w = glm::vec3(m * glm::vec4(corner, 1.0f));
+                mn = glm::min(mn, w);
+                mx = glm::max(mx, w);
+            }
+        }
+        else if (e.Has<TerrainComponent>() && e.Get<TerrainComponent>().Data) {
+            const auto& tc = e.Get<TerrainComponent>();
+            const glm::vec3 lo(-0.5f * tc.Size.x, tc.Data->MinHeight(), -0.5f * tc.Size.y);
+            const glm::vec3 hi(0.5f * tc.Size.x, tc.Data->MaxHeight(), 0.5f * tc.Size.y);
+            const glm::mat4 m = m_Scene.GetWorldMatrix(handle);
+            mn = glm::vec3(FLT_MAX);
+            mx = glm::vec3(-FLT_MAX);
+            for (int i = 0; i < 8; i++) {
+                const glm::vec3 w = glm::vec3(m * glm::vec4((i & 1) ? hi.x : lo.x, (i & 2) ? hi.y : lo.y, (i & 4) ? hi.z : lo.z, 1.0f));
                 mn = glm::min(mn, w);
                 mx = glm::max(mx, w);
             }
@@ -3588,6 +3700,7 @@ private:
     AssetBrowser m_Assets{ Projects::Current().AssetDir() };   // the Assets panel
     bool  m_ShowAssets = true;
     DialogueEditor m_Dialogue{ Projects::Current().AssetDir() };   // the Dialogue Editor window (Window menu, or a dialogue in Assets)
+    TerrainEditor m_TerrainEditor;        // the terrain brushes (Inspector > Terrain, used in the Viewport)
     bool  m_ShowDialogue = false;
     bool  m_AskDialogueQuit = false, m_DialogueDiscarded = false;   // quitting with an unsaved dialogue
     struct AssetDrop { std::string Path; entt::entity Target = entt::null; bool Pending = false; };

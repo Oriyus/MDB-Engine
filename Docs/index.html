@@ -198,7 +198,7 @@ cmake --build build --config Release --target package_editor # build/dist/MDB En
 <tr><td>Transform</td><td>Position, rotation (Euler, radians) and scale, relative to the parent</td></tr>
 <tr><td>Mesh Renderer</td><td>Geometry, colour, metallic/roughness, emissive, textures, alpha mode, opacity, shadows, Static flag</td></tr>
 <tr><td>Point Light / Directional Light</td><td>Lights (the first sun and up to 4 point lights are used)</td></tr>
-<tr><td>Rigid Body</td><td>Physics body: type, shape, size, centre, mass, friction, bounciness, trigger</td></tr>
+<tr><td>Rigid Body</td><td>Physics body: type, shape, size, centre, mass, friction, bounciness, trigger, lock rotation (dynamic: physics moves it but never turns it, for characters)</td></tr>
 <tr><td>Collider</td><td>An extra shape for the nearest ancestor body (compound colliders)</td></tr>
 <tr><td>Script</td><td>A Lua file in <code>Assets/Scripts</code></td></tr>
 <tr><td>Camera</td><td>Game camera (FOV, near, far, primary)</td></tr>
@@ -253,6 +253,8 @@ e.Add&lt;RigidBodyComponent&gt;().Type = BodyType::Static;</code></pre>
 <tr><th>Setting</th><th>What it does</th></tr>
 <tr><td>Size, Density, Seed</td><td>The area (metres, centred on the entity), clumps per m², and which random layout. <b>New seed</b> picks another.</td></tr>
 <tr><td>Avoid static objects</td><td>No grass where Static meshes meet the ground: walls, floors, posts, trunks, props. Grass still grows under fence rails and branches. Moving those objects scatters the grass again.</td></tr>
+<tr><td>Follow terrain</td><td>Over a <a href="#engine-terrain">terrain</a>, clumps stand on its surface instead of the entity's height (on by default; without a terrain nothing changes).</td></tr>
+<tr><td>Grows on</td><td>Anywhere, or only where one terrain layer is painted: paint grass layer → grass grows, paint rock over it → it goes. The share of paint decides, so edges thin out.</td></tr>
 <tr><td>Height, Height variation, Width</td><td>Clump size; flowers stand a little taller.</td></tr>
 <tr><td>Root / Tip / Dry color, Dry patches, Flowers</td><td>Blades shade from root to tip; dry patches turn the tips to the dry colour; Flowers is the share of flower clumps.</td></tr>
 <tr><td>Wind strength, speed, direction</td><td>Gusts roll across the field along the direction (0° blows towards +X, 90° towards +Z), and every clump flutters a little.</td></tr>
@@ -260,7 +262,23 @@ e.Add&lt;RigidBodyComponent&gt;().Type = BodyType::Static;</code></pre>
 <tr><td>Draw distance</td><td>The grass thins out smoothly over the second half of it.</td></tr>
 </table>
 <p>What presses the grass: every <b>dynamic or kinematic</b> rigid body (not triggers) near it, sized by its collider, and <code>foliage.push</code> from scripts. Clicks go through the grass to whatever is under it. The village demo has 11,600 clumps (about 790,000 triangles), which cost about 0.7 ms a frame in a Debug build.</p>
-<div class="note">Grass receives shadows but casts none. It stands on the entity's flat plane (it does not follow terrain).</div>
+<div class="note">Grass receives shadows but casts none. Off a terrain it stands on the entity's flat plane. While a terrain is being sculpted or painted, the grass on it scatters again at most every quarter second.</div>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-terrain">
+<h2>Terrain</h2>
+<p>A <b>Terrain</b> component (Create &gt; Terrain, or Add Component &gt; Terrain) is a heightmap: a square grid of heights spread over <b>Size</b> metres of the entity's X/Z, centred on it, painted with up to four <b>layers</b>. The entity's transform places it (moving, rotating and scaling all work; a Y scale stretches the heights).</p>
+<table>
+<tr><th>Part</th><th>How it works</th></tr>
+<tr><td>Heights</td><td><b>Resolution</b> 33 to 1025 samples per side (129 for a new terrain, 257 in the demo). Each grid square is two triangles split from corner (x, z) to (x+1, z+1), the same split as the physics height field, so what you see, what bodies stand on and what <code>terrain.height</code> says agree (within 2 mm in the test).</td></tr>
+<tr><td>Drawing</td><td>Chunks of 32 × 32 squares, each its own mesh, culled on its own, through the usual draw list: shadows (cast and received), the depth pre-pass, TAA, click picking, the selection outline and every Viewport shading mode work as for any mesh. A sculpted chunk is rebuilt the same frame.</td></tr>
+<tr><td>Layers</td><td>Each layer has a colour tint, an optional texture repeating every <b>Tiling</b> metres, and a roughness. A paint map (RGBA, two texels per grid square, at most 1024²) holds each layer's share. <b>Height blend</b> treats a texture's brightness as its height where layers meet, so stones and thick grass show through first instead of a soft fade (0 = plain mixing).</td></tr>
+<tr><td>Collision</td><td>A Rigid Body with shape <b>Terrain</b> (Create &gt; Terrain adds a static one; the Inspector has <b>Make solid</b>) is a Jolt height field. The navigation bake sees it like any static body. It can't be dynamic.</td></tr>
+<tr><td>Files</td><td>Heights and paint are not in the scene file: they are in <code>Assets/Terrains/&lt;name&gt;.terrain</code> (named after the scene; the scene stores the path and a hash of the contents). The editor writes them every time it saves the scene. A duplicated terrain gets a file of its own when it is saved with different contents. Build Game copies them with the rest of Assets.</td></tr>
+<tr><td>Grass</td><td>Foliage fields follow the terrain's surface and can grow only on one painted layer (see <a href="#engine-foliage">Grass</a>).</td></tr>
+</table>
+<p>Measured on the terrain demo (120 × 120 m, 257², 64 chunks, 19,000 grass clumps on the grass layer): 144 FPS in the Debug editor at 1600 × 900 on an RTX 2060.</p>
+<div class="note">There is no level of detail: every chunk is drawn at full resolution, so very large terrains (1025² is 2 million triangles) are better split into several. Undo keeps whole copies of the heights or the paint per stroke (copy on write: a sculpt stroke copies only the heights), about 1 MB per step on a 257² terrain and 4 to 5 MB on 1025².</div>
 </section>
 
 <section class="doc" data-group="Engine" id="engine-wind">
@@ -304,6 +322,7 @@ e.Add&lt;RigidBodyComponent&gt;().Type = BodyType::Static;</code></pre>
 <h2>Modular kits (Village)</h2>
 <p>Models come in any units, so the editor normally scales a model it places to 2 m across and stands it on the origin. A <b>kit</b> is a folder of pieces that must snap together, so they keep their own size and pivot instead: a model whose folder holds a <code>kit.json</code> file is loaded with <code>Model::NativeSize</code>. Placing one from the Assets panel (dragged onto the viewport or double-clicked) also snaps it to the 0.5 m grid, marks it <b>Static</b> (merged into static batches) and gives it a static <b>Mesh</b> body, so the nav grid sees it.</p>
 <p><code>Examples/Assets/Models/Village</code> is an abandoned-village kit made in Blender by <code>Tools/village_kit.py</code> (procedural textures, deterministic). <code>Scenes/village.json</code> is a demo village built from it.</p>
+<p><b>Playing the village.</b> Press Play: a blue box, the "Player", walks with <b>W A S D</b> (relative to the camera), runs with <b>Shift</b> and jumps with <b>Space</b>. The game camera follows it (<code>follow.lua</code>). The player is a dynamic Rigid Body with <b>Lock rotation</b>, so it never tips over, and walls, fences, trees and houses with colliders stop it. Its collider is a capsule the size of the box, so it slides along walls and over small steps instead of catching on them. <code>Scripts/village_player.lua</code> has the speeds, acceleration and jump height at the top. Running <code>village_kit.py</code> again regenerates <code>village.json</code> and loses the player, along with any other changes made in the editor.</p>
 <p>Each piece is a <code>.gltf</code> with its <code>.bin</code>, and every piece uses the same texture atlas, <code>village_atlas.jpg</code> (the ground has its own repeating <code>village_ground.jpg</code>). A building piece therefore has one material and costs one draw per view; only iron fittings, rope and the well's water are separate small materials. The atlas holds 4 × 4 m of each texture (plaster, stone, wood, dark timber, shingles, bark), so a single face can be up to 4 m across. The engine loads each image once, whichever models use it: model textures are shared by file path, and embedded ones by content.</p>
 <table>
 <tr><th>Pieces</th><th>Pivot and fit</th></tr>
@@ -463,7 +482,7 @@ scene.spawn_particles(self.position, { preset = "Sparks", count = 40 })   -- one
 <p>Jolt Physics, during Play only, at a fixed 60 Hz with interpolated transforms.</p>
 <ul>
   <li><b>Body types</b>: Static, Dynamic, Kinematic. Any body can be a <b>trigger</b> (sensor).</li>
-  <li><b>Shapes</b>: Box, Sphere, Capsule (size.x diameter, size.y height), Convex hull, Mesh (static/kinematic), None.</li>
+  <li><b>Shapes</b>: Box, Sphere, Capsule (size.x diameter, size.y height), Convex hull, Mesh (static/kinematic), None, Terrain (the entity's <a href="#engine-terrain">terrain</a> as a height field; static/kinematic).</li>
   <li><b>Compound colliders</b>: Collider components on children add shapes to the nearest body above them.</li>
   <li><b>Events</b>: exactly one begin and one end per touching pair; removed bodies end their contacts.</li>
   <li><code>add_force</code> lasts the frame; <code>add_impulse</code> applies once. Moving a static body from a script teleports it.</li>
@@ -641,6 +660,7 @@ self:add_audio("Sounds/lava_loop.wav", { loop = true, min_distance = 2, max_dist
 <tr><td><code>transform_test.lua</code></td><td>Rotations through Euler angles near gimbal lock (4)</td></tr>
 <tr><td><code>engine_features_test.lua</code></td><td>world_to_screen, decals, line of sight, cover, primitives, flash (22)</td></tr>
 <tr><td><code>fog_test.lua</code></td><td>Fog of war: reveal, explore, save / load, e.visible (17)</td></tr>
+<tr><td><code>terrain_test.lua</code></td><td>Terrain on <code>terrain.json</code>: height lookups, physics agreeing with the drawn surface, navigation, grass on a layer, bodies resting on it (10)</td></tr>
 </table>
 <pre><code class="sh">set MDB_PROJECT=Examples &amp; set MDB_WINDOWED=1 &amp; set MDB_SCENE=tactics_test.json &amp; set MDB_AUTOPLAY=1
 set MDB_TEST_SCRIPT=Scripts/nav_test.lua &amp; set MDB_QUIT_AFTER=8
@@ -650,7 +670,8 @@ MDBEditor.exe &gt; log.txt</code></pre>
 <tr><td><code>MDB_PROJECT=Examples</code></td><td>The project to open (a folder, or a folder name in the engine repo). Set it for test runs: otherwise the editor opens the last project used</td></tr>
 <tr><td><code>MDB_BUILD_GAME=folder</code></td><td>Run File › Build Game into the folder (the editor waits for it when quitting)</td></tr>
 <tr><td><code>MDB_WINDOWED=1</code></td><td>A plain 1600 × 900 window instead of maximized</td></tr>
-<tr><td><code>MDB_DEMO=script|coinrush|tactics|cellar</code></td><td>Build an example level</td></tr>
+<tr><td><code>MDB_DEMO=script|coinrush|tactics|cellar|terrain</code></td><td>Build an example level</td></tr>
+<tr><td><code>MDB_TERRAIN_TOOL=raise|smooth|flatten|noise|paint[:1-4]</code></td><td>Pick that terrain brush (with <code>MDB_SELECT=Terrain</code>), for scripted brush tests</td></tr>
 <tr><td><code>MDB_SCENE</code> / <code>MDB_SAVE_SCENE</code></td><td>Load a scene first / save last</td></tr>
 <tr><td><code>MDB_AUTOPLAY=1</code></td><td>Press Play</td></tr>
 <tr><td><code>MDB_TEST_SCRIPT=Scripts/x.lua</code></td><td>Add a "Test" entity running it</td></tr>
@@ -672,6 +693,7 @@ MDBEditor.exe &gt; log.txt</code></pre>
   <li>Animation: no blend trees or full-body IK.</li>
   <li>Compound bodies don't rebuild when parts move during Play; Inspector body changes apply on the next Play.</li>
   <li>Navigation bakes once, single-threaded, from static bodies only.</li>
+  <li>Terrain: no level of detail, one material blend of 4 layers (no per-layer normal maps), no holes; scripts can read it but not sculpt it.</li>
   <li>Saves: no thumbnails or file versioning.</li>
   <li>UI: no keyboard/gamepad focus, no text input, Latin glyphs only.</li>
   <li>Dialogue: no voice, portraits or localization; Lua errors appear at run time.</li>
@@ -838,6 +860,30 @@ MDBEditor.exe &gt; log.txt</code></pre>
 </ol>
 </section>
 
+<section class="doc" data-group="Editor" id="editor-terrain">
+<h2>Terrain editor</h2>
+<p><b>Create &gt; Terrain</b> makes a flat 64 × 64 m terrain at the origin with a static height-field body and picks the Raise brush. Select a terrain and the Inspector's <b>Terrain</b> section has everything; the brushes work in the Viewport (Edit mode only).</p>
+<table>
+<tr><th>Tool</th><th>Left drag in the Viewport</th></tr>
+<tr><td><b>Raise</b></td><td>Raises the ground; hold <b>Shift</b> to lower it. Faster with a bigger brush.</td></tr>
+<tr><td><b>Smooth</b></td><td>Evens out bumps and sharp edges.</td></tr>
+<tr><td><b>Flatten</b></td><td>Levels to the height where the stroke starts (or a fixed Target height). <b>Ctrl+click</b> picks the height under the mouse.</td></tr>
+<tr><td><b>Noise</b></td><td>Roughens the ground with bumps of the chosen size.</td></tr>
+<tr><td><b>Paint</b></td><td>Paints the chosen layer (the round button beside each layer picks it).</td></tr>
+</table>
+<ul>
+  <li><b>Brush</b>: Radius (or <b>[</b> and <b>]</b> over the Viewport), Strength, Falloff (0: full strength to the edge, 1: fading from the centre). A ring on the ground shows it, with an inner ring where full strength ends.</li>
+  <li><b>Off</b>, or <b>Q / W / E / R</b>, goes back to selecting and the gizmo. While a tool is on, clicks in the Viewport don't change the selection.</li>
+  <li>Each stroke is one undo step ("Edit Terrain").</li>
+  <li><b>Layers</b>: colour, texture (pick from <code>Textures/</code> or drop one from Assets), repeat size, roughness.</li>
+  <li><b>Shape</b>: Size (stretches, keeps the samples), Resolution (resamples heights and paint).</li>
+  <li><b>Generate</b>: fractal hills (height, hill size, detail, roughness, ridges, seed), replacing the heights or added to them.</li>
+  <li><b>Flatten and fill</b>: the whole terrain to one height, or painted with one layer.</li>
+  <li><b>Auto paint</b>: paint everything by the ground's shape: one layer on slopes steeper than an angle, one below a height, one above a height, one everywhere else.</li>
+  <li><b>Import heightmap</b>: a grey image under Assets (16-bit PNG keeps the most detail): black is Lowest, white is Lowest + Range; the image's top edge is the terrain's −Z side.</li>
+</ul>
+</section>
+
 <section class="doc" data-group="Editor" id="editor-examples">
 <h2>Example levels</h2>
 <table>
@@ -846,6 +892,7 @@ MDBEditor.exe &gt; log.txt</code></pre>
 <tr><td><b>Coin Rush</b> (<code>coin_rush.json</code>)</td><td>A small game: title screen, collect 8 coins in 2 minutes, lava, sweeper, bounce pad, HUD</td></tr>
 <tr><td><b>Tactics Test</b> (<code>tactics_test.json</code>)</td><td>CRPG prototype: click-to-move, turn-based grid combat, inventory (I), the Sage dialogue (T), save slots (F6/F9), chests, a pad to the cellar</td></tr>
 <tr><td><b>Tactics Cellar</b> (<code>tactics_cellar.json</code>)</td><td>The second level, reached from the yard's glowing pad</td></tr>
+<tr><td><b>Terrain</b> (<code>terrain.json</code>)</td><td>120 × 120 m of generated hills painted by their shape (grass, rock on slopes, sand by the water; textures from <code>Tools/terrain_textures.py</code>), grass growing on the grass layer, water, balls rolling down the slopes. Select the Terrain to sculpt and paint it.</td></tr>
 </table>
 <p>File &gt; Example Levels builds them in code (undoable); the saved scene files can also be opened directly.</p>
 </section>
@@ -886,6 +933,8 @@ MDBEditor.exe &gt; log.txt</code></pre>
 <tr><td>F1 / F11</td><td>Hide panels / full screen</td></tr>
 <tr><td>F5</td><td>Reload shaders (and scripts while playing)</td></tr>
 <tr><td>Esc</td><td>Stop Play, or quit in Edit mode</td></tr>
+<tr><td>[ / ] (terrain tool on)</td><td>Smaller / bigger brush</td></tr>
+<tr><td>Shift / Ctrl + drag (terrain tool on)</td><td>Lower (Raise tool) / pick the height (Flatten tool)</td></tr>
 <tr><td>Alt + mouse, wheel</td><td>Orbit, pan, dolly</td></tr>
 </table>
 </section>
@@ -1035,6 +1084,15 @@ scene.spawn_particles(self.position, "Sparks")    -- one-shot effect, removes it
 <p>Moving dynamic and kinematic bodies bend the grass by themselves. A character moved by its transform (no body) presses it with <code>foliage.push</code>, every frame while it walks:</p>
 <pre><code class="lua">foliage.push(self.position, 0.45)          -- radius 0.45 m; optional strength (default 1, up to 2)
 local clumps = scene.render_stats().foliage   -- clumps drawn last frame</code></pre>
+</section>
+
+<section class="doc" data-group="Scripting" id="script-terrain">
+<h2>Terrain</h2>
+<p>The ground's height and slope on any <a href="#engine-terrain">terrain</a>, read from its heights (no physics needed, so it works in <code>on_create</code> too). Both return <code>nil</code> off every terrain.</p>
+<pre><code class="lua">local y = terrain.height(x, z)              -- world height of the ground at x, z
+local y2 = terrain.height(self.position)    -- or give a vec3 (its y is ignored)
+local n = terrain.normal(x, z)              -- unit vec3, world space: n.y near 1 is level ground
+if y then self.position = vec3(x, y + 0.5, z) end   -- stand something on the ground</code></pre>
 </section>
 
 <section class="doc" data-group="Scripting" id="script-animation">

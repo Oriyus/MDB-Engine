@@ -23,6 +23,7 @@ struct LevelAssets {
     std::shared_ptr<Engine::Texture2D>  Window;  // Textures/window.png (stained glass)
     std::shared_ptr<Engine::Renderable> Capsule; // 1 wide, 2 tall (placeholder characters)
     std::shared_ptr<Engine::Renderable> Cone;    // 1 wide base, 1 tall
+    std::shared_ptr<Engine::Texture2D>  TerrainLayers[4];   // Textures/Terrain/{grass,earth,rock,sand}.jpg (may be null)
 };
 
 // Scripting playground: a ball you roll (player.lua), coins (coin.lua), a pad that glows while
@@ -44,3 +45,8 @@ void BuildTacticsTest(Engine::Scene& scene, const LevelAssets& assets, Engine::P
 // The second tactics level: a cellar reached by the yard's glowing pad (and back). Both levels have a
 // chest (chest.lua) whose gold goes into the saved `game` table. exit.lua changes level.
 void BuildTacticsCellar(Engine::Scene& scene, const LevelAssets& assets, Engine::PrefabLibrary& prefabs);
+
+// Heightmap terrain: 120 x 120 m of generated hills (Terrains/terrain.terrain) painted by their shape (grass,
+// rock on slopes, sand by the water), grass growing on the grass layer, water, and balls rolling down the slopes.
+// Select the Terrain for its sculpt and paint brushes.
+void BuildTerrainDemo(Engine::Scene& scene, const LevelAssets& assets, Engine::PrefabLibrary& prefabs);

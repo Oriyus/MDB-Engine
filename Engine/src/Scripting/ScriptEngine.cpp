@@ -2,6 +2,7 @@
 #include "Scene/Scene.h"
 #include "Scene/Entity.h"
 #include "Scene/Components.h"
+#include "Scene/Terrain.h"
 #include "Scene/SceneSerializer.h"
 #include "Physics/PhysicsWorld.h"
 #include "Audio/AudioEngine.h"
@@ -272,6 +273,7 @@ namespace Engine {
                 [this](const BodyRef& b, const glm::vec3& v) { b.E.Get<RigidBodyComponent>(); Physics->SetAngularVelocity(b.E.Handle, v); }),
             "type", sol::readonly_property([](const BodyRef& b) { return std::string(BodyTypeName(b.E.Get<RigidBodyComponent>().Type)); }),
             "trigger", sol::readonly_property([](const BodyRef& b) { return b.E.Get<RigidBodyComponent>().IsTrigger; }),
+            "lock_rotation", sol::readonly_property([](const BodyRef& b) { return b.E.Get<RigidBodyComponent>().LockRotation; }),
             "mass", sol::readonly_property([](const BodyRef& b) { return b.E.Get<RigidBodyComponent>().Mass; }),
             "add_force", [this](const BodyRef& b, const glm::vec3& f) { b.E.Get<RigidBodyComponent>(); Physics->AddForce(b.E.Handle, f); },
             "add_impulse", [this](const BodyRef& b, const glm::vec3& i) { b.E.Get<RigidBodyComponent>(); Physics->AddImpulse(b.E.Handle, i); });
@@ -574,6 +576,7 @@ namespace Engine {
                     rb.Friction = opts->get_or<float>("friction", rb.Friction);
                     rb.Restitution = opts->get_or<float>("bounciness", rb.Restitution);
                     rb.IsTrigger = opts->get<sol::optional<bool>>("trigger").value_or(false);
+                    rb.LockRotation = opts->get<sol::optional<bool>>("lock_rotation").value_or(false);
                     rb.InitialVelocity = opts->get<sol::optional<glm::vec3>>("velocity").value_or(glm::vec3(0.0f));
                 }
                 e.Owner->Registry().emplace_or_replace<RigidBodyComponent>(e.Handle, rb);
@@ -1351,6 +1354,26 @@ namespace Engine {
         foliage.set_function("push", [this](const glm::vec3& pos, sol::optional<float> radius, sol::optional<float> strength) {
             if (ActiveScene->FoliagePushes.size() >= 256) return;     // more than enough for a frame
             ActiveScene->FoliagePushes.push_back({ pos, std::max(radius.value_or(0.5f), 0.01f), std::clamp(strength.value_or(1.0f), 0.0f, 2.0f) });
+        });
+
+        // Terrains (TerrainComponent): the ground's height and slope under a point, without physics (any time)
+        sol::table terrain = lua.create_named_table("terrain");
+        terrain.set_function("height", [this](sol::object a, sol::optional<float> b) -> sol::object {
+            float x = 0.0f, z = 0.0f;                      // terrain.height(x, z) or terrain.height(vec3)
+            if (a.is<glm::vec3>()) { const glm::vec3 p = a.as<glm::vec3>(); x = p.x; z = p.z; }
+            else if (a.is<float>() && b) { x = a.as<float>(); z = *b; }
+            float y;
+            if (!TerrainSurfaceAt(*ActiveScene, x, z, y)) return sol::make_object(*Lua, sol::lua_nil);
+            return sol::make_object(*Lua, y);
+        });
+        terrain.set_function("normal", [this](sol::object a, sol::optional<float> b) -> sol::object {
+            float x = 0.0f, z = 0.0f;
+            if (a.is<glm::vec3>()) { const glm::vec3 p = a.as<glm::vec3>(); x = p.x; z = p.z; }
+            else if (a.is<float>() && b) { x = a.as<float>(); z = *b; }
+            float y;
+            glm::vec3 n;
+            if (!TerrainSurfaceAt(*ActiveScene, x, z, y, &n)) return sol::make_object(*Lua, sol::lua_nil);
+            return sol::make_object(*Lua, n);
         });
 
         scene.set_function("pick", [this](float x, float y, sol::optional<float> maxDist) -> sol::object {

@@ -1,6 +1,7 @@
 #pragma once
 #include "Scene/SceneSerializer.h"
 
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -10,6 +11,7 @@ namespace Engine {
     class Mesh;
     class Model;
     class Texture2D;
+    class TerrainData;
 
     // The shared meshes and textures that scene and prefab files refer to by name:
     //   geometry "cube" (unit cube), "plane" (12 x 12), "sphere" (diameter 1), "model" (Models/BoomBox.glb),
@@ -39,6 +41,11 @@ namespace Engine {
         // Any image under the asset folder, loaded once ("Textures/fence.png"). Null if it can't be loaded.
         // In scene files its texture name is "texture:Textures/fence.png".
         std::shared_ptr<Texture2D> LoadTexture(const std::string& path);
+        // A terrain's heights and paint ("Terrains/x.terrain"), cached until the file changes. Null if missing or unreadable.
+        // The data is shared: copy it before changing it (the editor does, per stroke).
+        std::shared_ptr<TerrainData> LoadTerrain(const std::string& path);
+        // Write it (the editor's scene save) and remember it as that file's contents
+        bool SaveTerrain(const std::string& path, const std::shared_ptr<TerrainData>& data);
 
         // Name <-> resource mapping for SceneSerializer, PrefabLibrary and ScriptEngine.
         // The functions keep a pointer to this library, so it must outlive their users.
@@ -51,6 +58,8 @@ namespace Engine {
         std::unordered_map<std::string, std::shared_ptr<Model>> m_Models;   // by path, for "model:<path>"
         std::shared_ptr<Texture2D> m_Checker;
         std::unordered_map<std::string, std::shared_ptr<Texture2D>> m_Textures;   // by path, for "texture:<path>"
+        struct CachedTerrain { std::shared_ptr<TerrainData> Data; std::filesystem::file_time_type Stamp; };
+        std::unordered_map<std::string, CachedTerrain> m_Terrains;                // by path
     };
 
 } // namespace Engine

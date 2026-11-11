@@ -2,6 +2,8 @@
 #include "Renderer/Mesh.h"
 #include "Renderer/Model.h"
 #include "Renderer/Texture.h"
+#include "Scene/Terrain.h"
+#include "Core/Log.h"
 
 #include <filesystem>
 #include <vector>
@@ -58,6 +60,31 @@ namespace Engine {
         return m_Textures[path] = tex;
     }
 
+    std::shared_ptr<TerrainData> ResourceLibrary::LoadTerrain(const std::string& path) {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path file = fs::u8path(m_AssetDir + path);
+        const auto stamp = fs::last_write_time(file, ec);
+        if (ec) return nullptr;                           // no file (yet): the caller makes a flat terrain
+        auto it = m_Terrains.find(path);
+        if (it != m_Terrains.end() && it->second.Stamp == stamp) return it->second.Data;
+        std::string error;
+        auto data = TerrainData::Load(file.string(), &error);
+        if (!data) { ENGINE_WARN("Terrain {}: {}", path, error); return nullptr; }
+        m_Terrains[path] = { data, stamp };
+        return data;
+    }
+
+    bool ResourceLibrary::SaveTerrain(const std::string& path, const std::shared_ptr<TerrainData>& data) {
+        namespace fs = std::filesystem;
+        if (!data || path.empty()) return false;
+        const fs::path file = fs::u8path(m_AssetDir + path);
+        if (!data->Save(file.string())) return false;
+        std::error_code ec;
+        m_Terrains[path] = { data, fs::last_write_time(file, ec) };
+        return true;
+    }
+
     std::shared_ptr<Model> ResourceLibrary::LoadModel(const std::string& path) {
         if (auto it = m_Models.find(path); it != m_Models.end()) return it->second;
         auto model = std::make_shared<Model>(m_AssetDir + path);
@@ -106,6 +133,7 @@ namespace Engine {
             if (n.rfind("texture:", 0) == 0) return LoadTexture(n.substr(8));
             return nullptr;
         };
+        r.LoadTerrain = [this](const std::string& path) { return LoadTerrain(path); };
         return r;
     }
 

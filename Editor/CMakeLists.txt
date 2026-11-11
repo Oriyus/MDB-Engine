@@ -1,7 +1,7 @@
 # The editor app (MDBEditor.exe): the engine plus its editing UI
 add_executable(MDBEditor src/main.cpp src/DemoLevels.cpp src/DemoLevels.h src/EditorHistory.cpp src/EditorHistory.h
     src/AssetBrowser.cpp src/AssetBrowser.h src/Platform.cpp src/Platform.h src/DialogueEditor.cpp src/DialogueEditor.h
-    src/Projects.cpp src/Projects.h src/GameBuilder.cpp src/GameBuilder.h
+    src/Projects.cpp src/Projects.h src/GameBuilder.cpp src/GameBuilder.h src/TerrainEditor.cpp src/TerrainEditor.h
     resources/editor.rc)                                    # the icon
 target_link_libraries(MDBEditor PRIVATE Engine)
 target_compile_definitions(MDBEditor PRIVATE

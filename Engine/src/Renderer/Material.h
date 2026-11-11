@@ -30,4 +30,15 @@ namespace Engine {
         float Specular = 1.0f;
     };
 
+    // A terrain's surface (Scene/Terrain.h): up to four layers blended by a weight map, drawn by lit.frag's terrain
+    // branch. Scene::BuildDrawList fills one per terrain each frame; DrawBatch::Terrain points at it.
+    struct TerrainMaterial {
+        uint32_t Splat = 0;                       // GL texture: RGBA = the weights of layers 0..3
+        const Texture2D* Layers[4] = {};          // optional; each repeats every Tiling metres
+        glm::vec4 Color[4]{ glm::vec4(1.0f), glm::vec4(1.0f), glm::vec4(1.0f), glm::vec4(1.0f) };   // rgb sRGB tint, a roughness
+        glm::vec4 Tiling{ 4.0f };                 // metres per repeat, per layer
+        glm::vec2 Size{ 1.0f };                   // the terrain's metres in X / Z
+        float Blend = 0.5f;                       // 0 = plain weights, 1 = height blending (stones poke through grass)
+    };
+
 } // namespace Engine

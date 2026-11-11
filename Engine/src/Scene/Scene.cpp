@@ -11,6 +11,7 @@
 #include "Renderer/Mesh.h"
 #include "Renderer/DrawList.h"
 #include "Renderer/RenderStats.h"
+#include "Scene/Terrain.h"
 #include "Core/Log.h"
 #include <glad/glad.h>
 
@@ -571,6 +572,7 @@ namespace Engine {
         if (auto* c = m_Registry.try_get<AnimatorComponent>(handle))         s.Animator = *c;
         if (auto* c = m_Registry.try_get<ParticleEmitterComponent>(handle))  s.Particles = *c;
         if (auto* c = m_Registry.try_get<FoliageComponent>(handle))          s.Foliage = *c;
+        if (auto* c = m_Registry.try_get<TerrainComponent>(handle))          s.Terrain = *c;
         if (auto* c = m_Registry.try_get<PrefabComponent>(handle))           s.Prefab = *c;
         s.Transient = m_Registry.all_of<TransientComponent>(handle);
         return s;
@@ -598,6 +600,7 @@ namespace Engine {
         if (s.Animator)         m_Registry.emplace<AnimatorComponent>(e, *s.Animator);
         if (s.Particles)        m_Registry.emplace<ParticleEmitterComponent>(e, *s.Particles);
         if (s.Foliage)          m_Registry.emplace<FoliageComponent>(e, *s.Foliage);
+        if (s.Terrain)          m_Registry.emplace<TerrainComponent>(e, *s.Terrain);
         if (s.Prefab)           m_Registry.emplace<PrefabComponent>(e, *s.Prefab);
         if (s.Transient)        m_Registry.emplace<TransientComponent>(e);
         return e;
@@ -779,6 +782,21 @@ namespace Engine {
             }
             ~CullSwitch() { if (On != WasOn) { if (WasOn) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE); } }
         };
+
+        // A terrain's layers for lit.frag: the weights on unit 9, the layer textures on 10..13 (the sampler units are
+        // set once with the lighting uniforms)
+        void BindTerrain(Shader& shader, const TerrainMaterial& m) {
+            glBindTextureUnit(9, m.Splat);
+            glm::vec4 use(0.0f);
+            for (int i = 0; i < 4; i++) {
+                if (m.Layers[i]) { m.Layers[i]->Bind(10 + i); use[i] = 1.0f; }
+                shader.SetVec4("u_TerrainColor[" + std::to_string(i) + "]", m.Color[i]);
+            }
+            shader.SetVec4("u_TerrainUseTex", use);
+            shader.SetVec4("u_TerrainTiling", m.Tiling);
+            shader.SetVec2("u_TerrainSize", m.Size);
+            shader.SetFloat("u_TerrainBlend", m.Blend);
+        }
 
         void DrawBatchGeometry(const DrawBatch& b) {
             if (b.Part < 0) b.Geometry->DrawInstanced(b.Count);
@@ -1237,6 +1255,75 @@ namespace Engine {
                 else opaque.push_back(item);
             }
         }
+
+        // Terrains: every chunk is a part of its own (one draw each, culled on its own) sharing one instance and the
+        // terrain's layered material. Changed chunks are rebuilt here (UpdateGPU), so sculpting shows the same frame.
+        for (auto [entity, tc] : m_Registry.view<TerrainComponent>().each()) {
+            if (!tc.Data) continue;
+            TerrainData& data = *tc.Data;
+            data.UpdateGPU(tc.Size);
+            TerrainMaterial& m = data.Material;
+            m.Splat = data.SplatTexture();
+            for (int i = 0; i < TerrainComponent::MaxLayers; i++) {
+                const TerrainLayer& L = tc.Layers[i];
+                m.Layers[i] = L.Texture.get();
+                m.Color[i] = glm::vec4(L.Color, std::clamp(L.Roughness, 0.04f, 1.0f));
+                m.Tiling[i] = std::max(L.Tiling, 0.01f);
+            }
+            m.Size = tc.Size;
+            m.Blend = std::clamp(tc.Blend, 0.0f, 1.0f);
+
+            const glm::mat4 world = GetWorldMatrix(entity);
+            const uint32_t key = (uint32_t)entt::to_integral(entity) | 0x80000000u;   // apart from a Mesh Renderer's entry
+            glm::mat4 prevWorld = world;
+            if (const auto prev = list.PrevWorld.find(key); prev != list.PrevWorld.end()) prevWorld = prev->second;
+            list.CurWorld[key] = world;
+            // Sculpted or moved: the point lights near the changed ground draw their shadows again next frame
+            const bool changed = prevWorld != world || data.DrawnRevision != data.Revision();
+            data.DrawnRevision = data.Revision();
+            const bool highlighted = highlight &&
+                std::binary_search(highlight->begin(), highlight->end(), (uint32_t)entt::to_integral(entity));
+
+            InstanceData inst;
+            inst.Model = world;
+            inst.PrevModel = prevWorld;
+            inst.Normal = glm::mat4(glm::transpose(glm::inverse(glm::mat3(world))));
+            inst.Color = glm::vec4(1.0f);
+            inst.Surface = glm::vec4(0.0f, 0.9f, 0.0f, 1.0f);
+            inst.Info = glm::ivec4((int)entt::to_integral(entity), 0, 0, 0);
+            uint32_t instance = UINT32_MAX;
+
+            for (const TerrainData::Chunk& ch : data.Chunks()) {
+                if (!ch.Geometry) continue;
+                const bool visible = frustum.Visible(world, ch.Min, ch.Max);
+                if (!visible) list.Culled++;
+                if (changed && shadowSettings && tc.CastShadows) {
+                    glm::vec3 center, extent;
+                    Frustum::WorldBox(world, ch.Min, ch.Max, center, extent);
+                    const float radius = glm::length(extent);
+                    for (size_t j = 0; j < lights.size() && j < PointShadowArray::MaxLights; j++)
+                        if (lights[j].Shadows && glm::length(center - lights[j].Pos) - radius < shadowSettings->PointFar)
+                            shadows->Cache[j].MovedNear = true;
+                }
+                const bool anyShadow = !views.empty() && tc.CastShadows && classifyShadows(world, ch.Min, ch.Max);
+                if (!visible && !anyShadow) continue;
+                if (instance == UINT32_MAX) instance = list.AddInstance(inst);
+
+                DrawList::Item item;
+                item.Instance = instance;
+                item.State.Geometry = ch.Geometry.get();
+                item.State.Part = -1;
+                if (anyShadow) {
+                    DrawList::Item sh = item;                // plain opaque casters
+                    for (size_t v = 0; v < views.size(); v++) if (inView[v]) shadow[v].push_back(sh);
+                }
+                if (!visible) continue;
+                if (highlighted) selected.push_back(item);
+                item.State.Terrain = &m;
+                opaque.push_back(item);
+            }
+        }
+
         list.PrevWorld.swap(list.CurWorld);               // this frame's matrices are next frame's "previous"
         list.CurWorld.clear();
         { PROFILE_SCOPE("Sort into batches");
@@ -1343,6 +1430,8 @@ namespace Engine {
         shader.SetInt("u_NormalMap", 3);
         shader.SetInt("u_MetalRoughMap", 4);
         shader.SetInt("u_EmissiveMap", 5);
+        shader.SetInt("u_TerrainSplat", 9);                 // terrain weights and layers (BindTerrain); 8 is the grass's
+        for (int i = 0; i < 4; i++) shader.SetInt("u_TerrainLayer" + std::to_string(i), 10 + i);
         shader.SetFloat("u_Ambient", AmbientIntensity);
         // Environment maps (units 6 and 7). The samplers always point at their own unit.
         shader.SetInt("u_IrradianceMap", 6);
@@ -1403,6 +1492,8 @@ namespace Engine {
         list.Bind();
         auto drawBatches = [&](const std::vector<DrawBatch>& batches) {
             CullSwitch cull;
+            const TerrainMaterial* terrain = nullptr;
+            shader.SetInt("u_Terrain", 0);
             for (const DrawBatch& b : batches) {
                 cull.Set(b.DoubleSided);
                 shader.SetInt("u_DoubleSided", b.DoubleSided ? 1 : 0);   // lit.frag: back faces lit from their side
@@ -1416,10 +1507,16 @@ namespace Engine {
                 shader.SetInt("u_UseEmissive", b.Emissive ? 1 : 0);
                 shader.SetInt("u_AlphaMode", (int)b.Mode);
                 shader.SetFloat("u_AlphaCutoff", b.Cutoff);
+                if (b.Terrain != terrain) {                  // lit.frag's terrain branch: weights and layers
+                    terrain = b.Terrain;
+                    shader.SetInt("u_Terrain", terrain ? 1 : 0);
+                    if (terrain) BindTerrain(shader, *terrain);
+                }
                 SetBones(shader, b.Bones);
                 shader.SetInt("u_InstanceBase", (int)b.First);
                 DrawBatchGeometry(b);
             }
+            if (terrain) shader.SetInt("u_Terrain", 0);
         };
 
         if (pass == RenderPass::Opaque) {

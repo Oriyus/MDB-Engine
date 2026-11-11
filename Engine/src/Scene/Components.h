@@ -58,8 +58,9 @@ namespace Engine {
     // ConvexHull and Mesh use the entity's MeshRenderer geometry (with its LocalOffset), scaled by the
     // entity: Size and Center are ignored for them. Mesh is exact but static/kinematic only.
     // None: the body has no shape of its own, only its children's ColliderComponents.
+    // Terrain: the entity's TerrainComponent as a height field (static / kinematic only).
     // (The numbers are stored in scene files: only add at the end.)
-    enum class ColliderShape { Box, Sphere, ConvexHull, Mesh, Capsule, None };
+    enum class ColliderShape { Box, Sphere, ConvexHull, Mesh, Capsule, None, Terrain };
 
     // A rigid body's shape is its own (Shape/Size/Center) plus the ColliderComponent of every
     // descendant that has no RigidBody itself: together they make one compound collider.
@@ -73,6 +74,9 @@ namespace Engine {
         float Restitution = 0.2f;        // bounciness
         glm::vec3 InitialVelocity{ 0.0f };   // used once when the body is created (e.g. thrown balls)
         bool IsTrigger = false;          // sensor: reports overlaps (on_trigger_enter/exit) but doesn't collide
+        // Dynamic only: physics never turns it (contacts and forces only move it). For characters: a pushed box would
+        // tip over. Scripts can still turn it by setting its rotation.
+        bool LockRotation = false;
     };
 
     // An extra shape for the rigid body of the nearest ancestor that has one (a compound collider):
@@ -225,6 +229,34 @@ namespace Engine {
         float Recovery = 1.2f;            // seconds for pressed grass to stand up again
         float DrawDistance = 45.0f;       // metres; clumps thin out over the last half of it
         bool  AvoidStatic = true;         // no clumps under Static meshes standing on the ground (walls, floors, props)
+        bool  FollowTerrain = true;       // clumps over a terrain stand on its surface instead of the entity's height
+        int   TerrainLayer = -1;          // 0..3: grow only where that terrain layer is painted (-1: anywhere)
+    };
+
+    // A heightmap terrain (Scene/Terrain.h): a grid of heights over Size metres in the entity's X/Z (centred on it),
+    // painted with up to four layers. Drawn in chunks through the usual draw list (shadows, picking, outline), and a
+    // Rigid Body with shape Terrain makes it solid (a Jolt height field; the navigation bake sees it too).
+    // The heights and paint live in their own file, Assets/<DataPath>, written when the editor saves the scene.
+    class TerrainData;
+    struct TerrainLayer {
+        std::shared_ptr<Texture2D> Texture;       // optional: repeats every Tiling metres (world-aligned to the terrain)
+        glm::vec3 Color{ 1.0f };                  // sRGB-style tint, or the colour itself without a texture
+        float Tiling = 4.0f;                      // metres per repeat
+        float Roughness = 0.9f;
+    };
+    struct TerrainComponent {
+        static constexpr int MaxLayers = 4;
+        glm::vec2 Size{ 64.0f, 64.0f };           // metres in X / Z
+        std::string DataPath;                     // "Terrains/<name>.terrain", relative to Assets
+        TerrainLayer Layers[MaxLayers] = {
+            { nullptr, { 0.36f, 0.48f, 0.20f }, 4.0f, 0.95f },   // grass
+            { nullptr, { 0.43f, 0.34f, 0.24f }, 4.0f, 0.9f },    // earth
+            { nullptr, { 0.50f, 0.49f, 0.47f }, 6.0f, 0.8f },    // rock
+            { nullptr, { 0.80f, 0.73f, 0.55f }, 4.0f, 0.95f },   // sand
+        };
+        float Blend = 0.5f;                       // height blending of the layers (0 = plain weights)
+        bool  CastShadows = true;
+        std::shared_ptr<TerrainData> Data;        // heights and paint (from DataPath; shared by copies: copy before editing)
     };
 
     // A sound attached to an entity, played while the game runs (see Audio/AudioEngine.h).

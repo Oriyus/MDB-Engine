@@ -2,6 +2,9 @@
 #include "Scene/Entity.h"
 #include "Scene/Components.h"
 #include "Scene/SceneSerializer.h"
+#include "Scene/Terrain.h"
+
+#include <cstdio>
 
 #include <algorithm>
 
@@ -63,6 +66,7 @@ namespace Engine {
                                { "center", rb.Center },{ "mass", rb.Mass },
                                { "friction", rb.Friction },{ "restitution", rb.Restitution },
                                { "trigger", rb.IsTrigger } };
+            if (rb.LockRotation) j["rigidBody"]["lockRotation"] = true;     // only when set (no new prefab overrides)
         }
         if (e.Has<ColliderComponent>()) {
             auto& c = e.Get<ColliderComponent>();
@@ -88,6 +92,26 @@ namespace Engine {
                 { "flowerAmount", f.FlowerAmount },{ "roughness", f.Roughness },{ "windStrength", f.WindStrength },
                 { "windSpeed", f.WindSpeed },{ "windDirection", f.WindDirection },{ "interaction", f.Interaction },
                 { "recovery", f.Recovery },{ "drawDistance", f.DrawDistance },{ "avoidStatic", f.AvoidStatic } };
+            // Only when not the default, so existing fields keep their JSON (no prefab overrides appear)
+            if (!f.FollowTerrain) j["foliage"]["followTerrain"] = false;
+            if (f.TerrainLayer >= 0) j["foliage"]["terrainLayer"] = f.TerrainLayer;
+        }
+        if (e.Has<TerrainComponent>()) {
+            auto& t = e.Get<TerrainComponent>();
+            json layers = json::array();
+            for (const auto& L : t.Layers)
+                layers.push_back({ { "texture", res.TextureName ? res.TextureName(L.Texture) : std::string() },
+                                   { "color", L.Color },{ "tiling", L.Tiling },{ "roughness", L.Roughness } });
+            j["terrain"] = { { "size", t.Size },{ "data", t.DataPath },{ "layers", layers },{ "blend", t.Blend },
+                             { "castShadows", t.CastShadows },
+                             { "resolution", t.Data ? t.Data->Resolution() : 129u } };
+            // The contents' hash: the heights and paint are in their own file, but an edit must still show up as a
+            // change (undo history, save-game diffs). Ignored when reading.
+            if (t.Data) {
+                char hex[17];
+                std::snprintf(hex, sizeof(hex), "%016llx", (unsigned long long)t.Data->Hash());
+                j["terrain"]["dataHash"] = hex;
+            }
         }
         if (e.Has<AnimatorComponent>()) {
             auto& a = e.Get<AnimatorComponent>();
@@ -195,6 +219,7 @@ namespace Engine {
             rb.Friction = jr.value("friction", 0.5f);
             rb.Restitution = jr.value("restitution", 0.2f);
             rb.IsTrigger = jr.value("trigger", false);
+            rb.LockRotation = jr.value("lockRotation", false);
             e.Add<RigidBodyComponent>(rb);
         }
         if (j.contains("collider")) {
@@ -254,7 +279,33 @@ namespace Engine {
             f.Recovery = jf.value("recovery", f.Recovery);
             f.DrawDistance = jf.value("drawDistance", f.DrawDistance);
             f.AvoidStatic = jf.value("avoidStatic", f.AvoidStatic);
+            f.FollowTerrain = jf.value("followTerrain", f.FollowTerrain);
+            f.TerrainLayer = jf.value("terrainLayer", f.TerrainLayer);
             e.Add<FoliageComponent>(f);
+        }
+        if (j.contains("terrain")) {
+            const auto& jt = j["terrain"];
+            TerrainComponent t;
+            if (jt.contains("size")) t.Size = jt["size"].get<glm::vec2>();
+            t.DataPath = jt.value("data", std::string());
+            t.Blend = jt.value("blend", t.Blend);
+            t.CastShadows = jt.value("castShadows", t.CastShadows);
+            if (jt.contains("layers")) {
+                const auto& jl = jt["layers"];
+                for (size_t i = 0; i < jl.size() && i < (size_t)TerrainComponent::MaxLayers; i++) {
+                    TerrainLayer& L = t.Layers[i];
+                    if (res.FindTexture) L.Texture = res.FindTexture(jl[i].value("texture", std::string()));
+                    if (jl[i].contains("color")) L.Color = jl[i]["color"].get<glm::vec3>();
+                    L.Tiling = jl[i].value("tiling", L.Tiling);
+                    L.Roughness = jl[i].value("roughness", L.Roughness);
+                }
+            }
+            // An entity being given the same terrain again (prefab sync, undo) keeps its data object
+            if (e.Has<TerrainComponent>() && e.Get<TerrainComponent>().DataPath == t.DataPath && e.Get<TerrainComponent>().Data)
+                t.Data = e.Get<TerrainComponent>().Data;
+            if (!t.Data && !t.DataPath.empty() && res.LoadTerrain) t.Data = res.LoadTerrain(t.DataPath);
+            if (!t.Data) t.Data = std::make_shared<TerrainData>(jt.value("resolution", 129u));   // no file yet: flat
+            e.Add<TerrainComponent>(t);
         }
         if (j.contains("animator")) {
             const auto& ja = j["animator"];
@@ -335,6 +386,7 @@ namespace Engine {
         if (e.Has<AnimatorComponent>())         e.Remove<AnimatorComponent>();
         if (e.Has<ParticleEmitterComponent>())  e.Remove<ParticleEmitterComponent>();
         if (e.Has<FoliageComponent>())          e.Remove<FoliageComponent>();
+        if (e.Has<TerrainComponent>())          e.Remove<TerrainComponent>();
     }
 
     bool HasComponentKeys(const json& j) {

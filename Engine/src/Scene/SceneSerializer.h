@@ -13,6 +13,7 @@ namespace Engine {
 
     class Renderable;
     class Texture2D;
+    class TerrainData;
     class PrefabLibrary;
 
     // Maps names stored in the file to live resources, and back
@@ -21,6 +22,8 @@ namespace Engine {
         std::function<std::shared_ptr<Renderable>(const std::string&)> FindGeometry;
         std::function<std::string(const std::shared_ptr<Texture2D>&)>  TextureName;
         std::function<std::shared_ptr<Texture2D>(const std::string&)>  FindTexture;
+        // A terrain's heights and paint from its file under Assets ("Terrains/x.terrain"); null if there is none
+        std::function<std::shared_ptr<TerrainData>(const std::string&)> LoadTerrain;
     };
 
     // Everything about a level that isn't an entity. The scene's ambient intensity is saved

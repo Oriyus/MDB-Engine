@@ -116,13 +116,14 @@ namespace Engine {
     //               wind (sway in the scene's wind: 0 still, 1 a tree), double_sided (back faces drawn too),
     //               specular (0..1: reflection of a non-metal, 0 = matte) }
     //   e.light  -> nil or { color, intensity, shadows }
-    //   e.body   -> nil or { velocity, angular_velocity, type, trigger, mass,
+    //   e.body   -> nil or { velocity, angular_velocity, type, trigger, lock_rotation, mass,
     //                         add_force(v) (newtons, lasts this frame: call each frame), add_impulse(v) }
     //   e:add_mesh{ geometry="cube"|"sphere"|"plane"|"capsule"|"cylinder"|"cone"|"model:Models/x.glb", texture="checker", color=vec3,
     //               metallic, roughness, emissive, unlit, fit=metres (models: scaled to that size, standing on the origin),
     //               opacity, alpha_mode, alpha_cutoff, cast_shadows, static, wind, double_sided, specular }
     //   e:add_body{ type="dynamic"|"static"|"kinematic", shape="box"|"sphere"|"capsule"|"convex"|"mesh"|"none", size=number|vec3,
-    //               center=vec3, mass, friction, bounciness, trigger=bool, velocity=vec3 }
+    //               center=vec3, mass, friction, bounciness, trigger=bool, velocity=vec3,
+    //               lock_rotation=bool (dynamic: physics never turns it; characters) }
     //   e:add_collider{ shape="box"|"sphere"|"capsule"|"convex"|"mesh", size, center }   an extra shape for the
     //               rigid body above this entity (compound collider). Capsule size = vec3(diameter, height, 0)
     //   e:add_light{ color=vec3, intensity, shadows }
@@ -207,6 +208,9 @@ namespace Engine {
     //   ---- foliage: grass and flowers (FoliageComponent). Moving dynamic and kinematic bodies bend it by themselves.
     //   foliage.push(pos [, radius = 0.5, strength = 1])   press the grass around pos this frame (call every frame while
     //       something without a body walks through it); it springs back over the field's Recovery seconds
+    //   ---- terrain: heightmap terrains (TerrainComponent). No physics needed: works in on_create too.
+    //   terrain.height(x, z) / terrain.height(pos) -> world y of the ground there, or nil off every terrain
+    //   terrain.normal(x, z) / terrain.normal(pos) -> unit vec3 (world), or nil
     //   ---- nav: a layered walkability grid (Navigation/NavGrid.h), baked from the STATIC bodies on first use.
     //   Cells are integer ids. Costs count steps: 1 per orthogonal step, `diagonal` per diagonal one.
     //   nav.bake([{ cell_size=1, agent_radius=0.3, agent_height=1.8, max_step=0.4, max_slope=40, min=vec3, max=vec3 }])

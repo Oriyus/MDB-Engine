@@ -1,6 +1,67 @@
 {
   "entities": [
     {
+      "id": 1777409737903462275,
+      "name": "Player",
+      "rigidBody": {
+        "center": [0.0, 0.0, 0.0],
+        "friction": 0.0,
+        "lockRotation": true,
+        "mass": 70.0,
+        "restitution": 0.0,
+        "shape": 4,
+        "size": [0.8, 1.8, 0.8],
+        "trigger": false,
+        "type": 1
+      },
+      "script": { "path": "Scripts/village_player.lua" },
+      "transform": { "position": [2.0, 1.0, 7.5], "rotation": [0.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0] }
+    },
+    {
+      "id": 5903550793460850511,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [0.25, 0.55, 0.95],
+        "emissive": [0.0, 0.0, 0.0],
+        "geometry": "cube",
+        "localOffset": [0.8, 0.0, 0.0, 0.0, 0.0, 1.8, 0.0, 0.0, 0.0, 0.0, 0.8, 0.0, 0.0, 0.0, 0.0, 1.0],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.6,
+        "static": false,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Model",
+      "parent": 1777409737903462275,
+      "transform": { "position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0] }
+    },
+    {
+      "id": 7877550874068863076,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "color": [0.95, 0.9, 0.8],
+        "emissive": [0.0, 0.0, 0.0],
+        "geometry": "cube",
+        "localOffset": [0.3, 0.0, 0.0, 0.0, 0.0, 0.18, 0.0, 0.0, 0.0, 0.0, 0.25, 0.0, 0.0, 0.0, 0.0, 1.0],
+        "metallic": 0.0,
+        "opacity": 1.0,
+        "roughness": 0.6,
+        "static": false,
+        "texture": "",
+        "unlit": false,
+        "useModelMaterials": false
+      },
+      "name": "Nose",
+      "parent": 5903550793460850511,
+      "transform": { "position": [0.0, 0.45, 0.45], "rotation": [0.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0] }
+    },
+    {
       "id": 11953697782662097992,
       "meshRenderer": {
         "alphaCutoff": 0.5,
@@ -27398,6 +27459,7 @@
         "primary": true
       },
       "id": 3498908817821809498,
+      "script": { "path": "Scripts/follow.lua" },
       "name": "Main Camera",
       "transform": {
         "position": [

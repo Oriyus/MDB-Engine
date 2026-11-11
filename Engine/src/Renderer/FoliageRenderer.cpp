@@ -5,6 +5,7 @@
 #include "Renderer/RenderStats.h"
 #include "Scene/Scene.h"
 #include "Scene/Components.h"
+#include "Scene/Terrain.h"
 #include "Core/Profiler.h"
 
 #include <glad/glad.h>
@@ -148,6 +149,8 @@ namespace Engine {
         struct Chunk { glm::vec3 Min{ 0.0f }, Max{ 0.0f }; uint32_t First[2]{}, Count[2]{}; };
         struct Field {
             uint64_t Hash = 0;
+            uint64_t TerrainHash = 0;             // the terrains it was scattered on
+            float ScatterTime = -1e9f;            // Impl::Time of the last scatter
             bool Scattered = false;
             uint32_t Buffer = 0;
             std::vector<Chunk> Chunks;
@@ -262,7 +265,35 @@ namespace Engine {
             h.Add(f.Size); h.Add(f.Density); h.Add(f.Seed); h.Add(f.Height); h.Add(f.HeightVariation); h.Add(f.Width);
             h.Add(f.DryAmount); h.Add(f.FlowerAmount); h.Add(f.AvoidStatic); h.Add(world);
             if (f.AvoidStatic) h.Add(obstacles);
+            h.Add(f.FollowTerrain); h.Add(f.TerrainLayer);
             return h.H;
+        }
+        uint64_t TerrainHash = 0;                  // TerrainsHash, once a frame
+
+        // The terrains, placed, for standing clumps on them (looked up per clump while scattering)
+        struct PlacedTerrain { const TerrainData* Data; glm::vec2 Size; glm::mat4 World, Inverse; };
+        std::vector<PlacedTerrain> Terrains;
+        void GatherTerrains(Scene& scene) {
+            Terrains.clear();
+            for (auto [e, t] : scene.Registry().view<TerrainComponent>().each()) {
+                if (!t.Data) continue;
+                const glm::mat4 M = scene.GetWorldMatrix(e);
+                Terrains.push_back({ t.Data.get(), t.Size, M, glm::inverse(M) });
+            }
+        }
+        // The first terrain under p (world): its surface height there (world, straight down in the terrain's own
+        // space, which is the same unless it is tilted) and the paint weights. False if none covers p.
+        bool TerrainAt(const glm::vec3& p, float& y, glm::vec4& weights) const {
+            for (const PlacedTerrain& t : Terrains) {
+                glm::vec3 l = glm::vec3(t.Inverse * glm::vec4(p, 1.0f));
+                float h;
+                if (!t.Data->HeightAt(t.Size, l.x, l.z, h)) continue;
+                l.y = h;
+                y = (t.World * glm::vec4(l, 1.0f)).y;
+                weights = t.Data->WeightsAt(l.x / t.Size.x + 0.5f, l.z / t.Size.y + 0.5f);
+                return true;
+            }
+            return false;
         }
 
         void Scatter(Field& field, const FoliageComponent& f, const glm::mat4& world) {
@@ -311,6 +342,7 @@ namespace Engine {
             static const glm::vec3 petals[] = { { 0.95f, 0.94f, 0.88f }, { 0.96f, 0.80f, 0.22f }, { 0.62f, 0.42f, 0.86f },
                                                 { 0.42f, 0.56f, 0.95f }, { 0.90f, 0.42f, 0.38f } };
             Rng rng(f.Seed);
+            const bool useTerrain = !Terrains.empty() && (f.FollowTerrain || f.TerrainLayer >= 0);
             std::vector<std::vector<Clump>> lists(size_t(cx) * cz * 2);
             float maxHeight = 0.0f;
             for (int iz = 0; iz < nz; iz++) {
@@ -320,7 +352,18 @@ namespace Engine {
                         rb = rng.F(), rt = rng.F(), rd = rng.F(), rf = rng.F(), rc = rng.F();
                     const float lx = -size.x * 0.5f + (ix + jx) * cell, lz = -size.y * 0.5f + (iz + jz) * cell;
                     if (lx > size.x * 0.5f || lz > size.y * 0.5f) continue;
-                    const glm::vec3 p = glm::vec3(world * glm::vec4(lx, 0.0f, lz, 1.0f));
+                    glm::vec3 p = glm::vec3(world * glm::vec4(lx, 0.0f, lz, 1.0f));
+                    if (useTerrain) {
+                        float ty;
+                        glm::vec4 w;
+                        const bool on = TerrainAt(p, ty, w);
+                        if (f.TerrainLayer >= 0) {
+                            // Only where that layer is painted: the share of its paint decides, so edges thin out
+                            const float share = on ? glm::smoothstep(0.15f, 0.75f, w[std::min(f.TerrainLayer, 3)]) : 0.0f;
+                            if (Hash2(ix, iz, f.Seed * 7919u + 13u) >= share) continue;
+                        }
+                        if (on && f.FollowTerrain) p.y = ty;
+                    }
                     if (!near.empty()) {
                         const int b = std::clamp((int)((lz + size.y * 0.5f) / bucket), 0, bz - 1) * bx +
                                       std::clamp((int)((lx + size.x * 0.5f) / bucket), 0, bx - 1);
@@ -465,6 +508,7 @@ namespace Engine {
         }
         if (update) { PROFILE_SCOPE("Gather obstacles"); I.GatherObstacles(scene); }
         if (update) { PROFILE_SCOPE("Gather pressers"); I.GatherPressers(scene); }
+        if (update) I.TerrainHash = TerrainsHash(scene);
         for (auto& [id, field] : I.Fields) field->Seen = false;
 
         shader.Bind();
@@ -492,9 +536,15 @@ namespace Engine {
             field.Seen = true;
             const glm::mat4 world = scene.GetWorldMatrix(e);
             const uint64_t hash = Impl::HashOf(f, world, I.ObstacleHash);
-            if (!field.Scattered || hash != field.Hash) {
+            // Terrain changes (sculpting, painting) scatter again at most every 0.25 s: a stroke changes it every frame
+            const bool onTerrain = f.FollowTerrain || f.TerrainLayer >= 0;
+            const bool terrainMoved = onTerrain && I.TerrainHash != field.TerrainHash && I.Time - field.ScatterTime > 0.25f;
+            if (!field.Scattered || hash != field.Hash || terrainMoved) {
                 PROFILE_SCOPE("Scatter");
+                I.GatherTerrains(scene);
                 I.Scatter(field, f, world);
+                field.TerrainHash = I.TerrainHash;
+                field.ScatterTime = I.Time;
                 field.Hash = hash;
                 field.Scattered = true;
             }

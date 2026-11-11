@@ -16,6 +16,7 @@ namespace Engine {
         if (Mode != o.Mode) return Mode < o.Mode;
         if (Cutoff != o.Cutoff) return Cutoff < o.Cutoff;
         if (DoubleSided != o.DoubleSided) return DoubleSided < o.DoubleSided;
+        if (Terrain != o.Terrain) return std::less<>()(Terrain, o.Terrain);
         return std::less<>()(Bones, o.Bones);
     }
 

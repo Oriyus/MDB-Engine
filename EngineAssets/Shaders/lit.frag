@@ -33,6 +33,48 @@ uniform int  u_UseEmissive;
 uniform int  u_DoubleSided;      // 1: back faces are drawn too (Mesh Renderer / material Double-sided)
 uniform int  u_ViewMode;        // editor view mode: 0 rendered (never set by the game), 1 solid, 2 textured
 
+// Terrain (Scene/Terrain.h): four layers blended by a weight map over the terrain (v_TexCoord 0..1 across it)
+uniform int       u_Terrain;            // 1: this batch is a terrain chunk
+uniform sampler2D u_TerrainSplat;       // unit 9: RGBA = weights of layers 0..3
+uniform sampler2D u_TerrainLayer0;      // units 10..13: each layer's texture (optional, repeating)
+uniform sampler2D u_TerrainLayer1;
+uniform sampler2D u_TerrainLayer2;
+uniform sampler2D u_TerrainLayer3;
+uniform vec4  u_TerrainUseTex;          // per layer: 1 = textured
+uniform vec4  u_TerrainColor[4];        // rgb sRGB-style tint, a roughness
+uniform vec4  u_TerrainTiling;          // per layer: metres per repeat
+uniform vec2  u_TerrainSize;            // the terrain's metres in X / Z
+uniform float u_TerrainBlend;           // 0 = plain weights, 1 = height blending
+
+// The terrain's surface here: albedo (linear), its sRGB colour without textures (solid view) and roughness.
+// Height blending treats each texture's brightness as its height, so where layers meet, the higher one (stones,
+// thick grass) shows through first instead of a soft cross-fade.
+void TerrainSurface(vec2 uv, out vec3 albedo, out vec3 flatColor, out float rough) {
+    vec4 w = texture(u_TerrainSplat, uv);
+    float total = w.x + w.y + w.z + w.w;
+    w = total > 1e-4 ? w / total : vec4(1.0, 0.0, 0.0, 0.0);
+    vec2 p = uv * u_TerrainSize;                       // metres across the terrain
+    vec4 t0 = u_TerrainUseTex.x > 0.5 ? texture(u_TerrainLayer0, p / u_TerrainTiling.x) : vec4(1.0);
+    vec4 t1 = u_TerrainUseTex.y > 0.5 ? texture(u_TerrainLayer1, p / u_TerrainTiling.y) : vec4(1.0);
+    vec4 t2 = u_TerrainUseTex.z > 0.5 ? texture(u_TerrainLayer2, p / u_TerrainTiling.z) : vec4(1.0);
+    vec4 t3 = u_TerrainUseTex.w > 0.5 ? texture(u_TerrainLayer3, p / u_TerrainTiling.w) : vec4(1.0);
+    if (u_TerrainBlend > 0.0) {
+        const vec3 lum = vec3(0.2126, 0.7152, 0.0722);
+        vec4 h = vec4(dot(t0.rgb, lum), dot(t1.rgb, lum), dot(t2.rgb, lum), dot(t3.rgb, lum));
+        h = mix(vec4(0.5), h, u_TerrainUseTex);           // untextured layers are level
+        vec4 c = w + h * 0.6 * step(1e-3, w);              // a layer that isn't painted here never shows
+        float top = max(max(c.x, c.y), max(c.z, c.w)) - 0.15;
+        vec4 b = max(c - top, 0.0);
+        b /= max(b.x + b.y + b.z + b.w, 1e-4);
+        w = mix(w, b, u_TerrainBlend);
+    }
+    vec3 c0 = pow(u_TerrainColor[0].rgb, vec3(2.2)), c1 = pow(u_TerrainColor[1].rgb, vec3(2.2));
+    vec3 c2 = pow(u_TerrainColor[2].rgb, vec3(2.2)), c3 = pow(u_TerrainColor[3].rgb, vec3(2.2));
+    albedo = c0 * t0.rgb * w.x + c1 * t1.rgb * w.y + c2 * t2.rgb * w.z + c3 * t3.rgb * w.w;
+    flatColor = u_TerrainColor[0].rgb * w.x + u_TerrainColor[1].rgb * w.y + u_TerrainColor[2].rgb * w.z + u_TerrainColor[3].rgb * w.w;
+    rough = dot(w, vec4(u_TerrainColor[0].a, u_TerrainColor[1].a, u_TerrainColor[2].a, u_TerrainColor[3].a));
+}
+
 
 // Transparency: 0 opaque, 1 cutout (discard below u_AlphaCutoff), 2 blend (premultiplied output)
 uniform int   u_AlphaMode;
@@ -234,12 +276,16 @@ void main() {
     if (u_AlphaMode == 1 && alpha < u_AlphaCutoff) discard;
     bool blend = u_AlphaMode == 2;
     if (!blend) alpha = 1.0;
+    vec3 terrainFlat = vec3(1.0);
+    float terrainRough = -1.0;
+    if (u_Terrain == 1) TerrainSurface(v_TexCoord, albedo, terrainFlat, terrainRough);
 
     // Editor view modes (SceneRenderer::ViewMode): 1 solid (colour only), 2 textured. A simple studio light
     // that follows the camera, no shadows or environment. 0 (rendered, the default) is the full shading below.
     if (u_ViewMode != 0) {
         vec3 c = pow(v_Color.rgb, vec3(2.2));
         if (u_ViewMode == 2) c *= base.rgb;
+        if (u_Terrain == 1) c = u_ViewMode == 2 ? albedo : pow(terrainFlat, vec3(2.2));
         if (v_Unlit == 0) {
             vec3 N = normalize(v_Normal);
             if (!gl_FrontFacing) N = -N;                         // grass is drawn without culling
@@ -259,7 +305,7 @@ void main() {
     }
 
     float metallic = v_Surface.x;
-    float roughness = v_Surface.y;
+    float roughness = terrainRough >= 0.0 ? terrainRough : v_Surface.y;
     if (u_UseMetalRough == 1) {
         vec3 mr = texture(u_MetalRoughMap, v_TexCoord).rgb;   // glTF: G = roughness, B = metallic
         roughness *= mr.g;
