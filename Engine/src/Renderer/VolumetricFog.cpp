@@ -15,23 +15,36 @@ namespace Engine {
 
     VolumetricFog::~VolumetricFog() {
         if (m_FBO) glDeleteFramebuffers(1, &m_FBO);
-        if (m_Texture) glDeleteTextures(1, &m_Texture);
+        const uint32_t textures[] = { m_Near, m_Far, m_Range };
+        glDeleteTextures(3, textures);
         if (m_VAO) glDeleteVertexArrays(1, &m_VAO);
     }
 
     void VolumetricFog::Resize(uint32_t width, uint32_t height) {
         const uint32_t w = std::max(1u, (width + 1) / 2), h = std::max(1u, (height + 1) / 2);
-        if (m_Texture && w == m_Width && h == m_Height) return;
+        if (m_Near && w == m_Width && h == m_Height) return;
         if (m_FBO) glDeleteFramebuffers(1, &m_FBO);
-        if (m_Texture) glDeleteTextures(1, &m_Texture);
-        glCreateTextures(GL_TEXTURE_2D, 1, &m_Texture);
-        glTextureStorage2D(m_Texture, 1, GL_RGBA16F, (GLsizei)w, (GLsizei)h);   // rgb in-scattered light, a transmittance
-        glTextureParameteri(m_Texture, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTextureParameteri(m_Texture, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTextureParameteri(m_Texture, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTextureParameteri(m_Texture, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        const uint32_t old[] = { m_Near, m_Far, m_Range };
+        glDeleteTextures(3, old);
+        auto make = [&](uint32_t format) {
+            uint32_t tex = 0;
+            glCreateTextures(GL_TEXTURE_2D, 1, &tex);
+            glTextureStorage2D(tex, 1, format, (GLsizei)w, (GLsizei)h);
+            glTextureParameteri(tex, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTextureParameteri(tex, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glTextureParameteri(tex, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTextureParameteri(tex, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            return tex;
+        };
+        m_Near = make(GL_RGBA16F);       // rgb in-scattered light, a transmittance, to the block's nearest depth
+        m_Far = make(GL_RGBA16F);        // the same to its farthest depth
+        m_Range = make(GL_RG32F);        // those two distances
         glCreateFramebuffers(1, &m_FBO);
-        glNamedFramebufferTexture(m_FBO, GL_COLOR_ATTACHMENT0, m_Texture, 0);
+        glNamedFramebufferTexture(m_FBO, GL_COLOR_ATTACHMENT0, m_Near, 0);
+        glNamedFramebufferTexture(m_FBO, GL_COLOR_ATTACHMENT1, m_Far, 0);
+        glNamedFramebufferTexture(m_FBO, GL_COLOR_ATTACHMENT2, m_Range, 0);
+        const GLenum buffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };
+        glNamedFramebufferDrawBuffers(m_FBO, 3, buffers);
         m_Width = w;
         m_Height = h;
     }
@@ -82,10 +95,15 @@ namespace Engine {
         glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)target);
         glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
         composite.Bind();
-        composite.SetInt("u_Fog", 10);
+        composite.SetInt("u_NearFog", 10);
+        composite.SetInt("u_FarFog", 11);
+        composite.SetInt("u_Range", 12);
+        composite.SetFloat("u_MaxDistance", std::max(s.MaxDistance, 1.0f));
         composite.SetInt("u_Depth", 9);
         composite.SetMat4("u_InvProjection", glm::inverse(camera.GetProjection()));
-        glBindTextureUnit(10, m_Texture);
+        glBindTextureUnit(10, m_Near);
+        glBindTextureUnit(11, m_Far);
+        glBindTextureUnit(12, m_Range);
         glEnable(GL_BLEND);
         glBlendFunci(0, GL_ONE, GL_SRC_ALPHA);
         glColorMaski(1, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);   // entity IDs stay (clicks pick through fog)

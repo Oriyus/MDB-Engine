@@ -33,8 +33,9 @@ namespace Engine {
     };
 
     // Raymarches the fog at half resolution (volfog.frag, jittered steps, the sun cascades for shadowing), then
-    // blends it into the bound target with a depth-aware upsample (volfog_composite.frag), so edges against
-    // nearby walls stay sharp.
+    // blends it into the bound target with a depth-aware upsample (volfog_composite.frag). Each half-resolution
+    // texel stores the fog to the nearest and the farthest depth of its 2x2 pixels, so edges against nearby walls
+    // stay sharp and thin branches against the sky get the fog of their own depth.
     class VolumetricFog {
     public:
         VolumetricFog();
@@ -49,7 +50,8 @@ namespace Engine {
 
     private:
         void Resize(uint32_t width, uint32_t height);
-        uint32_t m_FBO = 0, m_Texture = 0, m_VAO = 0;
+        uint32_t m_FBO = 0, m_VAO = 0;
+        uint32_t m_Near = 0, m_Far = 0, m_Range = 0;   // fog to each 2x2 block's nearest / farthest depth, and those depths
         uint32_t m_Width = 0, m_Height = 0;     // the half-resolution target
         std::chrono::steady_clock::time_point m_Last = std::chrono::steady_clock::now();
         float m_Time = 0.0f;
