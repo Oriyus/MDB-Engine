@@ -38,6 +38,8 @@ public:
 
     std::string Absolute(const std::string& rel) const { return m_AssetDir + rel; }
     // Show a folder ("Textures"; "" = the asset root)
+    // The entry last clicked (relative path, "" = none)
+    const std::string& Selected() const { return m_Selected; }
     void SetFolder(const std::string& folder) { m_Folder = folder; m_Search[0] = '\0'; m_ForceScan = true; }
 
 private:

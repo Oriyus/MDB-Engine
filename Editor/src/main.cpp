@@ -41,6 +41,7 @@
 #include "AnimGraphEditor.h"
 #include "DatabaseEditor.h"
 #include "UIEditor.h"
+#include "ModelPreview.h"
 #include "Runtime/GameDatabase.h"
 #include "Runtime/Characters.h"
 #include "Animation/AnimGraph.h"
@@ -308,6 +309,7 @@ public:
             if (tool == "paint" && tt.size() > 6) m_TerrainEditor.SetPaintLayer(std::atoi(tt.c_str() + 6) - 1);
         }
         if (EnvVar("MDB_MOTION_VECTORS") == "1") m_Renderer->ShowMotionVectors = true;   // Viewport > Debug > Motion Vectors
+        if (auto p = EnvVar("MDB_PREVIEW_ASSET"); !p.empty()) m_Preview.SetAsset(p);   // the Inspector's model preview
         // (with MDB_SCATTER_FILL, Play starts after the fill)
         if (EnvVar("MDB_AUTOPLAY") == "1" && EnvVar("MDB_SCATTER_FILL") != "1") m_PlayCmd = PlayCmd::Play;
         if (auto q = EnvVar("MDB_QUIT_AFTER"); !q.empty()) m_QuitAfter = std::strtof(q.c_str(), nullptr);
@@ -432,6 +434,7 @@ public:
         if (!typing) {
             if (f5) {
                 m_Renderer->ReloadShaders();
+                m_Preview.ReloadShaders();
                 if (m_PlayState != PlayState::Edit) m_ReloadScripts = true;   // applied next frame
             }
             if (knSpawn) SpawnCube();
@@ -551,6 +554,7 @@ public:
             }
         }
         { PROFILE_SCOPE("Render"); m_Renderer->Render(m_Scene, view, vw, vh); }
+        { PROFILE_SCOPE("Asset preview"); m_Preview.Render(dt, *m_Resources); }
 
         glViewport(0, 0, (int)GetWindow().GetWidth(), (int)GetWindow().GetHeight());
     }
@@ -1863,7 +1867,7 @@ private:
             ImGui::Separator();
             if (ImGui::MenuItem("Frame Selected", "F")) FrameSelected();
             ImGui::Separator();
-            if (ImGui::MenuItem("Reload Shaders", "F5")) m_Renderer->ReloadShaders();
+            if (ImGui::MenuItem("Reload Shaders", "F5")) { m_Renderer->ReloadShaders(); m_Preview.ReloadShaders(); }
             ImGui::EndMenu();
         }
 
@@ -3559,10 +3563,27 @@ private:
         if (m_FocusInspector) { ImGui::SetNextWindowFocus(); m_FocusInspector = false; }
         ImGui::Begin("Inspector", &m_ShowInspector);
 
+        // A model file selected in Assets gets a preview at the bottom; the entity's fields scroll above it
+        if (const std::string& sel = m_Assets.Selected(); sel != m_PreviewSource) {
+            m_PreviewSource = sel;
+            m_Preview.SetAsset(AssetBrowser::KindOf(sel) == AssetBrowser::Kind::Model ? sel : "");
+        }
+        float previewH = 0.0f;
+        if (m_Preview.Active()) {
+            const float availH = ImGui::GetContentRegionAvail().y;
+            previewH = std::min(m_Preview.PreferredHeight(ImGui::GetContentRegionAvail().x), availH * 0.7f);
+        }
+        ImGui::BeginChild("##inspector_body", ImVec2(0.0f, previewH > 0.0f ? -previewH : 0.0f));
+        auto endInspector = [&] {
+            ImGui::EndChild();
+            if (previewH > 0.0f) m_Preview.Draw(previewH);
+            ImGui::End();
+        };
+
         if (m_Selected == entt::null || !m_Scene.Registry().valid(m_Selected)) {
             m_Selected = entt::null;
             ImGui::TextDisabled("Nothing selected");
-            ImGui::End();
+            endInspector();
             return;
         }
 
@@ -4344,7 +4365,7 @@ private:
         ImGui::SameLine();
         if (ImGui::Button("Delete Entity")) deleteRequested = true;
 
-        ImGui::End();
+        endInspector();
 
         // Delete after the UI is built so we never destroy something mid-draw
         if (deleteRequested) {
@@ -4528,6 +4549,8 @@ private:
     bool  m_ShowLightGizmos = true;       // Viewport > View > Light Gizmos: sun arrows and point-light bulbs
     bool  m_ShowGrassBlockers = true;     // Viewport > View > Grass Blockers: their outlines
     AssetBrowser m_Assets{ Projects::Current().AssetDir() };   // the Assets panel
+    ModelPreview m_Preview{ Projects::EngineDir(), Projects::Current().AssetDir() };   // Inspector: the model file selected in Assets
+    std::string m_PreviewSource;          // the Assets selection the preview last followed
     bool  m_ShowAssets = true;
     DialogueEditor m_Dialogue{ Projects::Current().AssetDir() };   // the Dialogue Editor window (Window menu, or a dialogue in Assets)
     TerrainEditor m_TerrainEditor;        // the terrain brushes (Inspector > Terrain, used in the Viewport)
