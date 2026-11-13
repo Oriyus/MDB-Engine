@@ -28,9 +28,30 @@ namespace Engine {
 
         bool HasTexturedMaterials() const;
         void GetLocalBounds(glm::vec3& mn, glm::vec3& mx) const override { mn = m_Min; mx = m_Max; }
+        // The file's collision mesh if it has one (nodes named UCX_* / *_COL or with glTF extras "collision"), else
+        // the drawn geometry. Used by Convex hull / Mesh colliders and grass footprints.
         void GetCollisionGeometry(std::vector<glm::vec3>& positions, std::vector<uint32_t>& indices) const override {
+            if (!m_CollisionIndices.empty()) {
+                const uint32_t base = (uint32_t)positions.size();
+                positions.insert(positions.end(), m_CollisionPositions.begin(), m_CollisionPositions.end());
+                for (uint32_t i : m_CollisionIndices) indices.push_back(base + i);
+                return;
+            }
             for (const auto& s : m_Submeshes) s.Geometry->GetCollisionGeometry(positions, indices);
         }
+        bool HasCollisionMesh() const { return !m_CollisionIndices.empty(); }
+        // Vegetation: the vertices carry wind weights from COLOR_0 (Vertex::Wind); its levels of detail do too
+        bool HasVertexWind() const override { return m_VertexWind; }
+        // How the file's COLOR_0 was read: Tint (architecture), Wind (vegetation) or Ignored (none / other category)
+        enum class VertexColorUse { Ignored, Tint, Wind };
+
+        // Levels of detail inside the file (nodes named *_LOD<n>, or glTF extras "lod": n). This model is the finest
+        // level (with the meshes no level claims); Lod(1) .. Lod(LodCount()) are the coarser ones, in the same space
+        // and with the same materials. They are named "model:<path>#lod<k>" in scene files (ResourceLibrary).
+        // LodDistance(k): the file's switch distance hint (extras "lod_distance", file units), 0 = none.
+        uint32_t LodCount() const { return (uint32_t)m_Lods.size(); }
+        const std::shared_ptr<Model>& Lod(uint32_t k) const { return m_Lods[k - 1]; }
+        float LodDistance(uint32_t k) const { return k >= 1 && k <= m_LodDistances.size() ? m_LodDistances[k - 1] : 0.0f; }
         uint32_t TriangleCount() const override {
             uint32_t n = 0;
             for (const auto& s : m_Submeshes) n += s.Geometry->TriangleCount();
@@ -80,14 +101,21 @@ namespace Engine {
         glm::mat4 ParentRestGlobal(int node) const;
 
     private:
+        Model() = default;                 // a level of detail, filled by the file's Model
+        std::vector<std::shared_ptr<Model>> m_Lods;
+        std::vector<float> m_LodDistances;
+        std::vector<glm::vec3> m_CollisionPositions;
+        std::vector<uint32_t> m_CollisionIndices;
+
         struct Submesh {
             std::unique_ptr<Mesh> Geometry;
             uint32_t MaterialIndex = 0;
         };
         std::vector<Submesh> m_Submeshes;
         std::vector<Material> m_Materials;
+        bool m_VertexWind = false;
         glm::vec3 m_Min{ 0.0f }, m_Max{ 0.0f };
-        void LoadSkinned(const aiScene* scene);
+        void LoadSkinned(const aiScene* scene, VertexColorUse colors);
 
         struct SkeletonNode { std::string Name; int Parent = -1; NodePose Rest; };   // parents come first
         struct Bone { int Node = 0; glm::mat4 Offset{ 1.0f }; };   // offset: model space -> bone space at rest

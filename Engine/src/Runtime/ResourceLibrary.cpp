@@ -8,7 +8,10 @@
 #include "Runtime/UIDocument.h"
 #include "Core/Log.h"
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
+#include <string>
 #include <vector>
 
 namespace Engine {
@@ -189,7 +192,12 @@ namespace Engine {
             if (g == m_Cylinder) return "cylinder";
             if (g == m_Cone) return "cone";
             if (g == m_Model) return "model";
-            for (const auto& [path, m] : m_Models) if (m && g == m) return "model:" + path;
+            for (const auto& [path, m] : m_Models) {
+                if (!m) continue;
+                if (g == m) return "model:" + path;
+                for (uint32_t k = 1; k <= m->LodCount(); k++)      // a level of detail inside the file
+                    if (g == m->Lod(k)) return "model:" + path + "#lod" + std::to_string(k);
+            }
             return "";
         };
         r.FindGeometry = [this](const std::string& n) -> std::shared_ptr<Renderable> {
@@ -200,7 +208,18 @@ namespace Engine {
             if (n == "cylinder") return Cylinder();
             if (n == "cone") return Cone();
             if (n == "model") return SampleModel();
-            if (n.rfind("model:", 0) == 0) return LoadModel(n.substr(6));
+            if (n.rfind("model:", 0) == 0) {
+                // "model:<path>#lod<k>": level k of the levels of detail inside that file (Model::Lod)
+                const size_t hash = n.rfind("#lod");
+                if (hash != std::string::npos && hash + 4 < n.size() &&
+                    std::all_of(n.begin() + (std::ptrdiff_t)hash + 4, n.end(), [](unsigned char c) { return std::isdigit(c); })) {
+                    auto model = LoadModel(n.substr(6, hash - 6));
+                    const uint32_t k = (uint32_t)std::stoul(n.substr(hash + 4));
+                    if (!model || k < 1 || k > model->LodCount()) return nullptr;
+                    return model->Lod(k);
+                }
+                return LoadModel(n.substr(6));
+            }
             return nullptr;
         };
         r.TextureName = [this](const std::shared_ptr<Texture2D>& t) -> std::string {

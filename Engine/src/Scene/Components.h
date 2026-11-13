@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <string>
@@ -91,6 +92,12 @@ namespace Engine {
     };
 
     // Geometry + material in one component for now. We'll split material out later.
+    // One level of detail of a Mesh Renderer: used from Distance metres on (see MeshRendererComponent::Lods)
+    struct MeshLod {
+        std::shared_ptr<Renderable> Geometry;     // null (a file that failed to load): the level before stays
+        float Distance = 20.0f;
+    };
+
     struct MeshRendererComponent {
         std::shared_ptr<Renderable> Geometry;
         std::shared_ptr<Texture2D>  Texture;      // optional
@@ -130,7 +137,26 @@ namespace Engine {
         // of its vertices near the ground. GrassMargin grows it (metres; negative shrinks it); BlocksGrass off: none.
         bool  BlocksGrass = true;
         float GrassMargin = 0.0f;
+        // Levels of detail (Scene::BuildDrawList): from Distance metres away (camera to the middle of the object's box,
+        // at a 60 degree lens, times Scene::Lod.DistanceScale) the level's geometry is drawn instead of Geometry, in the
+        // camera and the shadow views alike. Nearest first. A level shares everything else (LocalOffset, colour, model
+        // materials of its own file), so model levels must be made in the same units and pivot as the main model.
+        // A skinned level must have the main model's bones. CullDistance > 0: nothing is drawn beyond it.
+        std::vector<MeshLod> Lods;
+        float CullDistance = 0.0f;
+        uint8_t LodLevel = 0;                     // runtime: the level drawn last frame (0 = Geometry, Lods.size() + 1 = culled)
     };
+
+    // Levels of detail nearest first (after edits and loading); equal distances keep their order
+    inline void SortLods(MeshRendererComponent& mr) {
+        std::stable_sort(mr.Lods.begin(), mr.Lods.end(), [](const MeshLod& a, const MeshLod& b) { return a.Distance < b.Distance; });
+    }
+
+    class Model;
+    // A model file with levels of detail inside (Model::LodCount): sets mr.Lods to them, with the file's distances
+    // ("lod_distance", scaled by the LocalOffset) or ones from the model's size (about when it fills 40%, 20%, 10% ...
+    // of the screen height). Call after Geometry and LocalOffset are set. False (Lods untouched): the file has none.
+    bool AssignModelLods(MeshRendererComponent& mr, const Model& model);
 
     // An area kept free of grass (every FoliageComponent), shaped by hand: paths, yards, under a table. Lies in the
     // entity's X/Z (its rotation and scale apply). Drawn as an outline in the editor, never rendered.

@@ -183,6 +183,7 @@ namespace Engine {
         if (settings) {
             root["settings"] = WriteSettings(*settings, m_Scene.AmbientIntensity);
             root["settings"]["wind"] = { { "direction", m_Scene.Wind.Direction },{ "speed", m_Scene.Wind.Speed },{ "strength", m_Scene.Wind.Strength } };
+            if (m_Scene.Lod.DistanceScale != 1.0f) root["settings"]["lod"] = { { "distanceScale", m_Scene.Lod.DistanceScale } };
         }
 
         std::ofstream file(path);
@@ -249,6 +250,7 @@ namespace Engine {
         SceneSettings parsedSettings = settings ? *settings : SceneSettings{};
         float ambient = m_Scene.AmbientIntensity;
         Scene::WindSettings wind = m_Scene.Wind;
+        Scene::LodSettings lod;                         // a scene without the section: the default
         try {
             if (root.contains("settings")) {
                 ReadSettings(root["settings"], parsedSettings, ambient);
@@ -256,6 +258,9 @@ namespace Engine {
                     wind.Direction = it->value("direction", wind.Direction);
                     wind.Speed = it->value("speed", wind.Speed);
                     wind.Strength = it->value("strength", wind.Strength);
+                }
+                if (auto it = root["settings"].find("lod"); it != root["settings"].end() && it->is_object()) {
+                    lod.DistanceScale = std::max(it->value("distanceScale", lod.DistanceScale), 0.01f);
                 }
             }
         }
@@ -288,6 +293,7 @@ namespace Engine {
         if (root.contains("settings")) {
             m_Scene.AmbientIntensity = ambient;
             m_Scene.Wind = wind;
+            m_Scene.Lod = lod;
             if (settings) *settings = parsedSettings;
         }
 

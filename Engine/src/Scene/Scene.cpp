@@ -661,8 +661,10 @@ namespace Engine {
         bool DoubleSided = false;          // the component or the model material asks for it
     };
 
-    static SurfaceAlpha GetSurfaceAlpha(const MeshRendererComponent& mr, uint32_t part) {
-        const Material* mat = mr.UseModelMaterials ? mr.Geometry->GetSubmeshMaterial(part) : nullptr;
+    // geometry: the level of detail being drawn (null = mr.Geometry)
+    static SurfaceAlpha GetSurfaceAlpha(const MeshRendererComponent& mr, uint32_t part, const Renderable* geometry = nullptr) {
+        if (!geometry) geometry = mr.Geometry.get();
+        const Material* mat = mr.UseModelMaterials ? geometry->GetSubmeshMaterial(part) : nullptr;
         SurfaceAlpha s;
         s.Mode = mr.Alpha;
         s.Alpha = std::clamp(mr.Opacity, 0.0f, 1.0f);
@@ -953,6 +955,7 @@ namespace Engine {
 
         for (auto [e, mr] : m_Registry.view<MeshRendererComponent>().each()) {
             if (!mr.Static || !mr.Geometry || GetBonePalette(e, mr) || mr.Wind != 0.0f) continue;   // swaying parts stay apart
+            if (!mr.Lods.empty() || mr.CullDistance > 0.0f) continue;    // levels of detail are picked per frame, by distance
             if (uses[mr.Geometry.get()] > 1) continue;                   // repeated: instancing handles it better
             const uint32_t parts = mr.UseModelMaterials ? mr.Geometry->SubmeshCount() : 1;
 
@@ -1057,6 +1060,47 @@ namespace Engine {
         }
     }
 
+    bool AssignModelLods(MeshRendererComponent& mr, const Model& model) {
+        if (model.LodCount() == 0) return false;
+        glm::vec3 mn, mx;
+        model.GetLocalBounds(mn, mx);
+        const float scale = glm::length(glm::vec3(mr.LocalOffset[0]));         // the placement's (uniform) scale
+        const float size = std::max(glm::length(mx - mn) * scale, 0.1f);       // across the box, in entity units
+        mr.Lods.clear();
+        float last = 0.0f;
+        for (uint32_t k = 1; k <= model.LodCount(); k++) {
+            MeshLod l;
+            l.Geometry = model.Lod(k);
+            // Screen share f of a 60 degree view: an object `size` across fills it at size / (2 tan 30 * f)
+            const float share = 0.4f * std::pow(0.5f, (float)(k - 1));
+            const float hint = model.LodDistance(k) * scale;
+            l.Distance = hint > 0.0f ? hint : std::round(size * 0.866f / share * 2.0f) * 0.5f;
+            l.Distance = std::max(l.Distance, last + 0.5f);                    // always further than the level before
+            last = l.Distance;
+            mr.Lods.push_back(std::move(l));
+        }
+        mr.LodLevel = 0;
+        return true;
+    }
+
+    // The level of detail for a distance (already scaled to a 60 degree lens and the scene's scale): 0 = Geometry,
+    // i = Lods[i - 1], Lods.size() + 1 = beyond CullDistance. Going back to a finer level waits until the object is 5%
+    // nearer than the switch distance, so one standing right at it doesn't flip between two levels.
+    static uint8_t PickLodLevel(const MeshRendererComponent& mr, float distance) {
+        const size_t count = std::min<size_t>(mr.Lods.size(), 254);
+        const uint8_t culled = (uint8_t)(count + 1);
+        auto from = [&](uint8_t level) {              // the distance a level starts at
+            return level == culled ? mr.CullDistance : mr.Lods[level - 1].Distance;
+        };
+        uint8_t level = 0;
+        for (size_t i = 0; i < count; i++) if (distance >= mr.Lods[i].Distance) level = (uint8_t)(i + 1);
+        if (mr.CullDistance > 0.0f && distance >= mr.CullDistance) level = culled;
+        const uint8_t prev = mr.LodLevel;
+        if (prev > level && prev <= culled && (prev != culled || mr.CullDistance > 0.0f) && distance >= from(prev) * 0.95f)
+            level = prev;
+        return level;
+    }
+
     void Scene::BuildDrawList(DrawList& list, const Camera& camera, const ShadowContext* shadows) {
         const ShadowSettings* shadowSettings = (shadows && shadows->Settings.Enabled) ? &shadows->Settings : nullptr;
         const uint32_t sunSize = (shadows && shadows->Sun) ? shadows->Sun->GetSize() : 2048u;
@@ -1125,9 +1169,15 @@ namespace Engine {
         static thread_local std::vector<DrawList::Item> selected;   // highlighted parts (editor outline)
         selected.clear();
         const std::vector<uint32_t>* highlight = (list.Highlight && !list.Highlight->empty()) ? list.Highlight : nullptr;
+        // Levels of detail: distances are measured as if through a 60 degree lens (a narrower one zooms in: detail
+        // stays further out), and divided by the scene's scale instead of multiplying every switch distance
+        const float lodDistanceFactor = std::tan(glm::radians(std::clamp(camera.GetFov(), 1.0f, 170.0f)) * 0.5f) /
+            std::tan(glm::radians(30.0f)) / std::max(Lod.DistanceScale, 0.01f);
+        static const glm::vec3 kLodTint[] = { { 0.35f, 1.0f, 0.35f }, { 1.0f, 1.0f, 0.25f }, { 1.0f, 0.55f, 0.15f },
+                                              { 1.0f, 0.2f, 0.2f }, { 0.9f, 0.3f, 1.0f } };
         auto drawables = m_Registry.view<TransformComponent, MeshRendererComponent>();
         for (auto entity : drawables) {
-            const auto& mr = drawables.get<MeshRendererComponent>(entity);
+            auto& mr = drawables.get<MeshRendererComponent>(entity);
             const bool highlighted = highlight &&
                 std::binary_search(highlight->begin(), highlight->end(), (uint32_t)entt::to_integral(entity));
             // merged: drawn by its static batch (only its outline is drawn from here); hidden: e.visible = false
@@ -1142,8 +1192,33 @@ namespace Engine {
                 const glm::vec3 c = (mn + mx) * 0.5f, h = (mx - mn) * 0.75f;
                 mn = c - h; mx = c + h;
             }
-            const bool visible = frustum.Visible(world, mn, mx);
-            if (!visible) list.Culled++;
+
+            // Level of detail, from the camera's distance to the middle of the main geometry's box. Every view (camera
+            // and shadows) draws the same level, so an object never shadows itself with a different shape.
+            uint8_t level = 0;
+            const Renderable* geometry = mr.Geometry.get();
+            const uint8_t culledLevel = (uint8_t)std::min<size_t>(mr.Lods.size() + 1, 255);
+            if (!mr.Lods.empty() || mr.CullDistance > 0.0f) {
+                const glm::vec3 center = glm::vec3(world * glm::vec4((mn + mx) * 0.5f, 1.0f));
+                level = PickLodLevel(mr, glm::length(center - camera.Position) * lodDistanceFactor);
+                if (level > 0 && level < culledLevel) {
+                    uint8_t k = level;                                   // a level that failed to load: the one before
+                    while (k > 0 && !mr.Lods[k - 1].Geometry) k--;
+                    if (k > 0) {
+                        const Renderable* g = mr.Lods[k - 1].Geometry.get();
+                        // Skinned: the level is posed with the main model's bones, so it must have the same ones
+                        const Model* m = bones ? dynamic_cast<const Model*>(g) : nullptr;
+                        const Model* main = bones ? dynamic_cast<const Model*>(geometry) : nullptr;
+                        if (!bones || (m && main && m->IsSkinned() && m->BoneCount() == main->BoneCount())) geometry = g;
+                    }
+                }
+            }
+            const bool lodChanged = level != mr.LodLevel;
+            mr.LodLevel = level;
+            const bool lodCulled = level > 0 && level == culledLevel;
+
+            const bool visible = !lodCulled && frustum.Visible(world, mn, mx);
+            if (!visible && !lodCulled) list.Culled++;
 
             // Where it was last frame (motion vectors), recorded for every part, drawn or not, so movement is seen
             // even while it is off screen. A shadow-casting part that moved (or is animated) near a point light makes
@@ -1155,7 +1230,8 @@ namespace Engine {
                 if (prev != list.PrevWorld.end()) prevWorld = prev->second;
                 list.CurWorld[key] = world;
             }
-            if (shadowSettings && mr.CastShadows && !mr.Unlit && (bones || prevWorld != world)) {
+            // (A new level of detail changes the shadow's shape too.)
+            if (shadowSettings && mr.CastShadows && !mr.Unlit && (bones || prevWorld != world || lodChanged)) {
                 glm::vec3 center, extent;
                 Frustum::WorldBox(world, mn, mx, center, extent);
                 const float radius = glm::length(extent);
@@ -1163,6 +1239,9 @@ namespace Engine {
                     if (lights[j].Shadows && glm::length(center - lights[j].Pos) - radius < shadowSettings->PointFar)
                         shadows->Cache[j].MovedNear = true;
             }
+
+            if (lodCulled) { list.LodCulled++; continue; }
+            if (geometry != mr.Geometry.get()) list.LodReduced++;
 
             // Which shadow views this caster can show up in (light markers must not block light)
             const bool anyShadow = !mr.Merged && !views.empty() && mr.CastShadows && !mr.Unlit && classifyShadows(world, mn, mx);
@@ -1172,20 +1251,23 @@ namespace Engine {
             base.Model = world;
             base.PrevModel = prevWorld;
             base.Normal = glm::mat4(glm::transpose(glm::inverse(glm::mat3(world))));
-            base.Info = glm::ivec4((int)entt::to_integral(entity), mr.Unlit ? 1 : 0, 0, 0);
+            // Info.w: the drawn geometry carries wind weights per vertex (vegetation COLOR_0): lit.vert / shadow.vert use them
+            base.Info = glm::ivec4((int)entt::to_integral(entity), mr.Unlit ? 1 : 0, 0, geometry->HasVertexWind() ? 1 : 0);
             // Wind (lit.vert / shadow.vert): its amount, and the mesh's height range (local) that sets how much each vertex moves
             glm::vec3 windMin(0.0f), windMax(1.0f);
             if (mr.Wind != 0.0f) mr.Geometry->GetLocalBounds(windMin, windMax);
             float distance = -1.0f;
 
-            const uint32_t parts = mr.UseModelMaterials ? mr.Geometry->SubmeshCount() : 1;
+            const glm::vec3 lodTint = TintLodLevels ? kLodTint[std::min<size_t>(level, std::size(kLodTint) - 1)] : glm::vec3(1.0f);
+
+            const uint32_t parts = mr.UseModelMaterials ? geometry->SubmeshCount() : 1;
             for (uint32_t i = 0; i < parts; i++) {
-                const Material* mat = mr.UseModelMaterials ? mr.Geometry->GetSubmeshMaterial(i) : nullptr;
-                const SurfaceAlpha s = GetSurfaceAlpha(mr, i);
+                const Material* mat = mr.UseModelMaterials ? geometry->GetSubmeshMaterial(i) : nullptr;
+                const SurfaceAlpha s = GetSurfaceAlpha(mr, i, geometry);
 
                 // With a model material the component Color tints it; metallic/roughness/emissive come from the file
                 InstanceData inst = base;
-                inst.Color = glm::vec4(mat ? mat->Color * mr.Color : mr.Color, s.Alpha);
+                inst.Color = glm::vec4((mat ? mat->Color * mr.Color : mr.Color) * lodTint, s.Alpha);
                 inst.Surface = glm::vec4(mat ? mat->Metallic : mr.Metallic, mat ? mat->Roughness : mr.Roughness, mr.Wind, windMax.y - windMin.y);
                 glm::vec3 emissive = mat ? mat->EmissiveColor : mr.Emissive;
                 if (mr.FlashTime > 0.0f && mr.FlashDuration > 0.0f) emissive += mr.FlashColor * (mr.FlashTime / mr.FlashDuration);
@@ -1195,7 +1277,7 @@ namespace Engine {
                 DrawList::Item item;
                 item.Instance = list.AddInstance(inst);
                 DrawBatch& b = item.State;
-                b.Geometry = mr.Geometry.get();
+                b.Geometry = geometry;
                 b.Part = mat ? (int32_t)i : -1;
                 b.Albedo = s.Albedo;
                 b.Normal = mat ? mat->Normal.get() : nullptr;
@@ -1310,6 +1392,8 @@ namespace Engine {
         { PROFILE_SCOPE("Upload"); list.Upload(); }
         RenderStats::Culled += list.Culled;
         RenderStats::ShadowSkipped += list.ShadowSkipped;
+        RenderStats::LodReduced += list.LodReduced;
+        RenderStats::LodCulled += list.LodCulled;
         RenderStats::StaticBatches = (uint32_t)m_StaticBatches.size();
         RenderStats::StaticMerged = m_StaticMerged;
     }

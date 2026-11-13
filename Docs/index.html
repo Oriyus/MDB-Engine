@@ -405,6 +405,17 @@ self:add_mesh{ geometry = "cube", texture = "texture:Textures/fence.png", alpha_
 <p>Models can set it too. In Blender, the Principled BSDF's <b>Specular IOR Level</b> exports as glTF <code>KHR_materials_specular</code>, which the engine reads (0.5 in Blender is the normal amount and exports as 1; 0 exports as 0, no reflection). The Inspector shows when a model file lowers it. Lowering roughness does the opposite of what you might expect here: a fully rough surface (roughness 1) still has the grazing sheen, so use Specular to remove it.</p>
 <pre><code class="lua">self.mesh.specular = 0           -- matte: no reflections or highlights
 self:add_mesh{ geometry = "cube", specular = 0.3 }</code></pre>
+
+<h3>Vertex colours: weathering on buildings, wind on plants</h3>
+<p>A glTF model's vertex colours (<code>COLOR_0</code>) mean different things depending on the asset's <b>category</b>, a custom property named <code>category</code> that exports as a glTF <code>extras</code> entry. The engine looks in the file's <code>asset</code>, then its scenes, nodes (Blender objects), meshes and materials. The first one found decides, and case does not matter.</p>
+<ul>
+<li><b>Architecture</b> (the category's first part is <code>Architecture</code>, e.g. <code>Architecture/Castle_Stone</code>): the colour <b>multiplies the base colour</b> and alpha. Use it for baked weathering: dirt on ledges, rain streaks, rising damp, occlusion in doorways.</li>
+<li><b>Vegetation</b> (a <code>wind</code> extra, or a category starting with <code>Nature</code> or <code>Vegetation</code>): the colour is <b>wind data</b> and never tints. R is the main bend (0 at the ground, 1 at the top). G is the branch bend (0 on the trunk). B gives each branch its own timing. A is the leaf flutter (0 on wood). The tree then sways by these weights instead of by height, in its shadow too. Placing such a model sets its Mesh Renderer <b>Wind</b> to 1. The scene's Wind settings and that slider still control how strongly it moves.</li>
+<li>Anything else, and FBX / OBJ files: vertex colours are ignored.</li>
+</ul>
+<p>The Console says which way a model's <code>COLOR_0</code> was read when it loads.</p>
+<pre><code class="json">{ "nodes": [ { "name": "SM_Castle_Wall", "extras": { "category": "Architecture/Castle_Stone" } }, ... ] }
+{ "nodes": [ { "name": "SM_Tree_Broadleaf_01", "extras": { "category": "Nature/Trees", "wind": "COLOR_0 R=main bend ..." } }, ... ] }</code></pre>
 <h3>Cut-out foliage at a distance</h3>
 <p>Smaller mipmap levels of a texture are averages of the bigger ones. For thin cut-out shapes (willow leaves, grass blades, chain links), that turns solid alpha into faint alpha below the cutoff, so leaves used to thin out and disappear as trees got further away. When a texture is first drawn as Cutout, the engine rebuilds its mipmaps so that each smaller level lets as many pixels through the cutoff as the full-size image does. Distant foliage then stays as dense as it looks up close. It happens automatically, once per texture, for model materials and Mesh Renderer textures alike. All textures also use anisotropic filtering (up to 16×), which keeps surfaces seen at a slant (ground, roofs, hanging leaf cards) sharp in the distance.</p>
 <h3>Double-sided</h3>
@@ -449,6 +460,24 @@ lamp:add_light{ color = vec3(1, 0.7, 0.4), intensity = 2, shadows = true }</code
 <p><b>Static merging</b>: Mesh Renderers marked <i>Static</i> that use a unique mesh are merged, when Play starts, into world-space chunks per material and 8 m cell. Repeated meshes stay instanced (that is faster). Moving or recolouring a merged entity during Play is not seen.</p>
 <pre><code class="lua">local s = scene.render_stats()
 ui.text(s.draw_calls .. " draws, " .. s.static_merged .. " merged", 0.02, 0.95)</code></pre>
+</section>
+
+<section class="doc" data-group="Engine" id="engine-lod">
+<h2>Levels of detail</h2>
+<p>A Mesh Renderer can swap in coarser geometry as it gets further away, and stop drawing altogether past a cull distance. Open Inspector &gt; Mesh Renderer &gt; <b>Levels of detail</b>, press <b>+ Add level</b>, then pick the level's geometry (a built-in shape or any model under Assets/Models, or drop a model from Assets onto the picker) and the distance it starts at. <b>Cull distance</b> hides the object, and its shadow, beyond that point (0 = never). The level being drawn is marked in the list.</p>
+<ul>
+  <li><b>Distance</b> is measured from the camera to the middle of the object's box, as if through a 60° lens: a narrower field of view (zooming in) keeps detail further out. Scene Settings &gt; <b>Levels of Detail</b> &gt; Distance scale multiplies every switch and cull distance (2 = detail kept twice as far; saved with the level, <code>scene.lod_scale</code> in scripts, handy as a quality option).</li>
+  <li>Going back to a finer level waits until the object is 5% nearer than the switch distance, so an object standing right at it doesn't flicker between two levels.</li>
+  <li>The camera and every shadow view draw the same level, so an object never shadows itself with a different shape. A cached point-light shadow is redrawn when a nearby caster changes level.</li>
+  <li>A level is drawn in the main geometry's place: it shares the <b>LocalOffset</b> (the fit-to-2-m scaling of a placed model), colour, alpha, wind and the other settings. So make model levels in the <b>same units and pivot</b> as the main model, e.g. exported from the same Blender file. With <i>Use model materials</i>, each level uses its own file's materials. Wind sway uses the main geometry's height, so all levels bend alike.</li>
+  <li>An animated (skinned) model's levels must be skinned with the same bones (same count, same order: one rig, decimated). A level that isn't is skipped and the main model is drawn instead; the Inspector warns.</li>
+  <li>Objects with levels or a cull distance are never merged into static batches (their level is picked every frame). Picking, colliders, grass footprints and bounds use the main geometry.</li>
+  <li>Viewport &gt; Debug &gt; <b>LOD Levels</b> tints objects by level (green = main geometry, then yellow, orange, red, purple). The stats overlay shows how many objects are on a lower level or culled; scripts read <code>scene.render_stats().lod_reduced</code> / <code>lod_culled</code>.</li>
+</ul>
+<h3>Levels inside one model file</h3>
+<p>A model file can carry its own levels: name the objects <code>MyTree_LOD0</code>, <code>MyTree_LOD1</code>, <code>MyTree_LOD2</code> (any case; the usual Blender / Unreal / Unity naming), or give the glTF nodes an extra <code>"lod": n</code>. When you place such a model, drop it on a Mesh Renderer or pick it as Geometry, its levels are filled in for you, at distances worked out from its size (about when it fills 40%, 20%, 10% of the view). A node extra <code>"lod_distance"</code> (metres) sets a level's distance instead. Scripts get them too: <code>add_mesh{ geometry = "model:Models/Trees/Oak.gltf" }</code> fills them in unless you pass <code>lods</code>. In scene files and scripts a level is named <code>model:&lt;file&gt;#lod1</code>, <code>#lod2</code> …; the LOD picker lists the main file's levels first, and <b>Use the file's levels</b> / <b>Reset distances</b> put them back.</p>
+<p>Objects in the file that belong to no level are drawn at every level. A <b>collision mesh</b> (named <code>UCX_…</code> or <code>…_COL</code>, or with a <code>"collision"</code> node extra) is never drawn: Convex hull and Mesh colliders use it instead of the visible mesh, and so do grass footprints. Files without any of these load exactly as before. (Not for animated models: a skinned file is not split into levels.)</p>
+<div class="note">The engine does not generate the coarser meshes: make them in your modelling tool (Blender's Decimate modifier, or fewer leaf cards for trees). Levels switch instantly (no cross-fade).</div>
 </section>
 
 <section class="doc" data-group="Engine" id="engine-animation">
@@ -1152,6 +1181,13 @@ m.opacity = 0.5                     -- below 1: see-through ("blend")
 m.alpha_mode = "cutout"; m.alpha_cutoff = 0.4
 m.geometry = "sphere"
 
+-- levels of detail: coarser geometry from a distance, nothing beyond cull_distance (0 = never)
+self:add_mesh{ geometry = "model:Models/rock.glb", fit = 2,
+               lods = { { geometry = "model:Models/rock_lod1.glb", distance = 25 } }, cull_distance = 120 }
+m.lods = { { geometry = "cube", distance = 40 } }   -- assign a whole list (reading gives a copy)
+log(m.lod)                          -- the level drawn last frame: 0 = geometry, #lods + 1 = culled
+scene.lod_scale(2)                  -- every switch and cull distance x 2 (a quality setting)
+
 self:add_light{ color = vec3(1, 0.8, 0.5), intensity = 2, shadows = true }
 self.light.intensity = 0.5</code></pre>
 </section>
@@ -1298,7 +1334,8 @@ function on_anim_event(self, name, state) if name == "enter" then log("now " .. 
 <tr><td><code>scene.time()</code></td><td>Seconds since Play started</td></tr>
 <tr><td><code>scene.restart()</code> / <code>scene.quit()</code></td><td>Restart the level / close the game (the editor stops Play)</td></tr>
 <tr><td><code>scene.is_loading()</code></td><td>True while a restored level runs on_create / on_load</td></tr>
-<tr><td><code>scene.render_stats()</code></td><td>draw_calls, triangles, instances, culled, shadow_skipped, particles, static_batches, static_merged</td></tr>
+<tr><td><code>scene.render_stats()</code></td><td>draw_calls, triangles, instances, culled, shadow_skipped, particles, decals, static_batches, static_merged, foliage, lod_reduced, lod_culled</td></tr>
+<tr><td><code>scene.lod_scale([v])</code></td><td>The level-of-detail distance scale (sets it first when given)</td></tr>
 </table>
 <pre><code class="lua">-- click the ground to place a marker
 local mx, my, inside = ui.mouse()

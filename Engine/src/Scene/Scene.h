@@ -110,6 +110,12 @@ namespace Engine {
             float Speed = 1.0f;
             float Strength = 1.0f;         // multiplies every Mesh Renderer's Wind
         } Wind;
+        // Levels of detail (MeshRendererComponent::Lods). Saved in the scene settings ("lod"). DistanceScale multiplies
+        // every switch and cull distance (2 = detail kept twice as far: a quality setting; Lua scene.lod_scale).
+        struct LodSettings {
+            float DistanceScale = 1.0f;
+        } Lod;
+        bool TintLodLevels = false;        // debug (Viewport > Debug > LOD Levels): colour parts by their level, not saved
         float WindTime = 0.0f;             // seconds, advanced by SceneRenderer (runs in Edit mode too)
         float WindTimePrev = 0.0f;         // last frame's WindTime (motion vectors of swaying parts)
         std::vector<Decal> Decals;         // this frame's decals (scripts add them with decal.draw; drawn by SceneRenderer)

@@ -13,6 +13,8 @@
 #include <cmath>
 #include <filesystem>
 #include <string_view>
+#include <functional>
+#include <map>
 #include <unordered_map>
 #include <fstream>
 #include <iterator>
@@ -31,21 +33,25 @@ namespace Engine {
 
         // Each glTF material's name and KHR_materials_specular specularFactor (1 when the extension is absent), in file
         // order. Reads the JSON of a .gltf, or the JSON chunk of a .glb. Empty if the file can't be read.
-        struct GltfSpecular { std::string Name; float Factor = 1.0f; };
-        std::vector<GltfSpecular> ReadGltfSpecular(const std::string& path, bool binary) {
-            std::vector<GltfSpecular> out;
+        // The JSON of a .gltf, or the JSON chunk of a .glb (discarded if the file can't be read)
+        nlohmann::json ReadGltfJson(const std::string& path, bool binary) {
             std::ifstream f(path, std::ios::binary);
-            if (!f) return out;
+            if (!f) return nlohmann::json(nlohmann::json::value_t::discarded);
             std::string text;
             if (binary) {
                 uint32_t header[5] = {};                   // magic, version, length, then chunk 0: length, type ("JSON")
                 if (!f.read(reinterpret_cast<char*>(header), sizeof(header)) || header[0] != 0x46546C67u || header[4] != 0x4E4F534Au)
-                    return out;
+                    return nlohmann::json(nlohmann::json::value_t::discarded);
                 text.resize(header[3]);
-                if (!f.read(text.data(), (std::streamsize)text.size())) return out;
+                if (!f.read(text.data(), (std::streamsize)text.size())) return nlohmann::json(nlohmann::json::value_t::discarded);
             }
             else text.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
-            const auto j = nlohmann::json::parse(text, nullptr, false);
+            return nlohmann::json::parse(text, nullptr, false);
+        }
+
+        struct GltfSpecular { std::string Name; float Factor = 1.0f; };
+        std::vector<GltfSpecular> ReadGltfSpecular(const nlohmann::json& j) {
+            std::vector<GltfSpecular> out;
             if (j.is_discarded() || !j.contains("materials") || !j["materials"].is_array()) return out;
             for (const auto& m : j["materials"]) {
                 GltfSpecular s;
@@ -58,6 +64,127 @@ namespace Engine {
                 out.push_back(std::move(s));
             }
             return out;
+        }
+        // What the file's glTF COLOR_0 means, from its extras (Blender custom properties on the scene, object, mesh or
+        // material are exported as "extras"; the Game Art Library puts them on the root node):
+        //   "category" whose first path part is "architecture" (e.g. "Architecture/Castle_Stone"): a weathering tint
+        //     that multiplies the base colour;
+        //   a "wind" extra, or a category starting with "nature" or "vegetation" ("Nature/Trees"): wind weights
+        //     (R main bend, G branch bend, B phase, A leaf flutter);
+        //   anything else: ignored.
+        // The first category found wins (asset, scenes, nodes, meshes, materials); two different ones get a warning.
+        Model::VertexColorUse ClassifyVertexColors(const nlohmann::json& j, const std::string& path, std::string& category) {
+            using Use = Model::VertexColorUse;
+            category.clear();
+            if (j.is_discarded() || !j.is_object()) return Use::Ignored;
+            std::vector<std::string> found;
+            bool wind = false;
+            auto take = [&](const nlohmann::json& owner) {
+                if (!owner.is_object() || !owner.contains("extras") || !owner["extras"].is_object()) return;
+                const auto& e = owner["extras"];
+                if (e.contains("wind")) wind = true;
+                if (e.contains("category") && e["category"].is_string()) {
+                    std::string c = e["category"].get<std::string>();
+                    std::transform(c.begin(), c.end(), c.begin(), [](unsigned char ch) { return (char)std::tolower(ch); });
+                    if (!c.empty()) found.push_back(c);
+                }
+            };
+            if (j.contains("asset")) take(j["asset"]);
+            for (const char* list : { "scenes", "nodes", "meshes", "materials" })
+                if (j.contains(list) && j[list].is_array()) for (const auto& x : j[list]) take(x);
+            if (!found.empty()) {
+                category = found.front();
+                for (const auto& c : found)
+                    if (c != category) {
+                        ENGINE_WARN("Model '{}' names more than one category ('{}', '{}'): using '{}'", path, category, c, category);
+                        break;
+                    }
+            }
+            const std::string top = category.substr(0, category.find_first_of("/\\"));
+            if (top == "architecture") return Use::Tint;
+            if (wind || top == "nature" || top == "vegetation") return Use::Wind;
+            return Use::Ignored;
+        }
+
+        // A vertex's COLOR_0 into Vertex::Color (architecture tint) or Vertex::Wind (vegetation), or neither
+        template <class V>
+        void ReadVertexColor(V& vert, const aiMesh* m, unsigned v, Model::VertexColorUse use) {
+            if (use == Model::VertexColorUse::Ignored || !m->HasVertexColors(0)) return;
+            const aiColor4D& c = m->mColors[0][v];
+            if (use == Model::VertexColorUse::Tint) vert.Color = PackVertexColor(c.r, c.g, c.b, c.a);
+            else vert.Wind = PackVertexWind(c.r, c.g, c.b, c.a);
+        }
+
+
+        // ---- levels of detail and collision meshes inside one file
+        // A node is a level of detail when its name ends in _LOD<n> (any case: Blender, Unreal, Unity exports) or its
+        // glTF extras have "lod": n; a collision mesh when its extras have "collision", or its name starts with
+        // UCX_ / UBX_ / UCP_ / USP_ (Unreal) or ends in _COL / _collision / _collider. Children inherit their parent's tag.
+        struct NodeTag {
+            int Lod = -1;                  // -1: not a level (drawn at every level)
+            bool Collision = false;
+            float Distance = 0.0f;         // extras "lod_distance" (metres, file units), 0 = none
+        };
+
+        std::string Lower(std::string s) {
+            std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+            return s;
+        }
+
+        NodeTag TagFromName(const std::string& name) {
+            NodeTag t;
+            const std::string n = Lower(name);
+            for (const char* p : { "ucx_", "ubx_", "ucp_", "usp_" }) if (n.rfind(p, 0) == 0) t.Collision = true;
+            for (const char* s : { "_col", "_collision", "_collider" }) {
+                const size_t len = std::char_traits<char>::length(s);
+                if (n.size() >= len && n.compare(n.size() - len, len, s) == 0) t.Collision = true;
+            }
+            // _lod<digits> at the end (assimp may add "-<n>" for extra primitives on mesh names, not on nodes)
+            const size_t at = n.rfind("_lod");
+            if (at != std::string::npos && at + 4 < n.size() &&
+                std::all_of(n.begin() + (std::ptrdiff_t)at + 4, n.end(), [](unsigned char c) { return std::isdigit(c); }))
+                t.Lod = std::stoi(n.substr(at + 4));
+            return t;
+        }
+
+        // glTF node extras by node name (assimp keeps glTF node names)
+        std::unordered_map<std::string, nlohmann::json> ReadGltfNodeExtras(const nlohmann::json& j) {
+            std::unordered_map<std::string, nlohmann::json> out;
+            if (j.is_discarded() || !j.contains("nodes") || !j["nodes"].is_array()) return out;
+            for (const auto& n : j["nodes"])
+                if (n.contains("name") && n["name"].is_string() && n.contains("extras") && n["extras"].is_object())
+                    out[n["name"].get<std::string>()] = n["extras"];
+            return out;
+        }
+
+        glm::mat4 AiToGlm(const aiMatrix4x4& m) {      // assimp is row-major
+            return glm::transpose(glm::mat4(m.a1, m.a2, m.a3, m.a4, m.b1, m.b2, m.b3, m.b4,
+                m.c1, m.c2, m.c3, m.c4, m.d1, m.d2, m.d3, m.d4));
+        }
+
+        // Every mesh reference in the node tree, with its node's model-space transform and tag. True if any node is
+        // tagged (then the model is flattened by hand, keeping the levels apart; else PreTransformVertices as always).
+        struct TaggedMesh { unsigned Mesh = 0; glm::mat4 World{ 1.0f }; int Lod = -1; bool Collision = false; float Distance = 0.0f; };
+        bool DescribeNodes(const aiScene* scene, const std::unordered_map<std::string, nlohmann::json>& extras, std::vector<TaggedMesh>& out) {
+        bool tagged = false;
+        std::function<void(const aiNode*, const glm::mat4&, NodeTag)> walk = [&](const aiNode* node, const glm::mat4& parent, NodeTag tag) {
+            const glm::mat4 world = parent * AiToGlm(node->mTransformation);
+            const NodeTag own = TagFromName(node->mName.C_Str());
+            if (own.Lod >= 0) tag.Lod = own.Lod;
+            tag.Collision = tag.Collision || own.Collision;
+            if (auto it = extras.find(node->mName.C_Str()); it != extras.end()) {
+                const auto& e = it->second;
+                if (e.contains("lod") && e["lod"].is_number_integer()) tag.Lod = e["lod"].get<int>();
+                if (e.contains("collision")) tag.Collision = true;
+                if (e.contains("lod_distance") && e["lod_distance"].is_number()) tag.Distance = e["lod_distance"].get<float>();
+            }
+            tagged = tagged || tag.Lod >= 0 || tag.Collision;
+            for (unsigned i = 0; i < node->mNumMeshes; i++)
+                out.push_back({ node->mMeshes[i], world, tag.Lod, tag.Collision, tag.Distance });
+            for (unsigned c = 0; c < node->mNumChildren; c++) walk(node->mChildren[c], world, tag);
+        };
+        if (scene->mRootNode) walk(scene->mRootNode, glm::mat4(1.0f), NodeTag{});
+        return tagged;
         }
     }
 
@@ -76,19 +203,34 @@ namespace Engine {
             ENGINE_ERROR("Failed to load model '{}': {}", path, importer.GetErrorString());
             return;
         }
-        bool skinned = false;
-        for (unsigned i = 0; i < scene->mNumMeshes; i++) skinned = skinned || scene->mMeshes[i]->HasBones();
-        if (!skinned) scene = importer.ApplyPostProcessing(aiProcess_PreTransformVertices);
-        if (!scene) {
-            ENGINE_ERROR("Failed to load model '{}': {}", path, importer.GetErrorString());
-            return;
-        }
-
         const fs::path baseDir = fs::path(path).parent_path();
         std::string ext = fs::path(path).extension().string();
         std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return (char)std::tolower(c); });
         // glTF stores colors in linear space. Our Material.Color is sRGB-style, so convert.
         const bool linearColors = (ext == ".gltf" || ext == ".glb");
+        const nlohmann::json gltf = linearColors ? ReadGltfJson(path, ext == ".glb") : nlohmann::json(nlohmann::json::value_t::discarded);
+        std::string category;
+        VertexColorUse colors = ClassifyVertexColors(gltf, path, category);
+        {
+            bool any = false;
+            for (unsigned i = 0; i < scene->mNumMeshes; i++) any = any || scene->mMeshes[i]->HasVertexColors(0);
+            if (!any) colors = VertexColorUse::Ignored;
+            else if (colors == VertexColorUse::Tint) ENGINE_INFO("Model '{}' ({}): COLOR_0 tints the base colour", path, category);
+            else if (colors == VertexColorUse::Wind) ENGINE_INFO("Model '{}' ({}): COLOR_0 is wind data", path, category.empty() ? "wind" : category);
+            m_VertexWind = colors == VertexColorUse::Wind;
+        }
+
+        bool skinned = false;
+        for (unsigned i = 0; i < scene->mNumMeshes; i++) skinned = skinned || scene->mMeshes[i]->HasBones();
+        // Levels of detail / collision meshes in the file: flattened by hand below, so the levels stay apart
+        // (PreTransformVertices joins every mesh of one material into one, levels included)
+        std::vector<TaggedMesh> tagged;
+        const bool hasTags = !skinned && DescribeNodes(scene, ReadGltfNodeExtras(gltf), tagged);
+        if (!skinned && !hasTags) scene = importer.ApplyPostProcessing(aiProcess_PreTransformVertices);
+        if (!scene) {
+            ENGINE_ERROR("Failed to load model '{}': {}", path, importer.GetErrorString());
+            return;
+        }
 
         std::unordered_map<std::string, std::shared_ptr<Texture2D>> cache;
         auto loadTexture = [&](const aiString& texPath, bool srgb) -> std::shared_ptr<Texture2D> {
@@ -137,7 +279,7 @@ namespace Engine {
 
         // glTF KHR_materials_specular, read from the file: assimp drops specularFactor 0 (its importer treats a zero
         // factor with the default colour as "not set"), and 0 is exactly what Blender's Specular IOR Level 0 exports
-        const auto gltfSpecular = linearColors ? ReadGltfSpecular(path, ext == ".glb") : std::vector<GltfSpecular>{};
+        const auto gltfSpecular = ReadGltfSpecular(gltf);
 
         // ---- materials
         for (unsigned i = 0; i < scene->mNumMaterials; i++) {
@@ -213,9 +355,101 @@ namespace Engine {
         if (m_Materials.empty()) m_Materials.emplace_back();   // always at least one
 
         if (skinned) {
-            LoadSkinned(scene);
+            LoadSkinned(scene, colors);
             ENGINE_INFO("Loaded animated model '{}': {} submesh(es), {} bone(s), {} animation(s)", path,
                 m_Submeshes.size(), m_Bones.size(), m_Clips.size());
+            return;
+        }
+
+        if (hasTags) {
+            // Levels: the distinct LOD numbers in order, level 0 = the lowest. Untagged meshes are drawn at every level;
+            // collision meshes at none (they are the collision geometry). Each level joins its meshes per material.
+            std::vector<int> levels;
+            for (const auto& t : tagged)
+                if (t.Lod >= 0 && !t.Collision && std::find(levels.begin(), levels.end(), t.Lod) == levels.end()) levels.push_back(t.Lod);
+            std::sort(levels.begin(), levels.end());
+            if (levels.empty()) levels.push_back(-1);
+            struct Group { std::vector<Vertex> V; std::vector<uint32_t> I; };
+            std::vector<std::map<uint32_t, Group>> groups(levels.size());
+            std::vector<float> hints(levels.size(), 0.0f);
+
+            auto append = [colors](std::vector<Vertex>& V, std::vector<uint32_t>& I, const aiMesh* m, const glm::mat4& world) {
+                const glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(world)));
+                const bool mirrored = glm::determinant(glm::mat3(world)) < 0.0f;   // keep faces outward
+                const uint32_t base = (uint32_t)V.size();
+                for (unsigned v = 0; v < m->mNumVertices; v++) {
+                    Vertex vert;
+                    vert.Position = glm::vec3(world * glm::vec4(m->mVertices[v].x, m->mVertices[v].y, m->mVertices[v].z, 1.0f));
+                    if (m->HasNormals()) {
+                        const glm::vec3 n = normalMatrix * glm::vec3(m->mNormals[v].x, m->mNormals[v].y, m->mNormals[v].z);
+                        const float len = glm::length(n);
+                        vert.Normal = len > 0.0f ? n / len : glm::vec3(0.0f, 1.0f, 0.0f);
+                    }
+                    if (m->HasTextureCoords(0)) vert.TexCoord = glm::vec2(m->mTextureCoords[0][v].x, m->mTextureCoords[0][v].y);
+                    ReadVertexColor(vert, m, v, colors);
+                    V.push_back(vert);
+                }
+                for (unsigned f = 0; f < m->mNumFaces; f++) {
+                    const aiFace& face = m->mFaces[f];
+                    if (face.mNumIndices != 3) continue;   // skip stray lines/points
+                    I.push_back(base + face.mIndices[0]);
+                    I.push_back(base + face.mIndices[mirrored ? 2 : 1]);
+                    I.push_back(base + face.mIndices[mirrored ? 1 : 2]);
+                }
+            };
+
+            for (const auto& t : tagged) {
+                const aiMesh* m = scene->mMeshes[t.Mesh];
+                if (t.Collision) {
+                    std::vector<Vertex> V;
+                    std::vector<uint32_t> I;
+                    append(V, I, m, t.World);
+                    const uint32_t base = (uint32_t)m_CollisionPositions.size();
+                    for (const Vertex& v : V) m_CollisionPositions.push_back(v.Position);
+                    for (uint32_t i : I) m_CollisionIndices.push_back(base + i);
+                    continue;
+                }
+                const uint32_t material = std::min<uint32_t>(m->mMaterialIndex, (uint32_t)m_Materials.size() - 1);
+                for (size_t k = 0; k < levels.size(); k++) {
+                    if (t.Lod >= 0 && t.Lod != levels[k]) continue;
+                    Group& g = groups[k][material];
+                    append(g.V, g.I, m, t.World);
+                    if (t.Lod >= 0 && t.Distance > 0.0f) hints[k] = t.Distance;
+                }
+            }
+
+            auto fill = [](Model& target, std::map<uint32_t, Group>& gs) {
+                glm::vec3 mn(FLT_MAX), mx(-FLT_MAX);
+                for (auto& [material, g] : gs) {
+                    if (g.V.empty() || g.I.empty()) continue;
+                    for (const Vertex& v : g.V) { mn = glm::min(mn, v.Position); mx = glm::max(mx, v.Position); }
+                    Submesh sub;
+                    sub.Geometry = std::make_unique<Mesh>(g.V, g.I);
+                    sub.MaterialIndex = material;
+                    target.m_Submeshes.push_back(std::move(sub));
+                }
+                if (!target.m_Submeshes.empty()) { target.m_Min = mn; target.m_Max = mx; }
+            };
+            fill(*this, groups[0]);
+            for (size_t k = 1; k < levels.size(); k++) {
+                std::shared_ptr<Model> level(new Model());
+                level->m_Materials = m_Materials;           // textures are shared pointers: no copies on the GPU
+                level->m_VertexWind = m_VertexWind;         // the same vertex data at every level
+                fill(*level, groups[k]);
+                if (level->m_Submeshes.empty()) continue;
+                level->m_CollisionPositions = m_CollisionPositions;
+                level->m_CollisionIndices = m_CollisionIndices;
+                m_Lods.push_back(std::move(level));
+                m_LodDistances.push_back(hints[k]);
+            }
+            if (m_Submeshes.empty() && !m_Lods.empty()) {   // only coarser levels had meshes: the first becomes the main one
+                m_Submeshes = std::move(m_Lods.front()->m_Submeshes);
+                m_Min = m_Lods.front()->m_Min; m_Max = m_Lods.front()->m_Max;
+                m_Lods.erase(m_Lods.begin());
+                m_LodDistances.erase(m_LodDistances.begin());
+            }
+            ENGINE_INFO("Loaded model '{}': {} submesh(es), {} material(s), {} level(s) of detail{}", path, m_Submeshes.size(),
+                m_Materials.size(), m_Lods.size() + 1, m_CollisionIndices.empty() ? "" : ", a collision mesh");
             return;
         }
 
@@ -234,6 +468,7 @@ namespace Engine {
                     vert.Normal = glm::vec3(m->mNormals[v].x, m->mNormals[v].y, m->mNormals[v].z);
                 if (m->HasTextureCoords(0))
                     vert.TexCoord = glm::vec2(m->mTextureCoords[0][v].x, m->mTextureCoords[0][v].y);
+                ReadVertexColor(vert, m, v, colors);
                 mn = glm::min(mn, vert.Position);
                 mx = glm::max(mx, vert.Position);
                 vertices.push_back(vert);
@@ -333,7 +568,7 @@ namespace Engine {
         }
     }
 
-    void Model::LoadSkinned(const aiScene* scene) {
+    void Model::LoadSkinned(const aiScene* scene, VertexColorUse colors) {
         // ---- the node tree, parents before children
         std::unordered_map<std::string, int> nodeIndex;
         std::vector<std::pair<const aiNode*, int>> stack{ { scene->mRootNode, -1 } };
@@ -371,6 +606,7 @@ namespace Engine {
                 sv.Position = glm::vec3(m->mVertices[v].x, m->mVertices[v].y, m->mVertices[v].z);
                 if (m->HasNormals()) sv.Normal = glm::vec3(m->mNormals[v].x, m->mNormals[v].y, m->mNormals[v].z);
                 if (m->HasTextureCoords(0)) sv.TexCoord = glm::vec2(m->mTextureCoords[0][v].x, m->mTextureCoords[0][v].y);
+                ReadVertexColor(sv, m, v, colors);
             }
             if (m->HasBones()) {
                 for (unsigned bi = 0; bi < m->mNumBones; bi++) {

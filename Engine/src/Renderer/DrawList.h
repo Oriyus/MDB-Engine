@@ -19,7 +19,7 @@ namespace Engine {
         glm::vec4  Color{ 1.0f };           // rgb: sRGB-style colour, a: alpha (opacity x material alpha)
         glm::vec4  Surface{ 0.0f };         // x: metallic, y: roughness
         glm::vec4  Emissive{ 0.0f };        // rgb: linear emissive
-        glm::ivec4 Info{ 0 };               // x: entity ID (picking), y: unlit, z: 1000 x (1 - specular)
+        glm::ivec4 Info{ 0 };               // x: entity ID (picking), y: unlit, z: 1000 x (1 - specular), w: 1 = vertex wind weights
         glm::mat4  PrevModel{ 1.0f };       // last frame's Model (motion vectors); Scene::BuildDrawList fills it
     };
     static_assert(sizeof(InstanceData) == 256, "InstanceData must match the std430 layout in the shaders");
@@ -96,6 +96,8 @@ namespace Engine {
         int CascadeCount = 0;               // 0: no sun shadows this frame
         uint32_t Culled = 0;                // objects outside the camera view
         uint32_t ShadowSkipped = 0;         // (caster, shadow view) pairs skipped: outside that light's view
+        uint32_t LodReduced = 0;            // objects drawn at a coarser level of detail (MeshRendererComponent::Lods)
+        uint32_t LodCulled = 0;             // objects beyond their CullDistance
 
     private:
         uint32_t m_Buffers[2] = { 0, 0 };   // instances, indices

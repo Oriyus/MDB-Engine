@@ -114,13 +114,17 @@ namespace Engine {
     //               opacity (0..1; below 1 makes an opaque mesh "blend"), alpha_mode ("opaque" "cutout" "blend"),
     //               alpha_cutoff, cast_shadows, static (merged when Play starts; read-only in effect during Play),
     //               wind (sway in the scene's wind: 0 still, 1 a tree), double_sided (back faces drawn too),
-    //               specular (0..1: reflection of a non-metal, 0 = matte) }
+    //               specular (0..1: reflection of a non-metal, 0 = matte),
+    //               lods (levels of detail: a list of { geometry, distance }, nearest first; reading gives a copy, assign a
+    //               whole list to change them), cull_distance (metres; 0 = drawn at any distance), lod (read only: the level
+    //               drawn last frame, 0 = geometry, #lods + 1 = beyond cull_distance) }
     //   e.light  -> nil or { color, intensity, shadows }
     //   e.body   -> nil or { velocity, angular_velocity, type, trigger, lock_rotation, mass,
     //                         add_force(v) (newtons, lasts this frame: call each frame), add_impulse(v) }
     //   e:add_mesh{ geometry="cube"|"sphere"|"plane"|"capsule"|"cylinder"|"cone"|"model:Models/x.glb", texture="checker", color=vec3,
     //               metallic, roughness, emissive, unlit, fit=metres (models: scaled to that size, standing on the origin),
-    //               opacity, alpha_mode, alpha_cutoff, cast_shadows, static, wind, double_sided, specular }
+    //               opacity, alpha_mode, alpha_cutoff, cast_shadows, static, wind, double_sided, specular,
+    //               lods = { { geometry = "model:Models/x_lod1.glb", distance = 25 }, ... }, cull_distance }
     //   e:add_body{ type="dynamic"|"static"|"kinematic", shape="box"|"sphere"|"capsule"|"convex"|"mesh"|"none", size=number|vec3,
     //               center=vec3, mass, friction, bounciness, trigger=bool, velocity=vec3,
     //               lock_rotation=bool (dynamic: physics never turns it; characters) }
@@ -166,7 +170,9 @@ namespace Engine {
     //   audio.play(clip [, { volume, pitch }])             2D one-shot, e.g. "Sounds/coin.wav"
     //   audio.play_at(clip, position [, { volume, pitch }]) 3D one-shot, quieter with distance
     //   scene.quit()                         the game closes (in the editor: Play stops)
-    //   scene.render_stats() -> { draw_calls, triangles, instances, culled, shadow_skipped, particles, decals, static_batches, static_merged, foliage }
+    //   scene.render_stats() -> { draw_calls, triangles, instances, culled, shadow_skipped, particles, decals, static_batches, static_merged, foliage, lod_reduced, lod_culled }
+    //   scene.lod_scale([v])  -> the scene's level-of-detail distance scale (every switch and cull distance x v; 2 = detail
+    //               twice as far): reads it, or sets it first
     //                                        (the last frame; a debug HUD)
     //   scene.spawn_particles(pos, "Sparks" | { preset, count })   a one-shot burst entity that removes itself when done
     //   ---- ui: drawn this frame only, in call order. x, y, w, h are 0..1 of the view (top left origin).

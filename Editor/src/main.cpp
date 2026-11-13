@@ -2250,6 +2250,14 @@ private:
             ImGui::TextDisabled("Sways Mesh Renderers with Wind > 0 (trees).\nGrass fields have their own wind.");
         }
 
+        if (ImGui::CollapsingHeader("Levels of Detail")) {
+            ImGui::SliderFloat("Distance scale##lod", &m_Scene.Lod.DistanceScale, 0.25f, 4.0f, "x %.2f", ImGuiSliderFlags_Logarithmic);
+            m_Scene.Lod.DistanceScale = std::max(m_Scene.Lod.DistanceScale, 0.01f);
+            ImGui::SetItemTooltip("Multiplies every Mesh Renderer's level-of-detail and cull distances:\n"
+                "2 keeps detail twice as far out, 0.5 switches to coarser levels at half the distance");
+            ImGui::TextDisabled("Levels are set per Mesh Renderer (Inspector).\nViewport > Debug > LOD Levels colours them.");
+        }
+
         if (ImGui::CollapsingHeader("Volumetric Fog")) {
             auto& v = m_Renderer->VolFog;
             ImGui::PushID("volfog");
@@ -2455,6 +2463,7 @@ private:
             e.Add<DirectionalLightComponent>();       // shown in the editor as arrows, never rendered
         }
         m_Renderer->VolFog = Engine::VolumetricFogSettings{};   // a new scene has no fog (not the last scene's)
+        m_Scene.Lod = Engine::Scene::LodSettings{};             // nor its level-of-detail scale
         {
             Entity e = m_Scene.CreateEntity("Floor");
             e.Get<TransformComponent>().Position = glm::vec3(0.0f, -1.0f, 0.0f);
@@ -2479,11 +2488,165 @@ private:
     bool AssignModel(Engine::MeshRendererComponent& mr, const std::string& path) {
         auto model = m_Resources->LoadModel(path);
         if (!model) { LOG_WARN("Can't load the model {}", path); return false; }
+        DropFileLods(mr);
         mr.Geometry = model;
         mr.LocalOffset = model->GetPlacementMatrix(2.0f);
         mr.UseModelMaterials = model->HasTexturedMaterials();
         if (mr.UseModelMaterials) mr.Color = glm::vec3(1.0f);
+        if (model->HasVertexWind() && mr.Wind == 0.0f) mr.Wind = 1.0f;   // vegetation with painted wind weights sways
+        if (Engine::AssignModelLods(mr, *model))           // the file has its own levels of detail
+            LOG_INFO("{}: {} level(s) of detail from the file, from {:.1f} m", path, model->LodCount(), mr.Lods.front().Distance);
         return true;
+    }
+
+    // Before the main geometry changes: remove the levels that are the old model file's own (#lod<k>), which belong
+    // with it. Levels picked by hand (other files, shapes) stay.
+    static void DropFileLods(Engine::MeshRendererComponent& mr) {
+        const auto* old = dynamic_cast<const Engine::Model*>(mr.Geometry.get());
+        if (!old || old->LodCount() == 0) return;
+        std::erase_if(mr.Lods, [&](const Engine::MeshLod& l) {
+            for (uint32_t k = 1; k <= old->LodCount(); k++) if (l.Geometry == old->Lod(k)) return true;
+            return false;
+        });
+        mr.LodLevel = 0;
+    }
+
+    // Model files under Assets/Models, subfolders included, as "Models/..." (the Geometry pickers), sorted
+    std::vector<std::string> ListModelFiles() const {
+        std::error_code ec;
+        std::vector<std::string> files;
+        const std::filesystem::path assets = std::filesystem::u8path(Projects::Current().AssetDir());
+        for (auto it = std::filesystem::recursive_directory_iterator(assets / "Models", ec);
+             !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
+            std::string ext = it->path().extension().string();
+            std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+            if (ext != ".glb" && ext != ".gltf" && ext != ".fbx" && ext != ".obj") continue;
+            const auto rel = std::filesystem::relative(it->path(), assets, ec).generic_u8string();
+            files.emplace_back(rel.begin(), rel.end());
+        }
+        std::sort(files.begin(), files.end());
+        return files;
+    }
+
+    // A geometry picker for a level of detail: the built-in shapes and every model file under Assets/Models (listed
+    // when opened), or a model dropped from Assets. Unlike the main Geometry it leaves the LocalOffset alone: a level
+    // is drawn in the main geometry's place and size. True when it changed.
+    // owner: the main geometry; when it is a model file with levels of detail inside, those are listed first.
+    bool LodGeometryCombo(const char* id, std::shared_ptr<Engine::Renderable>& geometry, const Engine::Renderable* owner) {
+        const auto registry = m_Resources->Registry();
+        std::string current = registry.GeometryName(geometry);
+        if (current.rfind("model:", 0) == 0) current = current.substr(6);
+        bool changed = false;
+        if (ImGui::BeginCombo(id, current.empty() ? "(missing)" : current.c_str())) {
+            if (const auto* model = dynamic_cast<const Engine::Model*>(owner); model && model->LodCount() > 0) {
+                ImGui::TextDisabled("Levels inside the main model's file");
+                for (uint32_t k = 1; k <= model->LodCount(); k++) {
+                    const auto& level = model->Lod(k);
+                    char label[64];
+                    std::snprintf(label, sizeof label, "LOD %u  (%u triangles)", k, level->TriangleCount());
+                    if (ImGui::Selectable(label, geometry == level)) { geometry = level; changed = true; }
+                }
+                ImGui::Separator();
+            }
+            for (const char* builtin : { "cube", "sphere", "plane", "capsule", "cylinder", "cone" })
+                if (ImGui::Selectable(builtin, current == builtin)) { geometry = registry.FindGeometry(builtin); changed = true; }
+            ImGui::Separator();
+            for (const auto& file : ListModelFiles()) {
+                if (!ImGui::Selectable(file.c_str(), current == file)) continue;
+                if (auto model = m_Resources->LoadModel(file)) { geometry = model; changed = true; }
+                else LOG_WARN("Can't load the model {}", file);
+            }
+            ImGui::EndCombo();
+        }
+        if (auto drop = AssetBrowser::AcceptDrop({ AssetBrowser::Kind::Model }); !drop.empty()) {
+            if (auto model = m_Resources->LoadModel(drop)) { geometry = model; changed = true; }
+            else LOG_WARN("Can't load the model {}", drop);
+        }
+        return changed;
+    }
+
+    // Inspector > Mesh Renderer > Levels of detail
+    void DrawLodSettings(Engine::MeshRendererComponent& mr) {
+        using namespace Engine;
+        char label[64];
+        if (mr.Lods.empty() && mr.CullDistance <= 0.0f) std::snprintf(label, sizeof label, "Levels of detail###lods");
+        else std::snprintf(label, sizeof label, "Levels of detail (%zu%s)###lods", mr.Lods.size(), mr.CullDistance > 0.0f ? ", culled" : "");
+        if (!ImGui::TreeNode(label)) return;
+        ImGui::TextDisabled("Coarser geometry from a distance (camera to the object's middle,\n"
+            "at a 60 degree lens, x Scene Settings > Levels of Detail scale)");
+
+        int remove = -1;
+        bool sort = false;
+        const float distWidth = 90.0f;
+        ImGui::TextDisabled("0");
+        ImGui::SameLine(30.0f);
+        ImGui::Text("main geometry  (%u triangles)", mr.Geometry ? mr.Geometry->TriangleCount() : 0u);
+        if (mr.LodLevel == 0) { ImGui::SameLine(); ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "drawn"); }
+        for (size_t i = 0; i < mr.Lods.size(); i++) {
+            MeshLod& l = mr.Lods[i];
+            ImGui::PushID((int)i);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("%zu", i + 1);
+            ImGui::SameLine(30.0f);
+            ImGui::SetNextItemWidth(std::max(ImGui::GetContentRegionAvail().x - distWidth - 70.0f, 80.0f));
+            if (LodGeometryCombo("##geo", l.Geometry, mr.Geometry.get())) mr.LodLevel = 0;
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(distWidth);
+            ImGui::DragFloat("##dist", &l.Distance, 0.1f, 0.0f, 10000.0f, "from %.1f m");
+            l.Distance = std::max(l.Distance, 0.0f);
+            if (ImGui::IsItemDeactivatedAfterEdit()) sort = true;   // not while dragging: rows would swap under the mouse
+            ImGui::SameLine();
+            if (ImGui::SmallButton("x")) remove = (int)i;
+            ImGui::SetItemTooltip("Remove this level");
+            if (mr.LodLevel == i + 1) { ImGui::SameLine(); ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "drawn"); }
+            // Skinned: a level is posed with the main model's bones (Scene::BuildDrawList keeps the main one otherwise)
+            if (const Model* main = dynamic_cast<const Model*>(mr.Geometry.get()); main && main->IsSkinned()) {
+                const Model* m = dynamic_cast<const Model*>(l.Geometry.get());
+                if (!m || !m->IsSkinned() || m->BoneCount() != main->BoneCount())
+                    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "    Not skinned with the same %u bones: the main model is drawn instead", main->BoneCount());
+            }
+            if (!l.Geometry) ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "    No geometry: the level before is drawn");
+            ImGui::PopID();
+        }
+        if (remove >= 0) { mr.Lods.erase(mr.Lods.begin() + remove); mr.LodLevel = 0; }
+        if (sort) SortLods(mr);
+
+        // A model file with its own levels inside: one click puts them all in (with distances from its size)
+        const Model* fileModel = dynamic_cast<const Model*>(mr.Geometry.get());
+        if (fileModel && fileModel->LodCount() > 0) {
+            bool same = mr.Lods.size() == fileModel->LodCount();
+            for (uint32_t k = 1; same && k <= fileModel->LodCount(); k++) same = mr.Lods[k - 1].Geometry == fileModel->Lod(k);
+            if (!same) {
+                char use[64];
+                std::snprintf(use, sizeof use, "Use the file's %u level(s)", fileModel->LodCount());
+                if (ImGui::Button(use)) AssignModelLods(mr, *fileModel);
+                ImGui::SetItemTooltip("The model file has levels of detail inside (nodes named _LOD1, _LOD2 ...):\n"
+                    "replace this list with them, at distances from the model's size");
+            }
+            else if (ImGui::SmallButton("Reset distances")) AssignModelLods(mr, *fileModel);
+        }
+
+        if (ImGui::Button("+ Add level")) {
+            // Starts as a copy of the last level, twice as far out (pick its geometry next): the file's next level if it has one
+            MeshLod l;
+            l.Geometry = mr.Lods.empty() ? mr.Geometry : mr.Lods.back().Geometry;
+            if (fileModel && mr.Lods.size() < fileModel->LodCount()) l.Geometry = fileModel->Lod((uint32_t)mr.Lods.size() + 1);
+            l.Distance = mr.Lods.empty() ? 20.0f : std::max(mr.Lods.back().Distance * 2.0f, 1.0f);
+            mr.Lods.push_back(l);
+        }
+        ImGui::SetItemTooltip("A level uses the same LocalOffset as the main geometry, so make model levels\n"
+            "in the same units and pivot as the main model (e.g. exported from the same Blender file).\n"
+            "Colour, alpha and the rest are shared; with model materials each level uses its own file's.");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(std::max(ImGui::GetContentRegionAvail().x - 110.0f, 80.0f));
+        ImGui::DragFloat("Cull distance", &mr.CullDistance, 0.5f, 0.0f, 10000.0f, mr.CullDistance > 0.0f ? "%.1f m" : "never");
+        mr.CullDistance = std::max(mr.CullDistance, 0.0f);
+        ImGui::SetItemTooltip("Beyond this distance nothing is drawn, not even its shadow (0 = never)");
+        if (mr.CullDistance > 0.0f && mr.LodLevel == mr.Lods.size() + 1)
+            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Culled: beyond the cull distance");
+        if (mr.Static && (!mr.Lods.empty() || mr.CullDistance > 0.0f))
+            ImGui::TextDisabled("Static, but not merged at Play: levels are picked every frame");
+        ImGui::TreePop();
     }
 
     // Put a model or prefab into the scene at a world position (as a child of `parent` if given)
@@ -2758,7 +2921,7 @@ private:
     // Stats drawn over the top-right corner of the viewport image
     void DrawStatsOverlay(const ImVec2& origin, const ImVec2& size) {
         using namespace Engine;
-        char lines[12][96];
+        char lines[13][96];
         int n = 0;
         std::snprintf(lines[n++], 96, "%.0f FPS  (%.2f ms)", ImGui::GetIO().Framerate, 1000.0f / std::max(ImGui::GetIO().Framerate, 1.0f));
         std::snprintf(lines[n++], 96, "Draw calls  %u", RenderStats::DrawCalls);
@@ -2770,6 +2933,8 @@ private:
             std::snprintf(lines[n++], 96, "Static      %u batches / %u objects", m_Scene.StaticBatchCount(), m_Scene.StaticMergedCount());
         if (RenderStats::Particles > 0) std::snprintf(lines[n++], 96, "Particles   %u", RenderStats::Particles);
         if (RenderStats::Foliage > 0) std::snprintf(lines[n++], 96, "Foliage     %u clumps", RenderStats::Foliage);
+        if (RenderStats::LodReduced + RenderStats::LodCulled > 0)
+            std::snprintf(lines[n++], 96, "LOD         %u lower / %u culled", RenderStats::LodReduced, RenderStats::LodCulled);
         std::snprintf(lines[n++], 96, "Entities    %zu", m_Scene.Registry().view<TagComponent>().size());
         std::snprintf(lines[n++], 96, "Camera      %.1f, %.1f, %.1f", m_Camera->Position.x, m_Camera->Position.y, m_Camera->Position.z);
 
@@ -3151,6 +3316,9 @@ private:
             if (ImGui::BeginMenu("Debug")) {
                 ImGui::MenuItem("Ambient Occlusion Only", nullptr, &m_Renderer->Post.AODebug);
                 ImGui::MenuItem("Shadow Cascades", nullptr, &m_Renderer->Shadows().CascadeDebug);
+                ImGui::MenuItem("LOD Levels", nullptr, &m_Scene.TintLodLevels);
+                ImGui::SetItemTooltip("Tint Mesh Renderers by their level of detail: green = the main geometry,\n"
+                    "then yellow, orange, red, purple for levels 1, 2, 3, 4+");
                 ImGui::MenuItem("Motion Vectors", nullptr, &m_Renderer->ShowMotionVectors);
                 ImGui::SetItemTooltip("How far each pixel moved since the last frame (red = sideways, green = up/down;\n"
                     "black = still). Needs TAA on and the Rendered view.");
@@ -3448,28 +3616,16 @@ private:
                 if (ImGui::BeginCombo("Geometry", current.empty() ? "(custom)" : current.c_str())) {
                     for (const char* builtin : { "cube", "sphere", "plane", "capsule", "cylinder", "cone" })
                         if (ImGui::Selectable(builtin, current == builtin)) {
+                            DropFileLods(mr);                      // the old model's own levels don't fit a shape
                             mr.Geometry = registry.FindGeometry(builtin);
                             mr.LocalOffset = glm::mat4(1.0f);
                             mr.UseModelMaterials = false;
                         }
                     ImGui::Separator();
-                    std::error_code ec;
-                    std::vector<std::string> files;
-                    for (const auto& f : std::filesystem::directory_iterator(std::filesystem::u8path(Projects::Current().AssetDir()) / "Models", ec)) {
-                        std::string ext = f.path().extension().string();
-                        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return (char)std::tolower(c); });
-                        if (ext == ".glb" || ext == ".gltf" || ext == ".fbx" || ext == ".obj") files.push_back("Models/" + f.path().filename().string());
-                    }
-                    std::sort(files.begin(), files.end());
-                    for (const auto& file : files) {
-                        if (!ImGui::Selectable(file.c_str(), current == file)) continue;
-                        if (auto model = m_Resources->LoadModel(file)) {
-                            mr.Geometry = model;
-                            mr.LocalOffset = model->GetPlacementMatrix(2.0f);   // 2 m across, standing on the origin (kit pieces: as they are)
-                            mr.UseModelMaterials = model->HasTexturedMaterials();
-                            if (mr.UseModelMaterials) mr.Color = glm::vec3(1.0f);
-                        }
-                    }
+                    // Every model file under Assets/Models, subfolders too (2 m across, standing on the origin; kit
+                    // pieces as they are; a file's own levels of detail are filled in)
+                    for (const auto& file : ListModelFiles())
+                        if (ImGui::Selectable(file.c_str(), current == file)) AssignModel(mr, file);
                     ImGui::EndCombo();
                 }
                 if (auto drop = AssetBrowser::AcceptDrop({ AssetBrowser::Kind::Model }); !drop.empty()) AssignModel(mr, drop);   // dragged from Assets
@@ -3522,6 +3678,7 @@ private:
             ImGui::DragFloat("Wind", &mr.Wind, 0.01f, 0.0f, 5.0f);
             ImGui::SetItemTooltip("Sway in the scene's wind (Scene Settings > Wind): 0 = still, 1 = a tree.\n"
                 "The top of the mesh moves most, its base stays put.");
+            DrawLodSettings(mr);
             {
                 // Transparency
                 static const char* modes[] = { "Opaque", "Cutout (alpha test)", "Blend (see-through)" };

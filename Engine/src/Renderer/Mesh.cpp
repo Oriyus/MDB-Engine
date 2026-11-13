@@ -4,8 +4,22 @@
 #include <glm/gtc/constants.hpp>
 #include <cmath>
 #include <algorithm>
+#include <cassert>
 
 namespace Engine {
+
+    uint32_t PackVertexColor(float r, float g, float b, float a) {
+        auto enc = [](float c) {   // the shader decodes with pow(c, 2.2), like Material colours
+            return (uint32_t)std::lround(std::pow(std::clamp(c, 0.0f, 1.0f), 1.0f / 2.2f) * 255.0f);
+        };
+        const uint32_t alpha = (uint32_t)std::lround(std::clamp(a, 0.0f, 1.0f) * 255.0f);
+        return enc(r) | (enc(g) << 8) | (enc(b) << 16) | (alpha << 24);
+    }
+
+    uint32_t PackVertexWind(float r, float g, float b, float a) {
+        auto q = [](float c) { return (uint32_t)std::lround(std::clamp(c, 0.0f, 1.0f) * 255.0f); };
+        return q(r) | (q(g) << 8) | (q(b) << 16) | (q(a) << 24);
+    }
 
     Mesh::Mesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices) {
         auto vb = std::make_shared<VertexBuffer>(
@@ -15,8 +29,11 @@ namespace Engine {
             { ShaderDataType::Float3 },   // position
             { ShaderDataType::Float3 },   // normal
             { ShaderDataType::Float2 },   // uv
+            { ShaderDataType::UByte4Norm, 5 },   // vertex colour (3 and 4 are the bone attributes)
+            { ShaderDataType::UByte4Norm, 6 },   // wind weights
             });
 
+        assert(vb->GetLayout().GetStride() == sizeof(Vertex) && "the layout must match Vertex");
         m_VAO = std::make_unique<VertexArray>();
         m_VAO->AddVertexBuffer(vb);
         m_VAO->SetIndexBuffer(std::make_shared<IndexBuffer>(indices.data(), (uint32_t)indices.size()));
@@ -46,8 +63,11 @@ namespace Engine {
             { ShaderDataType::Float2 },   // uv
             { ShaderDataType::Int4 },     // bone indices
             { ShaderDataType::Float4 },   // bone weights
+            { ShaderDataType::UByte4Norm, 5 },   // vertex colour
+            { ShaderDataType::UByte4Norm, 6 },   // wind weights
             });
 
+        assert(vb->GetLayout().GetStride() == sizeof(SkinnedVertex) && "the layout must match SkinnedVertex");
         m_VAO = std::make_unique<VertexArray>();
         m_VAO->AddVertexBuffer(vb);
         m_VAO->SetIndexBuffer(std::make_shared<IndexBuffer>(indices.data(), (uint32_t)indices.size()));

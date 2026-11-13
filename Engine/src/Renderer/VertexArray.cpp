@@ -4,7 +4,13 @@
 
 namespace Engine {
 
-    VertexArray::VertexArray() { glCreateVertexArrays(1, &m_ID); }
+    VertexArray::VertexArray() {
+        glCreateVertexArrays(1, &m_ID);
+        // A buffer without vertex colours (location 5) reads the generic value, which is context state and starts
+        // at (0, 0, 0, 1): make it white once, so lit.vert's multiply changes nothing for those meshes
+        static bool whiteDefault = false;
+        if (!whiteDefault) { glVertexAttrib4f(5, 1.0f, 1.0f, 1.0f, 1.0f); whiteDefault = true; }
+    }
     VertexArray::~VertexArray() { glDeleteVertexArrays(1, &m_ID); }
 
     void VertexArray::Bind() const { glBindVertexArray(m_ID); }
@@ -20,14 +26,17 @@ namespace Engine {
         glVertexArrayVertexBuffer(m_ID, m_BindingIndex, vb->GetID(), 0, layout.GetStride());
 
         for (const auto& e : layout.GetElements()) {
-            glEnableVertexArrayAttrib(m_ID, m_AttribIndex);
+            const GLuint at = e.Location >= 0 ? (GLuint)e.Location : m_AttribIndex;
+            glEnableVertexArrayAttrib(m_ID, at);
             if (e.Type == ShaderDataType::Int4)   // integers reach the shader as ivec4, not converted
-                glVertexArrayAttribIFormat(m_ID, m_AttribIndex, 4, GL_INT, e.Offset);
+                glVertexArrayAttribIFormat(m_ID, at, 4, GL_INT, e.Offset);
+            else if (e.Type == ShaderDataType::UByte4Norm)
+                glVertexArrayAttribFormat(m_ID, at, 4, GL_UNSIGNED_BYTE, GL_TRUE, e.Offset);
             else
-                glVertexArrayAttribFormat(m_ID, m_AttribIndex,
+                glVertexArrayAttribFormat(m_ID, at,
                     (GLint)ShaderDataTypeCount(e.Type), GL_FLOAT, GL_FALSE, e.Offset);
-            glVertexArrayAttribBinding(m_ID, m_AttribIndex, m_BindingIndex);
-            m_AttribIndex++;
+            glVertexArrayAttribBinding(m_ID, at, m_BindingIndex);
+            if (e.Location < 0) m_AttribIndex++;
         }
 
         m_BindingIndex++;

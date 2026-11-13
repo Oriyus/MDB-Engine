@@ -46,6 +46,13 @@ namespace Engine {
             if (mr.Specular != 1.0f) j["meshRenderer"]["specular"] = mr.Specular;
             if (!mr.BlocksGrass) j["meshRenderer"]["blocksGrass"] = false;          // likewise only when changed
             if (mr.GrassMargin != 0.0f) j["meshRenderer"]["grassMargin"] = mr.GrassMargin;
+            if (!mr.Lods.empty()) {                       // levels of detail, likewise only when there are any
+                json lods = json::array();
+                for (const MeshLod& l : mr.Lods)
+                    lods.push_back({ { "geometry", res.GeometryName ? res.GeometryName(l.Geometry) : std::string() },{ "distance", l.Distance } });
+                j["meshRenderer"]["lods"] = std::move(lods);
+            }
+            if (mr.CullDistance > 0.0f) j["meshRenderer"]["cullDistance"] = mr.CullDistance;
         }
         if (e.Has<PointLightComponent>()) {
             auto& l = e.Get<PointLightComponent>();
@@ -208,6 +215,17 @@ namespace Engine {
             mr.Specular = std::clamp(jm.value("specular", 1.0f), 0.0f, 1.0f);
             mr.BlocksGrass = jm.value("blocksGrass", true);
             mr.GrassMargin = jm.value("grassMargin", 0.0f);
+            if (auto it = jm.find("lods"); it != jm.end() && it->is_array()) {
+                for (const auto& jl : *it) {
+                    MeshLod l;
+                    const std::string name = jl.value("geometry", std::string());
+                    if (res.FindGeometry && !name.empty()) l.Geometry = res.FindGeometry(name);
+                    l.Distance = std::max(jl.value("distance", l.Distance), 0.0f);
+                    mr.Lods.push_back(std::move(l));
+                }
+                SortLods(mr);
+            }
+            mr.CullDistance = std::max(jm.value("cullDistance", 0.0f), 0.0f);
             e.Add<MeshRendererComponent>(mr);
         }
         if (j.contains("pointLight")) {

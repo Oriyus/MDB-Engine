@@ -35,6 +35,8 @@ namespace Engine {
         CascadeCount = 0;
         Culled = 0;
         ShadowSkipped = 0;
+        LodReduced = 0;
+        LodCulled = 0;
     }
 
     void DrawList::AddBatches(std::vector<Item>& items, std::vector<DrawBatch>& out, Order order) {

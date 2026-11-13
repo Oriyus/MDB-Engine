@@ -11,8 +11,16 @@ namespace Engine {
         glm::vec3 Position{ 0.0f };
         glm::vec3 Normal{ 0.0f, 1.0f, 0.0f };
         glm::vec2 TexCoord{ 0.0f };
+        // Vertex colour, RGBA8 (R in the low byte), sRGB-encoded like Material colours; multiplies the base colour
+        // and alpha (lit.vert, shader location 5). White = no effect. Model files fill it from glTF COLOR_0 only for
+        // architecture assets (category "Architecture/..."); vegetation keeps wind data in COLOR_0 (Wind below).
+        uint32_t Color = 0xFFFFFFFFu;
+        // Wind weights, RGBA8 linear (location 6): R main bend, G branch bend, B phase, A leaf flutter. Filled from
+        // COLOR_0 of vegetation (a "wind" extra, or category "Nature/..."); used only by a Renderable whose
+        // HasVertexWind() is true (InstanceData::Info.w), else lit.vert sways by height as before.
+        uint32_t Wind = 0;
     };
-    static_assert(sizeof(Vertex) == 8 * sizeof(float), "Vertex must be tightly packed");
+    static_assert(sizeof(Vertex) == 10 * 4, "Vertex must be tightly packed");
 
     // A vertex moved by up to four bones (skeletal animation). Shader locations 3 and 4.
     struct SkinnedVertex {
@@ -21,8 +29,15 @@ namespace Engine {
         glm::vec2 TexCoord{ 0.0f };
         glm::ivec4 Bones{ 0 };            // indices into the bone palette
         glm::vec4 Weights{ 0.0f };        // sum to 1
+        uint32_t Color = 0xFFFFFFFFu;     // as Vertex::Color (location 5)
+        uint32_t Wind = 0;                // as Vertex::Wind (location 6)
     };
-    static_assert(sizeof(SkinnedVertex) == 16 * 4, "SkinnedVertex must be tightly packed");
+    static_assert(sizeof(SkinnedVertex) == 18 * 4, "SkinnedVertex must be tightly packed");
+
+    // glTF COLOR_0 (linear, 0..1) packed for Vertex::Color (sRGB-encoded RGBA8)
+    uint32_t PackVertexColor(float r, float g, float b, float a);
+    // glTF COLOR_0 wind weights (linear, 0..1) packed for Vertex::Wind (linear RGBA8)
+    uint32_t PackVertexWind(float r, float g, float b, float a);
 
     class Mesh : public Renderable {
     public:

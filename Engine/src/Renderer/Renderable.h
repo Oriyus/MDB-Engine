@@ -36,6 +36,10 @@ namespace Engine {
         // Full vertices (position, normal, uv) of one part (-1: all of them), for static mesh merging.
         // Appends; indices count from the vertices already there. False if not available (skinned).
         virtual bool GetPartVertices(int32_t part, std::vector<Vertex>& vertices, std::vector<uint32_t>& indices) const { return false; }
+
+        // True when the vertices carry wind weights (Vertex::Wind, from a vegetation model's COLOR_0): lit.vert and
+        // shadow.vert then sway by them instead of by height (InstanceData::Info.w)
+        virtual bool HasVertexWind() const { return false; }
     };
 
 } // namespace Engine

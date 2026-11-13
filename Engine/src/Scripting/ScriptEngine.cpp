@@ -191,6 +191,23 @@ namespace Engine {
 
         ScriptEntity Wrap(entt::entity h) const { return ScriptEntity{ h, ActiveScene }; }
         sol::object MakeEntity(entt::entity h) const { return sol::make_object(*Lua, Wrap(h)); }
+
+        // e.mesh.lods / add_mesh{ lods }: { { geometry = name, distance = metres }, ... }, sorted nearest first
+        std::vector<MeshLod> ParseLods(const sol::table& t) const {
+            std::vector<MeshLod> out;
+            for (size_t i = 1; i <= t.size(); i++) {
+                const sol::optional<sol::table> entry = t.get<sol::optional<sol::table>>(i);
+                if (!entry) throw std::runtime_error("lods: entry " + std::to_string(i) + " is not a table");
+                const std::string geo = entry->get<sol::optional<std::string>>("geometry").value_or("");
+                MeshLod l;
+                l.Geometry = Resources.FindGeometry ? Resources.FindGeometry(geo) : nullptr;
+                if (!l.Geometry) throw std::runtime_error("lods: unknown geometry '" + geo + "'");
+                l.Distance = std::max(entry->get<sol::optional<float>>("distance").value_or(l.Distance), 0.0f);
+                out.push_back(std::move(l));
+            }
+            std::stable_sort(out.begin(), out.end(), [](const MeshLod& a, const MeshLod& b) { return a.Distance < b.Distance; });
+            return out;
+        }
     };
 
     // ---------------------------------------------------------------- API
@@ -277,7 +294,27 @@ namespace Engine {
                     auto g = Resources.FindGeometry ? Resources.FindGeometry(name) : nullptr;
                     if (!g) throw std::runtime_error("unknown geometry '" + name + "'");
                     m.E.Get<MeshRendererComponent>().Geometry = g;
-                }));
+                }),
+            // Levels of detail: { { geometry = name, distance = metres }, ... } (a copy; assign a whole list)
+            "lods", sol::property(
+                [this](const MeshRef& m) {
+                    sol::table t = Lua->create_table();
+                    int i = 1;
+                    for (const MeshLod& l : m.E.Get<MeshRendererComponent>().Lods)
+                        t[i++] = Lua->create_table_with("geometry", Resources.GeometryName ? Resources.GeometryName(l.Geometry) : std::string(),
+                            "distance", l.Distance);
+                    return t;
+                },
+                [this](const MeshRef& m, sol::table t) {
+                    auto& mr = m.E.Get<MeshRendererComponent>();
+                    mr.Lods = ParseLods(t);
+                    mr.LodLevel = 0;
+                }),
+            "cull_distance", sol::property(      // metres; 0 = drawn at any distance
+                [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().CullDistance; },
+                [](const MeshRef& m, float v) { m.E.Get<MeshRendererComponent>().CullDistance = std::max(v, 0.0f); }),
+            "lod", sol::readonly_property(       // the level drawn last frame: 0 = geometry, #lods + 1 = culled
+                [](const MeshRef& m) { return (int)m.E.Get<MeshRendererComponent>().LodLevel; }));
 
         lua.new_usertype<LightRef>("Light", sol::no_constructor,
             "color", sol::property(
@@ -575,6 +612,8 @@ namespace Engine {
                     mr.DoubleSided = opts->get<sol::optional<bool>>("double_sided").value_or(mr.DoubleSided);
                     mr.Specular = std::clamp(opts->get<sol::optional<float>>("specular").value_or(mr.Specular), 0.0f, 1.0f);
                     mr.Wind = std::max(opts->get<sol::optional<float>>("wind").value_or(mr.Wind), 0.0f);
+                    if (const auto lods = opts->get<sol::optional<sol::table>>("lods")) mr.Lods = ParseLods(*lods);
+                    mr.CullDistance = std::max(opts->get<sol::optional<float>>("cull_distance").value_or(0.0f), 0.0f);
                     // fit = metres: a model file is scaled and centred to that size (models come in any units)
                     if (const auto fit = opts->get<sol::optional<float>>("fit")) {
                         if (const auto* model = dynamic_cast<const Model*>(mr.Geometry.get())) {
@@ -584,6 +623,13 @@ namespace Engine {
                         }
                     }
                 }
+                // A model file with levels of detail inside gets them, unless the script gave its own (after fit: the
+                // distances follow the model's placed size)
+                if (const auto* model = dynamic_cast<const Model*>(mr.Geometry.get()); model && (!opts || !opts->get<sol::optional<sol::table>>("lods")))
+                    AssignModelLods(mr, *model);
+                // Vegetation with wind weights in its vertices sways unless the script chose a wind amount
+                if (const auto* model = dynamic_cast<const Model*>(mr.Geometry.get()); model && model->HasVertexWind() && (!opts || !opts->get<sol::optional<float>>("wind")))
+                    mr.Wind = 1.0f;
                 e.Owner->Registry().emplace_or_replace<MeshRendererComponent>(e.Handle, mr);
                 return MeshRef{ e };
             },
@@ -722,7 +768,13 @@ namespace Engine {
             const auto& c = RenderStats::LastFrame;
             return Lua->create_table_with("draw_calls", c.DrawCalls, "triangles", c.Triangles,
                 "instances", c.Instances, "culled", c.Culled, "shadow_skipped", c.ShadowSkipped, "particles", c.Particles,
-                "static_batches", c.StaticBatches, "static_merged", c.StaticMerged, "decals", c.Decals, "foliage", c.Foliage);
+                "static_batches", c.StaticBatches, "static_merged", c.StaticMerged, "decals", c.Decals, "foliage", c.Foliage,
+                "lod_reduced", c.LodReduced, "lod_culled", c.LodCulled);
+        });
+        // Level-of-detail distance scale (Scene::Lod.DistanceScale): reads it, or sets it first
+        scene.set_function("lod_scale", [this](sol::optional<float> v) {
+            if (v) ActiveScene->Lod.DistanceScale = std::max(*v, 0.01f);
+            return ActiveScene->Lod.DistanceScale;
         });
         scene.set_function("raycast", [this](const glm::vec3& origin, const glm::vec3& dir, float maxDist,
             sol::optional<ScriptEntity> ignore) -> sol::object {
