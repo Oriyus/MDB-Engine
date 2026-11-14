@@ -295,6 +295,7 @@ public:
             m_WireXRay = vm == "xray";
         }
         m_PendingSelect = EnvVar("MDB_SELECT");     // selected once the scene has it (loads are queued)
+        m_PendingHide = EnvVar("MDB_HIDE");         // hidden in the Viewport once the scene has them (the Hierarchy eye)
         // MDB_TERRAIN_TOOL=raise|smooth|flatten|noise|paint[:layer 1-4]|scatter[:items]: that terrain brush is chosen (with MDB_SELECT=Terrain)
         if (auto tt = EnvVar("MDB_TERRAIN_TOOL"); !tt.empty()) {
             using T = TerrainEditor::Tool;
@@ -422,6 +423,7 @@ public:
         bool knSpawn = kn && !ctrl;                      // plain N spawns a cube (Ctrl+N is New Scene)
         bool kdel = EdgePressed(Key::Delete, m_DelDown);
         bool kt = EdgePressed(Key::T, m_TDown);
+        bool kh = EdgePressed(Key::H, m_HDown);
         const bool kShade[4] = { EdgePressed(Key::Num1, m_Num1Down), EdgePressed(Key::Num2, m_Num2Down),
                                  EdgePressed(Key::Num3, m_Num3Down), EdgePressed(Key::Num4, m_Num4Down) };
         if (kp && ImGui::GetIO().KeyCtrl)
@@ -429,7 +431,7 @@ public:
 
         // Looking through a game camera, the game owns the keyboard: only Esc, Ctrl+P, F1 and F5 stay
         const bool editorKeys = !typing && !m_ViewingGame && !dialogueKeys;
-        if (!editorKeys) knSpawn = f = g = kw = ke = kr = kq = kdel = kt = false;
+        if (!editorKeys) knSpawn = f = g = kw = ke = kr = kq = kdel = kt = kh = false;
 
         if (!typing) {
             if (f5) {
@@ -442,6 +444,11 @@ public:
             if (kdel) DeleteSelected();
             if (g && !ctrl) DeleteLastSpawned();
             if (f1) m_ShowUI = !m_ShowUI;
+            // H: hide the selection in the Viewport (or show it, if all of it is hidden); Alt+H: show everything
+            if (kh && !ctrl && m_PlayState == PlayState::Edit) {
+                if (ImGui::GetIO().KeyAlt) m_HiddenIDs.clear();
+                else ToggleHidden(m_Selection);
+            }
             if (!ImGui::GetIO().KeyAlt) {
                 if (kq || kw || ke || kr) m_TerrainEditor.SetTool(TerrainEditor::Tool::None);   // back to selecting / the gizmo
                 if (kq) m_SelectTool = true;
@@ -524,6 +531,14 @@ public:
         m_Renderer->Mode = m_ViewingGame ? ViewMode::Rendered : m_ViewMode;
         m_Renderer->XRay = m_WireXRay;
         m_Renderer->Highlight.clear();
+        if (!m_PendingHide.empty()) {           // MDB_HIDE: names separated by commas (every entity of each name)
+            std::stringstream names(m_PendingHide);
+            int n = 0;
+            for (std::string name; std::getline(names, name, ',');)
+                for (auto [e, tag] : m_Scene.Registry().view<Engine::TagComponent>().each())
+                    if (tag.Tag == name) { m_HiddenIDs.insert(m_Scene.GetID(e)); n++; }
+            if (n > 0) { LOG_INFO("MDB_HIDE: {} entit{} hidden", n, n == 1 ? "y" : "ies"); m_PendingHide.clear(); }
+        }
         if (!m_PendingSelect.empty()) {         // MDB_SELECT: names separated by commas (the first entity of each)
             std::vector<entt::entity> found;
             std::stringstream names(m_PendingSelect);
@@ -553,6 +568,7 @@ public:
                     if (selected.count(p)) { m_Renderer->Highlight.push_back((uint32_t)entt::to_integral(e)); break; }
             }
         }
+        UpdateEditorHidden();
         { PROFILE_SCOPE("Render"); m_Renderer->Render(m_Scene, view, vw, vh); }
         { PROFILE_SCOPE("Asset preview"); m_Preview.Render(dt, *m_Resources); }
 
@@ -1224,6 +1240,7 @@ public:
             m_Resources->Capsule(), m_Resources->Cone() };
         const char* layers[4] = { "grass", "earth", "rock", "sand" };
         for (int i = 0; i < 4; i++) a.TerrainLayers[i] = m_Resources->LoadTexture(std::string("Textures/Terrain/") + layers[i] + ".jpg");
+        a.TerrainSurface = [this](const Engine::TerrainLayer& L) { return m_Resources->LoadTerrainSurface(L); };
         return a;
     }
     void BuildLevel(void (*build)(Engine::Scene&, const LevelAssets&, Engine::PrefabLibrary&)) {
@@ -1261,6 +1278,7 @@ public:
 
         const float aspect = size.y > 0.0f ? size.x / size.y : 16.0f / 9.0f;
         for (auto [e, t, c] : m_Scene.Registry().view<TransformComponent, CameraComponent>().each()) {
+            if (m_Scene.IsEditorHidden(e)) continue;
             const ImU32 col = IsSelected(e) ? IM_COL32(255, 255, 255, 255) : IM_COL32(200, 200, 210, 150);
             glm::vec3 p, sc;                       // world placement: cameras can sit under a parent
             glm::quat q;
@@ -1285,6 +1303,7 @@ public:
         std::vector<SunGizmo> out;
         const glm::vec3 eye = ViewCamera().Position;
         for (auto [e, light] : m_Scene.Registry().view<DirectionalLightComponent>().each()) {
+            if (m_Scene.IsEditorHidden(e)) continue;
             glm::vec3 p, sc;
             glm::quat q;
             Scene::Decompose(m_Scene.GetWorldMatrix(e), p, q, sc);
@@ -1360,6 +1379,7 @@ public:
         // grass blockers: the centre diamond or the outline (not the inside: clicks there pick what is on the ground)
         if (m_ShowGrassBlockers)
             for (auto [e, b] : m_Scene.Registry().view<Engine::GrassBlockerComponent>().each()) {
+                if (m_Scene.IsEditorHidden(e)) continue;
                 ImVec2 c;
                 float d = 1e9f;
                 if (ProjectToViewport(glm::vec3(m_Scene.GetWorldMatrix(e)[3]), origin, size, c))
@@ -1374,6 +1394,7 @@ public:
             }
         // point lights: the lightbulb icon
         if (m_ShowLightGizmos) for (auto [e, light] : m_Scene.Registry().view<Engine::PointLightComponent>().each()) {
+            if (m_Scene.IsEditorHidden(e)) continue;
             ImVec2 c;
             if (!ProjectToViewport(glm::vec3(m_Scene.GetWorldMatrix(e)[3]), origin, size, c)) continue;
             const float r = kBulbRadius;
@@ -1434,6 +1455,7 @@ public:
         using namespace Engine;
         ImDrawList* dl = ImGui::GetWindowDrawList();
         for (auto [e, b] : m_Scene.Registry().view<GrassBlockerComponent>().each()) {
+            if (m_Scene.IsEditorHidden(e)) continue;
             const bool selected = IsSelected(e);
             const ImU32 col = selected ? IM_COL32(170, 255, 190, 255) : IM_COL32(90, 220, 120, 200);
             auto loop = [&](const std::vector<glm::vec3>& pts, ImU32 c, float thick) {
@@ -1460,6 +1482,7 @@ public:
         using namespace Engine;
         ImDrawList* dl = ImGui::GetWindowDrawList();
         for (auto [e, light] : m_Scene.Registry().view<PointLightComponent>().each()) {
+            if (m_Scene.IsEditorHidden(e)) continue;
             ImVec2 c;
             if (!ProjectToViewport(glm::vec3(m_Scene.GetWorldMatrix(e)[3]), origin, size, c)) continue;
             const bool selected = IsSelected(e);
@@ -1696,6 +1719,7 @@ public:
 
         auto& reg = m_Scene.Registry();
         for (auto [entity, rb] : reg.view<RigidBodyComponent>().each()) {
+            if (m_Scene.IsEditorHidden(entity)) continue;
             const ImU32 col = rb.IsTrigger ? IM_COL32(230, 90, 255, 220)
                 : rb.Type == BodyType::Static ? IM_COL32(80, 200, 255, 200)
                 : rb.Type == BodyType::Dynamic ? IM_COL32(90, 230, 110, 220)
@@ -1704,7 +1728,8 @@ public:
         }
         // Child colliders: in their body's colour (white if no body above them: they do nothing)
         for (auto [entity, c] : reg.view<ColliderComponent>().each()) {
-            if (reg.all_of<RigidBodyComponent>(entity)) continue;   // not a part: an entity's own body wins
+            if (reg.all_of<RigidBodyComponent>(entity)) continue;
+            if (m_Scene.IsEditorHidden(entity)) continue;   // not a part: an entity's own body wins
             ImU32 col = IM_COL32(255, 255, 255, 120);
             int guard = 0;
             for (entt::entity p = m_Scene.GetParent(entity); p != entt::null && guard++ < 256; p = m_Scene.GetParent(p)) {
@@ -2428,6 +2453,7 @@ private:
                 row("Ctrl / Shift + click", "Add to or remove from the selection");
                 row("Drag on the scene", "Box select (Ctrl / Shift: add)");
                 row("Shift + click (Hierarchy)", "Select a range of rows");
+                row("H / Alt + H", "Hide the selection in the Viewport (again: show) / show everything");
                 row("Ctrl+G / Ctrl+A", "Group the selection / Select all");
                 ImGui::SeparatorText("Edit");
                 row("Ctrl+Z / Ctrl+Y", "Undo / Redo");
@@ -2958,6 +2984,7 @@ private:
 
     void DrawHierarchyPanel() {
         using namespace Engine;
+        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) m_EyeDrag = EyeDrag::None;   // an eye drag ends on release
         ImGui::SetNextWindowPos(ImVec2(10, 230), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(300, 280), ImGuiCond_FirstUseEver);
         ImGui::Begin("Hierarchy", &m_ShowHierarchy);
@@ -2990,9 +3017,14 @@ private:
                 for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
                     const entt::entity handle = matches[i];
                     ImGui::PushID((int)entt::to_integral(handle));
-                    ImGui::Selectable(reg.get<TagComponent>(handle).Tag.c_str(), IsSelected(handle));
-                    if (ImGui::IsItemClicked()) RowClicked(handle);
+                    const bool hidden = m_Scene.IsEditorHidden(handle);
+                    if (hidden) ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.45f);
+                    ImGui::Selectable(reg.get<TagComponent>(handle).Tag.c_str(), IsSelected(handle), ImGuiSelectableFlags_AllowOverlap);
+                    if (hidden) ImGui::PopStyleVar();
+                    const ImVec2 rowMin = ImGui::GetItemRectMin(), rowMax = ImGui::GetItemRectMax();
+                    if (ImGui::IsItemClicked() && !OverEye(rowMin, rowMax)) RowClicked(handle);
                     DrawRowContextMenu(handle);
+                    DrawEyeToggle(handle, rowMin, rowMax);
                     ImGui::PopID();
                 }
         }
@@ -3140,6 +3172,126 @@ private:
     struct PendingReparent { entt::entity Child, Parent; bool Pending; };
     PendingReparent m_Reparent{ entt::null, entt::null, false };
 
+    // ------------------------------------------------------------ hiding in the Viewport (the Hierarchy's eye)
+    // An editor view, like the shading mode: kept by entity ID (so it survives undo, Play / Stop and level reloads),
+    // never saved, not an undo step, and Edit mode only (the game, and Play, show everything). A hidden entity hides
+    // its whole subtree: mesh parts, terrain chunks, grass fields, gizmos and collider outlines. Lights still light.
+    std::unordered_set<uint64_t> m_HiddenIDs;
+
+    bool HiddenBySelf(entt::entity e) const { return m_HiddenIDs.count(m_Scene.GetID(e)) != 0; }
+    void SetHidden(entt::entity e, bool hide) {
+        if (hide) m_HiddenIDs.insert(m_Scene.GetID(e));
+        else m_HiddenIDs.erase(m_Scene.GetID(e));
+    }
+    // A drag that started on an eye: every eye it passes gets the state the first press gave (until release)
+    enum class EyeDrag { None, Hide, Show };
+    EyeDrag m_EyeDrag = EyeDrag::None;
+
+    // Hide them all, or show them all if every one is already hidden
+    void ToggleHidden(const std::vector<entt::entity>& es) {
+        if (es.empty()) return;
+        bool all = true;
+        for (auto e : es) all = all && HiddenBySelf(e);
+        for (auto e : es) {
+            if (all) m_HiddenIDs.erase(m_Scene.GetID(e));
+            else m_HiddenIDs.insert(m_Scene.GetID(e));
+        }
+    }
+
+    // Scene::EditorHidden for this frame: every entity that is hidden or under a hidden one (Edit mode only)
+    void UpdateEditorHidden() {
+        auto& out = m_Scene.EditorHidden;
+        out.clear();
+        if (m_HiddenIDs.empty() || m_PlayState != PlayState::Edit) return;
+        auto& reg = m_Scene.Registry();
+        for (auto e : reg.view<Engine::IDComponent>()) {
+            int guard = 0;
+            for (entt::entity p = e; p != entt::null && guard++ < 256; p = m_Scene.GetParent(p))
+                if (HiddenBySelf(p)) { out.push_back((uint32_t)entt::to_integral(e)); break; }
+        }
+        std::sort(out.begin(), out.end());
+    }
+
+    // The eye at the right end of a Hierarchy row (drawn after the row, which allows the overlap). Open: shown;
+    // closed: hidden by its own eye; dim: hidden by a parent. Clicking the eye of a selected row toggles the whole
+    // selection.
+    // The eye button's size (DrawEyeToggle) and whether the pointer is on it: the row is drawn first and would
+    // otherwise take the click too (its hover test runs before the eye exists this frame)
+    static ImVec2 EyeSize(ImVec2 rowMin, ImVec2 rowMax) {
+        const float h = std::min(ImGui::GetFrameHeight() * 0.8f, rowMax.y - rowMin.y);
+        return ImVec2(h * 1.3f, h);
+    }
+    static bool OverEye(ImVec2 rowMin, ImVec2 rowMax) {
+        const ImVec2 m = ImGui::GetMousePos();
+        return m.x >= rowMax.x - 2.0f - EyeSize(rowMin, rowMax).x && m.x <= rowMax.x && m.y >= rowMin.y && m.y < rowMax.y;
+    }
+    void DrawEyeToggle(entt::entity e, ImVec2 rowMin, ImVec2 rowMax) {
+        const ImVec2 eye = EyeSize(rowMin, rowMax);
+        const float h = eye.y, w = eye.x;
+        const float right = rowMax.x - 2.0f;
+        const float y = rowMin.y + (rowMax.y - rowMin.y - h) * 0.5f;
+        const ImVec2 next = ImGui::GetCursorScreenPos();   // the next row starts here: the clipper needs even rows
+        ImGui::SetCursorScreenPos(ImVec2(right - w, y));
+        ImGui::PushID((int)entt::to_integral(e));
+        ImGui::InvisibleButton("##eye", ImVec2(w, h));
+        const bool pressed = ImGui::IsItemActivated();
+        const bool hovered = ImGui::IsItemHovered();
+        ImGui::PopID();
+        const bool editing = m_PlayState == PlayState::Edit;
+        if (pressed && editing) {
+            // The press decides the state (the opposite of this row's); dragging over other eyes gives them the same
+            m_EyeDrag = HiddenBySelf(e) ? EyeDrag::Show : EyeDrag::Hide;
+            std::vector<entt::entity> targets{ e };
+            if (IsSelected(e) && m_Selection.size() > 1) targets = m_Selection;
+            for (auto t : targets) SetHidden(t, m_EyeDrag == EyeDrag::Hide);
+        }
+        else if (editing && m_EyeDrag != EyeDrag::None && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            // Any row the pointer's height passed this frame (a fast drag skips rows between frames)
+            const ImGuiIO& io = ImGui::GetIO();
+            const float y0 = std::min(io.MousePos.y, io.MousePos.y - io.MouseDelta.y);
+            const float y1 = std::max(io.MousePos.y, io.MousePos.y - io.MouseDelta.y);
+            if (y1 >= rowMin.y && y0 < rowMax.y) SetHidden(e, m_EyeDrag == EyeDrag::Hide);
+        }
+        const bool self = HiddenBySelf(e);
+        const bool inherited = !self && m_Scene.IsEditorHidden(e);
+        if (hovered && m_EyeDrag == EyeDrag::None) ImGui::SetTooltip(!editing ? "Hiding works in Edit mode (Play shows everything)"
+            : self ? "Hidden in the Viewport: click to show, drag over other eyes to show them too (Alt+H shows all)"
+            : inherited ? "Hidden by a parent" : "Hide in the Viewport: click, or drag over several eyes (H)");
+
+        // Shown eyes are faint until the row is hovered; hidden ones always show
+        const bool rowHovered = ImGui::IsMouseHoveringRect(rowMin, rowMax);
+        int alpha = self ? 230 : inherited ? 110 : (hovered ? 255 : rowHovered ? 150 : 45);
+        if (!editing) alpha /= 2;
+        const ImU32 col = IM_COL32(220, 220, 228, alpha);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 c(right - w * 0.5f, y + h * 0.5f);
+        const float rx = w * 0.38f, ry = h * 0.26f;
+        if (self) {                                   // closed: the lower lid and lashes
+            ImVec2 pts[9];
+            for (int i = 0; i < 9; i++) {
+                const float a = 3.1415927f * i / 8;
+                pts[i] = ImVec2(c.x - rx * std::cos(a), c.y + ry * 0.6f * std::sin(a) - ry * 0.3f);
+            }
+            dl->AddPolyline(pts, 9, col, 0, 1.5f);
+            for (int i = 1; i < 4; i++) {
+                const ImVec2 p = pts[i * 2];
+                dl->AddLine(p, ImVec2(p.x + (p.x - c.x) * 0.25f, p.y + ry * 0.5f), col, 1.2f);
+            }
+        }
+        else {                                        // open: two lids and a pupil
+            ImVec2 top[9], bottom[9];
+            for (int i = 0; i < 9; i++) {
+                const float a = 3.1415927f * i / 8;
+                top[i] = ImVec2(c.x - rx * std::cos(a), c.y - ry * std::sin(a));
+                bottom[i] = ImVec2(c.x - rx * std::cos(a), c.y + ry * std::sin(a));
+            }
+            dl->AddPolyline(top, 9, col, 0, 1.4f);
+            dl->AddPolyline(bottom, 9, col, 0, 1.4f);
+            dl->AddCircleFilled(c, ry * 0.62f, col);
+        }
+        ImGui::SetCursorScreenPos(next);
+    }
+
     // One row of the flattened tree (DrawHierarchyPanel): indented by depth; open state kept in m_HierarchyExpanded
     struct HierarchyRow { entt::entity E; int Depth; bool HasChildren; };
     std::vector<HierarchyRow> m_HierarchyRows;
@@ -3153,23 +3305,27 @@ private:
         const uint64_t id = m_Scene.GetID(e);
 
         ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth
-            | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+            | ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_AllowOverlap;
         if (!row.HasChildren) flags |= ImGuiTreeNodeFlags_Leaf;
         if (IsSelected(e)) flags |= ImGuiTreeNodeFlags_Selected;
 
         if (row.Depth > 0) ImGui::Indent(row.Depth * ImGui::GetStyle().IndentSpacing);
         const bool instance = reg.all_of<PrefabComponent>(e);
         if (instance) ImGui::PushStyleColor(ImGuiCol_Text, kPrefabColor);
+        const bool hidden = m_Scene.IsEditorHidden(e);   // hidden in the Viewport (the eye): a dimmer name
+        if (hidden) ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.45f);
         const bool wasOpen = row.HasChildren && m_HierarchyExpanded.count(id);
         if (row.HasChildren) ImGui::SetNextItemOpen(wasOpen);
         const bool open = ImGui::TreeNodeEx((void*)(uintptr_t)id, flags, "%s", reg.get<TagComponent>(e).Tag.c_str());
         if (instance) ImGui::PopStyleColor();
+        if (hidden) ImGui::PopStyleVar();
+        const ImVec2 rowMin = ImGui::GetItemRectMin(), rowMax = ImGui::GetItemRectMax();
         if (row.Depth > 0) ImGui::Unindent(row.Depth * ImGui::GetStyle().IndentSpacing);
         if (row.HasChildren && open != wasOpen) {
             if (open) m_HierarchyExpanded.insert(id);
             else m_HierarchyExpanded.erase(id);
         }
-        if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) RowClicked(e);
+        if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen() && !OverEye(rowMin, rowMax)) RowClicked(e);
         DrawRowContextMenu(e);
 
         if (ImGui::BeginDragDropSource()) {
@@ -3189,6 +3345,7 @@ private:
             const std::string asset = AssetBrowser::AcceptDrop({ K::Model, K::Prefab, K::Texture, K::Script, K::Sound });
             if (!asset.empty()) m_AssetDrop = { asset, e, true };
         }
+        DrawEyeToggle(e, rowMin, rowMax);
     }
 
     static constexpr ImVec4 kPrefabColor{ 0.45f, 0.75f, 1.0f, 1.0f };   // prefab instances in the UI
@@ -4541,6 +4698,7 @@ private:
     bool  m_WireXRay = false;        // wireframe: show the edges behind surfaces too
     bool  m_ShowOutline = true;
     std::string m_PendingSelect;     // MDB_SELECT test hook
+    std::string m_PendingHide;       // MDB_HIDE test hook
     bool  m_Num1Down = false, m_Num2Down = false, m_Num3Down = false, m_Num4Down = false;
 
     // Editor shell (menu bar, toolbar, panels)
@@ -4582,6 +4740,7 @@ private:
     bool m_MaybeChanged = false;          // an interaction happened: compare the scene once it is over
     bool m_GizmoBusy = false;             // the gizmo is being dragged
     bool m_ZDown = false, m_YDown = false, m_DDown = false, m_SDown = false;
+    bool m_HDown = false;
     std::string m_Title;
     enum class ConfirmAction { None, Quit, Load, New };
     ConfirmAction m_Confirm = ConfirmAction::None;   // the "unsaved changes" dialog is open for this

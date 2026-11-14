@@ -5,6 +5,7 @@
 #include "Renderer/DrawList.h"
 #include "Scene/Decal.h"
 #include "Scene/Fog.h"
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 #include <unordered_map>
@@ -116,6 +117,13 @@ namespace Engine {
             float DistanceScale = 1.0f;
         } Lod;
         bool TintLodLevels = false;        // debug (Viewport > Debug > LOD Levels): colour parts by their level, not saved
+        // Entities the editor hides (the Hierarchy's eye; filled each frame in Edit mode, empty in the game): sorted
+        // entt integrals of every hidden entity, descendants included. Their mesh parts, terrain chunks and grass
+        // fields are not drawn (no shadows, no click picking either). Not saved.
+        std::vector<uint32_t> EditorHidden;
+        bool IsEditorHidden(entt::entity e) const {
+            return !EditorHidden.empty() && std::binary_search(EditorHidden.begin(), EditorHidden.end(), (uint32_t)entt::to_integral(e));
+        }
         float WindTime = 0.0f;             // seconds, advanced by SceneRenderer (runs in Edit mode too)
         float WindTimePrev = 0.0f;         // last frame's WindTime (motion vectors of swaying parts)
         std::vector<Decal> Decals;         // this frame's decals (scripts add them with decal.draw; drawn by SceneRenderer)

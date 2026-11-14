@@ -32,6 +32,8 @@ namespace Engine {
         // first cutoff wins: a texture is rarely cut at two different cutoffs); cheap to call every frame.
         // Only textures with transparency keep the full-size pixels this needs, until it has run.
         void PreserveAlphaCoverage(float cutoff) const;
+        // Never used alpha-tested (alpha holds data, e.g. a height): free the CPU copy kept for the above
+        void DropPixels() const { m_Pixels.clear(); m_Pixels.shrink_to_fit(); m_CoverageDone = true; }
 
     private:
         Texture2D() = default;

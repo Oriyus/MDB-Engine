@@ -661,6 +661,10 @@
               1.0
             ],
             "roughness": 0.949999988079071,
+            "heightMap": "Textures/Terrain/grass_height.png",
+            "normalMap": "Textures/Terrain/grass_normal.png",
+            "roughness": 1.0,
+            "roughnessMap": "Textures/Terrain/grass_rough.png",
             "texture": "texture:Textures/Terrain/grass.jpg",
             "tiling": 3.0
           },
@@ -671,6 +675,10 @@
               1.0
             ],
             "roughness": 0.8999999761581421,
+            "heightMap": "Textures/Terrain/earth_height.png",
+            "normalMap": "Textures/Terrain/earth_normal.png",
+            "roughness": 1.0,
+            "roughnessMap": "Textures/Terrain/earth_rough.png",
             "texture": "texture:Textures/Terrain/earth.jpg",
             "tiling": 4.0
           },
@@ -681,6 +689,10 @@
               1.0
             ],
             "roughness": 0.800000011920929,
+            "heightMap": "Textures/Terrain/rock_height.png",
+            "normalMap": "Textures/Terrain/rock_normal.png",
+            "roughness": 1.0,
+            "roughnessMap": "Textures/Terrain/rock_rough.png",
             "texture": "texture:Textures/Terrain/rock.jpg",
             "tiling": 7.0
           },
@@ -691,6 +703,10 @@
               1.0
             ],
             "roughness": 0.949999988079071,
+            "heightMap": "Textures/Terrain/sand_height.png",
+            "normalMap": "Textures/Terrain/sand_normal.png",
+            "roughness": 1.0,
+            "roughnessMap": "Textures/Terrain/sand_rough.png",
             "texture": "texture:Textures/Terrain/sand.jpg",
             "tiling": 4.0
           }

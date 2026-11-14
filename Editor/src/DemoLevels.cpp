@@ -627,6 +627,14 @@ void BuildTerrainDemo(Scene& scene, const LevelAssets& a, PrefabLibrary&) {
         if (!a.TerrainLayers[i]) continue;
         t.Layers[i].Texture = a.TerrainLayers[i];
         t.Layers[i].Color = glm::vec3(1.0f);     // the textures carry the colour
+        // and their maps (Tools/terrain_textures.py): the roughness map carries the roughness
+        static const char* kNames[4] = { "grass", "earth", "rock", "sand" };
+        const std::string base = std::string("Textures/Terrain/") + kNames[i];
+        t.Layers[i].NormalMap = base + "_normal.png";
+        t.Layers[i].RoughnessMap = base + "_rough.png";
+        t.Layers[i].HeightMap = base + "_height.png";
+        t.Layers[i].Roughness = 1.0f;
+        if (a.TerrainSurface) t.Layers[i].Surface = a.TerrainSurface(t.Layers[i]);
     }
     t.Layers[0].Tiling = 3.0f;
     t.Layers[2].Tiling = 7.0f;

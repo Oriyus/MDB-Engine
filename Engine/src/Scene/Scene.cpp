@@ -767,10 +767,14 @@ namespace Engine {
             glm::vec4 use(0.0f);
             for (int i = 0; i < 4; i++) {
                 if (m.Layers[i]) { m.Layers[i]->Bind(10 + i); use[i] = 1.0f; }
+                if (m.Surface[i]) m.Surface[i]->Bind(14 + i);
                 shader.SetVec4("u_TerrainColor[" + std::to_string(i) + "]", m.Color[i]);
             }
             shader.SetVec4("u_TerrainUseTex", use);
             shader.SetVec4("u_TerrainTiling", m.Tiling);
+            shader.SetVec4("u_TerrainVariation", m.Variation);
+            shader.SetIVec4("u_TerrainMaps", m.Maps);
+            shader.SetVec4("u_TerrainNormalStrength", m.NormalStrength);
             shader.SetVec2("u_TerrainSize", m.Size);
             shader.SetFloat("u_TerrainBlend", m.Blend);
         }
@@ -1181,7 +1185,7 @@ namespace Engine {
             const bool highlighted = highlight &&
                 std::binary_search(highlight->begin(), highlight->end(), (uint32_t)entt::to_integral(entity));
             // merged: drawn by its static batch (only its outline is drawn from here); hidden: e.visible = false
-            if (!mr.Geometry || mr.Hidden || (mr.Merged && !highlighted)) continue;
+            if (!mr.Geometry || mr.Hidden || (mr.Merged && !highlighted) || IsEditorHidden(entity)) continue;
 
             static const glm::mat4 kIdentity(1.0f);
             const glm::mat4 world = mr.LocalOffset == kIdentity ? GetWorldMatrix(entity) : GetWorldMatrix(entity) * mr.LocalOffset;
@@ -1316,7 +1320,7 @@ namespace Engine {
         // Terrains: every chunk is a part of its own (one draw each, culled on its own) sharing one instance and the
         // terrain's layered material. Changed chunks are rebuilt here (UpdateGPU), so sculpting shows the same frame.
         for (auto [entity, tc] : m_Registry.view<TerrainComponent>().each()) {
-            if (!tc.Data) continue;
+            if (!tc.Data || IsEditorHidden(entity)) continue;
             TerrainData& data = *tc.Data;
             data.UpdateGPU(tc.Size);
             TerrainMaterial& m = data.Material;
@@ -1326,6 +1330,11 @@ namespace Engine {
                 m.Layers[i] = L.Texture.get();
                 m.Color[i] = glm::vec4(L.Color, std::clamp(L.Roughness, 0.04f, 1.0f));
                 m.Tiling[i] = std::max(L.Tiling, 0.01f);
+                m.Variation[i] = std::clamp(L.Variation, 0.0f, 1.0f);
+                const bool maps = L.Surface && L.Surface->Texture;
+                m.Surface[i] = maps ? L.Surface->Texture.get() : nullptr;
+                m.Maps[i] = maps ? L.Surface->Maps : 0;
+                m.NormalStrength[i] = L.NormalStrength;
             }
             m.Size = tc.Size;
             m.Blend = std::clamp(tc.Blend, 0.0f, 1.0f);
@@ -1491,6 +1500,7 @@ namespace Engine {
         shader.SetInt("u_EmissiveMap", 5);
         shader.SetInt("u_TerrainSplat", 9);                 // terrain weights and layers (BindTerrain); 8 is the grass's
         for (int i = 0; i < 4; i++) shader.SetInt("u_TerrainLayer" + std::to_string(i), 10 + i);
+        for (int i = 0; i < 4; i++) shader.SetInt("u_TerrainSurface" + std::to_string(i), 14 + i);   // packed maps
         shader.SetFloat("u_Ambient", AmbientIntensity);
         // Environment maps (units 6 and 7). The samplers always point at their own unit.
         shader.SetInt("u_IrradianceMap", 6);

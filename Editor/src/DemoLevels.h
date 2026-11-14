@@ -1,7 +1,10 @@
 #pragma once
+#include <functional>
 #include <memory>
 
 namespace Engine {
+    struct TerrainLayer;
+    struct TerrainSurfaceMaps;
     class Scene;
     class Renderable;
     class Texture2D;
@@ -24,6 +27,8 @@ struct LevelAssets {
     std::shared_ptr<Engine::Renderable> Capsule; // 1 wide, 2 tall (placeholder characters)
     std::shared_ptr<Engine::Renderable> Cone;    // 1 wide base, 1 tall
     std::shared_ptr<Engine::Texture2D>  TerrainLayers[4];   // Textures/Terrain/{grass,earth,rock,sand}.jpg (may be null)
+    // A terrain layer's packed normal / roughness / height maps (ResourceLibrary::LoadTerrainSurface)
+    std::function<std::shared_ptr<const Engine::TerrainSurfaceMaps>(const Engine::TerrainLayer&)> TerrainSurface;
 };
 
 // Scripting playground: a ball you roll (player.lua), coins (coin.lua), a pad that glows while

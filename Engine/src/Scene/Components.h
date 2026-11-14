@@ -281,11 +281,25 @@ namespace Engine {
     // Rigid Body with shape Terrain makes it solid (a Jolt height field; the navigation bake sees it too).
     // The heights and paint live in their own file, Assets/<DataPath>, written when the editor saves the scene.
     class TerrainData;
+    // A terrain layer's normal, roughness and height maps packed into one linear texture: RG = normal X / Y, B =
+    // roughness, A = height (ResourceLibrary::LoadTerrainSurface, cached by paths and file times)
+    struct TerrainSurfaceMaps {
+        std::shared_ptr<Texture2D> Texture;
+        int Maps = 0;                             // which ones it holds: 1 normal, 2 roughness, 4 height
+    };
     struct TerrainLayer {
         std::shared_ptr<Texture2D> Texture;       // optional: repeats every Tiling metres (world-aligned to the terrain)
         glm::vec3 Color{ 1.0f };                  // sRGB-style tint, or the colour itself without a texture
         float Tiling = 4.0f;                      // metres per repeat
-        float Roughness = 0.9f;
+        float Roughness = 0.9f;                   // times the roughness map, if there is one
+        float Variation = 1.0f;                   // stochastic tiling: the repeat laid as random shifted / turned copies (0 = plain)
+        // Optional maps (images under Assets, e.g. "Textures/Terrain/rock_normal.png"), repeating with the colour texture
+        std::string NormalMap;                    // tangent-space, OpenGL style (green = up the image) unless NormalFlipY
+        std::string RoughnessMap;                 // grey: 0 smooth .. 1 rough
+        std::string HeightMap;                    // grey: drives height blending and the stochastic seams
+        float NormalStrength = 1.0f;
+        bool  NormalFlipY = false;                // DirectX-style normal map (green = down the image)
+        std::shared_ptr<const TerrainSurfaceMaps> Surface;   // the three packed (runtime: ResourceRegistry::LoadTerrainSurface)
     };
     struct TerrainComponent {
         static constexpr int MaxLayers = 4;

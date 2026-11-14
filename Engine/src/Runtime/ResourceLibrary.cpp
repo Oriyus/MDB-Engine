@@ -8,8 +8,12 @@
 #include "Runtime/UIDocument.h"
 #include "Core/Log.h"
 
+#include <stb_image.h>      // implementation is compiled in Texture.cpp
+#include <glm/glm.hpp>
+
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -79,6 +83,79 @@ namespace Engine {
         if (!data) { ENGINE_WARN("Terrain {}: {}", path, error); return nullptr; }
         m_Terrains[path] = { data, stamp };
         return data;
+    }
+
+    std::shared_ptr<const TerrainSurfaceMaps> ResourceLibrary::LoadTerrainSurface(const TerrainLayer& layer) {
+        namespace fs = std::filesystem;
+        const std::string paths[3] = { layer.NormalMap, layer.RoughnessMap, layer.HeightMap };
+        if (paths[0].empty() && paths[1].empty() && paths[2].empty()) return nullptr;
+        const std::string key = paths[0] + '|' + paths[1] + '|' + paths[2] + (layer.NormalFlipY ? "|flipY" : "");
+        fs::file_time_type stamps[3]{};
+        for (int i = 0; i < 3; i++) {
+            std::error_code ec;
+            if (!paths[i].empty()) stamps[i] = fs::last_write_time(fs::u8path(m_AssetDir + paths[i]), ec);
+        }
+        if (auto it = m_Surfaces.find(key); it != m_Surfaces.end() &&
+            it->second.Stamps[0] == stamps[0] && it->second.Stamps[1] == stamps[1] && it->second.Stamps[2] == stamps[2])
+            return it->second.Data;
+
+        // Read each map (bottom row first, like Texture2D) and pack them at the largest size; a smaller one is
+        // stretched with bilinear filtering (wrapping, since the maps repeat)
+        struct Image { int W = 0, H = 0; std::vector<uint8_t> Px; };
+        Image img[3];
+        int maps = 0, W = 0, H = 0;
+        static const char* kWhat[3] = { "normal", "roughness", "height" };
+        stbi_set_flip_vertically_on_load(true);
+        for (int i = 0; i < 3; i++) {
+            if (paths[i].empty()) continue;
+            int w = 0, h = 0, channels = 0;
+            uint8_t* data = stbi_load((m_AssetDir + paths[i]).c_str(), &w, &h, &channels, 4);
+            if (!data) { ENGINE_WARN("Terrain {} map {}: can't read it ({})", kWhat[i], paths[i], stbi_failure_reason()); continue; }
+            img[i].W = w; img[i].H = h; img[i].Px.assign(data, data + size_t(w) * h * 4);
+            stbi_image_free(data);
+            maps |= 1 << i;
+            W = std::max(W, w); H = std::max(H, h);
+        }
+        std::shared_ptr<TerrainSurfaceMaps> out;
+        if (maps) {
+            auto sample = [](const Image& m, int x, int y, int W, int H, int c) -> float {   // 0..1
+                if (m.W == W && m.H == H) return m.Px[(size_t(y) * W + x) * 4 + c] / 255.0f;
+                const float fx = (x + 0.5f) * m.W / W - 0.5f, fy = (y + 0.5f) * m.H / H - 0.5f;
+                const int x0 = (int)std::floor(fx), y0 = (int)std::floor(fy);
+                const float tx = fx - x0, ty = fy - y0;
+                auto at = [&](int px, int py) {
+                    px = ((px % m.W) + m.W) % m.W; py = ((py % m.H) + m.H) % m.H;
+                    return m.Px[(size_t(py) * m.W + px) * 4 + c] / 255.0f;
+                };
+                return (at(x0, y0) * (1 - tx) + at(x0 + 1, y0) * tx) * (1 - ty) + (at(x0, y0 + 1) * (1 - tx) + at(x0 + 1, y0 + 1) * tx) * ty;
+            };
+            auto byte = [](float v) { return (uint8_t)std::clamp(std::lround(v * 255.0f), 0L, 255L); };
+            std::vector<uint8_t> packed(size_t(W) * H * 4);
+            for (int y = 0; y < H; y++) {
+                for (int x = 0; x < W; x++) {
+                    uint8_t* p = &packed[(size_t(y) * W + x) * 4];
+                    p[0] = p[1] = 128; p[2] = 255; p[3] = 128;   // flat, roughness factor 1, middle height
+                    if (maps & 1) {
+                        glm::vec3 n(sample(img[0], x, y, W, H, 0), sample(img[0], x, y, W, H, 1), sample(img[0], x, y, W, H, 2));
+                        n = n * 2.0f - 1.0f;
+                        if (layer.NormalFlipY) n.y = -n.y;
+                        const float len = glm::length(n);
+                        n = len > 1e-4f ? n / len : glm::vec3(0, 0, 1);
+                        p[0] = byte(n.x * 0.5f + 0.5f); p[1] = byte(n.y * 0.5f + 0.5f);
+                    }
+                    if (maps & 2) p[2] = byte(sample(img[1], x, y, W, H, 0));
+                    if (maps & 4) p[3] = byte(sample(img[2], x, y, W, H, 0));
+                }
+            }
+            out = std::make_shared<TerrainSurfaceMaps>();
+            out->Texture = std::make_shared<Texture2D>((uint32_t)W, (uint32_t)H, packed.data(), false);
+            out->Texture->DropPixels();                    // alpha is a height, never alpha-tested
+            out->Maps = maps;
+        }
+        CachedSurface& c = m_Surfaces[key];
+        c.Data = out;
+        for (int i = 0; i < 3; i++) c.Stamps[i] = stamps[i];
+        return out;
     }
 
     bool ResourceLibrary::SaveTerrain(const std::string& path, const std::shared_ptr<TerrainData>& data) {
@@ -233,6 +310,7 @@ namespace Engine {
             return nullptr;
         };
         r.LoadTerrain = [this](const std::string& path) { return LoadTerrain(path); };
+        r.LoadTerrainSurface = [this](const TerrainLayer& layer) { return LoadTerrainSurface(layer); };
         r.LoadAnimGraph = [this](const std::string& path) { return LoadAnimGraph(path); };
         r.LoadDatabase = [this]() { return LoadDatabase(); };
         r.LoadUIDocument = [this](const std::string& path) { return LoadUIDocument(path); };

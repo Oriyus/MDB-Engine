@@ -27,6 +27,8 @@ namespace Engine {
         std::function<std::shared_ptr<Texture2D>(const std::string&)>  FindTexture;
         // A terrain's heights and paint from its file under Assets ("Terrains/x.terrain"); null if there is none
         std::function<std::shared_ptr<TerrainData>(const std::string&)> LoadTerrain;
+        // A terrain layer's normal / roughness / height maps packed into one texture; null if it names none
+        std::function<std::shared_ptr<const TerrainSurfaceMaps>(const TerrainLayer&)> LoadTerrainSurface;
         // An animation graph ("AnimGraphs/x.json"); null if missing or unreadable
         std::function<std::shared_ptr<const AnimGraph>(const std::string&)> LoadAnimGraph;
         // The game database (Assets/Data/database.json); an empty one if there is no file. Cheap to call (cached).

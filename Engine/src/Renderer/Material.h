@@ -37,6 +37,10 @@ namespace Engine {
         const Texture2D* Layers[4] = {};          // optional; each repeats every Tiling metres
         glm::vec4 Color[4]{ glm::vec4(1.0f), glm::vec4(1.0f), glm::vec4(1.0f), glm::vec4(1.0f) };   // rgb sRGB tint, a roughness
         glm::vec4 Tiling{ 4.0f };                 // metres per repeat, per layer
+        glm::vec4 Variation{ 0.0f };              // stochastic (hex) tiling per layer: 0 plain repeat .. 1 full
+        const Texture2D* Surface[4] = {};         // optional packed maps per layer: RG normal, B roughness, A height
+        glm::ivec4 Maps{ 0 };                     // which of those each layer has: 1 normal, 2 roughness, 4 height
+        glm::vec4 NormalStrength{ 1.0f };
         glm::vec2 Size{ 1.0f };                   // the terrain's metres in X / Z
         float Blend = 0.5f;                       // 0 = plain weights, 1 = height blending (stones poke through grass)
     };

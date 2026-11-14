@@ -47,6 +47,10 @@ namespace Engine {
         // A terrain's heights and paint ("Terrains/x.terrain"), cached until the file changes. Null if missing or unreadable.
         // The data is shared: copy it before changing it (the editor does, per stroke).
         std::shared_ptr<TerrainData> LoadTerrain(const std::string& path);
+        // A terrain layer's NormalMap / RoughnessMap / HeightMap packed into one linear RGBA texture (RG normal X / Y,
+        // B roughness, A height) at the largest of their sizes, cached by the paths, NormalFlipY and the files' times,
+        // so it is cheap to call every frame. Null if the layer names no map; missing files are left out (warned once).
+        std::shared_ptr<const TerrainSurfaceMaps> LoadTerrainSurface(const TerrainLayer& layer);
         // Write it (the editor's scene save) and remember it as that file's contents
         bool SaveTerrain(const std::string& path, const std::shared_ptr<TerrainData>& data);
         // An animation graph ("AnimGraphs/x.json"), cached until the file changes. Null if missing or unreadable.
@@ -75,6 +79,8 @@ namespace Engine {
         std::unordered_map<std::string, std::shared_ptr<Texture2D>> m_Textures;   // by path, for "texture:<path>"
         struct CachedTerrain { std::shared_ptr<TerrainData> Data; std::filesystem::file_time_type Stamp; };
         std::unordered_map<std::string, CachedTerrain> m_Terrains;                // by path
+        struct CachedSurface { std::shared_ptr<const TerrainSurfaceMaps> Data; std::filesystem::file_time_type Stamps[3]; };
+        std::unordered_map<std::string, CachedSurface> m_Surfaces;                // by the three paths + flip
         struct CachedGraph { std::shared_ptr<const AnimGraph> Data; std::filesystem::file_time_type Stamp; bool Live = false; };
         std::unordered_map<std::string, CachedGraph> m_Graphs;                    // by path
         std::shared_ptr<const GameDatabase> m_Database;

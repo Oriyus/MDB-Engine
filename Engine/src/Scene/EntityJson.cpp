@@ -132,9 +132,17 @@ namespace Engine {
         if (e.Has<TerrainComponent>()) {
             auto& t = e.Get<TerrainComponent>();
             json layers = json::array();
-            for (const auto& L : t.Layers)
-                layers.push_back({ { "texture", res.TextureName ? res.TextureName(L.Texture) : std::string() },
-                                   { "color", L.Color },{ "tiling", L.Tiling },{ "roughness", L.Roughness } });
+            for (const auto& L : t.Layers) {
+                json jl = { { "texture", res.TextureName ? res.TextureName(L.Texture) : std::string() },
+                            { "color", L.Color },{ "tiling", L.Tiling },{ "roughness", L.Roughness },
+                            { "variation", L.Variation } };
+                if (!L.NormalMap.empty()) jl["normalMap"] = L.NormalMap;
+                if (!L.RoughnessMap.empty()) jl["roughnessMap"] = L.RoughnessMap;
+                if (!L.HeightMap.empty()) jl["heightMap"] = L.HeightMap;
+                if (L.NormalStrength != 1.0f) jl["normalStrength"] = L.NormalStrength;
+                if (L.NormalFlipY) jl["normalFlipY"] = true;
+                layers.push_back(jl);
+            }
             j["terrain"] = { { "size", t.Size },{ "data", t.DataPath },{ "layers", layers },{ "blend", t.Blend },
                              { "castShadows", t.CastShadows },
                              { "resolution", t.Data ? t.Data->Resolution() : 129u } };
@@ -377,6 +385,13 @@ namespace Engine {
                     if (jl[i].contains("color")) L.Color = jl[i]["color"].get<glm::vec3>();
                     L.Tiling = jl[i].value("tiling", L.Tiling);
                     L.Roughness = jl[i].value("roughness", L.Roughness);
+                    L.Variation = jl[i].value("variation", L.Variation);
+                    L.NormalMap = jl[i].value("normalMap", std::string());
+                    L.RoughnessMap = jl[i].value("roughnessMap", std::string());
+                    L.HeightMap = jl[i].value("heightMap", std::string());
+                    L.NormalStrength = jl[i].value("normalStrength", 1.0f);
+                    L.NormalFlipY = jl[i].value("normalFlipY", false);
+                    L.Surface = res.LoadTerrainSurface ? res.LoadTerrainSurface(L) : nullptr;
                 }
             }
             // An entity being given the same terrain again (prefab sync, undo) keeps its data object

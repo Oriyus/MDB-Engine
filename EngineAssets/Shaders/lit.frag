@@ -36,33 +36,114 @@ uniform int  u_ViewMode;        // editor view mode: 0 rendered (never set by th
 // Terrain (Scene/Terrain.h): four layers blended by a weight map over the terrain (v_TexCoord 0..1 across it)
 uniform int       u_Terrain;            // 1: this batch is a terrain chunk
 uniform sampler2D u_TerrainSplat;       // unit 9: RGBA = weights of layers 0..3
-uniform sampler2D u_TerrainLayer0;      // units 10..13: each layer's texture (optional, repeating)
+uniform sampler2D u_TerrainLayer0;      // units 10..13: each layer's colour texture (optional, repeating)
 uniform sampler2D u_TerrainLayer1;
 uniform sampler2D u_TerrainLayer2;
 uniform sampler2D u_TerrainLayer3;
-uniform vec4  u_TerrainUseTex;          // per layer: 1 = textured
-uniform vec4  u_TerrainColor[4];        // rgb sRGB-style tint, a roughness
+uniform sampler2D u_TerrainSurface0;    // units 14..17: each layer's packed maps (optional, linear, same repeat):
+uniform sampler2D u_TerrainSurface1;    //   RG = normal X / Y (0..1, Z rebuilt), B = roughness, A = height
+uniform sampler2D u_TerrainSurface2;
+uniform sampler2D u_TerrainSurface3;
+uniform vec4  u_TerrainUseTex;          // per layer: 1 = has a colour texture
+uniform ivec4 u_TerrainMaps;            // per layer: which packed maps it has (1 normal, 2 roughness, 4 height)
+uniform vec4  u_TerrainNormalStrength;  // per layer: scales the normal map's tilt
+uniform vec4  u_TerrainColor[4];        // rgb sRGB-style tint, a roughness (times the roughness map)
 uniform vec4  u_TerrainTiling;          // per layer: metres per repeat
 uniform vec2  u_TerrainSize;            // the terrain's metres in X / Z
 uniform float u_TerrainBlend;           // 0 = plain weights, 1 = height blending
+uniform vec4  u_TerrainVariation;       // per layer: 0 = plain repeat, 1 = full stochastic (hex) tiling
 
-// The terrain's surface here: albedo (linear), its sRGB colour without textures (solid view) and roughness.
-// Height blending treats each texture's brightness as its height, so where layers meet, the higher one (stones,
-// thick grass) shows through first instead of a soft cross-fade.
-void TerrainSurface(vec2 uv, out vec3 albedo, out vec3 flatColor, out float rough) {
+// One layer at one point: its colour and its surface = tangent normal XY (in the terrain's UV axes, -1..1),
+// roughness factor (1 without a map) and height (the height map, else the colour's brightness; 0.5 without either)
+struct TerrainTap { vec4 color; vec4 surf; };
+
+TerrainTap TerrainFetch(sampler2D col, sampler2D surf, bool useCol, int maps, vec2 uv, vec2 dx, vec2 dy, mat2 rot) {
+    TerrainTap t;
+    vec2 gx = rot * dx, gy = rot * dy;
+    t.color = useCol ? textureGrad(col, uv, gx, gy) : vec4(1.0);
+    t.surf = vec4(0.0, 0.0, 1.0, useCol ? dot(t.color.rgb, vec3(0.2126, 0.7152, 0.0722)) : 0.5);
+    if (maps != 0) {
+        vec4 s = textureGrad(surf, uv, gx, gy);
+        if ((maps & 1) != 0) t.surf.xy = transpose(rot) * (s.rg * 2.0 - 1.0);   // back from the copy's turn
+        if ((maps & 2) != 0) t.surf.z = s.b;
+        if ((maps & 4) != 0) t.surf.w = s.a;
+    }
+    return t;
+}
+
+// ------------------------------------------------------------ stochastic tiling
+// Hex-tiling (Mikkelsen 2022, "Practical Real-Time Hex-Tiling"): the plane is covered by a triangle grid, and every
+// grid vertex owns a copy of the texture at a random offset and turn. A point takes the three copies of its
+// triangle's corners, weighted by its barycentrics sharpened (power 7) and by the copies' heights, so the seams
+// fall along the texture's own low parts instead of cross-fading into mush. Colour and maps use the same copies;
+// a copy's normal is turned back by its turn. The derivatives are the plain ones turned with each copy, so the
+// mip level is unchanged (no seams, no blur).
+uint TileHash(ivec2 v, uint seed) {
+    uint h = uint(v.x) * 0x8da6b343u ^ uint(v.y) * 0xd8163841u ^ seed * 0xcb1ab31fu;
+    h ^= h >> 16; h *= 0x7feb352du; h ^= h >> 15; h *= 0x846ca68bu; h ^= h >> 16;
+    return h;
+}
+vec3 TileRandom(ivec2 v, uint seed) {         // offset x, offset y, turn: 0..1
+    uint h = TileHash(v, seed);
+    return vec3(h & 0x3FFu, (h >> 10) & 0x3FFu, (h >> 20) & 0x3FFu) / 1023.0;
+}
+TerrainTap HexCopy(sampler2D col, sampler2D surf, bool useCol, int maps, vec2 st, vec2 dx, vec2 dy, ivec2 v,
+                   float amount, uint seed) {
+    vec3 r = TileRandom(v, seed);
+    float a = (r.z * 2.0 - 1.0) * 3.14159265 * amount;
+    mat2 rot = mat2(cos(a), sin(a), -sin(a), cos(a));
+    vec2 cen = vec2(float(v.x) + 0.5 * float(v.y), 0.8660254 * float(v.y)) / 3.4641016;   // the vertex in st
+    return TerrainFetch(col, surf, useCol, maps, rot * (st - cen) + cen + r.xy * amount, dx, dy, rot);
+}
+TerrainTap TerrainSample(sampler2D col, sampler2D surf, bool useCol, int maps, vec2 st, vec2 dx, vec2 dy,
+                         float amount, uint seed) {
+    if (amount <= 0.0) return TerrainFetch(col, surf, useCol, maps, st, dx, dy, mat2(1.0));
+    vec2 g = st * 3.4641016;                                  // 2 sqrt(3): about three hexes per repeat
+    vec2 skew = vec2(g.x - 0.57735027 * g.y, 1.15470054 * g.y);   // lattice (1, 0), (0.5, sqrt(3)/2) -> unit square
+    ivec2 base = ivec2(floor(skew));
+    vec2 f = fract(skew);
+    float z = 1.0 - f.x - f.y;
+    float s = step(0.0, -z), s2 = 2.0 * s - 1.0;
+    vec3 bw = vec3(-z * s2, s - f.y * s2, s - f.x * s2);
+    ivec2 v1 = base + ivec2(s, s), v2 = base + ivec2(s, 1.0 - s), v3 = base + ivec2(1.0 - s, s);
+    TerrainTap c1 = HexCopy(col, surf, useCol, maps, st, dx, dy, v1, amount, seed);
+    TerrainTap c2 = HexCopy(col, surf, useCol, maps, st, dx, dy, v2, amount, seed);
+    TerrainTap c3 = HexCopy(col, surf, useCol, maps, st, dx, dy, v3, amount, seed);
+    vec3 d = mix(vec3(1.0), vec3(c1.surf.w, c2.surf.w, c3.surf.w), 0.6);
+    vec3 w = d * pow(bw, vec3(7.0));
+    w /= max(w.x + w.y + w.z, 1e-6);
+    TerrainTap t;
+    t.color = w.x * c1.color + w.y * c2.color + w.z * c3.color;
+    t.surf  = w.x * c1.surf  + w.y * c2.surf  + w.z * c3.surf;
+    return t;
+}
+
+// The terrain's surface here: albedo (linear), its sRGB colour without textures (solid view), roughness and the
+// normal in tangent space (UV axes; (0, 0, 1) without normal maps). Height blending takes each layer's height
+// (its height map, else its colour's brightness), so where layers meet, the higher one (stones, thick grass) shows
+// through first instead of a soft cross-fade. A layer that isn't painted here is not sampled.
+void TerrainSurface(vec2 uv, out vec3 albedo, out vec3 flatColor, out float rough, out vec3 tanNormal) {
     vec4 w = texture(u_TerrainSplat, uv);
     float total = w.x + w.y + w.z + w.w;
     w = total > 1e-4 ? w / total : vec4(1.0, 0.0, 0.0, 0.0);
     vec2 p = uv * u_TerrainSize;                       // metres across the terrain
-    vec4 t0 = u_TerrainUseTex.x > 0.5 ? texture(u_TerrainLayer0, p / u_TerrainTiling.x) : vec4(1.0);
-    vec4 t1 = u_TerrainUseTex.y > 0.5 ? texture(u_TerrainLayer1, p / u_TerrainTiling.y) : vec4(1.0);
-    vec4 t2 = u_TerrainUseTex.z > 0.5 ? texture(u_TerrainLayer2, p / u_TerrainTiling.z) : vec4(1.0);
-    vec4 t3 = u_TerrainUseTex.w > 0.5 ? texture(u_TerrainLayer3, p / u_TerrainTiling.w) : vec4(1.0);
+    vec2 px = dFdx(p), py = dFdy(p);                   // taken here, before the per-layer branches
+    vec4 inv = 1.0 / u_TerrainTiling;
+    vec4 painted = step(1e-3, w);
+    bvec4 useTex = greaterThan(u_TerrainUseTex, vec4(0.5));
+    TerrainTap none = TerrainTap(vec4(1.0), vec4(0.0, 0.0, 1.0, 0.5));
+    TerrainTap t0 = none, t1 = none, t2 = none, t3 = none;
+    if (painted.x > 0.5 && (useTex.x || u_TerrainMaps.x != 0))
+        t0 = TerrainSample(u_TerrainLayer0, u_TerrainSurface0, useTex.x, u_TerrainMaps.x, p * inv.x, px * inv.x, py * inv.x, u_TerrainVariation.x, 1u);
+    if (painted.y > 0.5 && (useTex.y || u_TerrainMaps.y != 0))
+        t1 = TerrainSample(u_TerrainLayer1, u_TerrainSurface1, useTex.y, u_TerrainMaps.y, p * inv.y, px * inv.y, py * inv.y, u_TerrainVariation.y, 2u);
+    if (painted.z > 0.5 && (useTex.z || u_TerrainMaps.z != 0))
+        t2 = TerrainSample(u_TerrainLayer2, u_TerrainSurface2, useTex.z, u_TerrainMaps.z, p * inv.z, px * inv.z, py * inv.z, u_TerrainVariation.z, 3u);
+    if (painted.w > 0.5 && (useTex.w || u_TerrainMaps.w != 0))
+        t3 = TerrainSample(u_TerrainLayer3, u_TerrainSurface3, useTex.w, u_TerrainMaps.w, p * inv.w, px * inv.w, py * inv.w, u_TerrainVariation.w, 4u);
     if (u_TerrainBlend > 0.0) {
-        const vec3 lum = vec3(0.2126, 0.7152, 0.0722);
-        vec4 h = vec4(dot(t0.rgb, lum), dot(t1.rgb, lum), dot(t2.rgb, lum), dot(t3.rgb, lum));
-        h = mix(vec4(0.5), h, u_TerrainUseTex);           // untextured layers are level
-        vec4 c = w + h * 0.6 * step(1e-3, w);              // a layer that isn't painted here never shows
+        vec4 h = vec4(t0.surf.w, t1.surf.w, t2.surf.w, t3.surf.w);
+        vec4 c = w + h * 0.6 * painted;                    // a layer that isn't painted here never shows
         float top = max(max(c.x, c.y), max(c.z, c.w)) - 0.15;
         vec4 b = max(c - top, 0.0);
         b /= max(b.x + b.y + b.z + b.w, 1e-4);
@@ -70,9 +151,16 @@ void TerrainSurface(vec2 uv, out vec3 albedo, out vec3 flatColor, out float roug
     }
     vec3 c0 = pow(u_TerrainColor[0].rgb, vec3(2.2)), c1 = pow(u_TerrainColor[1].rgb, vec3(2.2));
     vec3 c2 = pow(u_TerrainColor[2].rgb, vec3(2.2)), c3 = pow(u_TerrainColor[3].rgb, vec3(2.2));
-    albedo = c0 * t0.rgb * w.x + c1 * t1.rgb * w.y + c2 * t2.rgb * w.z + c3 * t3.rgb * w.w;
+    albedo = c0 * t0.color.rgb * w.x + c1 * t1.color.rgb * w.y + c2 * t2.color.rgb * w.z + c3 * t3.color.rgb * w.w;
     flatColor = u_TerrainColor[0].rgb * w.x + u_TerrainColor[1].rgb * w.y + u_TerrainColor[2].rgb * w.z + u_TerrainColor[3].rgb * w.w;
-    rough = dot(w, vec4(u_TerrainColor[0].a, u_TerrainColor[1].a, u_TerrainColor[2].a, u_TerrainColor[3].a));
+    rough = dot(w, vec4(u_TerrainColor[0].a * t0.surf.z, u_TerrainColor[1].a * t1.surf.z,
+                        u_TerrainColor[2].a * t2.surf.z, u_TerrainColor[3].a * t3.surf.z));
+    // Normals: each layer's tilt scaled by its strength, Z rebuilt, blended by the final weights
+    vec4 k = u_TerrainNormalStrength;
+    vec2 n0 = t0.surf.xy * k.x, n1 = t1.surf.xy * k.y, n2 = t2.surf.xy * k.z, n3 = t3.surf.xy * k.w;
+    tanNormal = w.x * vec3(n0, sqrt(max(1.0 - dot(n0, n0), 0.0))) + w.y * vec3(n1, sqrt(max(1.0 - dot(n1, n1), 0.0)))
+              + w.z * vec3(n2, sqrt(max(1.0 - dot(n2, n2), 0.0))) + w.w * vec3(n3, sqrt(max(1.0 - dot(n3, n3), 0.0)));
+    tanNormal = normalize(tanNormal);
 }
 
 
@@ -278,7 +366,9 @@ void main() {
     if (!blend) alpha = 1.0;
     vec3 terrainFlat = vec3(1.0);
     float terrainRough = -1.0;
-    if (u_Terrain == 1) TerrainSurface(v_TexCoord, albedo, terrainFlat, terrainRough);
+    vec3 terrainN = vec3(0.0, 0.0, 1.0);                     // tangent space (the terrain's UV axes)
+    bool terrainNormals = u_Terrain == 1 && any(notEqual(u_TerrainMaps & 1, ivec4(0)));
+    if (u_Terrain == 1) TerrainSurface(v_TexCoord, albedo, terrainFlat, terrainRough, terrainN);
 
     // Editor view modes (SceneRenderer::ViewMode): 1 solid (colour only), 2 textured. A simple studio light
     // that follows the camera, no shadows or environment. 0 (rendered, the default) is the full shading below.
@@ -288,6 +378,7 @@ void main() {
         if (u_Terrain == 1) c = u_ViewMode == 2 ? albedo : pow(terrainFlat, vec3(2.2));
         if (v_Unlit == 0) {
             vec3 N = normalize(v_Normal);
+            if (terrainNormals && u_ViewMode == 2) N = PerturbNormal(N, v_WorldPos, v_TexCoord, terrainN);
             if (!gl_FrontFacing) N = -N;                         // grass is drawn without culling
             vec3 V = normalize(u_ViewPos - v_WorldPos);
             vec3 L = normalize(V + vec3(0.25, 0.9, 0.1));         // from above the camera
@@ -321,6 +412,7 @@ void main() {
         vec3 m = texture(u_NormalMap, v_TexCoord).xyz * 2.0 - 1.0;
         N = PerturbNormal(Ng, v_WorldPos, v_TexCoord, m);
     }
+    if (terrainNormals) N = PerturbNormal(Ng, v_WorldPos, v_TexCoord, terrainN);
 
     vec3 V = normalize(u_ViewPos - v_WorldPos);
     // 4% reflectance for non-metals, scaled by the specular factor (0 = no reflections or highlights at all:

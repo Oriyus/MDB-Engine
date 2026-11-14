@@ -727,7 +727,7 @@ namespace Engine {
                 field.Scattered = true;
             }
             if (update) { PROFILE_SCOPE("Trample"); I.UpdateTrample(field, f, world, dt); }
-            if (field.Chunks.empty()) continue;
+            if (field.Chunks.empty() || scene.IsEditorHidden(e)) continue;   // hidden with the Hierarchy's eye
 
             const float a = glm::radians(f.WindDirection);
             const float fadeEnd = std::max(f.DrawDistance, 1.0f), fadeStart = fadeEnd * 0.5f;

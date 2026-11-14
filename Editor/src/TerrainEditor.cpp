@@ -14,6 +14,7 @@
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/quaternion.hpp>
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <map>
@@ -28,6 +29,74 @@ namespace {
         if (s.empty()) s = "scene";
         for (char& c : s) if (c == ' ') c = '_';
         return s;
+    }
+
+    // An image under Assets for a terrain layer map: a combo of the images in Assets/Textures, plus drops from the
+    // Assets panel. Returns true when it changed.
+    bool MapPicker(const char* id, const char* what, std::string& path, const std::string& assetDir) {
+        bool changed = false;
+        ImGui::PushID(id);
+        const float clearW = path.empty() ? 0.0f : ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x;
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - clearW);
+        const std::string preview = path.empty() ? std::string("(no ") + what + " map)" : path;
+        if (ImGui::BeginCombo("##map", preview.c_str())) {
+            if (ImGui::Selectable("(none)", path.empty())) { path.clear(); changed = true; }
+            std::error_code ec;
+            for (const auto& file : std::filesystem::recursive_directory_iterator(std::filesystem::u8path(assetDir) / "Textures", ec)) {
+                if (!file.is_regular_file()) continue;
+                const std::string rel = std::filesystem::relative(file.path(), std::filesystem::u8path(assetDir), ec).generic_string();
+                if (AssetBrowser::KindOf(rel) != AssetBrowser::Kind::Texture) continue;
+                if (ImGui::Selectable(rel.c_str(), path == rel)) { path = rel; changed = true; }
+            }
+            ImGui::EndCombo();
+        }
+        if (auto drop = AssetBrowser::AcceptDrop({ AssetBrowser::Kind::Texture }); !drop.empty()) { path = drop; changed = true; }
+        ImGui::SetItemTooltip("%s map: %s", what, path.empty() ? "none (choose an image or drop one from Assets)" : path.c_str());
+        if (!path.empty()) {
+            ImGui::SameLine();
+            if (ImGui::Button("x", ImVec2(ImGui::GetFrameHeight(), 0))) { path.clear(); changed = true; }
+            ImGui::SetItemTooltip("Remove the %s map", what);
+        }
+        ImGui::PopID();
+        return changed;
+    }
+
+    // Look next to a layer's colour texture for its other maps, by the usual name endings ("rock_diff.jpg" ->
+    // "rock_nor_gl.png", "rock_rough.jpg", "rock_disp.png"). Fills only what it finds; returns how many it found.
+    int FindLayerMaps(TerrainLayer& L, const std::string& colourPath, const std::string& assetDir) {
+        namespace fs = std::filesystem;
+        auto lower = [](std::string s) { for (char& c : s) c = (char)std::tolower((unsigned char)c); return s; };
+        const fs::path colour = fs::u8path(colourPath);
+        std::string base = lower(colour.stem().string());
+        for (const char* suffix : { "_basecolor", "_base_color", "_albedo", "_diffuse", "_diff", "_color", "_colour", "_col" }) {
+            const std::string s = suffix;
+            if (base.size() > s.size() && base.compare(base.size() - s.size(), s.size(), s) == 0) { base.resize(base.size() - s.size()); break; }
+        }
+        struct Rule { const char* Ends[6]; };
+        const Rule normal{ { "_nor_gl", "_normal_gl", "_normal", "_nrm", "_nor", "_n" } };
+        const Rule rough { { "_roughness", "_rough", "_rgh", "_r", nullptr, nullptr } };
+        const Rule height{ { "_height", "_displacement", "_disp", "_bump", "_h", nullptr } };
+        std::string found[3];
+        bool directX = false;
+        std::error_code ec;
+        for (const auto& file : fs::directory_iterator(fs::u8path(assetDir) / colour.parent_path(), ec)) {
+            if (!file.is_regular_file()) continue;
+            const std::string rel = fs::relative(file.path(), fs::u8path(assetDir), ec).generic_string();
+            if (AssetBrowser::KindOf(rel) != AssetBrowser::Kind::Texture) continue;
+            const std::string stem = lower(file.path().stem().string());
+            if (stem.rfind(base, 0) != 0) continue;
+            const std::string rest = stem.substr(base.size());
+            const Rule* rules[3] = { &normal, &rough, &height };
+            for (int k = 0; k < 3; k++)
+                for (const char* e : rules[k]->Ends)
+                    if (e && rest == e && found[k].empty()) found[k] = rel;
+            if (found[0].empty() && (rest == "_nor_dx" || rest == "_normal_dx")) { found[0] = rel; directX = true; }
+        }
+        int n = 0;
+        if (!found[0].empty()) { L.NormalMap = found[0]; L.NormalFlipY = directX; n++; }
+        if (!found[1].empty()) { if (L.RoughnessMap.empty()) L.Roughness = 1.0f; L.RoughnessMap = found[1]; n++; }
+        if (!found[2].empty()) { L.HeightMap = found[2]; n++; }
+        return n;
     }
 
     // A small toggle button (highlighted while on)
@@ -286,6 +355,44 @@ void TerrainEditor::DrawInspector(Scene& scene, entt::entity entity, ResourceLib
         ImGui::SameLine();
         ImGui::SetNextItemWidth(-FLT_MIN);
         ImGui::SliderFloat("##rough", &L.Roughness, 0.04f, 1.0f, "roughness %.2f");
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::SliderFloat("##variation", &L.Variation, 0.0f, 1.0f, "variation %.2f");
+        ImGui::SetItemTooltip("Stochastic tiling: the texture is laid as randomly shifted and turned copies, blended\n"
+                              "along its own dark lines, so the repeat stops showing across big areas (3 samples).\n"
+                              "0: a plain repeat. Lower it for textures with a direction (rows, light from one side).");
+        // Normal / roughness / height maps, packed into one texture by the resource library (cached; re-read when a
+        // file changes, checked here every frame while the terrain is selected)
+        const int mapCount = !L.NormalMap.empty() + !L.RoughnessMap.empty() + !L.HeightMap.empty();
+        const std::string mapsLabel = mapCount ? "Maps (" + std::to_string(mapCount) + ")###maps" : std::string("Maps###maps");
+        if (ImGui::TreeNodeEx(mapsLabel.c_str(), ImGuiTreeNodeFlags_SpanAvailWidth)) {
+            MapPicker("normal", "normal", L.NormalMap, assetDir);
+            if (!L.NormalMap.empty()) {
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
+                ImGui::SliderFloat("##nstrength", &L.NormalStrength, 0.0f, 2.0f, "normal strength %.2f");
+                ImGui::SameLine();
+                ImGui::Checkbox("DirectX", &L.NormalFlipY);
+                ImGui::SetItemTooltip("The map's green channel points down the image (DirectX / Unreal style, files\n"
+                                      "often named _nor_dx). Off: OpenGL style (_nor_gl, Blender, Godot, Unity).");
+            }
+            const bool hadRough = !L.RoughnessMap.empty();
+            if (MapPicker("rough", "roughness", L.RoughnessMap, assetDir) && !hadRough && !L.RoughnessMap.empty())
+                L.Roughness = 1.0f;                       // the slider multiplies the map: start from the map as it is
+            MapPicker("height", "height", L.HeightMap, assetDir);
+            ImGui::BeginDisabled(!L.Texture);
+            if (ImGui::Button("Find maps next to the texture")) {
+                std::string colour = L.Texture ? registry.TextureName(L.Texture) : "";
+                if (colour.rfind("texture:", 0) == 0) colour = colour.substr(8);
+                if (!colour.empty()) FindLayerMaps(L, colour, assetDir);
+            }
+            ImGui::EndDisabled();
+            ImGui::SetItemTooltip("Fill the maps from images beside the colour texture with the same name and the\n"
+                                  "usual endings: _normal / _nor_gl / _nor_dx / _nrm, _roughness / _rough,\n"
+                                  "_height / _disp / _displacement.");
+            ImGui::TextDisabled("Roughness map x the roughness slider. Height drives the height blend\n"
+                                "and the stochastic seams (else the colour's brightness).");
+            ImGui::TreePop();
+        }
+        L.Surface = resources.LoadTerrainSurface(L);
         ImGui::Unindent(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x);
         ImGui::PopID();
     }
