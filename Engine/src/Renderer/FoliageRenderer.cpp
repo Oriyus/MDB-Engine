@@ -1,4 +1,5 @@
 #include "Renderer/FoliageRenderer.h"
+#include "Core/Parallel.h"
 #include "Renderer/Mesh.h"
 #include "Renderer/Shader.h"
 #include "Renderer/Camera.h"
@@ -286,13 +287,20 @@ namespace Engine {
             if (o.HullValid && o.HullKey == key) return !o.Floats;
             static thread_local std::vector<glm::vec2> pts;
             pts.clear();
-            for (const glm::vec3& v : PointsOf(o.Geometry)) {
-                const glm::vec3 w = glm::vec3(o.World * glm::vec4(v, 1.0f));
-                if (Terrains.empty()) {
-                    if (w.y > plane + 0.35f || w.y < plane - 0.5f) continue;
-                }
-                else {
-                    if (w.y > TerrainMaxY + 0.35f && w.y > plane + 0.35f) continue;   // far above any ground: skip the lookup
+            // Read-only lookup (Scatter runs this on several threads): PointsOf has filled the entry already
+            const auto cached = PointCache.find(o.Geometry.get());
+            static const std::vector<glm::vec3> none;
+            const std::vector<glm::vec3>& points = cached != PointCache.end() ? cached->second.P : none;
+            const glm::mat4& M = o.World;
+            for (const glm::vec3& v : points) {
+                // y first: most of a tree is far above the ground band, so x and z are often never needed
+                // (summed in the order glm's mat4 * vec4 uses, so the hull is exactly what it was)
+                const float wy = (M[0][1] * v.x + M[1][1] * v.y) + (M[2][1] * v.z + M[3][1]);
+                if (Terrains.empty() ? (wy > plane + 0.35f || wy < plane - 0.5f)
+                                     : (wy > TerrainMaxY + 0.35f && wy > plane + 0.35f)) continue;   // far above any ground: skip the lookup
+                const glm::vec3 w((M[0][0] * v.x + M[1][0] * v.y) + (M[2][0] * v.z + M[3][0]), wy,
+                                  (M[0][2] * v.x + M[1][2] * v.y) + (M[2][2] * v.z + M[3][2]));
+                if (!Terrains.empty()) {
                     const float g = GroundAt(w.x, w.z, plane);
                     if (w.y > g + 0.35f || w.y < g - 0.5f) continue;
                 }
@@ -463,6 +471,7 @@ namespace Engine {
                 uint32_t planeBits;
                 std::memcpy(&planeBits, &plane, 4);
                 key ^= planeBits;
+                std::vector<Obstacle*> candidates, stale;
                 for (Obstacle& o : Obstacles) {
                     const Box& b = o.Bounds;
                     if (!overlaps(glm::vec2(b.Min.x, b.Min.z) - 1.0f, glm::vec2(b.Max.x, b.Max.z) + 1.0f)) continue;
@@ -470,7 +479,17 @@ namespace Engine {
                     // ground under its middle
                     const float g = Terrains.empty() ? plane : GroundAt((b.Min.x + b.Max.x) * 0.5f, (b.Min.z + b.Max.z) * 0.5f, plane);
                     if (b.Max.y <= g + 0.03f || b.Min.y >= g + 1.0f) continue;
-                    if (!Footprint(o, plane, key)) continue;
+                    candidates.push_back(&o);
+                    if (!(o.HullValid && o.HullKey == key)) { PointsOf(o.Geometry); stale.push_back(&o); }   // the cache isn't thread-safe: fill it here
+                }
+                // Footprints are independent (each obstacle its own hull): worked out on several threads
+                // (the village forest: 240k vertices, 100 ms on one thread in Debug)
+                ParallelFor(stale.size(), ParallelParts(stale.size(), 8), [&](size_t, size_t begin, size_t end) {
+                    for (size_t i = begin; i < end; i++) Footprint(*stale[i], plane, key);
+                });
+                for (Obstacle* op : candidates) {
+                    Obstacle& o = *op;
+                    if (!Footprint(o, plane, key)) continue;   // cached now
                     Region r;
                     r.Hull = &o.Hull;
                     r.Margin = 0.05f + o.Margin;
@@ -521,76 +540,158 @@ namespace Engine {
                                                 { 0.42f, 0.56f, 0.95f }, { 0.90f, 0.42f, 0.38f } };
             Rng rng(f.Seed);
             const bool useTerrain = !Terrains.empty() && (f.FollowTerrain || f.TerrainLayer >= 0);
-            std::vector<std::vector<Clump>> lists(size_t(cx) * cz * 2);
-            float maxHeight = 0.0f;
-            for (int iz = 0; iz < nz; iz++) {
-                for (int ix = 0; ix < nx; ix++) {
-                    // every random number is drawn whether or not the clump is kept: the rest stay where they were
-                    const float jx = rng.F(), jz = rng.F(), rh = rng.F(), rw = rng.F(), rr = rng.F(), rp = rng.F(),
-                        rb = rng.F(), rt = rng.F(), rd = rng.F(), rf = rng.F(), rc = rng.F();
-                    const float lx = -size.x * 0.5f + (ix + jx) * cell, lz = -size.y * 0.5f + (iz + jz) * cell;
-                    if (lx > size.x * 0.5f || lz > size.y * 0.5f) continue;
-                    glm::vec3 p = glm::vec3(world * glm::vec4(lx, 0.0f, lz, 1.0f));
-                    if (useTerrain) {
-                        float ty;
-                        glm::vec4 w;
-                        const bool on = TerrainAt(p, ty, w);
-                        if (f.TerrainLayer >= 0) {
-                            // Only where that layer is painted: the share of its paint decides, so edges thin out
-                            const float share = on ? glm::smoothstep(0.15f, 0.75f, w[std::min(f.TerrainLayer, 3)]) : 0.0f;
-                            if (Hash2(ix, iz, f.Seed * 7919u + 13u) >= share) continue;
-                        }
-                        if (on && f.FollowTerrain) p.y = ty;
-                    }
-                    if (!near.empty()) {
-                        const int b = std::clamp((int)((lz + size.y * 0.5f) / bucket), 0, bz - 1) * bx +
-                                      std::clamp((int)((lx + size.x * 0.5f) / bucket), 0, bx - 1);
-                        bool blocked = false;
-                        const float rnd = Hash2(ix, iz, f.Seed * 31u + 7u);   // fixed per spot: soft edges stay put
-                        for (uint32_t i : buckets[b]) {
-                            const Region& r = near[i];
-                            if (p.x < r.Min.x || p.x > r.Max.x || p.z < r.Min.y || p.z > r.Max.y) continue;
-                            if (r.Blocks(p, rnd)) { blocked = true; break; }
-                        }
-                        if (blocked) continue;
-                    }
-                    const bool flower = rf < f.FlowerAmount;
-                    Clump c;
-                    const float height = std::max(0.05f, f.Height * (1.0f + (rh * 2.0f - 1.0f) * f.HeightVariation)) * (flower ? 1.15f : 1.0f);
-                    maxHeight = std::max(maxHeight, height);
-                    c.PosRot = glm::vec4(p, rr * 6.2832f);
-                    c.Params = glm::vec4(height, f.Width * (0.85f + 0.3f * rw), rp * 6.2832f, 0.0f);
-                    const float bright = 0.85f + 0.27f * rb, warm = rt * 2.0f - 1.0f;
-                    const float n = ValueNoise(glm::vec2(p.x, p.z) * 0.11f, f.Seed) * 0.75f + rd * 0.25f;
-                    const float t = 1.0f - f.DryAmount;
-                    const float dry = glm::smoothstep(t - 0.12f, t + 0.12f, n);
-                    c.Color = glm::vec4(bright * (1.0f + warm * 0.06f), bright, bright * (1.0f - warm * 0.08f), dry);
-                    c.Flower = glm::vec4(petals[std::min(4, (int)(rc * 5.0f))], 0.0f);
-                    const int chx = std::clamp((int)((lx + size.x * 0.5f) / kChunk), 0, cx - 1);
-                    const int chz = std::clamp((int)((lz + size.y * 0.5f) / kChunk), 0, cz - 1);
-                    lists[(size_t(chz) * cx + chx) * 2 + (flower ? 1 : 0)].push_back(c);
+            // Every random number is drawn whether or not the clump is kept, so the rest stay where they were. They
+            // are drawn here in order, one row after another, and the rows are then worked on several threads (the
+            // village's forest floor: 122k spots, 110 ms on one thread in Debug); the parts' results are joined in row
+            // order, so the result is exactly the single-threaded one.
+            constexpr int kDraws = 11;
+            std::vector<float> draws(size_t(nx) * nz * kDraws);
+            {
+                // Rng::F with the state in a local (the same numbers; a member access per step is slow in Debug)
+                uint64_t s = rng.S;
+                float* d = draws.data();
+                for (size_t i = 0, n = draws.size(); i < n; i++) {
+                    s ^= s >> 12; s ^= s << 25; s ^= s >> 27;
+                    d[i] = ((uint32_t)((s * 0x2545F4914F6CDD1Dull) >> 32) >> 8) * (1.0f / 16777216.0f);
                 }
+                rng.S = s;
             }
+            // A lane is one chunk's grass (2 i) or flowers (2 i + 1). Each part writes its clumps into one flat array
+            // with their lanes, kept in locals while it runs (the parts' vectors side by side in memory made every
+            // push_back fight over shared cache lines)
+            const size_t lanes = size_t(cx) * cz * 2;
+            const size_t parts = ParallelParts((size_t)nz, 16);
+            struct PartOut { std::vector<Clump> Clumps; std::vector<uint32_t> Lane, Count; float MaxHeight = 0.0f; };
+            std::vector<PartOut> partOut(parts);
+            ParallelFor((size_t)nz, parts, [&](size_t part, size_t rowBegin, size_t rowEnd) {
+                PartOut out;
+                out.Clumps.reserve((rowEnd - rowBegin) * nx);
+                out.Lane.reserve((rowEnd - rowBegin) * nx);
+                out.Count.assign(lanes, 0);
+                float maxHeight = 0.0f;
+                for (int iz = (int)rowBegin; iz < (int)rowEnd; iz++) {
+                    for (int ix = 0; ix < nx; ix++) {
+                        const float* d = draws.data() + (size_t(iz) * nx + ix) * kDraws;
+                        const float jx = d[0], jz = d[1], rh = d[2], rw = d[3], rr = d[4], rp = d[5],
+                            rb = d[6], rt = d[7], rd = d[8], rf = d[9], rc = d[10];
+                        const float lx = -size.x * 0.5f + (ix + jx) * cell, lz = -size.y * 0.5f + (iz + jz) * cell;
+                        if (lx > size.x * 0.5f || lz > size.y * 0.5f) continue;
+                        glm::vec3 p = glm::vec3(world * glm::vec4(lx, 0.0f, lz, 1.0f));
+                        if (useTerrain) {
+                            float ty;
+                            glm::vec4 w;
+                            const bool on = TerrainAt(p, ty, w);
+                            if (f.TerrainLayer >= 0) {
+                                // Only where that layer is painted: the share of its paint decides, so edges thin out
+                                const float share = on ? glm::smoothstep(0.15f, 0.75f, w[std::min(f.TerrainLayer, 3)]) : 0.0f;
+                                if (Hash2(ix, iz, f.Seed * 7919u + 13u) >= share) continue;
+                            }
+                            if (on && f.FollowTerrain) p.y = ty;
+                        }
+                        if (!near.empty()) {
+                            const int b = std::clamp((int)((lz + size.y * 0.5f) / bucket), 0, bz - 1) * bx +
+                                          std::clamp((int)((lx + size.x * 0.5f) / bucket), 0, bx - 1);
+                            bool blocked = false;
+                            const float rnd = Hash2(ix, iz, f.Seed * 31u + 7u);   // fixed per spot: soft edges stay put
+                            // Raw pointers, not a range-for: Debug's checked iterators register with their
+                            // container under one global lock, which kept the threads waiting on each other
+                            const std::vector<uint32_t>& ids = buckets[b];
+                            const uint32_t* id = ids.data();
+                            const Region* regions = near.data();
+                            for (size_t q = 0, nq = ids.size(); q < nq; q++) {
+                                const Region& r = regions[id[q]];
+                                if (p.x < r.Min.x || p.x > r.Max.x || p.z < r.Min.y || p.z > r.Max.y) continue;
+                                if (r.Blocks(p, rnd)) { blocked = true; break; }
+                            }
+                            if (blocked) continue;
+                        }
+                        const bool flower = rf < f.FlowerAmount;
+                        Clump c;
+                        const float height = std::max(0.05f, f.Height * (1.0f + (rh * 2.0f - 1.0f) * f.HeightVariation)) * (flower ? 1.15f : 1.0f);
+                        maxHeight = std::max(maxHeight, height);
+                        c.PosRot = glm::vec4(p, rr * 6.2832f);
+                        c.Params = glm::vec4(height, f.Width * (0.85f + 0.3f * rw), rp * 6.2832f, 0.0f);
+                        const float bright = 0.85f + 0.27f * rb, warm = rt * 2.0f - 1.0f;
+                        const float n = ValueNoise(glm::vec2(p.x, p.z) * 0.11f, f.Seed) * 0.75f + rd * 0.25f;
+                        const float t = 1.0f - f.DryAmount;
+                        const float dry = glm::smoothstep(t - 0.12f, t + 0.12f, n);
+                        c.Color = glm::vec4(bright * (1.0f + warm * 0.06f), bright, bright * (1.0f - warm * 0.08f), dry);
+                        c.Flower = glm::vec4(petals[std::min(4, (int)(rc * 5.0f))], 0.0f);
+                        const int chx = std::clamp((int)((lx + size.x * 0.5f) / kChunk), 0, cx - 1);
+                        const int chz = std::clamp((int)((lz + size.y * 0.5f) / kChunk), 0, cz - 1);
+                        const uint32_t lane = (uint32_t)((size_t(chz) * cx + chx) * 2 + (flower ? 1 : 0));
+                        out.Clumps.push_back(c);
+                        out.Lane.push_back(lane);
+                        out.Count[lane]++;
+                    }
+                }
+                out.MaxHeight = maxHeight;
+                partOut[part] = std::move(out);
+            });
 
-            // Each chunk: its grass, then its flowers, each shuffled and ranked (a draw takes the first n: distance thinning)
-            std::vector<Clump> all;
+            // Group by lane (lanes in order, each lane's clumps in row order: what one thread would have made).
+            // Every part knows where its share of each lane starts, so the parts copy at the same time.
+            float maxHeight = 0.0f;
+            std::vector<uint32_t> first(lanes + 1, 0);
+            for (const PartOut& out : partOut) {
+                maxHeight = std::max(maxHeight, out.MaxHeight);
+                for (size_t i = 0; i < lanes; i++) first[i + 1] += out.Count[i];
+            }
+            for (size_t i = 0; i < lanes; i++) first[i + 1] += first[i];
+            const size_t total = first[lanes];
+            std::vector<Clump> all(total);
+            {
+                std::vector<std::vector<uint32_t>> cursors(parts);
+                std::vector<uint32_t> next(first.begin(), first.end() - 1);
+                for (size_t k = 0; k < parts; k++) {
+                    cursors[k] = next;
+                    for (size_t i = 0; i < lanes; i++) next[i] += partOut[k].Count[i];
+                }
+                ParallelFor(parts, parts, [&](size_t k, size_t, size_t) {
+                    uint32_t* cursor = cursors[k].data();
+                    const PartOut& out = partOut[k];
+                    const Clump* src = out.Clumps.data();
+                    const uint32_t* lane = out.Lane.data();
+                    Clump* dst = all.data();
+                    for (size_t j = 0, n = out.Clumps.size(); j < n; j++) dst[cursor[lane[j]]++] = src[j];
+                });
+            }
+            partOut.clear();
+
+            // Each chunk: its grass, then its flowers, each shuffled and ranked (a draw takes the first n: distance
+            // thinning). The shuffles' random numbers are drawn here in lane order; the lanes are then shuffled on
+            // several threads.
+            std::vector<uint32_t> swaps(total);
+            for (size_t lane = 0; lane < lanes; lane++) {
+                const size_t n = first[lane + 1] - first[lane];
+                for (size_t k = n; k > 1; k--) swaps[first[lane] + k - 1] = (uint32_t)(rng.Next() % k);
+            }
+            std::vector<glm::vec3> laneMin(lanes, glm::vec3(1e30f)), laneMax(lanes, glm::vec3(-1e30f));
+            ParallelFor(lanes, ParallelParts(lanes, 8), [&](size_t, size_t begin, size_t end) {
+                for (size_t lane = begin; lane < end; lane++) {
+                    Clump* list = all.data() + first[lane];
+                    const size_t n = first[lane + 1] - first[lane];
+                    for (size_t k = n; k > 1; k--) std::swap(list[k - 1], list[swaps[first[lane] + k - 1]]);
+                    glm::vec3 mn(1e30f), mx(-1e30f);
+                    for (size_t k = 0; k < n; k++) {
+                        list[k].Params.w = (k + 0.5f) / n;
+                        mn = glm::min(mn, glm::vec3(list[k].PosRot));
+                        mx = glm::max(mx, glm::vec3(list[k].PosRot));
+                    }
+                    laneMin[lane] = mn;
+                    laneMax[lane] = mx;
+                }
+            });
             field.Chunks.clear();
             for (int i = 0; i < cx * cz; i++) {
                 Chunk ch;
-                glm::vec3 mn(1e30f), mx(-1e30f);
                 for (int kind = 0; kind < 2; kind++) {
-                    auto& list = lists[size_t(i) * 2 + kind];
-                    for (size_t k = list.size(); k > 1; k--) std::swap(list[k - 1], list[rng.Next() % k]);
-                    ch.First[kind] = (uint32_t)all.size();
-                    ch.Count[kind] = (uint32_t)list.size();
-                    for (size_t k = 0; k < list.size(); k++) {
-                        list[k].Params.w = (k + 0.5f) / list.size();
-                        mn = glm::min(mn, glm::vec3(list[k].PosRot));
-                        mx = glm::max(mx, glm::vec3(list[k].PosRot));
-                        all.push_back(list[k]);
-                    }
+                    ch.First[kind] = first[size_t(i) * 2 + kind];
+                    ch.Count[kind] = first[size_t(i) * 2 + kind + 1] - first[size_t(i) * 2 + kind];
                 }
                 if (ch.Count[0] + ch.Count[1] == 0) continue;
+                const glm::vec3 mn = glm::min(laneMin[size_t(i) * 2], laneMin[size_t(i) * 2 + 1]);
+                const glm::vec3 mx = glm::max(laneMax[size_t(i) * 2], laneMax[size_t(i) * 2 + 1]);
                 ch.Min = mn - glm::vec3(0.6f, 0.1f, 0.6f);         // blades lean and bend beyond their roots
                 ch.Max = mx + glm::vec3(0.6f, maxHeight * 1.2f + 0.1f, 0.6f);
                 field.Chunks.push_back(ch);

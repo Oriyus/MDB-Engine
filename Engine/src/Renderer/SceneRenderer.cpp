@@ -324,6 +324,7 @@ namespace Engine {
                 ENGINE_WARN("Environment '{}' could not be loaded, using the procedural sky", EnvRequested);
                 Env->UseProcedural();
             }
+            Splash::Status("Drawing the first frame");   // the rest of it (grass scatter, leaf mipmaps), apart from the bake
         }
     };
 
@@ -364,7 +365,8 @@ namespace Engine {
         I.SelectMask->QuietMissing = true;
 
         I.Env = std::make_unique<Environment>(engineDir + "Shaders/");
-        I.Env->UseProcedural();
+        I.EnvPending = true;      // the procedural sky, baked by the first Render, unless a scene asks for another first
+                                  // (baking it here was thrown away by every scene with a sky map: about 35 ms at start)
 
         I.PointShadows = std::make_unique<PointShadowArray>(1024);
         I.SunShadow = std::make_unique<DirectionalShadowMap>(2048);

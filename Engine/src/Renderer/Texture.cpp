@@ -6,6 +6,7 @@
 #include <stb_image.h>
 #include <algorithm>
 #include <cmath>
+#include <chrono>
 
 namespace Engine {
 
@@ -88,43 +89,65 @@ namespace Engine {
             tables = true;
         }
 
+        // The loops below work through raw pointers: in Debug, std::vector's checked operator[] made this about
+        // 100 ms per 1024^2 texture, run while the first frame is built (the village has two)
         uint32_t w = m_Width, h = m_Height;
-        std::vector<float> rgb(size_t(w) * h * 3), alpha(size_t(w) * h);
+        const size_t count = size_t(w) * h;
+        const size_t count1 = size_t(std::max(w / 2, 1u)) * std::max(h / 2, 1u);   // level 1, the largest made
+        std::vector<float> rgbBuf(count * 3), alphaBuf(count), rgbBuf2(count1 * 3), alphaBuf2(count1);
+        float* rgb = rgbBuf.data();
+        float* alpha = alphaBuf.data();
         size_t covered = 0;
-        for (size_t i = 0; i < alpha.size(); i++) {
-            for (int c = 0; c < 3; c++) rgb[i * 3 + c] = m_SRGB ? toLinear[m_Pixels[i * 4 + c]] : m_Pixels[i * 4 + c] / 255.0f;
-            alpha[i] = m_Pixels[i * 4 + 3] / 255.0f;
-            if (alpha[i] >= cutoff) covered++;
+        {
+            const uint8_t* px = m_Pixels.data();
+            for (size_t i = 0; i < count; i++, px += 4) {
+                float* o = rgb + i * 3;
+                if (m_SRGB) { o[0] = toLinear[px[0]]; o[1] = toLinear[px[1]]; o[2] = toLinear[px[2]]; }
+                else { o[0] = px[0] / 255.0f; o[1] = px[1] / 255.0f; o[2] = px[2] / 255.0f; }
+                alpha[i] = px[3] / 255.0f;
+                if (alpha[i] >= cutoff) covered++;
+            }
         }
         m_Pixels.clear();
         m_Pixels.shrink_to_fit();
-        const double target = double(covered) / double(alpha.size());
+        const double target = double(covered) / double(count);
         if (covered == 0) return;                         // nothing passes the cutoff at full size: plain mips are fine
 
-        std::vector<uint8_t> out;
-        std::vector<uint32_t> histogram(1024);
+        // Non-negative values only: the same as std::lround clamped to a byte
+        auto toByte = [](float v) -> uint8_t { const int i = (int)(v + 0.5f); return (uint8_t)(i < 0 ? 0 : i > 255 ? 255 : i); };
+        std::vector<uint8_t> outBuf(count1 * 4);
+        uint32_t histogram[1024];
         for (uint32_t level = 1; level < m_Levels; level++) {
             const uint32_t w2 = std::max(w / 2, 1u), h2 = std::max(h / 2, 1u);
-            std::vector<float> rgb2(size_t(w2) * h2 * 3), alpha2(size_t(w2) * h2);
-            for (uint32_t y = 0; y < h2; y++)
+            float* rgb2 = rgbBuf2.data();
+            float* alpha2 = alphaBuf2.data();
+            for (uint32_t y = 0; y < h2; y++) {
+                const uint32_t y0 = std::min(2 * y, h - 1), y1 = std::min(2 * y + 1, h - 1);
                 for (uint32_t x = 0; x < w2; x++) {
                     const uint32_t x0 = std::min(2 * x, w - 1), x1 = std::min(2 * x + 1, w - 1);
-                    const uint32_t y0 = std::min(2 * y, h - 1), y1 = std::min(2 * y + 1, h - 1);
-                    const size_t s[4] = { size_t(y0) * w + x0, size_t(y0) * w + x1, size_t(y1) * w + x0, size_t(y1) * w + x1 };
+                    const size_t s0 = size_t(y0) * w + x0, s1 = size_t(y0) * w + x1, s2 = size_t(y1) * w + x0, s3 = size_t(y1) * w + x1;
                     const size_t d = size_t(y) * w2 + x;
-                    for (int c = 0; c < 3; c++)
-                        rgb2[d * 3 + c] = 0.25f * (rgb[s[0] * 3 + c] + rgb[s[1] * 3 + c] + rgb[s[2] * 3 + c] + rgb[s[3] * 3 + c]);
-                    alpha2[d] = 0.25f * (alpha[s[0]] + alpha[s[1]] + alpha[s[2]] + alpha[s[3]]);
+                    const float* a = rgb + s0 * 3; const float* b = rgb + s1 * 3; const float* c = rgb + s2 * 3; const float* e = rgb + s3 * 3;
+                    float* o = rgb2 + d * 3;
+                    o[0] = 0.25f * (a[0] + b[0] + c[0] + e[0]);
+                    o[1] = 0.25f * (a[1] + b[1] + c[1] + e[1]);
+                    o[2] = 0.25f * (a[2] + b[2] + c[2] + e[2]);
+                    alpha2[d] = 0.25f * (alpha[s0] + alpha[s1] + alpha[s2] + alpha[s3]);
                 }
-            rgb.swap(rgb2);
-            alpha.swap(alpha2);
+            }
+            // Ping-pong: the level just made becomes the source (every later level is smaller than both buffers)
+            rgbBuf.swap(rgbBuf2);
+            alphaBuf.swap(alphaBuf2);
+            rgb = rgbBuf.data();
+            alpha = alphaBuf.data();
             w = w2;
             h = h2;
+            const size_t n = size_t(w) * h;
 
             // The alpha that the full-size share of pixels reach (from the top of a histogram)
-            std::fill(histogram.begin(), histogram.end(), 0u);
-            for (float a : alpha) histogram[std::min((size_t)(a * 1023.0f + 0.5f), size_t(1023))]++;
-            const double want = target * double(alpha.size());
+            std::fill(histogram, histogram + 1024, 0u);
+            for (size_t i = 0; i < n; i++) histogram[std::min((size_t)(alpha[i] * 1023.0f + 0.5f), size_t(1023))]++;
+            const double want = target * double(n);
             double sum = 0.0;
             int bin = 1023;
             for (; bin > 0; bin--) { sum += histogram[bin]; if (sum >= want) break; }
@@ -133,17 +156,18 @@ namespace Engine {
             // would trade one look for another; the problem being fixed is leaves vanishing
             const float scale = std::clamp(cutoff / threshold, 1.0f, 16.0f);
 
-            out.resize(size_t(w) * h * 4);
-            for (size_t i = 0; i < alpha.size(); i++) {
+            uint8_t* out = outBuf.data();
+            for (size_t i = 0; i < n; i++) {
+                const float* v = rgb + i * 3;
+                uint8_t* o = out + i * 4;
                 for (int c = 0; c < 3; c++) {
-                    const float v = rgb[i * 3 + c];
-                    out[i * 4 + c] = m_SRGB ? toSRGB[std::clamp((int)(v * 4095.0f + 0.5f), 0, 4095)]
-                                            : (uint8_t)std::clamp(std::lround(v * 255.0f), 0L, 255L);
+                    if (m_SRGB) { const int k = (int)(v[c] * 4095.0f + 0.5f); o[c] = toSRGB[k < 0 ? 0 : k > 4095 ? 4095 : k]; }
+                    else o[c] = toByte(v[c] * 255.0f);
                 }
-                out[i * 4 + 3] = (uint8_t)std::clamp(std::lround(alpha[i] * scale * 255.0f), 0L, 255L);
+                o[3] = toByte(alpha[i] * scale * 255.0f);
             }
             glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-            glTextureSubImage2D(m_ID, (GLint)level, 0, 0, (GLsizei)w, (GLsizei)h, GL_RGBA, GL_UNSIGNED_BYTE, out.data());
+            glTextureSubImage2D(m_ID, (GLint)level, 0, 0, (GLsizei)w, (GLsizei)h, GL_RGBA, GL_UNSIGNED_BYTE, out);
             glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
         }
     }
