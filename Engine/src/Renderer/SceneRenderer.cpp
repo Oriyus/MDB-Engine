@@ -45,7 +45,7 @@ namespace Engine {
 
         // Editor views: wireframe (lit.vert + wire.frag), the selection mask (lit.vert + select_mask.frag, an RG8
         // target) and its outline (a fullscreen pass over the final image)
-        std::unique_ptr<Shader> Wire, SelectMask, Outline;
+        std::unique_ptr<Shader> Wire, SelectMask, Outline, Grid;
         uint32_t MaskTex = 0, MaskFBO = 0, MaskW = 0, MaskH = 0;
         std::vector<uint32_t> HighlightSorted;
 
@@ -231,6 +231,36 @@ namespace Engine {
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
         }
 
+        // The editor's ground grid over the finished picture, tested against the scene's depth (grid.frag)
+        void DrawGrid(uint32_t targetFBO, uint32_t width, uint32_t height, const Camera& camera) {
+            if (!FogVAO) glCreateVertexArrays(1, &FogVAO);
+            glBindFramebuffer(GL_FRAMEBUFFER, targetFBO);
+            glViewport(0, 0, (GLsizei)width, (GLsizei)height);
+            Shader& s = *Grid;
+            s.Bind();
+            const glm::mat4 vp = camera.GetUnjitteredViewProjection();
+            s.SetMat4("u_ViewProj", vp);
+            s.SetMat4("u_InvViewProj", glm::inverse(vp));
+            s.SetVec3("u_CamPos", camera.Position);
+            s.SetFloat("u_Near", camera.GetNear());
+            s.SetFloat("u_Far", camera.GetFar());
+            s.SetFloat("u_Opacity", 1.0f);
+            s.SetInt("u_Depth", 0);
+            glBindTextureUnit(0, HDR->GetDepthAttachment());
+            glDisable(GL_DEPTH_TEST);
+            glDisable(GL_CULL_FACE);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glBindVertexArray(FogVAO);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+            glBindVertexArray(0);
+            glBindTextureUnit(0, 0);
+            glDisable(GL_BLEND);
+            glEnable(GL_CULL_FACE);
+            glEnable(GL_DEPTH_TEST);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        }
+
         void DrawFog(const FogOfWarState& fog, const Camera& camera, uint32_t depthTex) {
             if (!FogTex || FogW != fog.Width || FogD != fog.Depth) {
                 if (FogTex) glDeleteTextures(1, &FogTex);
@@ -356,6 +386,7 @@ namespace Engine {
         I.Wire = std::make_unique<Shader>(I.ShaderPath("lit.vert"), I.ShaderPath("wire.frag"));
         I.SelectMask = std::make_unique<Shader>(I.ShaderPath("lit.vert"), I.ShaderPath("select_mask.frag"));
         I.Outline = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("outline.frag"));
+        I.Grid = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("grid.frag"));
         I.TAAResolve = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("taa.frag"));
         I.Prepass = std::make_unique<Shader>(I.ShaderPath("lit.vert"), I.ShaderPath("depth_prepass.frag"));
         I.FoliagePrepass = std::make_unique<Shader>(I.ShaderPath("foliage.vert"), I.ShaderPath("depth_prepass.frag"));
@@ -588,7 +619,9 @@ namespace Engine {
         I.Final->ApplyFXAA(*I.FXAA, post.FXAA && !taa);
         I.Gpu.Mark("tone map, grading, FXAA");
 
-        // 5) The selection outline over the finished picture (exact colour: after the tone map and grading)
+        // 5) The editor's grid and the selection outline over the finished picture (exact colours: after the tone map
+        // and grading; the outline goes on top of the grid)
+        if (ShowGrid) { I.DrawGrid(I.Final->GetOutputFramebuffer(), width, height, camera); I.Gpu.Mark("grid"); }
         if (outline) I.DrawOutline(I.Final->GetOutputFramebuffer(), width, height, OutlineColor, OutlineWidth);
         I.Gpu.Mark("outline");
     }
@@ -611,7 +644,7 @@ namespace Engine {
         Impl& I = *m_Impl;
         for (auto* s : { I.Lit.get(), I.PointDepth.get(), I.SunDepth.get(), I.Post.get(), I.SSAOShader.get(),
                          I.SSAOBlur.get(), I.AOApply.get(), I.BloomDown.get(), I.BloomUp.get(), I.FXAA.get(), I.ParticleShader.get(), I.DecalShader.get(), I.FogShader.get(), I.FoliageShader.get(), I.VolFogMarch.get(), I.VolFogComposite.get(),
-                         I.Wire.get(), I.SelectMask.get(), I.Outline.get(), I.TAAResolve.get(), I.Prepass.get(), I.FoliagePrepass.get() })
+                         I.Wire.get(), I.SelectMask.get(), I.Outline.get(), I.Grid.get(), I.TAAResolve.get(), I.Prepass.get(), I.FoliagePrepass.get() })
             s->Reload();
         I.Env->ReloadSkyShader();
     }

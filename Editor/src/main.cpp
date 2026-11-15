@@ -560,6 +560,7 @@ public:
         // Shading and the selection outline are editor views: the game camera shows the game as it is
         m_Renderer->Mode = m_ViewingGame ? ViewMode::Rendered : m_ViewMode;
         m_Renderer->XRay = m_WireXRay;
+        m_Renderer->ShowGrid = m_ShowGrid && !m_ViewingGame;   // the game camera shows the game as it is
         m_Renderer->Highlight.clear();
         if (!m_PendingHide.empty()) {           // MDB_HIDE: names separated by commas (every entity of each name)
             std::stringstream names(m_PendingHide);
@@ -3518,6 +3519,79 @@ private:
         if (m_RunTime < m_PrefabStatusUntil) ImGui::TextDisabled("%s", m_PrefabStatus.c_str());
     }
 
+    // The world axes as the editor camera sees them, in the Viewport's lower left corner (Viewport > View > Axis
+    // Gizmo): X red, Y green, Z blue, a labelled ball on each positive axis and a plain one on each negative axis,
+    // the nearer drawn over the farther. Clicking a ball looks along that axis, towards the orbit pivot (the X ball
+    // gives the view from +X). Returns true while the pointer is over it, so the click doesn't also select.
+    bool DrawAxisGizmo(const ImVec2& origin, const ImVec2& size, bool canClick) {
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float radius = 34.0f, ball = 9.0f;
+        const ImVec2 c(origin.x + radius + ball + 10.0f, origin.y + size.y - radius - ball - 10.0f);
+        if (size.x < 4.0f * radius || size.y < 4.0f * radius) return false;     // a tiny viewport: leave it alone
+
+        struct Axis { glm::vec3 Dir; ImU32 Col; const char* Label; float Depth; ImVec2 P; };
+        const ImU32 cols[3] = { IM_COL32(232, 72, 82, 255), IM_COL32(118, 196, 64, 255), IM_COL32(72, 132, 240, 255) };
+        static const char* labels[3] = { "X", "Y", "Z" };
+        const glm::mat3 rot(m_Camera->GetView());                 // world -> view: x right, y up, -z ahead
+        Axis axes[6];
+        for (int i = 0; i < 6; i++) {
+            glm::vec3 d(0.0f);
+            d[i % 3] = i < 3 ? 1.0f : -1.0f;
+            const glm::vec3 v = rot * d;
+            axes[i] = { d, cols[i % 3], i < 3 ? labels[i] : nullptr, v.z, ImVec2(c.x + v.x * radius, c.y - v.y * radius) };
+        }
+
+        // Hover: the nearest ball to the camera under the pointer
+        const ImVec2 mouse = ImGui::GetIO().MousePos;
+        const float dx = mouse.x - c.x, dy = mouse.y - c.y;
+        const bool over = canClick && dx * dx + dy * dy <= (radius + ball + 4.0f) * (radius + ball + 4.0f);
+        int hovered = -1;
+        if (over)
+            for (int i = 0; i < 6; i++) {
+                const float hx = mouse.x - axes[i].P.x, hy = mouse.y - axes[i].P.y;
+                if (hx * hx + hy * hy <= (ball + 2.0f) * (ball + 2.0f) && (hovered < 0 || axes[i].Depth > axes[hovered].Depth)) hovered = i;
+            }
+
+        if (over) dl->AddCircleFilled(c, radius + ball + 4.0f, IM_COL32(255, 255, 255, 22), 48);
+        int order[6] = { 0, 1, 2, 3, 4, 5 };
+        std::sort(order, order + 6, [&](int a, int b) { return axes[a].Depth < axes[b].Depth; });   // far first
+        for (int k : order) {
+            const Axis& a = axes[k];
+            const bool positive = a.Label != nullptr;
+            if (positive) dl->AddLine(c, a.P, a.Col, 2.0f);
+            if (positive) {
+                dl->AddCircleFilled(a.P, ball, a.Col, 24);
+                const ImVec2 ts = ImGui::CalcTextSize(a.Label);
+                dl->AddText(ImVec2(a.P.x - ts.x * 0.5f, a.P.y - ts.y * 0.5f), IM_COL32(20, 20, 24, 255), a.Label);
+            }
+            else {
+                dl->AddCircleFilled(a.P, ball * 0.8f, (a.Col & 0x00FFFFFF) | (90u << 24), 24);
+                dl->AddCircle(a.P, ball * 0.8f, a.Col, 24, 1.5f);
+            }
+            if (k == hovered) dl->AddCircle(a.P, positive ? ball + 1.5f : ball * 0.8f + 1.5f, IM_COL32(255, 255, 255, 230), 24, 2.0f);
+        }
+
+        if (hovered >= 0) {
+            static const char* names[6] = { "+X (right)", "+Y (top)", "+Z (front)", "-X (left)", "-Y (bottom)", "-Z (back)" };
+            ImGui::SetTooltip("View from %s", names[hovered]);
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                // Keep the pivot and the distance; look along -axis (from that side)
+                Engine::Camera& cam = *m_Camera;
+                const glm::vec3 pivot = cam.Position + cam.GetFront() * cam.FocusDistance;
+                const glm::vec3 front = -axes[hovered].Dir;
+                float yaw = cam.GetYaw(), pitch = 0.0f;
+                if (front.y > 0.5f) { yaw = -90.0f; pitch = 89.0f; }           // from below (pitch is clamped to 89)
+                else if (front.y < -0.5f) { yaw = -90.0f; pitch = -89.0f; }    // from above: +X right, -Z up
+                else yaw = glm::degrees(std::atan2(front.z, front.x));
+                cam.SetOrientation(yaw, pitch);
+                cam.Position = pivot - cam.GetFront() * cam.FocusDistance;
+                cam.SetOrientation(yaw, pitch);                                 // again, to rebuild the view at the new position
+                m_Renderer->ResetTemporalHistory();                             // a camera cut
+            }
+        }
+        return over;
+    }
+
     void DrawViewportPanel() {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
         ImGui::Begin("Viewport", nullptr, ImGuiWindowFlags_MenuBar);
@@ -3527,6 +3601,10 @@ private:
         if (ImGui::BeginMenuBar()) {
             ImGui::Dummy(ImVec2(2.0f, 0.0f));
             if (ImGui::BeginMenu("View")) {
+                ImGui::MenuItem("Grid", nullptr, &m_ShowGrid);
+                ImGui::SetItemTooltip("The ground grid on y = 0: 1 m lines, 10 m and 100 m lines further out,\nthe X axis in red and the Z axis in blue (editor only, never rendered)");
+                ImGui::MenuItem("Axis Gizmo", nullptr, &m_ShowAxisGizmo);
+                ImGui::SetItemTooltip("The world axes in the lower left corner; click one to look along it");
                 ImGui::MenuItem("Stats", nullptr, &m_ShowStatsOverlay);
                 ImGui::MenuItem("Colliders", nullptr, &m_ShowColliders);
                 ImGui::MenuItem("Camera Frustums", nullptr, &m_ShowFrustums);
@@ -3696,10 +3774,13 @@ private:
             m_GizmoBusy = ImGuizmo::IsUsing();
         }
 
+        // ---- The axis gizmo in the lower left corner (clicking an axis looks along it)
+        const bool overAxisGizmo = !m_ViewingGame && m_ShowAxisGizmo && DrawAxisGizmo(origin, size, imageHovered && !navigating && !gizmoBusy && !m_MouseLook);
+
         // ---- Click to select, drag on the scene for a selection box (not while using the gizmo)
         // Plain: select only that. Ctrl or Shift: add or remove it (a box adds everything inside it).
         auto& fb = m_Renderer->GetFramebuffer();
-        if (!m_ViewingGame && imageHovered && !gizmoBusy && !terrainTool && !navigating && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !m_MouseLook) {
+        if (!m_ViewingGame && imageHovered && !gizmoBusy && !terrainTool && !navigating && !overAxisGizmo && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !m_MouseLook) {
             m_BoxSelecting = true;
             m_BoxStart = ImGui::GetMousePos();
         }
@@ -4805,6 +4886,8 @@ private:
     // Editor shell (menu bar, toolbar, panels)
     bool  m_ShowHierarchy = true, m_ShowInspector = true, m_ShowSceneSettings = true, m_ShowConsole = true;
     bool  m_ShowStatsOverlay = true, m_ShowFrustums = true, m_ShowControls = false;
+    bool  m_ShowGrid = true;              // Viewport > View > Grid: the ground grid (SceneRenderer::ShowGrid)
+    bool  m_ShowAxisGizmo = true;         // Viewport > View > Axis Gizmo: the world axes in the lower left corner
     bool  m_ShowLightGizmos = true;       // Viewport > View > Light Gizmos: sun arrows and point-light bulbs
     bool  m_ShowGrassBlockers = true;     // Viewport > View > Grass Blockers: their outlines
     AssetBrowser m_Assets{ Projects::Current().AssetDir() };   // the Assets panel

@@ -71,6 +71,9 @@ namespace Engine {
         float OutlineWidth = 2.0f;                      // pixels
 
         bool ShowMotionVectors = false;                 // debug view of the TAA motion vectors (not saved)
+        // Editor ground grid on y = 0 (1 / 10 / 100 m lines, red X and blue Z axes), over the final image and hidden
+        // behind the scene. The editor sets it; the game never does.
+        bool ShowGrid = false;
         // Draw the opaque scene and grass depth-only first, so lighting runs once per pixel (heavy foliage overdraw).
         // On by default; a debug switch (not saved).
         bool DepthPrepass = true;
