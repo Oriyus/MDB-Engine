@@ -730,7 +730,10 @@ namespace Engine {
             if (field.Chunks.empty() || scene.IsEditorHidden(e)) continue;   // hidden with the Hierarchy's eye
 
             const float a = glm::radians(f.WindDirection);
-            const float fadeEnd = std::max(f.DrawDistance, 1.0f), fadeStart = fadeEnd * 0.5f;
+            // The camera's GrassDistanceScale stretches or shortens the field's draw distance (0: no grass in this view)
+            const float grassScale = std::max(camera.GrassDistanceScale, 0.0f);
+            if (grassScale <= 0.0f) continue;
+            const float fadeEnd = std::max(f.DrawDistance * grassScale, 1.0f), fadeStart = fadeEnd * 0.5f;
             shader.SetVec2("u_WindDir", glm::vec2(std::cos(a), std::sin(a)));
             shader.SetFloat("u_WindStrength", f.WindStrength);
             shader.SetFloat("u_WindSpeed", f.WindSpeed);

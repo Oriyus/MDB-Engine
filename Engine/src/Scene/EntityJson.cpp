@@ -3,6 +3,7 @@
 #include "Scene/Components.h"
 #include "Scene/SceneSerializer.h"
 #include "Scene/Terrain.h"
+#include "Core/Log.h"
 
 #include <cstdio>
 
@@ -190,12 +191,15 @@ namespace Engine {
         if (e.Has<CameraComponent>()) {
             auto& c = e.Get<CameraComponent>();
             j["camera"] = { { "fov", c.FOV },{ "near", c.Near },{ "far", c.Far },{ "primary", c.Primary } };
+            if (c.SmallObjects > 0.0f) j["camera"]["smallObjects"] = c.SmallObjects;     // only when set (no new prefab overrides)
+            if (c.GrassDistance != 1.0f) j["camera"]["grassDistance"] = c.GrassDistance;
         }
         if (e.Has<AudioSourceComponent>()) {
             auto& a = e.Get<AudioSourceComponent>();
             j["audio"] = { { "clip", a.Clip },{ "volume", a.Volume },{ "pitch", a.Pitch },{ "loop", a.Loop },
                            { "playOnStart", a.PlayOnStart },{ "spatial", a.Spatial },
                            { "minDistance", a.MinDistance },{ "maxDistance", a.MaxDistance } };
+            if (a.Bus != AudioBus::SFX) j["audio"]["bus"] = AudioBusName(a.Bus);   // only when set (no new prefab overrides)
         }
         return j;
     }
@@ -451,6 +455,8 @@ namespace Engine {
             c.Near = jc.value("near", 0.1f);
             c.Far = jc.value("far", 500.0f);
             c.Primary = jc.value("primary", true);
+            c.SmallObjects = std::max(jc.value("smallObjects", 0.0f), 0.0f);
+            c.GrassDistance = std::max(jc.value("grassDistance", 1.0f), 0.0f);
             e.Add<CameraComponent>(c);
         }
         if (j.contains("audio")) {
@@ -464,6 +470,8 @@ namespace Engine {
             s.Spatial = ja.value("spatial", true);
             s.MinDistance = ja.value("minDistance", 1.0f);
             s.MaxDistance = ja.value("maxDistance", 25.0f);
+            if (const std::string bus = ja.value("bus", std::string()); !bus.empty() && !AudioBusFromName(bus, s.Bus))
+                ENGINE_WARN("Unknown audio bus '{}' (sfx, music, voice, ui, ambience)", bus);
             e.Add<AudioSourceComponent>(s);
         }
     }

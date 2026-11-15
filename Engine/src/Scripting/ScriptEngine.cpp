@@ -44,6 +44,13 @@
 namespace Engine {
 
     namespace {
+        // A bus name from a script; an unknown one is a script error naming the choices
+        AudioBus LuaAudioBus(const std::string& name) {
+            AudioBus b;
+            if (!AudioBusFromName(name, b)) throw std::runtime_error("unknown audio bus '" + name + "' (sfx, music, voice, ui, ambience; master for volumes)");
+            return b;
+        }
+
 
         // What a script sees as an entity. Just a handle: components are looked up on every
         // access, so it can never dangle.
@@ -433,6 +440,8 @@ namespace Engine {
                     c.Near = opts->get_or<float>("near", c.Near);
                     c.Far = opts->get_or<float>("far", c.Far);
                     c.Primary = opts->get_or<bool>("primary", c.Primary);
+                    c.SmallObjects = std::max(opts->get_or<float>("small_objects", c.SmallObjects), 0.0f);
+                    c.GrassDistance = std::max(opts->get_or<float>("grass_distance", c.GrassDistance), 0.0f);
                 }
                 e.Owner->Registry().emplace_or_replace<CameraComponent>(e.Handle, c);
                 return CameraRef{ e };
@@ -544,6 +553,7 @@ namespace Engine {
                     a.PlayOnStart = opts->get_or<bool>("play", a.PlayOnStart);
                     a.MinDistance = opts->get_or<float>("min_distance", a.MinDistance);
                     a.MaxDistance = opts->get_or<float>("max_distance", a.MaxDistance);
+                    if (auto bus = opts->get<sol::optional<std::string>>("bus")) a.Bus = LuaAudioBus(*bus);
                 }
                 e.Owner->Registry().emplace_or_replace<AudioSourceComponent>(e.Handle, a);
                 if (Audio && a.PlayOnStart) Audio->PlaySource(e.Handle);   // also restarts a replaced source
@@ -1033,19 +1043,53 @@ namespace Engine {
 
         // ---- audio: one-shots, and the AudioSource view handed out by e.audio
         sol::table audio = lua.create_named_table("audio");
-        auto soundOpts = [](const sol::optional<sol::table>& o, float& volume, float& pitch) {
+        auto soundOpts = [](const sol::optional<sol::table>& o, float& volume, float& pitch, AudioBus& bus) {
             volume = o ? o->get<sol::optional<float>>("volume").value_or(1.0f) : 1.0f;
             pitch = o ? o->get<sol::optional<float>>("pitch").value_or(1.0f) : 1.0f;
+            bus = AudioBus::SFX;
+            if (o) if (auto b = o->get<sol::optional<std::string>>("bus")) bus = LuaAudioBus(*b);
         };
         audio.set_function("play", [this, soundOpts](const std::string& clip, sol::optional<sol::table> opts) {
             float v, p;
-            soundOpts(opts, v, p);
-            if (Audio) Audio->Play(clip, v, p);
+            AudioBus b;
+            soundOpts(opts, v, p, b);
+            if (Audio) Audio->Play(clip, v, p, b);
         });
         audio.set_function("play_at", [this, soundOpts](const std::string& clip, const glm::vec3& pos, sol::optional<sol::table> opts) {
             float v, p;
-            soundOpts(opts, v, p);
-            if (Audio) Audio->PlayAt(clip, pos, v, p);
+            AudioBus b;
+            soundOpts(opts, v, p, b);
+            if (Audio) Audio->PlayAt(clip, pos, v, p, b);
+        });
+        // The mix: "master" or a bus name. In the game these are the player's settings (saved when it quits);
+        // in the editor, Stop puts back the mix Play began with.
+        audio.set_function("set_volume", [this](const std::string& bus, float v) {
+            if (!Audio) return;
+            if (bus == "master") Audio->SetMasterVolume(v); else Audio->SetBusVolume(LuaAudioBus(bus), v);
+        });
+        audio.set_function("volume", [this](const std::string& bus) -> float {
+            if (bus == "master") return Audio ? Audio->GetMasterVolume() : 1.0f;
+            const AudioBus b = LuaAudioBus(bus);
+            return Audio ? Audio->GetBusVolume(b) : 1.0f;
+        });
+        audio.set_function("set_muted", [this](const std::string& bus, bool m) {
+            if (!Audio) return;
+            if (bus == "master") Audio->SetMasterMuted(m); else Audio->SetBusMuted(LuaAudioBus(bus), m);
+        });
+        audio.set_function("muted", [this](const std::string& bus) -> bool {
+            if (bus == "master") return Audio && Audio->IsMasterMuted();
+            const AudioBus b = LuaAudioBus(bus);
+            return Audio && Audio->IsBusMuted(b);
+        });
+        audio.set_function("buses", [](sol::this_state ts) {
+            sol::state_view L(ts);
+            sol::table out = L.create_table();
+            for (int i = 0; i < kAudioBusCount; i++) out[i + 1] = std::string(AudioBusName((AudioBus)i));
+            return out;
+        });
+        audio.set_function("voices", [this](sol::optional<std::string> bus) -> int {
+            if (!Audio) return 0;
+            return (int)(bus ? Audio->VoiceCount(LuaAudioBus(*bus)) : Audio->VoiceCount());
         });
 
         // ---- the Animator view handed out by e.animator
@@ -1334,6 +1378,9 @@ namespace Engine {
             "loop", sol::property(
                 [](const AudioRef& a) { return a.E.Get<AudioSourceComponent>().Loop; },
                 [](const AudioRef& a, bool v) { a.E.Get<AudioSourceComponent>().Loop = v; }),
+            "bus", sol::property(
+                [](const AudioRef& a) { return std::string(AudioBusName(a.E.Get<AudioSourceComponent>().Bus)); },
+                [](const AudioRef& a, const std::string& v) { a.E.Get<AudioSourceComponent>().Bus = LuaAudioBus(v); }),
             "playing", sol::readonly_property([this](const AudioRef& a) {
                 a.E.Get<AudioSourceComponent>();
                 return Audio && Audio->IsSourcePlaying(a.E.Handle);
@@ -1348,7 +1395,13 @@ namespace Engine {
                 [](const CameraRef& c, float v) { c.E.Get<CameraComponent>().FOV = v; }),
             "primary", sol::property(
                 [](const CameraRef& c) { return c.E.Get<CameraComponent>().Primary; },
-                [](const CameraRef& c, bool v) { c.E.Get<CameraComponent>().Primary = v; }));
+                [](const CameraRef& c, bool v) { c.E.Get<CameraComponent>().Primary = v; }),
+            "small_objects", sol::property(
+                [](const CameraRef& c) { return c.E.Get<CameraComponent>().SmallObjects; },
+                [](const CameraRef& c, float v) { c.E.Get<CameraComponent>().SmallObjects = std::max(v, 0.0f); }),
+            "grass_distance", sol::property(
+                [](const CameraRef& c) { return c.E.Get<CameraComponent>().GrassDistance; },
+                [](const CameraRef& c, float v) { c.E.Get<CameraComponent>().GrassDistance = std::max(v, 0.0f); }));
 
         // ---- input (sampled once per frame, so pressed/released are exact frame edges)
         sol::table input = lua.create_named_table("input");

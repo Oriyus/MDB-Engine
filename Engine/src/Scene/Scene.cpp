@@ -1089,18 +1089,19 @@ namespace Engine {
 
     // The level of detail for a distance (already scaled to a 60 degree lens and the scene's scale): 0 = Geometry,
     // i = Lods[i - 1], Lods.size() + 1 = beyond CullDistance. Going back to a finer level waits until the object is 5%
-    // nearer than the switch distance, so one standing right at it doesn't flip between two levels.
-    static uint8_t PickLodLevel(const MeshRendererComponent& mr, float distance) {
+    // nearer than the switch distance, so one standing right at it doesn't flip between two levels. cullDistance is the
+    // nearer of the part's own CullDistance and the camera's small-object distance (0 = none), in the same scaled units.
+    static uint8_t PickLodLevel(const MeshRendererComponent& mr, float distance, float cullDistance) {
         const size_t count = std::min<size_t>(mr.Lods.size(), 254);
         const uint8_t culled = (uint8_t)(count + 1);
         auto from = [&](uint8_t level) {              // the distance a level starts at
-            return level == culled ? mr.CullDistance : mr.Lods[level - 1].Distance;
+            return level == culled ? cullDistance : mr.Lods[level - 1].Distance;
         };
         uint8_t level = 0;
         for (size_t i = 0; i < count; i++) if (distance >= mr.Lods[i].Distance) level = (uint8_t)(i + 1);
-        if (mr.CullDistance > 0.0f && distance >= mr.CullDistance) level = culled;
+        if (cullDistance > 0.0f && distance >= cullDistance) level = culled;
         const uint8_t prev = mr.LodLevel;
-        if (prev > level && prev <= culled && (prev != culled || mr.CullDistance > 0.0f) && distance >= from(prev) * 0.95f)
+        if (prev > level && prev <= culled && (prev != culled || cullDistance > 0.0f) && distance >= from(prev) * 0.95f)
             level = prev;
         return level;
     }
@@ -1148,10 +1149,22 @@ namespace Engine {
             return any;
         };
 
+        // Levels of detail: distances are measured as if through a 60 degree lens (a narrower one zooms in: detail
+        // stays further out), and divided by the scene's scale instead of multiplying every switch distance
+        const float lodDistanceFactor = std::tan(glm::radians(std::clamp(camera.GetFov(), 1.0f, 170.0f)) * 0.5f) /
+            std::tan(glm::radians(30.0f)) / std::max(Lod.DistanceScale, 0.01f);
+        const float kTan30 = std::tan(glm::radians(30.0f));
+        const float smallObjects = std::clamp(camera.CullSmallObjects, 0.0f, 0.5f);
+
         // Merged static geometry (during Play): one object per batch, in world space
         if (m_StaticActive && m_StaticDirty) BuildStaticBatches();   // a merged object went away
         const glm::mat4 identity(1.0f);
         for (const StaticBatch& sb : m_StaticBatches) {
+            if (smallObjects > 0.0f) {          // the camera's small-object culling, for the batch as one object
+                const glm::vec3 c = (sb.Min + sb.Max) * 0.5f;
+                const float radius = std::max(glm::length(sb.Max - sb.Min) * 0.5f, 0.001f);
+                if (glm::length(c - camera.Position) * lodDistanceFactor > radius / (smallObjects * kTan30)) { list.LodCulled++; continue; }
+            }
             const bool visible = frustum.Visible(identity, sb.Min, sb.Max);
             if (!visible) list.Culled++;
             const bool anyShadow = !views.empty() && sb.CastShadows && classifyShadows(identity, sb.Min, sb.Max);
@@ -1173,10 +1186,6 @@ namespace Engine {
         static thread_local std::vector<DrawList::Item> selected;   // highlighted parts (editor outline)
         selected.clear();
         const std::vector<uint32_t>* highlight = (list.Highlight && !list.Highlight->empty()) ? list.Highlight : nullptr;
-        // Levels of detail: distances are measured as if through a 60 degree lens (a narrower one zooms in: detail
-        // stays further out), and divided by the scene's scale instead of multiplying every switch distance
-        const float lodDistanceFactor = std::tan(glm::radians(std::clamp(camera.GetFov(), 1.0f, 170.0f)) * 0.5f) /
-            std::tan(glm::radians(30.0f)) / std::max(Lod.DistanceScale, 0.01f);
         static const glm::vec3 kLodTint[] = { { 0.35f, 1.0f, 0.35f }, { 1.0f, 1.0f, 0.25f }, { 1.0f, 0.55f, 0.15f },
                                               { 1.0f, 0.2f, 0.2f }, { 0.9f, 0.3f, 1.0f } };
         auto drawables = m_Registry.view<TransformComponent, MeshRendererComponent>();
@@ -1202,9 +1211,18 @@ namespace Engine {
             uint8_t level = 0;
             const Renderable* geometry = mr.Geometry.get();
             const uint8_t culledLevel = (uint8_t)std::min<size_t>(mr.Lods.size() + 1, 255);
-            if (!mr.Lods.empty() || mr.CullDistance > 0.0f) {
+            // Small objects (the camera's CullSmallObjects): a bounding sphere of radius r covers r / (d tan(fov/2)) of
+            // the view height, so it drops below share m beyond d tan(fov/2) = r / m, which is r / (m tan 30) in the
+            // scaled distance PickLodLevel takes. Highlighted (selected) parts are kept, so their outline shows.
+            float cullDistance = mr.CullDistance;
+            if (smallObjects > 0.0f && !highlighted) {
+                const float radius = glm::length(glm::vec3(world * glm::vec4((mx - mn) * 0.5f, 0.0f)));
+                const float sizeCull = std::max(radius, 0.001f) / (smallObjects * kTan30);
+                cullDistance = cullDistance > 0.0f ? std::min(cullDistance, sizeCull) : sizeCull;
+            }
+            if (!mr.Lods.empty() || cullDistance > 0.0f) {
                 const glm::vec3 center = glm::vec3(world * glm::vec4((mn + mx) * 0.5f, 1.0f));
-                level = PickLodLevel(mr, glm::length(center - camera.Position) * lodDistanceFactor);
+                level = PickLodLevel(mr, glm::length(center - camera.Position) * lodDistanceFactor, cullDistance);
                 if (level > 0 && level < culledLevel) {
                     uint8_t k = level;                                   // a level that failed to load: the one before
                     while (k > 0 && !mr.Lods[k - 1].Geometry) k--;

@@ -2,6 +2,7 @@
 #include "Renderer/Renderable.h"
 #include "Renderer/Texture.h"
 #include "Renderer/Material.h"
+#include "Audio/AudioMix.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -203,6 +204,12 @@ namespace Engine {
         float Near = 0.1f;
         float Far = 500.0f;
         bool  Primary = true;
+        // Culling through this camera. SmallObjects: a part whose bounding sphere would cover less than this share of
+        // the view height is not drawn, nor its shadow (0 = off; 0.01 = 1%). GrassDistance multiplies every grass
+        // field's draw distance (1 = their own, 0 = no grass). SmallObjects follows Scene::Lod.DistanceScale too (the
+        // quality setting: 2 keeps them twice as far).
+        float SmallObjects = 0.0f;
+        float GrassDistance = 1.0f;
     };
 
     // One live particle (simulated on the CPU by Scene::UpdateParticles)
@@ -327,6 +334,7 @@ namespace Engine {
         bool  Spatial = true;         // positioned at the entity, quieter with distance
         float MinDistance = 1.0f;     // full volume inside this radius
         float MaxDistance = 25.0f;    // stops getting quieter beyond this
+        AudioBus Bus = AudioBus::SFX; // the mixer bus it plays on (JSON "bus" only when not sfx)
     };
 
     // Marks an entity as part of a prefab instance (see Scene/Prefab.h). Path is relative to the

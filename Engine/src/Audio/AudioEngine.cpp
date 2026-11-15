@@ -19,38 +19,47 @@ namespace Engine {
 
     namespace {
         constexpr size_t kMaxOneShots = 64;   // beyond this, new one-shots are skipped
+
+        AudioBus ValidBus(AudioBus b) { return (int)b < kAudioBusCount ? b : AudioBus::SFX; }
     }
 
     // A ma_sound must not move after init, so every voice lives on the heap
     struct Voice {
         ma_sound Sound{};
         bool Initialized = false;
+        AudioBus Bus = AudioBus::SFX;
         ~Voice() { if (Initialized) ma_sound_uninit(&Sound); }
     };
 
     struct Source {
         std::unique_ptr<Voice> V;
         std::string Clip;                     // what V was made from (recreate when it changes)
+        AudioBus Bus = AudioBus::SFX;         // the group V plays in (a sound can't change group: recreate)
     };
 
     struct AudioEngine::Impl {
         std::string AssetDir;
         ma_engine Engine{};
+        ma_sound_group Groups[kAudioBusCount]{};   // one per bus, straight into the engine's endpoint
+        bool GroupsReady = false;
         bool Ready = false;
         bool Paused = false;
-        float MasterVolume = 1.0f;
+        AudioMix Mix;
+        uint32_t Revision = 0;
 
         std::vector<std::unique_ptr<Voice>> OneShots;
         std::unordered_map<entt::entity, Source> Sources;
         std::unordered_set<entt::entity> PendingPlay;     // PlaySource before the source exists
         std::unordered_set<std::string> Missing;          // clips that failed to load: warn once
 
-        std::unique_ptr<Voice> Load(const std::string& clip, bool spatial) {
+        std::unique_ptr<Voice> Load(const std::string& clip, bool spatial, AudioBus bus) {
             if (!Ready || clip.empty() || Missing.count(clip)) return nullptr;
+            bus = ValidBus(bus);
             auto v = std::make_unique<Voice>();
+            v->Bus = bus;
             const ma_uint32 flags = MA_SOUND_FLAG_DECODE | (spatial ? 0 : MA_SOUND_FLAG_NO_SPATIALIZATION);
             const std::string path = AssetDir + clip;
-            if (ma_sound_init_from_file(&Engine, path.c_str(), flags, nullptr, nullptr, &v->Sound) != MA_SUCCESS) {
+            if (ma_sound_init_from_file(&Engine, path.c_str(), flags, &Groups[(int)bus], nullptr, &v->Sound) != MA_SUCCESS) {
                 if (Missing.insert(clip).second) ENGINE_WARN("Audio: can't load '{}'", path);
                 return nullptr;
             }
@@ -70,6 +79,24 @@ namespace Engine {
             OneShots.push_back(std::move(v));
         }
 
+        // The mix onto the engine and groups (volumes are 0 while muted)
+        void ApplyMix() {
+            if (!Ready) return;
+            ma_engine_set_volume(&Engine, Mix.MasterMuted ? 0.0f : Mix.Master);
+            for (int i = 0; i < kAudioBusCount; i++)
+                ma_sound_group_set_volume(&Groups[i], Mix.Muted[i] ? 0.0f : Mix.Volume[i]);
+        }
+
+        void SetMix(const AudioMix& m) {
+            AudioMix c = m;
+            c.Master = std::clamp(c.Master, 0.0f, 1.0f);
+            for (float& v : c.Volume) v = std::clamp(v, 0.0f, 1.0f);
+            if (c == Mix) return;
+            Mix = c;
+            Revision++;
+            ApplyMix();
+        }
+
         static void Apply(ma_sound* s, const AudioSourceComponent& a, const glm::vec3& pos) {
             ma_sound_set_volume(s, std::max(a.Volume, 0.0f));
             ma_sound_set_pitch(s, std::max(a.Pitch, 0.01f));
@@ -82,37 +109,50 @@ namespace Engine {
     };
 
     AudioEngine::AudioEngine(std::string assetDir) : m_Impl(std::make_unique<Impl>()) {
-        m_Impl->AssetDir = std::move(assetDir);
-        if (ma_engine_init(nullptr, &m_Impl->Engine) == MA_SUCCESS) {
-            m_Impl->Ready = true;
-            ENGINE_INFO("Audio ready (miniaudio, {} Hz)", ma_engine_get_sample_rate(&m_Impl->Engine));
-        }
-        else {
+        Impl& I = *m_Impl;
+        I.AssetDir = std::move(assetDir);
+        if (ma_engine_init(nullptr, &I.Engine) != MA_SUCCESS) {
             ENGINE_WARN("Audio: no output device, sound is off");
+            return;
         }
+        int made = 0;
+        for (; made < kAudioBusCount; made++)
+            if (ma_sound_group_init(&I.Engine, 0, nullptr, &I.Groups[made]) != MA_SUCCESS) break;
+        if (made < kAudioBusCount) {
+            for (int i = 0; i < made; i++) ma_sound_group_uninit(&I.Groups[i]);
+            ma_engine_uninit(&I.Engine);
+            ENGINE_WARN("Audio: can't create the mixer buses, sound is off");
+            return;
+        }
+        I.GroupsReady = true;
+        I.Ready = true;
+        I.ApplyMix();
+        ENGINE_INFO("Audio ready (miniaudio, {} Hz, {} buses)", ma_engine_get_sample_rate(&I.Engine), kAudioBusCount);
     }
 
     AudioEngine::~AudioEngine() {
-        // Voices first: they must be uninitialised before the engine they play on
-        m_Impl->OneShots.clear();
-        m_Impl->Sources.clear();
-        if (m_Impl->Ready) ma_engine_uninit(&m_Impl->Engine);
+        // Voices first, then the groups they play in, then the engine
+        Impl& I = *m_Impl;
+        I.OneShots.clear();
+        I.Sources.clear();
+        if (I.GroupsReady) for (auto& g : I.Groups) ma_sound_group_uninit(&g);
+        if (I.Ready) ma_engine_uninit(&I.Engine);
     }
 
     bool AudioEngine::IsReady() const { return m_Impl->Ready; }
 
-    void AudioEngine::Play(const std::string& clip, float volume, float pitch) {
+    void AudioEngine::Play(const std::string& clip, float volume, float pitch, AudioBus bus) {
         Impl& I = *m_Impl;
         I.ReapOneShots();
         if (I.OneShots.size() >= kMaxOneShots) return;
-        if (auto v = I.Load(clip, false)) I.StartOneShot(std::move(v), volume, pitch);
+        if (auto v = I.Load(clip, false, bus)) I.StartOneShot(std::move(v), volume, pitch);
     }
 
-    void AudioEngine::PlayAt(const std::string& clip, const glm::vec3& position, float volume, float pitch) {
+    void AudioEngine::PlayAt(const std::string& clip, const glm::vec3& position, float volume, float pitch, AudioBus bus) {
         Impl& I = *m_Impl;
         I.ReapOneShots();
         if (I.OneShots.size() >= kMaxOneShots) return;
-        if (auto v = I.Load(clip, true)) {
+        if (auto v = I.Load(clip, true, bus)) {
             ma_sound_set_position(&v->Sound, position.x, position.y, position.z);
             ma_sound_set_min_distance(&v->Sound, 2.0f);       // one-shots carry well: full volume nearby
             ma_sound_set_max_distance(&v->Sound, 40.0f);
@@ -133,15 +173,28 @@ namespace Engine {
 
         for (auto [e, t, a] : reg.view<TransformComponent, AudioSourceComponent>().each()) {
             Source& src = I.Sources[e];
+            const AudioBus bus = ValidBus(a.Bus);
             const bool fresh = !src.V || src.Clip != a.Clip;
-            if (fresh) {
-                src.V = I.Load(a.Clip, true);   // spatialisation is switched per frame in Apply
+            bool resume = false;                 // a bus change: carry on where the old voice was
+            ma_uint64 cursor = 0;
+            if (!fresh && src.Bus != bus) {
+                resume = ma_sound_is_playing(&src.V->Sound) == MA_TRUE;
+                ma_sound_get_cursor_in_pcm_frames(&src.V->Sound, &cursor);
+                src.V = I.Load(a.Clip, true, bus);
+                src.Bus = bus;
+                if (!src.V) continue;
+                if (cursor > 0) ma_sound_seek_to_pcm_frame(&src.V->Sound, cursor);
+            }
+            else if (fresh) {
+                src.V = I.Load(a.Clip, true, bus);   // spatialisation is switched per frame in Apply
                 src.Clip = a.Clip;
+                src.Bus = bus;
                 if (!src.V) continue;
             }
             Impl::Apply(&src.V->Sound, a, glm::vec3(scene.GetWorldMatrix(e)[3]));   // world position (parents included)
             if (fresh && (a.PlayOnStart || I.PendingPlay.count(e))) ma_sound_start(&src.V->Sound);
             else if (I.PendingPlay.count(e)) { ma_sound_seek_to_pcm_frame(&src.V->Sound, 0); ma_sound_start(&src.V->Sound); }
+            else if (resume) ma_sound_start(&src.V->Sound);
         }
         I.PendingPlay.clear();
     }
@@ -170,13 +223,19 @@ namespace Engine {
         SetPaused(false);
     }
 
+    // A stopped group node doesn't pull its sounds, so they hold their place until it starts again
     void AudioEngine::SetPaused(bool paused) {
         Impl& I = *m_Impl;
         if (!I.Ready || paused == I.Paused) return;
         I.Paused = paused;
-        if (paused) ma_engine_stop(&I.Engine);
-        else        ma_engine_start(&I.Engine);
+        for (int i = 0; i < kAudioBusCount; i++) {
+            if ((AudioBus)i == AudioBus::UI) continue;
+            if (paused) ma_sound_group_stop(&I.Groups[i]);
+            else        ma_sound_group_start(&I.Groups[i]);
+        }
     }
+
+    bool AudioEngine::IsPaused() const { return m_Impl->Paused; }
 
     void AudioEngine::SetListener(const glm::vec3& position, const glm::vec3& forward, const glm::vec3& up) {
         if (!m_Impl->Ready) return;
@@ -185,15 +244,37 @@ namespace Engine {
         ma_engine_listener_set_world_up(&m_Impl->Engine, 0, up.x, up.y, up.z);
     }
 
-    void AudioEngine::SetMasterVolume(float volume) {
-        m_Impl->MasterVolume = std::clamp(volume, 0.0f, 1.0f);
-        if (m_Impl->Ready) ma_engine_set_volume(&m_Impl->Engine, m_Impl->MasterVolume);
-    }
+    void AudioEngine::SetMasterVolume(float volume) { AudioMix m = m_Impl->Mix; m.Master = volume; m_Impl->SetMix(m); }
+    float AudioEngine::GetMasterVolume() const { return m_Impl->Mix.Master; }
+    void AudioEngine::SetMasterMuted(bool muted) { AudioMix m = m_Impl->Mix; m.MasterMuted = muted; m_Impl->SetMix(m); }
+    bool AudioEngine::IsMasterMuted() const { return m_Impl->Mix.MasterMuted; }
 
-    float AudioEngine::GetMasterVolume() const { return m_Impl->MasterVolume; }
+    void AudioEngine::SetBusVolume(AudioBus bus, float volume) {
+        AudioMix m = m_Impl->Mix;
+        m.Volume[(int)ValidBus(bus)] = volume;
+        m_Impl->SetMix(m);
+    }
+    float AudioEngine::GetBusVolume(AudioBus bus) const { return m_Impl->Mix.Volume[(int)ValidBus(bus)]; }
+    void AudioEngine::SetBusMuted(AudioBus bus, bool muted) {
+        AudioMix m = m_Impl->Mix;
+        m.Muted[(int)ValidBus(bus)] = muted;
+        m_Impl->SetMix(m);
+    }
+    bool AudioEngine::IsBusMuted(AudioBus bus) const { return m_Impl->Mix.Muted[(int)ValidBus(bus)]; }
+
+    void AudioEngine::SetMix(const AudioMix& mix) { m_Impl->SetMix(mix); }
+    const AudioMix& AudioEngine::GetMix() const { return m_Impl->Mix; }
+    uint32_t AudioEngine::Revision() const { return m_Impl->Revision; }
 
     uint32_t AudioEngine::VoiceCount() const {
         return (uint32_t)(m_Impl->OneShots.size() + m_Impl->Sources.size());
+    }
+
+    uint32_t AudioEngine::VoiceCount(AudioBus bus) const {
+        uint32_t n = 0;
+        for (const auto& v : m_Impl->OneShots) if (v->Bus == bus) n++;
+        for (const auto& [e, s] : m_Impl->Sources) if (s.V && s.Bus == bus) n++;
+        return n;
     }
 
 } // namespace Engine

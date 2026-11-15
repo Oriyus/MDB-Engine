@@ -201,7 +201,7 @@ cmake --build build --config Release --target package_editor # build/dist/MDB En
 <tr><td>Rigid Body</td><td>Physics body: type, shape, size, centre, mass, friction, bounciness, trigger, lock rotation (dynamic: physics moves it but never turns it, for characters)</td></tr>
 <tr><td>Collider</td><td>An extra shape for the nearest ancestor body (compound colliders)</td></tr>
 <tr><td>Script</td><td>A Lua file in <code>Assets/Scripts</code></td></tr>
-<tr><td>Camera</td><td>Game camera (FOV, near, far, primary)</td></tr>
+<tr><td>Camera</td><td>Game camera (FOV, near, far, primary, hide small objects, grass distance)</td></tr>
 <tr><td>Audio Source</td><td>A looping or one-shot sound that follows the entity</td></tr>
 <tr><td>Animator</td><td>Skeletal animation: clip, speed, layers, events, root motion, IK</td></tr>
 <tr><td>Particle Emitter</td><td>CPU particles with presets (Fire, Smoke, Sparks, Magic, Dust, Embers)</td></tr>
@@ -475,6 +475,15 @@ ui.text(s.draw_calls .. " draws, " .. s.static_merged .. " merged", 0.02, 0.95)<
   <li>Objects with levels or a cull distance are never merged into static batches (their level is picked every frame). Picking, colliders, grass footprints and bounds use the main geometry.</li>
   <li>Viewport &gt; Debug &gt; <b>LOD Levels</b> tints objects by level (green = main geometry, then yellow, orange, red, purple). The stats overlay shows how many objects are on a lower level or culled; scripts read <code>scene.render_stats().lod_reduced</code> / <code>lod_culled</code>.</li>
 </ul>
+<h3>Culling through the camera</h3>
+<p>The game camera decides what is too small or too far to draw. These settings are in Inspector &gt; Camera:</p>
+<ul>
+  <li><b>Hide small objects</b>: an object whose bounding sphere would cover less than this share of the view height is not drawn, and neither is its shadow. Small props go first, buildings much later, with no setup per object: the size is the object's bounding box, so at 1% through a 60° lens a 1 m crate hides beyond about 150 m and a 10 m house beyond 1.5 km (2 to 3% suits small props; the Inspector shows the distances for the value you pick). The same 5% hysteresis as levels of detail stops flicker. A zoomed-in lens keeps things further, and Scene Settings &gt; Levels of Detail &gt; Distance scale stretches it like every other distance (a quality option). An object's own Cull distance still applies when it is nearer. A selected object is never hidden this way. During Play, merged static batches are judged as one object each. 0 = off, the default.</li>
+  <li><b>Grass distance</b> multiplies every grass field's Draw distance through this camera: 0.5 halves it, 0 draws no grass.</li>
+  <li>The editor's own camera culls the same way as the primary game camera, so the Viewport shows what the game will draw. Turn this off with Viewport &gt; Camera &gt; <b>Cull Like the Game Camera</b>.</li>
+  <li>Scripts: <code>e.camera.small_objects</code> (0.01 = 1%), <code>e.camera.grass_distance</code>, and the same keys in <code>add_camera</code>. Culled objects count in the stats overlay's LOD line and in <code>render_stats().lod_culled</code>.</li>
+</ul>
+<div class="note">Culling already in the engine: every view (the camera, each point-light cube face, the sun cascades) skips what is outside its frustum, for meshes, static batches, terrain chunks and grass chunks; shadow casters are also skipped beyond a light's reach. There is no <b>occlusion culling</b> yet: an object hidden behind a wall but inside the view is still drawn.</div>
 <h3>Levels inside one model file</h3>
 <p>A model file can carry its own levels: name the objects <code>MyTree_LOD0</code>, <code>MyTree_LOD1</code>, <code>MyTree_LOD2</code> (any case; the usual Blender / Unreal / Unity naming), or give the glTF nodes an extra <code>"lod": n</code>. When you place such a model, drop it on a Mesh Renderer or pick it as Geometry, its levels are filled in for you, at distances worked out from its size (about when it fills 40%, 20%, 10% of the view). A node extra <code>"lod_distance"</code> (metres) sets a level's distance instead. Scripts get them too: <code>add_mesh{ geometry = "model:Models/Trees/Oak.gltf" }</code> fills them in unless you pass <code>lods</code>. In scene files and scripts a level is named <code>model:&lt;file&gt;#lod1</code>, <code>#lod2</code> …; the LOD picker lists the main file's levels first, and <b>Use the file's levels</b> / <b>Reset distances</b> put them back.</p>
 <p>Objects in the file that belong to no level are drawn at every level. A <b>collision mesh</b> (named <code>UCX_…</code> or <code>…_COL</code>, or with a <code>"collision"</code> node extra) is never drawn: Convex hull and Mesh colliders use it instead of the visible mesh, and so do grass footprints. Files without any of these load exactly as before. (Not for animated models: a skinned file is not split into levels.)</p>
@@ -551,10 +560,14 @@ end</code></pre>
 
 <section class="doc" data-group="Engine" id="engine-audio">
 <h2>Audio</h2>
-<p>miniaudio. One-shots (2D or positioned), and one voice per Audio Source that follows its entity (loop, volume, pitch, min/max distance). The listener follows the camera being drawn. Decoded clips are cached; Pause pauses the device, Stop stops all.</p>
+<p>miniaudio. One-shots (2D or positioned), and one voice per Audio Source that follows its entity (loop, volume, pitch, min/max distance). The listener follows the camera being drawn. Decoded clips are cached; Stop stops all.</p>
+<p><b>Buses.</b> Every sound plays on a mixer bus: <code>sfx</code> (the default), <code>music</code>, <code>voice</code>, <code>ui</code> or <code>ambience</code>, each a miniaudio sound group with its own volume and mute under the master volume (<code>Audio/AudioMix.h</code>). An Audio Source picks its bus in the Inspector (saved as <code>"bus"</code>, only when not sfx); one-shots take <code>bus = ...</code>. Pause stops every bus except <code>ui</code>, so menu sounds still play. Changing a playing source's bus carries on from the same point.</p>
+<p><b>Volume settings.</b> The game keeps the player's mix in <code>%APPDATA%\&lt;title&gt;\settings.json</code> (with <code>--save-dir</code>: <code>settings.json</code> in that folder; <code>--settings file</code> names it), set in the pause menu's <b>Settings</b> page (a slider and mute for master and each bus) or by scripts, and saved when the player leaves Settings and when the game closes. The editor has its own mix (Scene Settings › Audio, kept in <code>%APPDATA%\MDB Engine\audio.json</code>); during Play scripts may change it, and Stop puts it back.</p>
 <pre><code class="lua">audio.play("Sounds/coin.wav")
 audio.play_at("Sounds/thud.wav", self.position, { volume = 0.8, pitch = 1.2 })
-self:add_audio("Sounds/lava_loop.wav", { loop = true, min_distance = 2, max_distance = 14 })</code></pre>
+self:add_audio("Sounds/lava_loop.wav", { loop = true, min_distance = 2, max_distance = 14, bus = "ambience" })
+audio.play("Sounds/click.wav", { bus = "ui" })
+audio.set_volume("music", 0.6)                    -- or "master"; audio.volume(bus), set_muted / muted</code></pre>
 </section>
 
 <section class="doc" data-group="Engine" id="engine-navigation">
@@ -698,9 +711,10 @@ self:add_audio("Sounds/lava_loop.wav", { loop = true, min_distance = 2, max_dist
 <tr><td><code>--width N</code> <code>--height N</code></td><td>Window size</td></tr>
 <tr><td><code>--no-vsync</code></td><td>Uncapped frame rate</td></tr>
 <tr><td><code>--save-dir folder</code></td><td>Where save slots go</td></tr>
+<tr><td><code>--settings file</code></td><td>The player's settings file (volumes); default <code>%APPDATA%\&lt;title&gt;\settings.json</code>, or <code>settings.json</code> in <code>--save-dir</code></td></tr>
 <tr><td><code>--quit-after s</code></td><td>Close after s seconds (tests)</td></tr>
 </table>
-<p>Keys: <b>Esc</b> pause menu (Resume / Restart / Quit; R and Q work too), <b>F11</b> or <b>Alt+Enter</b> full screen. Release builds have no console window. File › Build Game (or the <code>package_game</code> target, for Examples) builds a ready-to-zip folder.</p>
+<p>Keys: <b>Esc</b> pause menu (Resume / Settings / Restart / Quit; R and Q work too; Settings has a volume slider and mute per audio bus, Esc goes back), <b>F11</b> or <b>Alt+Enter</b> full screen. Release builds have no console window. File › Build Game (or the <code>package_game</code> target, for Examples) builds a ready-to-zip folder.</p>
 </section>
 
 <section class="doc" data-group="Engine" id="engine-database">
@@ -885,7 +899,7 @@ MDBEditor.exe &gt; log.txt</code></pre>
 <tr><td>Shadows</td><td>On/off, cascades, shadow distance, split, biases, sun extent</td></tr>
 <tr><td>Post Processing</td><td>Exposure, tone map, gamma, TAA / FXAA, AO, bloom</td></tr>
 <tr><td>Physics</td><td>Gravity</td></tr>
-<tr><td>Audio</td><td>Audio status and volume</td></tr>
+<tr><td>Audio</td><td>Master and bus volumes with mutes (the editor's own mix, kept across runs) and the sounds playing on each</td></tr>
 <tr><td>Scripts</td><td>Script status and recent errors</td></tr>
 </table>
 <p>These are saved in the scene file. They are not part of undo.</p>
@@ -1220,7 +1234,14 @@ self.camera.fov = 60
 audio.play("Sounds/coin.wav", { volume = 0.8 })                     -- 2D one-shot
 audio.play_at("Sounds/thud.wav", self.position, { pitch = 1.1 })   -- 3D one-shot
 self:add_audio("Sounds/lava_loop.wav", { loop = true, spatial = true, min_distance = 2, max_distance = 14 })
-self.audio.volume = 0.5; self.audio:stop(); self.audio:play()</code></pre>
+self.audio.volume = 0.5; self.audio:stop(); self.audio:play()
+self.audio.bus = "music"                                            -- sfx music voice ui ambience
+
+audio.set_volume("music", 0.5)    -- bus or "master", 0..1 (in the game: the player's settings, saved on quit)
+audio.volume("music"); audio.set_muted("voice", true); audio.muted("voice")
+audio.buses()                     -- { "sfx", "music", "voice", "ui", "ambience" }
+audio.voices("music")             -- sounds alive on a bus (no bus: all)</code></pre>
+<p>An unknown bus name is a script error. In the editor, Stop puts back the mix Play began with.</p>
 </section>
 
 <section class="doc" data-group="Scripting" id="script-particles">

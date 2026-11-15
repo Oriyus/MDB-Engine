@@ -97,6 +97,9 @@ public:
             }
             m_Session->SetSaveDirectory(dir);
         }
+        // The editor's own listening levels (Scene Settings > Audio), kept across runs
+        if (LoadAudioMix(EditorAudioFile(), m_SavedMix)) m_Session->Audio().SetMix(m_SavedMix);
+        else m_SavedMix = m_Session->Audio().GetMix();
 
         m_Cube = m_Resources->Cube();
         m_Plane = m_Resources->Plane();
@@ -568,6 +571,20 @@ public:
                     if (selected.count(p)) { m_Renderer->Highlight.push_back((uint32_t)entt::to_integral(e)); break; }
             }
         }
+        // The editor camera culls like the primary game camera (Viewport > Camera > Cull Like the Game Camera)
+        {
+            float small = 0.0f, grass = 1.0f;
+            if (m_EditorGameCulling) {
+                const Engine::CameraComponent* chosen = nullptr;
+                for (auto [e, c] : m_Scene.Registry().view<Engine::CameraComponent>().each()) {
+                    if (!chosen) chosen = &c;
+                    if (c.Primary) { chosen = &c; break; }
+                }
+                if (chosen) { small = chosen->SmallObjects; grass = chosen->GrassDistance; }
+            }
+            m_Camera->CullSmallObjects = small;
+            m_Camera->GrassDistanceScale = grass;
+        }
         UpdateEditorHidden();
         { PROFILE_SCOPE("Render"); m_Renderer->Render(m_Scene, view, vw, vh); }
         { PROFILE_SCOPE("Asset preview"); m_Preview.Render(dt, *m_Resources); }
@@ -719,7 +736,15 @@ public:
         OpenProject(p.Root);
     }
 
+    // %APPDATA%/MDB Engine/audio.json (not per project: these are the developer's ears)
+    static std::string EditorAudioFile() {
+        const std::string app = EnvVar("APPDATA");
+        return app.empty() ? std::string("audio.json") : app + "/MDB Engine/audio.json";
+    }
+
     void OnShutdown() override {
+        const Engine::AudioMix mix = m_PlayState == PlayState::Edit ? m_Session->Audio().GetMix() : m_PlayMix;
+        if (mix != m_SavedMix && Engine::SaveAudioMix(EditorAudioFile(), mix)) m_SavedMix = mix;
         if (!m_SwitchProject.empty() && !Platform::LaunchSelf({ "--project", m_SwitchProject }))
             LOG_ERROR("Could not restart the editor for {}", m_SwitchProject);
     }
@@ -1042,11 +1067,13 @@ public:
         if (m_PlayState != PlayState::Edit) return;
         m_Snapshot = m_Scene.Capture(m_Selected, m_SnapshotSelected);
         m_PlaySettings = GatherSettings();   // put back on Stop if a level change replaced them
+        m_PlayMix = m_Session->Audio().GetMix();   // scripts' audio.set_volume lasts until Stop
         m_PlayState = PlayState::Play;
     }
 
     void StopPlay() {
         if (m_PlayState == PlayState::Edit) return;
+        m_Session->Audio().SetMix(m_PlayMix);
         m_Selection.clear();
         m_Selected = m_Scene.Restore(m_Snapshot, m_SnapshotSelected);
         m_Snapshot.clear();
@@ -2324,12 +2351,32 @@ private:
         }
 
         if (ImGui::CollapsingHeader("Audio")) {
-            if (!m_Session->Audio().IsReady()) ImGui::TextDisabled("No audio device: sound is off");
-            else {
-                float master = m_Session->Audio().GetMasterVolume();
-                if (ImGui::SliderFloat("Master volume", &master, 0.0f, 1.0f)) m_Session->Audio().SetMasterVolume(master);
-                ImGui::TextDisabled("Voices playing: %u", m_Session->Audio().VoiceCount());
+            AudioEngine& audio = m_Session->Audio();
+            if (!audio.IsReady()) ImGui::TextDisabled("No audio device: sound is off");
+            AudioMix mix = audio.GetMix();
+            bool changed = false;
+            auto row = [&](const char* label, const char* id, float& volume, bool& muted, uint32_t voices, bool showVoices) {
+                ImGui::PushID(id);
+                changed |= ImGui::Checkbox("##on", &muted);   // ticked = muted
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Mute");
+                ImGui::SameLine();
+                ImGui::BeginDisabled(muted);
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
+                float pct = volume * 100.0f;
+                if (ImGui::SliderFloat(label, &pct, 0.0f, 100.0f, "%.0f%%")) { volume = pct / 100.0f; changed = true; }
+                ImGui::EndDisabled();
+                if (showVoices) { ImGui::SameLine(); ImGui::TextDisabled("%u", voices); }
+                ImGui::PopID();
+            };
+            row("Master", "master", mix.Master, mix.MasterMuted, audio.VoiceCount(), true);
+            for (int i = 0; i < kAudioBusCount; i++)
+                row(AudioBusLabel((AudioBus)i), AudioBusName((AudioBus)i), mix.Volume[i], mix.Muted[i], audio.VoiceCount((AudioBus)i), true);
+            if (changed) {
+                audio.SetMix(mix);
+                if (m_PlayState != PlayState::Edit) m_PlayMix = mix;   // a change made here outlives Stop
             }
+            ImGui::TextDisabled("Ticked = muted; numbers are sounds playing. Kept in %%APPDATA%%/MDB Engine/audio.json.");
+            ImGui::TextDisabled("A built game keeps the player's own settings (pause menu > Settings).");
         }
 
         if (ImGui::CollapsingHeader("Scripts")) {
@@ -3489,6 +3536,8 @@ private:
                 if (ImGui::MenuItem("Frame Selected", "F")) FrameSelected();
                 ImGui::SetNextItemWidth(160.0f);
                 ImGui::SliderFloat("Orbit speed", &m_Camera->OrbitSensitivity, 0.05f, 1.0f);
+                ImGui::MenuItem("Cull Like the Game Camera", nullptr, &m_EditorGameCulling);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Hide small objects and shorten grass as the primary camera does\n(its Hide small objects and Grass distance), so the Viewport shows what the game draws");
                 ImGui::TextDisabled("Alt + left / middle / right drag: orbit / pan / zoom");
                 ImGui::EndMenu();
             }
@@ -4442,6 +4491,22 @@ private:
             ImGui::DragFloat("Near", &c.Near, 0.01f, 0.01f, 10.0f);
             ImGui::DragFloat("Far", &c.Far, 1.0f, 1.0f, 5000.0f);
             ImGui::Checkbox("Primary", &c.Primary);
+            // Culling: small objects by their size on screen, grass by a multiple of each field's draw distance
+            float pct = c.SmallObjects * 100.0f;
+            if (ImGui::SliderFloat("Hide small objects", &pct, 0.0f, 5.0f, pct > 0.0f ? "below %.2f%% of view" : "off"))
+                c.SmallObjects = std::max(pct, 0.0f) / 100.0f;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("A part whose bounding sphere covers less than this share of the view height is not drawn,\n"
+                    "nor its shadow: small props go first, buildings much later. No setup per object.\n"
+                    "Scene Settings > Levels of Detail > distance scale stretches it too. 0 = off.");
+            if (c.SmallObjects > 0.0f) {
+                const float lodScale = std::max(m_Scene.Lod.DistanceScale, 0.01f);
+                const float d = 0.866f / (c.SmallObjects * std::tan(glm::radians(c.FOV) * 0.5f)) * lodScale;
+                ImGui::TextDisabled("A 1 m crate hides beyond about %.0f m, a 10 m house beyond %.0f m", d, d * 10.0f);   // box half-diagonal 0.866
+            }
+            ImGui::SliderFloat("Grass distance", &c.GrassDistance, 0.0f, 3.0f, c.GrassDistance > 0.0f ? "x %.2f" : "no grass");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Multiplies every grass field's Draw distance through this camera (1 = their own)");
             ImGui::TextDisabled("Looks along local -Z. Play shows the primary camera.");
             if (ImGui::Button("Remove##camera")) e.Remove<CameraComponent>();
         }
@@ -4455,7 +4520,13 @@ private:
             }
             if (auto drop = AssetBrowser::AcceptDrop({ AssetBrowser::Kind::Sound }); !drop.empty()) a.Clip = drop;   // dragged from Assets
             ImGui::SameLine();
-            if (ImGui::SmallButton("Preview")) m_Session->Audio().Play(a.Clip, a.Volume, a.Pitch);
+            if (ImGui::SmallButton("Preview")) m_Session->Audio().Play(a.Clip, a.Volume, a.Pitch, a.Bus);
+            if (ImGui::BeginCombo("Bus##audio", AudioBusLabel(a.Bus))) {
+                for (int i = 0; i < kAudioBusCount; i++)
+                    if (ImGui::Selectable(AudioBusLabel((AudioBus)i), a.Bus == (AudioBus)i)) a.Bus = (AudioBus)i;
+                ImGui::EndCombo();
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("The mixer bus: its volume is in Scene Settings > Audio and the game's settings menu");
             ImGui::SliderFloat("Volume##audio", &a.Volume, 0.0f, 2.0f);
             ImGui::SliderFloat("Pitch##audio", &a.Pitch, 0.25f, 3.0f);
             ImGui::Checkbox("Loop", &a.Loop);
@@ -4677,6 +4748,8 @@ private:
     PlayCmd   m_PlayCmd = PlayCmd::None;     // set by the UI, applied at the start of the next frame
     Engine::SceneSnapshot m_Snapshot;
     Engine::SceneSettings m_PlaySettings;    // the render settings when Play started
+    Engine::AudioMix m_PlayMix;              // the mix when Play started: Stop puts it back (scripts may change it)
+    Engine::AudioMix m_SavedMix;             // what audio.json holds: saved on quit if the editor mix differs
     int  m_SnapshotSelected = -1;
     bool m_StepFrame = false;
     bool m_PDown = false, m_EscDown = false;
@@ -4699,6 +4772,7 @@ private:
     bool  m_ShowOutline = true;
     std::string m_PendingSelect;     // MDB_SELECT test hook
     std::string m_PendingHide;       // MDB_HIDE test hook
+    bool m_EditorGameCulling = true; // Viewport > Camera > Cull Like the Game Camera
     bool  m_Num1Down = false, m_Num2Down = false, m_Num3Down = false, m_Num4Down = false;
 
     // Editor shell (menu bar, toolbar, panels)

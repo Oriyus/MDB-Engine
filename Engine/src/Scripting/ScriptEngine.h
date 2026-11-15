@@ -132,10 +132,13 @@ namespace Engine {
     //               rigid body above this entity (compound collider). Capsule size = vec3(diameter, height, 0)
     //   e:add_light{ color=vec3, intensity, shadows }
     //   e:add_script("Scripts/x.lua")        starts on the next frame
-    //   e.camera -> nil or { fov, primary }       e:add_camera{ fov=60, near, far, primary=true }
+    //   e.camera -> nil or { fov, primary, small_objects, grass_distance }
+    //                e:add_camera{ fov=60, near, far, primary=true, small_objects=0, grass_distance=1 }
+    //                small_objects: parts smaller on screen than this share of the view height are not drawn (0 = off,
+    //                0.01 = 1%); grass_distance multiplies every grass field's draw distance (0 = no grass)
     //   e:look_at(target [, up])               turn local -Z (forward) towards a point
-    //   e.audio -> nil or { clip, volume, pitch, loop, playing, play(), stop() }
-    //   e:add_audio(clip [, { volume, pitch, loop=true, spatial=true, play=true, min_distance, max_distance }])
+    //   e.audio -> nil or { clip, volume, pitch, loop, bus, playing, play(), stop() }
+    //   e:add_audio(clip [, { volume, pitch, loop=true, spatial=true, play=true, min_distance, max_distance, bus="sfx" }])
     //   e.particles -> nil or { emitting, rate, emission, gravity_scale, start_color, end_color (vec3), count,
     //                           burst([n]), clear(), preset(name) }   presets: Fire Smoke Sparks Magic Dust Embers
     //   e:add_particles("Fire") or e:add_particles{ preset, rate, burst, emitting, additive, texture = "texture:Textures/x.png" }
@@ -167,8 +170,12 @@ namespace Engine {
     //   scene.find(name), scene.find_all(name), scene.spawn(name [, position]), scene.time()
     //   scene.spawn_prefab(name [, position])  an instance of Prefabs/<name>.json (nil if missing)
     //   scene.restart()                      Stop + Play on the next frame (retry a level)
-    //   audio.play(clip [, { volume, pitch }])             2D one-shot, e.g. "Sounds/coin.wav"
-    //   audio.play_at(clip, position [, { volume, pitch }]) 3D one-shot, quieter with distance
+    //   audio.play(clip [, { volume, pitch, bus = "sfx" }])  2D one-shot, e.g. "Sounds/coin.wav"
+    //   audio.play_at(clip, position [, { volume, pitch, bus }]) 3D one-shot, quieter with distance
+    //   Buses (Audio/AudioMix.h): "sfx" (default), "music", "voice", "ui", "ambience". Pause stops all but "ui".
+    //   audio.set_volume(bus, 0..1), audio.volume(bus), audio.set_muted(bus, bool), audio.muted(bus)   bus may be "master";
+    //     in the game these are the player's settings (saved on quit), in the editor Stop puts back the mix Play began with
+    //   audio.buses() -> { "sfx", "music", ... }, audio.voices([bus]) -> sounds alive (all, or on that bus)
     //   scene.quit()                         the game closes (in the editor: Play stops)
     //   scene.render_stats() -> { draw_calls, triangles, instances, culled, shadow_skipped, particles, decals, static_batches, static_merged, foliage, lod_reduced, lod_culled }
     //   scene.lod_scale([v])  -> the scene's level-of-detail distance scale (every switch and cull distance x v; 2 = detail

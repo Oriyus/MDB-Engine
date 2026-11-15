@@ -3,13 +3,15 @@
 // The game is a project (a folder with project.json and Assets/, see Core/Project.h). Settings come from
 // project.json, and the command line can override them:
 //   Game.exe [--project <folder>] [--scene <file in Assets/Scenes>] [--fullscreen | --windowed] [--width N]
-//            [--height N] [--no-vsync] [--quit-after <seconds>] [--save-dir <folder>]
-// Save slots go to %APPDATA%/<title>/Saves unless --save-dir says otherwise.
+//            [--height N] [--no-vsync] [--quit-after <seconds>] [--save-dir <folder>] [--settings <file>]
+// Save slots go to %APPDATA%/<title>/Saves unless --save-dir says otherwise, and the player's settings (volumes)
+// to %APPDATA%/<title>/settings.json (with --save-dir: settings.json in that folder; --settings names the file).
 // Where things are: a packaged game (File > Build Game in the editor, or the package_game target) has
 // project.json, Assets and EngineAssets next to the exe. Otherwise (running from the build) the project is
 // --project or the source tree's Examples, and the engine files are the source tree's EngineAssets.
 //
-// Keys: Esc pauses (a menu with Resume / Restart / Quit buttons; Esc, R and Q work too),
+// Keys: Esc pauses (a menu with Resume / Settings / Restart / Quit buttons; Esc, R and Q work too; Settings has
+// a volume slider and mute per audio bus),
 // F11 or Alt+Enter toggles full screen.
 // Everything else belongs to the game's scripts.
 
@@ -27,11 +29,14 @@
 #include "Runtime/ResourceLibrary.h"
 #include "Runtime/GameSession.h"
 #include "Runtime/GameUI.h"
+#include "Audio/AudioEngine.h"
 
 #include <glad/glad.h>
 #include <imgui.h>
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <cmath>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -48,6 +53,7 @@ namespace {
         Engine::WindowProps Window;
         float QuitAfter = 0.0f;               // test hook: close after this many seconds (0 = never)
         std::string SaveDir;                  // save slots: %APPDATA%/<title>/Saves unless --save-dir is given
+        std::string SettingsFile;             // the player's settings: %APPDATA%/<title>/settings.json (see the top)
     };
 
     GameConfig LoadConfig() {
@@ -91,6 +97,7 @@ namespace {
             else if (a == "--height" && hasValue) c.Window.Height = (uint32_t)std::stoul(args[++i]);
             else if (a == "--quit-after" && hasValue) c.QuitAfter = std::stof(args[++i]);
             else if (a == "--save-dir" && hasValue) c.SaveDir = args[++i];
+            else if (a == "--settings" && hasValue) c.SettingsFile = args[++i];
             else LOG_WARN("Unknown argument '{}'", a);
         }
         if (c.SaveDir.empty()) {
@@ -100,10 +107,12 @@ namespace {
             if (title.empty()) title = "MDB Game";
             char* appData = nullptr;
             size_t len = 0;
-            if (_dupenv_s(&appData, &len, "APPDATA") == 0 && appData) c.SaveDir = (fs::path(appData) / title / "Saves").generic_string();
-            else c.SaveDir = (exeDir / "Saves").generic_string();
+            const fs::path root = (_dupenv_s(&appData, &len, "APPDATA") == 0 && appData) ? fs::path(appData) / title : exeDir;
             std::free(appData);
+            c.SaveDir = (root / "Saves").generic_string();
+            if (c.SettingsFile.empty()) c.SettingsFile = (root / "settings.json").generic_string();
         }
+        if (c.SettingsFile.empty()) c.SettingsFile = (fs::path(c.SaveDir) / "settings.json").generic_string();   // --save-dir given
         return c;
     }
 
@@ -125,6 +134,8 @@ public:
         m_Renderer = std::make_unique<SceneRenderer>(m_Cfg.EngineDir, m_Cfg.AssetDir, GetWindow().GetWidth(), GetWindow().GetHeight());
         m_Session = std::make_unique<GameSession>(m_Scene, m_Cfg.AssetDir, m_Cfg.EngineDir, m_Resources->Registry());
         m_Session->Scripts().SetUIFonts(m_Fonts.Bold, m_Fonts.Regular);   // ui.label measures with them
+        if (LoadAudioMix(m_Cfg.SettingsFile, m_SavedMix)) m_Session->Audio().SetMix(m_SavedMix);   // the player's volumes
+        else m_SavedMix = m_Session->Audio().GetMix();
 
         SceneSettings settings;
         m_Renderer->GatherSettings(settings);    // defaults for anything the file leaves out
@@ -158,10 +169,12 @@ public:
         const bool alt = Input::IsKeyDown(342) || Input::IsKeyDown(346);   // left / right Alt
         const bool esc = Edge(Key::Escape, m_EscDown);
         if (esc && !m_Running) { Close(); return; }   // nothing to pause: the scene did not load
-        if (esc) m_Paused = !m_Paused;
+        if (esc && m_Paused && m_MenuPage == MenuPage::Settings) LeaveSettings();   // Esc: back to the menu
+        else if (esc) { m_Paused = !m_Paused; m_MenuPage = MenuPage::Main; }
         if (Edge(Key::F11, m_F11Down) || (alt && Edge(257, m_EnterDown)))  // F11, Alt+Enter
             GetWindow().SetFullscreen(!GetWindow().IsFullscreen());
-        const bool r = Edge(Key::R, m_RDown), q = Edge(Key::Q, m_QDown);
+        bool r = Edge(Key::R, m_RDown), q = Edge(Key::Q, m_QDown);
+        if (m_MenuPage != MenuPage::Main) r = q = false;
         if (m_Paused && q) Close();
         if (!m_Running) return;
         if (m_Paused && r) { m_RestartPending = true; m_Paused = false; }
@@ -229,50 +242,143 @@ public:
         dl->AddImage((ImTextureID)(intptr_t)m_Renderer->GetOutput(), ImVec2(0, 0), size, ImVec2(0, 1), ImVec2(1, 0));
         DrawScriptUI(dl, m_Fonts, m_Session->Scripts().UIItems(), ImVec2(0, 0), size, &m_UITextures);
 
-        if (m_Paused) DrawPauseMenu(dl, size);
+        if (m_Paused) {
+            dl->AddRectFilled(ImVec2(0, 0), size, IM_COL32(0, 0, 0, 150));
+            if (m_MenuPage == MenuPage::Settings) DrawSettingsMenu(dl, size);
+            else DrawPauseMenu(dl, size);
+        }
+        else m_MenuPage = MenuPage::Main;
     }
+
+    // The player's volumes outlive the run: written when they leave Settings and when the game closes
+    void OnShutdown() override { SaveMix(); }
 
     // Built from the same UI items scripts use; the clicks are handled right here
     void DrawPauseMenu(ImDrawList* dl, const ImVec2& size) {
         using namespace Engine;
-        dl->AddRectFilled(ImVec2(0, 0), size, IM_COL32(0, 0, 0, 150));
         std::vector<ScriptUIItem> menu;
-        ScriptUIItem title;
-        title.Text = "Paused";
-        title.X = 0.5f; title.Y = 0.26f; title.Size = 72.0f; title.Align = 1;
-        menu.push_back(title);
+        menu.push_back(MenuText("Paused", 0.5f, 0.22f, 72.0f, 1));
 
-        const char* labels[] = { "Resume", "Restart", "Quit" };
-        const ImVec2 mouse = ImGui::GetIO().MousePos;
+        const char* labels[] = { "Resume", "Settings", "Restart", "Quit" };
         int clicked = -1;
-        for (int i = 0; i < 3; i++) {
-            ScriptUIItem b;
-            b.Kind = ScriptUIItem::Type::Button;
-            b.Text = labels[i];
-            b.X = 0.4f; b.Y = 0.42f + 0.1f * i; b.W = 0.2f; b.H = 0.075f;
-            b.Color = glm::vec3(0.16f, 0.2f, 0.3f);
-            b.Alpha = 0.95f;
-            b.Rounding = 10.0f;
-            b.Size = 30.0f;
-            b.Hovered = UIButtonHovered(b, ImVec2(0, 0), size, mouse);
-            b.Pressed = b.Hovered && ImGui::IsMouseDown(ImGuiMouseButton_Left);
-            if (b.Hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) clicked = i;
-            menu.push_back(b);
-        }
-        ScriptUIItem keys;
-        keys.Text = "Esc  resume     R  restart     Q  quit     F11  full screen";
-        keys.X = 0.5f; keys.Y = 0.75f; keys.Size = 22.0f; keys.Align = 1;
-        keys.Color = glm::vec3(0.75f);
-        menu.push_back(keys);
+        for (int i = 0; i < 4; i++)
+            if (MenuButton(menu, labels[i], 0.4f, 0.36f + 0.095f * i, 0.2f, 0.072f, size, 30.0f)) clicked = i;
+        menu.push_back(MenuText("Esc  resume     R  restart     Q  quit     F11  full screen", 0.5f, 0.78f, 22.0f, 1, glm::vec3(0.75f)));
         DrawScriptUI(dl, m_Fonts, menu, ImVec2(0, 0), size, nullptr);
 
         // Acted on next frame by OnUpdate (or right away for quitting)
         if (clicked == 0) m_Paused = false;
-        if (clicked == 1) { m_RestartPending = true; m_Paused = false; }
-        if (clicked == 2) Close();
+        if (clicked == 1) { m_MenuPage = MenuPage::Settings; m_DragRow = -1; }
+        if (clicked == 2) { m_RestartPending = true; m_Paused = false; }
+        if (clicked == 3) Close();
+    }
+
+    // Settings: a slider and a mute button for the master volume and every audio bus
+    void DrawSettingsMenu(ImDrawList* dl, const ImVec2& size) {
+        using namespace Engine;
+        AudioEngine& audio = m_Session->Audio();
+        AudioMix mix = audio.GetMix();
+        std::vector<ScriptUIItem> menu;
+        menu.push_back(MenuText("Settings", 0.5f, 0.12f, 64.0f, 1));
+        menu.push_back(MenuText("Volume", 0.5f, 0.24f, 30.0f, 1, glm::vec3(0.8f)));
+
+        const ImVec2 mouse = ImGui::GetIO().MousePos;
+        const float mx = mouse.x / std::max(size.x, 1.0f), my = mouse.y / std::max(size.y, 1.0f);
+        const bool down = ImGui::IsMouseDown(ImGuiMouseButton_Left), clickedNow = ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+        if (!down) m_DragRow = -1;
+
+        constexpr int rows = 1 + kAudioBusCount;
+        constexpr float trackX = 0.42f, trackW = 0.26f, trackH = 0.016f;
+        bool changed = false;
+        for (int r = 0; r < rows; r++) {
+            const bool master = r == 0;
+            const int bus = r - 1;
+            float& volume = master ? mix.Master : mix.Volume[bus];
+            bool& muted = master ? mix.MasterMuted : mix.Muted[bus];
+            const float y = 0.32f + 0.075f * r;      // the row's middle
+            const glm::vec3 dim(0.55f);
+
+            menu.push_back(MenuText(master ? "Master" : AudioBusLabel((AudioBus)bus), trackX - 0.025f, y - 0.022f, 28.0f, 2,
+                                    muted ? dim : glm::vec3(1.0f)));
+            // The track grabs a press anywhere on its row's height, then follows the pointer while held
+            const bool overTrack = mx >= trackX - 0.01f && mx <= trackX + trackW + 0.01f && std::abs(my - y) < 0.03f;
+            if (clickedNow && overTrack) m_DragRow = r;
+            if (m_DragRow == r) {
+                const float v = std::clamp((mx - trackX) / trackW, 0.0f, 1.0f);
+                if (v != volume) { volume = v; changed = true; }
+                if (muted && v > 0.0f) { muted = false; changed = true; }   // dragging up unmutes
+            }
+            ScriptUIItem track;
+            track.Kind = ScriptUIItem::Type::Rect;
+            track.X = trackX; track.Y = y - trackH * 0.5f; track.W = trackW; track.H = trackH;
+            track.Color = glm::vec3(0.1f, 0.12f, 0.17f); track.Alpha = 0.95f; track.Rounding = 6.0f;
+            menu.push_back(track);
+            ScriptUIItem fill = track;
+            fill.W = trackW * volume;
+            fill.Color = muted ? glm::vec3(0.3f) : (overTrack || m_DragRow == r ? glm::vec3(0.45f, 0.65f, 1.0f) : glm::vec3(0.32f, 0.5f, 0.85f));
+            if (fill.W > 0.001f) menu.push_back(fill);
+            ScriptUIItem knob = track;               // a small handle at the value
+            knob.W = 0.008f; knob.H = 0.034f;
+            knob.X = trackX + trackW * volume - knob.W * 0.5f; knob.Y = y - knob.H * 0.5f;
+            knob.Color = muted ? dim : glm::vec3(0.95f); knob.Rounding = 4.0f;
+            menu.push_back(knob);
+
+            char pct[16];
+            std::snprintf(pct, sizeof pct, "%d%%", (int)std::lround(volume * 100.0f));
+            menu.push_back(MenuText(pct, trackX + trackW + 0.045f, y - 0.02f, 26.0f, 2, muted ? dim : glm::vec3(0.9f)));
+            if (MenuButton(menu, muted ? "Muted" : "On", trackX + trackW + 0.06f, y - 0.022f, 0.075f, 0.044f, size, 22.0f,
+                           muted ? glm::vec3(0.35f, 0.16f, 0.16f) : glm::vec3(0.16f, 0.2f, 0.3f)) && m_DragRow < 0) {
+                muted = !muted;
+                changed = true;
+            }
+        }
+        if (changed) audio.SetMix(mix);
+
+        const bool back = MenuButton(menu, "Back", 0.4f, 0.32f + 0.075f * rows + 0.03f, 0.2f, 0.072f, size, 30.0f);
+        menu.push_back(MenuText("Esc  back", 0.5f, 0.92f, 22.0f, 1, glm::vec3(0.75f)));
+        DrawScriptUI(dl, m_Fonts, menu, ImVec2(0, 0), size, nullptr);
+        if (back) LeaveSettings();
+    }
+
+    void LeaveSettings() {
+        m_MenuPage = MenuPage::Main;
+        m_DragRow = -1;
+        SaveMix();
+    }
+
+    void SaveMix() {
+        if (!m_Session) return;
+        const Engine::AudioMix mix = m_Session->Audio().GetMix();
+        if (mix != m_SavedMix && Engine::SaveAudioMix(m_Cfg.SettingsFile, mix)) m_SavedMix = mix;
+    }
+
+    static Engine::ScriptUIItem MenuText(const std::string& text, float x, float y, float size, int align,
+                                         const glm::vec3& color = glm::vec3(1.0f)) {
+        Engine::ScriptUIItem t;
+        t.Text = text;
+        t.X = x; t.Y = y; t.Size = size; t.Align = align; t.Color = color;
+        return t;
+    }
+
+    // Adds a button; true on the frame it is clicked
+    static bool MenuButton(std::vector<Engine::ScriptUIItem>& out, const char* label, float x, float y, float w, float h,
+                           const ImVec2& size, float textSize, const glm::vec3& color = glm::vec3(0.16f, 0.2f, 0.3f)) {
+        Engine::ScriptUIItem b;
+        b.Kind = Engine::ScriptUIItem::Type::Button;
+        b.Text = label;
+        b.X = x; b.Y = y; b.W = w; b.H = h;
+        b.Color = color;
+        b.Alpha = 0.95f;
+        b.Rounding = 10.0f;
+        b.Size = textSize;
+        b.Hovered = Engine::UIButtonHovered(b, ImVec2(0, 0), size, ImGui::GetIO().MousePos);
+        b.Pressed = b.Hovered && ImGui::IsMouseDown(ImGuiMouseButton_Left);
+        out.push_back(b);
+        return b.Hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
     }
 
 private:
+    enum class MenuPage { Main, Settings };
     static bool Edge(int key, bool& wasDown) {
         const bool down = Engine::Input::IsKeyDown(key);
         const bool pressed = down && !wasDown;
@@ -291,6 +397,9 @@ private:
     Engine::UITextureCache m_UITextures{ m_Cfg.AssetDir };   // images for ui.image (declared after m_Cfg)
     std::string m_Error;
 
+    Engine::AudioMix m_SavedMix;             // what the settings file holds
+    MenuPage m_MenuPage = MenuPage::Main;
+    int m_DragRow = -1;                      // the volume slider being dragged (Settings page)
     bool m_Running = false, m_Paused = false, m_RestartPending = false;
     bool m_EscDown = false, m_F11Down = false, m_EnterDown = false, m_RDown = false, m_QDown = false;
     float m_Time = 0.0f;

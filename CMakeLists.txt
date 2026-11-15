@@ -29,6 +29,10 @@ FetchContent_Declare(JoltPhysics
 # Jolt defaults to the *static* MSVC runtime, which would clash with the rest of the project
 set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE)
 set(CPP_RTTI_ENABLED ON CACHE BOOL "" FORCE)
+# Jolt without exceptions adds _HAS_EXCEPTIONS=0 as a PUBLIC definition, so every target linking it gets MSVC's
+# fallback std::exception, which keeps only a pointer to its message: runtime_error(std::string) then points into
+# a freed temporary (garbled Lua errors, json parse errors). Exceptions on keeps the real std::exception everywhere.
+set(CPP_EXCEPTIONS_ENABLED ON CACHE BOOL "" FORCE)
 set(ENABLE_ALL_WARNINGS OFF CACHE BOOL "" FORCE)   # warnings-as-errors would break on a very new MSVC, like assimp did
 set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
 set(PROFILER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)

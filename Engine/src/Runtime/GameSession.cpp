@@ -374,6 +374,8 @@ namespace Engine {
         const auto& c = reg.get<CameraComponent>(chosen);
         camera.SetAspect(aspect);
         camera.SetLens(c.FOV, c.Near, c.Far);
+        camera.CullSmallObjects = c.SmallObjects;
+        camera.GrassDistanceScale = c.GrassDistance;
         camera.SetPose(pos, rot);
         return true;
     }

@@ -48,6 +48,9 @@ namespace Engine {
         glm::vec3 Position{ 0.0f, 0.0f, 4.0f };
         float OrbitSensitivity = 0.3f;   // degrees per pixel
         float FocusDistance = 6.0f;      // distance from the camera to the orbit pivot
+        // What this view leaves out (CameraComponent::SmallObjects / GrassDistance; the game camera copies them)
+        float CullSmallObjects = 0.0f;   // share of the view height below which a part is not drawn (0 = off)
+        float GrassDistanceScale = 1.0f; // multiplies every grass field's draw distance
 
     private:
         void UpdateFront();
