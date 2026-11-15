@@ -107,12 +107,15 @@ public:
         if (LoadAudioMix(EditorAudioFile(), m_SavedMix)) m_Session->Audio().SetMix(m_SavedMix);
         else m_SavedMix = m_Session->Audio().GetMix();
 
-        Splash::Report(0.26f, "Loading the sample model");
         m_Cube = m_Resources->Cube();
         m_Plane = m_Resources->Plane();
         m_Checker = m_Resources->Checker();
         EnsureSphere();
 
+        // The built-in starter scene (floor, cube, the sample model, lights). Built only when no scene file or
+        // example level replaces it: the sample model alone takes about 0.7 s to load in Debug.
+        auto buildStarterScene = [this]() {
+        Splash::Status("Loading the sample model");
         // --- Floor
         {
             auto e = m_Scene.CreateEntity("Floor");
@@ -194,8 +197,9 @@ public:
             t.Rotation = glm::vec3(-0.9f, 0.5f, 0.0f);
             e.Add<DirectionalLightComponent>();
         }
+        };
 
-        Splash::Report(0.42f, "Loading fonts");
+        Splash::Report(0.26f, "Loading fonts");
         m_Camera = std::make_unique<Camera>(60.0f, AspectRatio());
         m_GameCamera = std::make_unique<Camera>(60.0f, AspectRatio());
         // Editor look: the layout file, a proper UI font (the first font is the default), a mono font for
@@ -225,17 +229,25 @@ public:
         // The scene is most of the start: its share of the splash bar follows the entities read (and the models
         // they load, which the bar names)
         auto loadFirstScene = [this](const std::string& file) {
-            Splash::Range range(0.43f, 0.78f);
+            Splash::Range range(0.27f, 0.78f);
             Splash::Report(0.0f, "Opening " + file);
-            LoadScene(file);
+            return LoadScene(file);
         };
         const std::string startScene = Projects::Current().Scene;
-        if (EnvVar("MDB_SCENE").empty() && EnvVar("MDB_DEMO").empty() && !startScene.empty()) {
-            if (std::filesystem::exists(std::filesystem::u8path(ScenePath(startScene)))) loadFirstScene(startScene);
+        const std::string envScene = EnvVar("MDB_SCENE"), envDemo = EnvVar("MDB_DEMO");
+        const bool demoLevel = envDemo == "1" || envDemo == "script" || envDemo == "coinrush" || envDemo == "tactics"
+            || envDemo == "cellar" || envDemo == "terrain";
+        bool loaded = false;
+        if (envScene.empty() && envDemo.empty() && !startScene.empty()) {
+            if (std::filesystem::exists(std::filesystem::u8path(ScenePath(startScene)))) loaded = loadFirstScene(startScene);
             else m_SceneFile = startScene;
         }
-        if (auto sc = EnvVar("MDB_SCENE"); !sc.empty()) loadFirstScene(sc);
-        if (auto demo = EnvVar("MDB_DEMO"); demo == "1" || demo == "script") BuildLevel(BuildScriptDemo);
+        if (!envScene.empty()) loaded = loadFirstScene(envScene) || loaded;
+        if (!loaded && !demoLevel) {     // nothing replaces it (or the file failed to load): the starter scene
+            Splash::Report(0.27f);
+            buildStarterScene();
+        }
+        if (auto demo = envDemo; demo == "1" || demo == "script") BuildLevel(BuildScriptDemo);
         else if (demo == "coinrush") BuildLevel(BuildCoinRush);
         else if (demo == "tactics") BuildLevel(BuildTacticsTest);
         else if (demo == "cellar") BuildLevel(BuildTacticsCellar);
