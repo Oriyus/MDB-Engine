@@ -19,6 +19,7 @@
 #include "Runtime/GameDatabase.h"
 #include "Runtime/Characters.h"
 #include "Core/Input.h"
+#include "Core/InputMap.h"
 #include "Core/Log.h"
 
 #define SOL_ALL_SAFETIES_ON 1
@@ -180,6 +181,14 @@ namespace Engine {
 
         std::array<bool, kKeyCount> KeyNow{}, KeyPrev{};
         std::array<bool, kMouseCount> MouseNow{}, MousePrev{};
+        // Input actions (Assets/Data/input.json, read at Start) and the gamepad with its dead zones applied
+        InputMap Actions;
+        GamepadState PadNow, PadPrev;
+        bool SimPad = false;                              // input.simulate_gamepad is on
+        GamepadState SimPadState;
+        std::array<bool, kKeyCount> SimKeys{};            // input.simulate_key
+        std::string LastDevice = "keyboard";
+        void LoadInputMap();
 
         void BindApi();
         void BindNavigation();
@@ -1420,6 +1429,81 @@ namespace Engine {
         input.set_function("mouse_pressed", [this, mouseIndex](int b) { int i = mouseIndex(b); return MouseNow[i] && !MousePrev[i]; });
         input.set_function("mouse_position", []() { auto [x, y] = Input::GetMousePosition(); return std::make_tuple(x, y); });
 
+        // Actions (Assets/Data/input.json): an unknown name is a script error, so typos show at once
+        auto action = [this](const std::string& name) -> const InputAction& {
+            if (const InputAction* a = Actions.Find(name)) return *a;
+            if (!Actions.HasFile())
+                throw std::runtime_error("unknown input action '" + name + "': the project has no Assets/" + InputMap::kPath);
+            throw std::runtime_error("unknown input action '" + name + "' (" + InputMap::kPath + " has: " + Actions.Names() + ")");
+        };
+        input.set_function("action", [action](const std::string& n) { return action(n).Down; });
+        input.set_function("pressed", [action](const std::string& n) { const auto& a = action(n); return a.Down && !a.WasDown; });
+        input.set_function("released", [action](const std::string& n) { const auto& a = action(n); return !a.Down && a.WasDown; });
+        input.set_function("value", [action](const std::string& n) {
+            const auto& a = action(n);
+            return a.Type == InputActionType::Vector ? a.Strength : a.X;
+        });
+        input.set_function("vector", [action](const std::string& n) { const auto& a = action(n); return std::make_tuple(a.X, a.Y); });
+        input.set_function("actions", [this](sol::this_state ts) {
+            sol::state_view lv(ts);
+            sol::table t = lv.create_table();
+            int i = 1;
+            for (const auto& a : Actions.Actions()) t[i++] = a.Name;
+            return t;
+        });
+        input.set_function("action_type", [action](const std::string& n) { return std::string(InputActionTypeName(action(n).Type)); });
+        input.set_function("bindings", [action](const std::string& n, sol::this_state ts) {
+            sol::state_view lv(ts);
+            const auto& a = action(n);
+            auto list = [&](int slot) {
+                sol::table t = lv.create_table();
+                int i = 1;
+                for (const auto& s : a.Slots[slot]) t[i++] = InputSourceName(s);
+                return t;
+            };
+            if (a.Type == InputActionType::Button) return list(0);
+            sol::table t = lv.create_table();
+            if (a.Type == InputActionType::Axis) { t["positive"] = list(0); t["negative"] = list(1); }
+            else { t["up"] = list(0); t["down"] = list(1); t["left"] = list(2); t["right"] = list(3); }
+            return t;
+        });
+        input.set_function("device", [this]() { return LastDevice; });
+
+        // The gamepad itself (the active one; dead zones applied). Buttons and axes by name: A B X Y LB RB Back
+        // Start Guide LS RS DPadUp DPadRight DPadDown DPadLeft; LeftX LeftY RightX RightY (Y up) LT RT (0..1)
+        auto padButton = [](const std::string& n) {
+            const int b = PadButtonFromName(n);
+            if (b < 0) throw std::runtime_error("unknown gamepad button '" + n + "' (A B X Y LB RB Back Start Guide LS RS DPadUp DPadRight DPadDown DPadLeft)");
+            return b;
+        };
+        input.set_function("gamepad", [this]() {
+            return std::make_tuple(PadNow.Connected, PadNow.Connected ? sol::make_object(*Lua, PadNow.Name) : sol::make_object(*Lua, sol::lua_nil));
+        });
+        input.set_function("pad_down", [this, padButton](const std::string& n) { return PadNow.Buttons[padButton(n)]; });
+        input.set_function("pad_pressed", [this, padButton](const std::string& n) { const int b = padButton(n); return PadNow.Buttons[b] && !PadPrev.Buttons[b]; });
+        input.set_function("pad_released", [this, padButton](const std::string& n) { const int b = padButton(n); return !PadNow.Buttons[b] && PadPrev.Buttons[b]; });
+        input.set_function("pad_axis", [this](const std::string& n) {
+            const int a = PadAxisFromName(n);
+            if (a < 0) throw std::runtime_error("unknown gamepad axis '" + n + "' (LeftX LeftY RightX RightY LT RT)");
+            return PadNow.Axes[a];
+        });
+
+        // Tests: hold a key / replace the gamepad until changed (both seen from the next frame). simulate_gamepad
+        // takes button names = true and axis names = values before dead zones (stick Y up, triggers 0..1); nil
+        // gives the real pad back
+        input.set_function("simulate_key", [this, keyIndex](int k, bool down) { SimKeys[keyIndex(k)] = down; });
+        input.set_function("simulate_gamepad", [this](sol::optional<sol::table> t) {
+            if (!t) { SimPad = false; return; }
+            GamepadState p;
+            p.Connected = t->get<sol::optional<bool>>("connected").value_or(true);
+            p.Id = 0;
+            p.Name = t->get<sol::optional<std::string>>("name").value_or("Simulated gamepad");
+            for (int b = 0; b < Pad::ButtonCount; b++) p.Buttons[b] = t->get<sol::optional<bool>>(PadButtonName(b)).value_or(false);
+            for (int a = 0; a < Pad::AxisCount; a++) p.Axes[a] = t->get<sol::optional<float>>(PadAxisName(a)).value_or(0.0f);
+            SimPad = true;
+            SimPadState = p;
+        });
+
         sol::table key = lua.create_named_table("Key",
             "Space", 32, "Enter", 257, "Escape", 256, "Tab", 258, "Backspace", 259, "Delete", 261,
             "Right", 262, "Left", 263, "Down", 264, "Up", 265,
@@ -2418,8 +2502,36 @@ namespace Engine {
     void ScriptEngine::Impl::SampleInput() {
         KeyPrev = KeyNow;
         MousePrev = MouseNow;
-        for (int k = kKeyFirst; k < kKeyCount; k++) KeyNow[k] = Input::IsKeyDown(k);
+        PadPrev = PadNow;
+        for (int k = kKeyFirst; k < kKeyCount; k++) KeyNow[k] = Input::IsKeyDown(k) || SimKeys[k];
         for (int b = 0; b < kMouseCount; b++)       MouseNow[b] = Input::IsMouseButtonDown(b);
+        PadNow = SimPad ? SimPadState : Input::Gamepad();
+        ApplyGamepadDeadZones(PadNow, Actions.StickDeadZone, Actions.TriggerDeadZone);
+
+        InputFrame frame;
+        frame.Keys = KeyNow.data();   frame.KeyCount = kKeyCount;
+        frame.Mouse = MouseNow.data(); frame.MouseCount = kMouseCount;
+        frame.Pad = &PadNow;
+        Actions.Update(frame);
+
+        // The device used last (for button prompts): a key or mouse press, or a pad button / a stick pushed past half
+        bool keyboard = false, pad = false;
+        for (int k = kKeyFirst; k < kKeyCount && !keyboard; k++) keyboard = KeyNow[k] && !KeyPrev[k];
+        for (int b = 0; b < kMouseCount && !keyboard; b++)       keyboard = MouseNow[b] && !MousePrev[b];
+        if (PadNow.Connected) {
+            for (int b = 0; b < Pad::ButtonCount && !pad; b++) pad = PadNow.Buttons[b] && !PadPrev.Buttons[b];
+            for (int a = 0; a < Pad::AxisCount && !pad; a++)
+                pad = std::abs(PadNow.Axes[a]) >= 0.5f && std::abs(PadPrev.Axes[a]) < 0.5f;
+        }
+        if (pad) LastDevice = "gamepad";
+        else if (keyboard) LastDevice = "keyboard";
+    }
+
+    void ScriptEngine::Impl::LoadInputMap() {
+        std::string error;
+        std::vector<std::string> warnings;
+        if (!Actions.LoadFile(AssetDir + InputMap::kPath, error, warnings)) ReportError("[input] " + error);
+        for (const auto& w : warnings) ReportError("[input] " + w);
     }
 
     void ScriptEngine::Impl::StartInstance(entt::entity handle, const std::string& path) {
@@ -2599,9 +2711,11 @@ namespace Engine {
         m.Errors.clear();
         m.Lua = std::make_unique<sol::state>();
         m.BindApi();
+        m.SimPad = false;
+        m.SimKeys.fill(false);
+        m.LoadInputMap();
         m.SampleInput();
-        m.KeyPrev = m.KeyNow;       // keys already held when Play starts don't count as pressed
-        m.MousePrev = m.MouseNow;
+        m.SampleInput();            // twice: keys, buttons and actions already held when Play starts don't count as pressed
 
         // A restored level or a level change: `game` and `shared` come back before any on_create
         if (m.HasPendingRestore) {

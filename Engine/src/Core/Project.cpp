@@ -1,4 +1,5 @@
 #include "Core/Project.h"
+#include "Core/InputMap.h"
 
 #include <nlohmann/json.hpp>
 #include <filesystem>
@@ -68,13 +69,15 @@ namespace Engine {
         p.Root = Normalize(folder);
         p.Title = title.empty() ? PathString(fs::u8path(p.Root.substr(0, p.Root.size() - 1)).filename()) : title;
         std::error_code ec;
-        for (const char* sub : { "Scenes", "Scripts", "Models", "Textures", "Sounds", "Prefabs", "Dialogues", "Environments" }) {
+        for (const char* sub : { "Scenes", "Scripts", "Models", "Textures", "Sounds", "Prefabs", "Dialogues", "Environments", "Data" }) {
             fs::create_directories(fs::u8path(p.AssetDir() + sub), ec);
             if (ec) { if (error) *error = "can't create " + p.AssetDir() + sub + ": " + ec.message(); return false; }
         }
         if (!p.Save(error)) return false;
         if (!fs::exists(fs::u8path(p.Root + ".gitignore"), ec))
             std::ofstream(fs::u8path(p.Root + ".gitignore")) << "# Build Game output\nBuild/\n";
+        if (!fs::exists(fs::u8path(p.AssetDir() + InputMap::kPath), ec))      // starter input actions
+            std::ofstream(fs::u8path(p.AssetDir() + InputMap::kPath)) << InputMap::DefaultJson();
         out = std::move(p);
         return true;
     }

@@ -1,6 +1,7 @@
--- Roll the ball with the arrow keys, Space jumps while standing on something.
+-- Roll the ball with the "move" action (arrows, WASD, the left stick), "jump" (Space, A) jumps while standing on
+-- something. The actions are in Assets/Data/input.json.
 -- Needs a dynamic sphere body. Movement uses forces, so mass and friction matter.
--- With a "Main Camera" in the scene, Up rolls away from the camera; otherwise along -Z.
+-- With a "Main Camera" in the scene, forward rolls away from the camera; otherwise along -Z.
 -- Other scripts can call shared.respawn() to put the ball back at its start.
 
 local push = 14.0      -- newtons
@@ -36,7 +37,7 @@ function on_create(self)
         self.body.velocity = vec3(0, 0, 0)
         self.body.angular_velocity = vec3(0, 0, 0)
     end
-    log("Player ready: arrows roll, Space jumps")
+    log("Player ready: arrows / WASD / left stick roll, Space or A jumps")
 end
 
 function on_update(self, dt)
@@ -44,16 +45,12 @@ function on_update(self, dt)
     if shared.state and shared.state ~= "playing" then return end   -- game over: no control
 
     local forward, right = move_axes()
-    local dir = vec3(0, 0, 0)
-    if input.key_down(Key.Up)    then dir = dir + forward end
-    if input.key_down(Key.Down)  then dir = dir - forward end
-    if input.key_down(Key.Right) then dir = dir + right end
-    if input.key_down(Key.Left)  then dir = dir - right end
-    if dir:length() > 0 then
-        self.body:add_force(dir:normalize() * push)
+    local mx, my = input.vector("move")    -- length 0..1: a stick part way pushes less
+    if mx ~= 0 or my ~= 0 then
+        self.body:add_force((forward * my + right * mx) * push)
     end
 
-    if input.key_pressed(Key.Space) and grounded(self) then
+    if input.pressed("jump") and grounded(self) then
         self.body:add_impulse(vec3(0, jump, 0))
         audio.play("Sounds/jump.wav", { volume = 0.5 })
         scene.spawn_particles(self.position - vec3(0, 0.45, 0), { preset = "Dust", count = 16 })   -- a puff of dust

@@ -31,11 +31,14 @@ local function start()
     audio.play("Sounds/unlock.wav", { volume = 0.6 })
 end
 
+-- Prompts follow the device the player used last (input.device: "keyboard" or "gamepad")
+local function pad() return input.device() == "gamepad" end
+
 -- Two buttons side by side under the end-of-game title
 local function end_buttons()
     if ui.button("Play again", 0.33, 0.56, 0.16, 0.075) then scene.restart() end
     if ui.button("Quit", 0.51, 0.56, 0.16, 0.075, { color = vec3(0.3, 0.12, 0.12) }) then scene.quit() end
-    ui.text("or press R", 0.5, 0.66, { size = 22, align = "center", color = grey })
+    ui.text(pad() and "or press Y" or "or press R", 0.5, 0.66, { size = 22, align = "center", color = grey })
 end
 
 function on_update(self, dt)
@@ -45,7 +48,7 @@ function on_update(self, dt)
 
     -- ---- rules
     if shared.state == "menu" then
-        if input.key_pressed(Key.Enter) or input.key_pressed(Key.Space) then start() end
+        if input.pressed("confirm") then start() end
     elseif shared.state == "playing" then
         shared.time_left = shared.time_left - dt
         if shared.time_left <= 0 then
@@ -53,7 +56,7 @@ function on_update(self, dt)
             shared.state = "lost"
             log("Time's up with", left, "coins left")
         end
-    elseif input.key_pressed(Key.R) then
+    elseif input.pressed("retry") then
         scene.restart()
     end
     message_time = message_time - dt
@@ -72,7 +75,7 @@ function on_update(self, dt)
             0.5, 0.45, { size = 26, align = "center", color = grey })
         if ui.button("Play", 0.41, 0.54, 0.18, 0.085, { size = 36, color = vec3(0.15, 0.45, 0.25) }) then start() end
         if ui.button("Quit", 0.44, 0.65, 0.12, 0.06, { size = 24, color = vec3(0.3, 0.12, 0.12) }) then scene.quit() end
-        ui.text("Arrows roll  ·  Space jumps  ·  Enter starts", 0.5, 0.88, { size = 22, align = "center", color = grey })
+        ui.text(pad() and "Left stick rolls  ·  A jumps  ·  A starts" or "Arrows roll  ·  Space jumps  ·  Enter starts", 0.5, 0.88, { size = 22, align = "center", color = grey })
         return
     end
 
@@ -104,7 +107,7 @@ function on_update(self, dt)
     end
 
     if shared.state == "playing" and scene.time() - started_at < 8 then
-        ui.text("Arrows roll  ·  Space jumps", 0.5, 0.80, { size = 26, align = "center", color = grey })
+        ui.text(pad() and "Left stick rolls  ·  A jumps" or "Arrows roll  ·  Space jumps", 0.5, 0.80, { size = 26, align = "center", color = grey })
         ui.text("Collect every coin, then reach the goal on the platform", 0.5, 0.85, { size = 26, align = "center", color = grey })
     end
 end

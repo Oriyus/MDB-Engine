@@ -1,4 +1,6 @@
--- A walking player: WASD moves (relative to the camera's view), Shift runs, Space jumps.
+-- A walking player: the "move" action walks (relative to the camera's view; WASD, arrows or the left stick, which
+-- also walks slowly when pushed part way), "sprint" runs (Shift, LT or a stick click), "jump" jumps (Space, A).
+-- The actions are in Assets/Data/input.json.
 -- Put it on an entity with a dynamic Rigid Body that has Lock rotation on (so collisions never tip it over) and
 -- friction 0 (so walls don't grab it while you walk along them). A child named "Model" is the visible box: it
 -- turns to face the way you walk. Movement sets the body's velocity (sideways only; gravity keeps the vertical),
@@ -52,21 +54,18 @@ end
 function on_update(self, dt)
     if not self.body then return end
     local forward, right = move_axes()
-    local dir = vec3(0, 0, 0)
-    if input.key_down(Key.W) then dir = dir + forward end
-    if input.key_down(Key.S) then dir = dir - forward end
-    if input.key_down(Key.D) then dir = dir + right end
-    if input.key_down(Key.A) then dir = dir - right end
+    local mx, my = input.vector("move")                  -- length 0..1: a stick part way walks slower
+    local dir = forward * my + right * mx
 
-    local speed = (input.key_down(Key.LeftShift) or input.key_down(Key.RightShift)) and run_speed or walk_speed
-    local want = dir:length() > 0 and dir:normalize() * speed or vec3(0, 0, 0)
+    local speed = input.action("sprint") and run_speed or walk_speed
+    local want = dir * speed
 
     -- Ease the sideways velocity towards the wanted one; keep the vertical one (gravity, jumps, falling)
     local v = self.body.velocity
     local flat = vec3(v.x, 0, v.z)
     flat = flat + (want - flat) * (1 - math.exp(-accel * dt))
     local vy = v.y
-    if input.key_pressed(Key.Space) and grounded(self) then vy = jump_speed end
+    if input.pressed("jump") and grounded(self) then vy = jump_speed end
     self.body.velocity = vec3(flat.x, vy, flat.z)
 
     -- The model faces the way it walks (the body itself never turns: Lock rotation)

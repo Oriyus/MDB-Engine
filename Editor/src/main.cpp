@@ -1,6 +1,7 @@
 #include "Core/Application.h"
 #include "Core/Input.h"
 #include "Core/Log.h"
+#include "Core/SplashScreen.h"
 #include "Core/EntryPoint.h"
 #include "Renderer/Shader.h"
 #include "Renderer/Texture.h"
@@ -74,6 +75,9 @@ public:
         p.Width = 1600;
         p.Height = 900;
         p.Maximized = EnvVar("MDB_WINDOWED") != "1";    // test hook: a plain 1600 x 900 window for screen captures
+        p.Splash = true;                                  // a load bar while the editor starts (the window appears when ready)
+        p.SplashTitle = "MDB Engine";
+        p.SplashSubtitle = "Opening " + Projects::Current().Title;
         return p;
     }
     EditorApp() : Application(EditorWindow()) {}
@@ -82,8 +86,10 @@ public:
         using namespace Engine;
 
         // Shared engine pieces: named resources, the render pipeline, and the play-mode systems
+        Splash::Report(0.08f, "Compiling shaders");
         m_Resources = std::make_unique<ResourceLibrary>(Projects::Current().AssetDir(), Projects::EngineDir());
         m_Renderer = std::make_unique<SceneRenderer>(Projects::EngineDir(), Projects::Current().AssetDir());
+        Splash::Report(0.10f, "Starting physics, audio and scripting");
         m_Session = std::make_unique<GameSession>(m_Scene, Projects::Current().AssetDir(), Projects::EngineDir(), m_Resources->Registry());
         m_TerrainEditor.SetCreateAsset([this](const std::string& path) {
             const Entity e = CreateAsset(path);
@@ -101,6 +107,7 @@ public:
         if (LoadAudioMix(EditorAudioFile(), m_SavedMix)) m_Session->Audio().SetMix(m_SavedMix);
         else m_SavedMix = m_Session->Audio().GetMix();
 
+        Splash::Report(0.26f, "Loading the sample model");
         m_Cube = m_Resources->Cube();
         m_Plane = m_Resources->Plane();
         m_Checker = m_Resources->Checker();
@@ -188,6 +195,7 @@ public:
             e.Add<DirectionalLightComponent>();
         }
 
+        Splash::Report(0.42f, "Loading fonts");
         m_Camera = std::make_unique<Camera>(60.0f, AspectRatio());
         m_GameCamera = std::make_unique<Camera>(60.0f, AspectRatio());
         // Editor look: the layout file, a proper UI font (the first font is the default), a mono font for
@@ -214,12 +222,19 @@ public:
         //   MDB_SCENE=<file> loads Assets/Scenes/<file> first, MDB_SAVE_SCENE=<file> saves after the rest
         // Without test hooks the project's start scene opens (project.json "scene"); if it doesn't exist yet
         // (a new project), the built-in scene above takes its name, so Ctrl+S creates it.
+        // The scene is most of the start: its share of the splash bar follows the entities read (and the models
+        // they load, which the bar names)
+        auto loadFirstScene = [this](const std::string& file) {
+            Splash::Range range(0.43f, 0.78f);
+            Splash::Report(0.0f, "Opening " + file);
+            LoadScene(file);
+        };
         const std::string startScene = Projects::Current().Scene;
         if (EnvVar("MDB_SCENE").empty() && EnvVar("MDB_DEMO").empty() && !startScene.empty()) {
-            if (std::filesystem::exists(std::filesystem::u8path(ScenePath(startScene)))) LoadScene(startScene);
+            if (std::filesystem::exists(std::filesystem::u8path(ScenePath(startScene)))) loadFirstScene(startScene);
             else m_SceneFile = startScene;
         }
-        if (auto sc = EnvVar("MDB_SCENE"); !sc.empty()) LoadScene(sc);
+        if (auto sc = EnvVar("MDB_SCENE"); !sc.empty()) loadFirstScene(sc);
         if (auto demo = EnvVar("MDB_DEMO"); demo == "1" || demo == "script") BuildLevel(BuildScriptDemo);
         else if (demo == "coinrush") BuildLevel(BuildCoinRush);
         else if (demo == "tactics") BuildLevel(BuildTacticsTest);

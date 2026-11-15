@@ -1,4 +1,5 @@
 #include "Runtime/ResourceLibrary.h"
+#include "Core/SplashScreen.h"
 #include "Renderer/Mesh.h"
 #include "Renderer/Model.h"
 #include "Renderer/Texture.h"
@@ -247,6 +248,7 @@ namespace Engine {
 
     std::shared_ptr<Model> ResourceLibrary::LoadModel(const std::string& path) {
         if (auto it = m_Models.find(path); it != m_Models.end()) return it->second;
+        Splash::Status("Loading " + path);               // while the app starts (nothing otherwise)
         auto model = std::make_shared<Model>(m_AssetDir + path);
         if (!model->IsValid()) model = nullptr;          // remembered too: don't retry every frame
         else {

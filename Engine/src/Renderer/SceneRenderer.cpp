@@ -1,4 +1,5 @@
 #include "Renderer/SceneRenderer.h"
+#include "Core/SplashScreen.h"
 #include "Renderer/Shader.h"
 #include "Renderer/DrawList.h"
 #include "Renderer/ParticleRenderer.h"
@@ -317,6 +318,7 @@ namespace Engine {
         void BakePendingEnvironment() {
             if (!EnvPending) return;
             EnvPending = false;
+            Splash::Status(EnvRequested.empty() ? std::string("Preparing the sky") : "Baking the sky (" + EnvRequested + ")");
             if (EnvRequested.empty()) Env->UseProcedural();
             else if (!Env->LoadHDR(AssetDir + "Environments/" + EnvRequested)) {
                 ENGINE_WARN("Environment '{}' could not be loaded, using the procedural sky", EnvRequested);

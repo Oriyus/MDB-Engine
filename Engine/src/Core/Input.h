@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include <string>
 #include <utility>
 
 namespace Engine {
@@ -31,12 +33,37 @@ namespace Engine {
         constexpr int Left = 0, Right = 1, Middle = 2;
     }
 
+    // Gamepad buttons and axes, in GLFW's gamepad order (an Xbox layout: A is the bottom face button)
+    namespace Pad {
+        enum Button : int {
+            A, B, X, Y, LB, RB, Back, Start, Guide, LS, RS, DPadUp, DPadRight, DPadDown, DPadLeft, ButtonCount
+        };
+        enum Axis : int { LeftX, LeftY, RightX, RightY, LT, RT, AxisCount };
+    }
+
+    // One gamepad as the engine sees it. Axes are converted from GLFW's: stick Y is up-positive (GLFW's is
+    // down-positive) and triggers go 0 (released) .. 1 (GLFW's -1 .. 1). No dead zones yet: those depend on the
+    // game's settings and are applied by ApplyGamepadDeadZones (Core/InputMap.h).
+    struct GamepadState {
+        bool Connected = false;
+        int Id = -1;                                    // GLFW joystick slot
+        std::string Name;
+        std::array<bool, Pad::ButtonCount> Buttons{};
+        std::array<float, Pad::AxisCount> Axes{};
+    };
+
     class Input {
     public:
         static void SetCursorLocked(bool locked);
         static bool IsKeyDown(int key);
         static bool IsMouseButtonDown(int button);
         static std::pair<float, float> GetMousePosition();
+
+        // Reads the gamepads (Application calls it once per frame, before OnUpdate). The active pad is the one
+        // last used: a pad that presses a button takes over; if the active pad is unplugged, the next connected
+        // one becomes active. Only devices GLFW has a gamepad mapping for count (XInput pads, most known pads).
+        static void PollGamepads();
+        static const GamepadState& Gamepad();           // the active pad (Connected false if there is none)
     };
 
 } // namespace Engine

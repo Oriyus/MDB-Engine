@@ -167,8 +167,13 @@ public:
 
         // ---- the few keys the game shell keeps for itself
         const bool alt = Input::IsKeyDown(342) || Input::IsKeyDown(346);   // left / right Alt
-        const bool esc = Edge(Key::Escape, m_EscDown);
-        if (esc && !m_Running) { Close(); return; }   // nothing to pause: the scene did not load
+        // The gamepad's Start works like Esc, and B backs out of the menu (only while paused: in play B is the game's)
+        const GamepadState& pad = Input::Gamepad();
+        const bool start = PadEdge(pad.Connected && pad.Buttons[Pad::Start], m_StartDown);
+        const bool back = PadEdge(pad.Connected && pad.Buttons[Pad::B], m_BDown) && m_Paused;
+        const bool escKey = Edge(Key::Escape, m_EscDown);
+        if (escKey && !m_Running) { Close(); return; }   // nothing to pause: the scene did not load
+        const bool esc = escKey || start || back;
         if (esc && m_Paused && m_MenuPage == MenuPage::Settings) LeaveSettings();   // Esc: back to the menu
         else if (esc) { m_Paused = !m_Paused; m_MenuPage = MenuPage::Main; }
         if (Edge(Key::F11, m_F11Down) || (alt && Edge(257, m_EnterDown)))  // F11, Alt+Enter
@@ -385,6 +390,11 @@ private:
         wasDown = down;
         return pressed;
     }
+    static bool PadEdge(bool down, bool& wasDown) {
+        const bool pressed = down && !wasDown;
+        wasDown = down;
+        return pressed;
+    }
 
     GameConfig m_Cfg;
     // Declaration order: the scene and resources must outlive the session that uses them
@@ -402,6 +412,7 @@ private:
     int m_DragRow = -1;                      // the volume slider being dragged (Settings page)
     bool m_Running = false, m_Paused = false, m_RestartPending = false;
     bool m_EscDown = false, m_F11Down = false, m_EnterDown = false, m_RDown = false, m_QDown = false;
+    bool m_StartDown = false, m_BDown = false;
     float m_Time = 0.0f;
 };
 

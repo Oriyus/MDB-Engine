@@ -22,6 +22,7 @@ namespace Engine {
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+        glfwWindowHint(GLFW_VISIBLE, props.StartHidden ? GLFW_FALSE : GLFW_TRUE);
 
         m_Window = glfwCreateWindow((int)props.Width, (int)props.Height,
             props.Title.c_str(), nullptr, nullptr);
@@ -65,9 +66,20 @@ namespace Engine {
 
         // Always created windowed, then switched: that way there is a windowed size to return to
         m_Data.Fullscreen = false;
-        if (props.Maximized) glfwMaximizeWindow(m_Window);
-        if (props.Fullscreen) SetFullscreen(true);
+        if (props.Maximized) glfwMaximizeWindow(m_Window);   // GLFW sizes a hidden window to the work area by hand
+        if (props.Fullscreen) {
+            if (props.StartHidden) m_PendingFullscreen = true; // switching the monitor would show it
+            else SetFullscreen(true);
+        }
     }
+
+    void Window::Show() {
+        if (IsVisible()) return;
+        glfwShowWindow(m_Window);                           // and focuses it (GLFW_FOCUS_ON_SHOW)
+        if (m_PendingFullscreen) { m_PendingFullscreen = false; SetFullscreen(true); }
+    }
+
+    bool Window::IsVisible() const { return glfwGetWindowAttrib(m_Window, GLFW_VISIBLE) != 0; }
 
     void Window::SetFullscreen(bool fullscreen) {
         if (fullscreen == m_Data.Fullscreen) return;

@@ -714,7 +714,7 @@ audio.set_volume("music", 0.6)                    -- or "master"; audio.volume(b
 <tr><td><code>--settings file</code></td><td>The player's settings file (volumes); default <code>%APPDATA%\&lt;title&gt;\settings.json</code>, or <code>settings.json</code> in <code>--save-dir</code></td></tr>
 <tr><td><code>--quit-after s</code></td><td>Close after s seconds (tests)</td></tr>
 </table>
-<p>Keys: <b>Esc</b> pause menu (Resume / Settings / Restart / Quit; R and Q work too; Settings has a volume slider and mute per audio bus, Esc goes back), <b>F11</b> or <b>Alt+Enter</b> full screen. Release builds have no console window. File › Build Game (or the <code>package_game</code> target, for Examples) builds a ready-to-zip folder.</p>
+<p>Keys: <b>Esc</b> (or the gamepad's <b>Start</b>) pause menu (Resume / Settings / Restart / Quit; R and Q work too; Settings has a volume slider and mute per audio bus, Esc or B goes back), <b>F11</b> or <b>Alt+Enter</b> full screen. Release builds have no console window. File › Build Game (or the <code>package_game</code> target, for Examples) builds a ready-to-zip folder.</p>
 </section>
 
 <section class="doc" data-group="Engine" id="engine-database">
@@ -800,6 +800,7 @@ MDBEditor.exe &gt; log.txt</code></pre>
 
 <section class="doc" data-group="Editor" id="editor-layout">
 <h2>Layout &amp; panels</h2>
+<p>While the editor starts, a splash window shows a load bar with each step (shaders, physics and audio, every model of the start scene, the sky bake); the editor window appears with its first frame already drawn. Run with <code>MDB_PROFILE=1</code> to log how long each step took.</p>
 <p>A Unity/Godot-style docking layout that starts as a maximized window (F11 switches to full screen):</p>
 <ul>
   <li><b>Hierarchy</b> (left) — the entity tree.</li>
@@ -1451,6 +1452,26 @@ function on_load(self, data) if data.fog then fog.load(data.fog) end end</code><
 
 <section class="doc" data-group="Scripting" id="script-input">
 <h2>Input</h2>
+<h3>Actions (keyboard, mouse and gamepad)</h3>
+<p>Name what the player does, not the key: actions are defined in <code>Assets/Data/input.json</code> and fed by keys, mouse buttons and the gamepad at once, so the same script works with either. New Project writes a starter file (move, look, jump, sprint, interact, confirm, cancel, pause); the file is read when Play starts (and on F5).</p>
+<pre><code class="json">{ "deadzone": 0.2, "triggerDeadzone": 0.1,
+  "actions": {
+    "jump":   ["key:Space", "pad:A"],
+    "sprint": { "type": "button", "bindings": ["key:LeftShift", "pad:LT"] },
+    "turn":   { "type": "axis", "positive": ["key:E", "pad:RB"], "negative": ["key:Q", "pad:LB"] },
+    "move":   { "type": "vector", "bindings": ["key:WASD", "key:Arrows", "pad:LeftStick", "pad:DPad"],
+                "up": ["key:I"], "down": ["key:K"], "left": ["key:J"], "right": ["key:L"] } } }</code></pre>
+<pre><code class="lua">local x, y = input.vector("move")     -- -1..1, y = up / forward; length at most 1 (a stick part way: less)
+if input.pressed("jump") then ... end -- this frame only; input.action(name) = held, input.released(name)
+local s = input.value("sprint")       -- button 0..1 (a trigger), axis -1..1, vector length
+if input.device() == "gamepad" then prompt = "A jumps" else prompt = "Space jumps" end
+local connected, name = input.gamepad()
+if input.pad_pressed("Start") then ... end      -- raw pad: pad_down / pad_pressed / pad_released
+local lx = input.pad_axis("LeftX")              -- LeftX LeftY RightX RightY (-1..1, Y up), LT RT (0..1)</code></pre>
+<p><b>Sources:</b> <code>key:&lt;name&gt;</code> (A–Z, 0–9, F1–F12, Space, Enter, Escape, Tab, Backspace, Up/Down/Left/Right, LeftShift, LeftCtrl, LeftAlt, RightShift, RightCtrl, RightAlt, Insert, Delete, Home, End, PageUp, PageDown, punctuation by name, KP0–KP9), <code>mouse:Left|Right|Middle</code>, <code>pad:&lt;button&gt;</code> (A B X Y LB RB Back Start Guide LS RS DPadUp DPadDown DPadLeft DPadRight) and stick or trigger halves <code>pad:LeftUp</code> / <code>LeftDown</code> / <code>LeftLeft</code> / <code>LeftRight</code> (and <code>Right…</code>), <code>pad:LT</code>, <code>pad:RT</code>. A vector's <code>bindings</code> take the groups <code>key:WASD</code>, <code>key:Arrows</code>, <code>pad:LeftStick</code>, <code>pad:RightStick</code>, <code>pad:DPad</code>.</p>
+<p><b>Values:</b> a button is its strongest source; an axis is positive minus negative; a vector is (right − left, up − down), shortened to length 1 so diagonals on keys are not faster. An action is down at strength 0.5 and stays down until it falls below 0.35 (a trigger held near the middle doesn't flicker). Sticks have a radial dead zone (<code>deadzone</code>, rescaled so just outside it is 0), triggers a plain one. <code>input.actions()</code>, <code>input.action_type(name)</code> and <code>input.bindings(name)</code> list them (for prompts or a controls screen). An unknown action, button or axis name is a script error that lists the names there are.</p>
+<p><b>Gamepads</b> are anything GLFW has a gamepad mapping for (XInput pads, most known controllers), in an Xbox layout. The active pad is the one used last: another pad takes over when it presses a button, and plugging and unplugging are logged. In the game, <b>Start</b> opens and closes the pause menu and <b>B</b> backs out of it. Tests use <code>input.simulate_key(Key.W, true)</code> and <code>input.simulate_gamepad({ A = true, LeftX = 0.7 })</code> (values before dead zones; <code>nil</code> gives the real pad back); <code>Scripts/input_test.lua</code> checks it all (28 checks).</p>
+<h3>Raw keys and mouse</h3>
 <pre><code class="lua">if input.key_down(Key.W) then ... end            -- held
 if input.key_pressed(Key.Space) then ... end     -- this frame only
 if input.key_released(Key.E) then ... end

@@ -1,4 +1,5 @@
 #include "Scene/SceneSerializer.h"
+#include "Core/SplashScreen.h"
 #include "Scene/Entity.h"
 #include "Scene/Components.h"
 #include "Scene/EntityJson.h"
@@ -211,7 +212,10 @@ namespace Engine {
 
         std::vector<std::pair<entt::entity, std::vector<uint64_t>>> instanceRoots;   // synced once all are loaded
         try {
-            for (const auto& j : root.at("entities")) {
+            const json& entities = root.at("entities");
+            size_t loaded = 0;
+            for (const auto& j : entities) {
+                Splash::Report((float)loaded++ / std::max<size_t>(entities.size(), 1));   // while the app starts
                 Entity e = temp.CreateEntity(j.at("name").get<std::string>());
                 if (j.contains("transform")) TransformFromJson(j["transform"], e.Get<TransformComponent>());
                 if (j.contains("id")) e.Add<IDComponent>(IDComponent{ j["id"].get<uint64_t>() });   // else the new one stays
@@ -236,6 +240,7 @@ namespace Engine {
                     if (!prefab.empty()) e.Add<PrefabComponent>(PrefabComponent{ prefab, node });   // an older full-copy instance
                 }
             }
+            Splash::Report(1.0f, "Setting up the scene");     // while the app starts
             // Bring every instance's structure up to date with its prefab: parts the prefab gained
             // appear (unless this instance deleted them), parts it lost become plain entities
             if (m_Prefabs)

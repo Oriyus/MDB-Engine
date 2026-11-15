@@ -293,6 +293,16 @@ namespace Engine {
     //   fog.save() -> string, fog.load(string) -> ok   the explored map, for on_save / on_load
     //   input.key_down(k), input.key_pressed(k), input.key_released(k)    Key.A..Key.Z, Key.Num0..9, Key.F1..12,
     //   input.mouse_down(b), input.mouse_pressed(b), input.mouse_position()  Key.Space, Key.Left ... Mouse.Left ...
+    //   ---- input actions: named in Assets/Data/input.json (format in Core/InputMap.h), fed by keys, mouse and gamepad
+    //   input.action(name) -> down, input.pressed(name), input.released(name)   (any action type: down = strength >= 0.5)
+    //   input.value(name) -> button 0..1 | axis -1..1 | vector length 0..1, input.vector(name) -> x, y (y = up / forward)
+    //   input.actions() -> { names }, input.action_type(name), input.bindings(name) -> { "key:Space", "pad:A" } (button)
+    //       or { positive, negative } (axis) or { up, down, left, right } (vector)
+    //   input.device() -> "keyboard" | "gamepad"   the one used last (for button prompts)
+    //   input.gamepad() -> connected, name; input.pad_down(b), pad_pressed(b), pad_released(b)   "A", "Start", "DPadUp"...
+    //   input.pad_axis(a) -> value   "LeftX", "LeftY", "RightX", "RightY" (-1..1, Y up), "LT", "RT" (0..1); dead zones applied
+    //   input.simulate_key(k, down), input.simulate_gamepad({ A = true, LeftX = 0.7 } | nil)   tests (from the next frame)
+    //   An unknown action, button or axis name is a script error.
     //   shared                                  a table all scripts see (score, game state...)
     //   log(...), print(...)
     class ScriptEngine {

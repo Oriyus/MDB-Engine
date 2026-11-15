@@ -1,0 +1,16 @@
+{
+  "deadzone": 0.2,
+  "triggerDeadzone": 0.1,
+  "actions": {
+    "move":     { "type": "vector", "bindings": ["key:WASD", "key:Arrows", "pad:LeftStick", "pad:DPad"] },
+    "look":     { "type": "vector", "bindings": ["pad:RightStick"] },
+    "turn":     { "type": "axis", "positive": ["key:E", "pad:RB"], "negative": ["key:Q", "pad:LB"] },
+    "jump":     ["key:Space", "pad:A"],
+    "sprint":   ["key:LeftShift", "key:RightShift", "pad:LS", "pad:LT"],
+    "interact": ["key:T", "pad:X"],
+    "confirm":  ["key:Enter", "key:Space", "pad:A"],
+    "cancel":   ["key:Backspace", "pad:B"],
+    "retry":    ["key:R", "pad:Y"],
+    "pause":    ["pad:Start"]
+  }
+}
