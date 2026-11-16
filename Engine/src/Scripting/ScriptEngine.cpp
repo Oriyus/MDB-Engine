@@ -1428,6 +1428,8 @@ namespace Engine {
         input.set_function("mouse_down", [this, mouseIndex](int b) { return MouseNow[mouseIndex(b)]; });
         input.set_function("mouse_pressed", [this, mouseIndex](int b) { int i = mouseIndex(b); return MouseNow[i] && !MousePrev[i]; });
         input.set_function("mouse_position", []() { auto [x, y] = Input::GetMousePosition(); return std::make_tuple(x, y); });
+        input.set_function("mouse_released", [this, mouseIndex](int b) { int i = mouseIndex(b); return !MouseNow[i] && MousePrev[i]; });
+        input.set_function("wheel", [this]() { return PtrInside ? PtrWheel : 0.0f; });   // this frame's mouse wheel over the view (notches, + = away)
 
         // Actions (Assets/Data/input.json): an unknown name is a script error, so typos show at once
         auto action = [this](const std::string& name) -> const InputAction& {

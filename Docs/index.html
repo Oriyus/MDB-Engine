@@ -1475,7 +1475,8 @@ local lx = input.pad_axis("LeftX")              -- LeftX LeftY RightX RightY (-1
 <pre><code class="lua">if input.key_down(Key.W) then ... end            -- held
 if input.key_pressed(Key.Space) then ... end     -- this frame only
 if input.key_released(Key.E) then ... end
-if input.mouse_pressed(Mouse.Left) then ... end
+if input.mouse_pressed(Mouse.Left) then ... end     -- also mouse_down, mouse_released
+local notches = input.wheel()                    -- this frame's mouse wheel over the game view (+ = scrolled up)
 local x, y = input.mouse_position()              -- window pixels
 local ux, uy, inside = ui.mouse()                -- 0..1 over the game view</code></pre>
 <p>Keys: <code>Key.A</code>…<code>Key.Z</code>, <code>Key.Num0</code>…<code>Key.Num9</code>, <code>Key.F1</code>…<code>Key.F12</code>, <code>Key.Space</code>, <code>Key.Enter</code>, <code>Key.Escape</code>, <code>Key.Tab</code>, arrows (<code>Key.Left</code>…), <code>Key.LeftShift</code>, <code>Key.LeftCtrl</code>, <code>Key.LeftAlt</code>. Mouse: <code>Mouse.Left</code>, <code>Mouse.Right</code>, <code>Mouse.Middle</code>.</p>

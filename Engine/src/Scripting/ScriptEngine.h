@@ -292,7 +292,8 @@ namespace Engine {
     //   fog.is_visible(pos), fog.is_explored(pos)   (true when fog is off); hide units in the fog with e.visible
     //   fog.save() -> string, fog.load(string) -> ok   the explored map, for on_save / on_load
     //   input.key_down(k), input.key_pressed(k), input.key_released(k)    Key.A..Key.Z, Key.Num0..9, Key.F1..12,
-    //   input.mouse_down(b), input.mouse_pressed(b), input.mouse_position()  Key.Space, Key.Left ... Mouse.Left ...
+    //   input.mouse_down(b), input.mouse_pressed(b), input.mouse_released(b), input.mouse_position()  Key.Space, Key.Left ... Mouse.Left ...
+    //   input.wheel() -> this frame's mouse wheel over the view (notches; positive = scrolled up / away)
     //   ---- input actions: named in Assets/Data/input.json (format in Core/InputMap.h), fed by keys, mouse and gamepad
     //   input.action(name) -> down, input.pressed(name), input.released(name)   (any action type: down = strength >= 0.5)
     //   input.value(name) -> button 0..1 | axis -1..1 | vector length 0..1, input.vector(name) -> x, y (y = up / forward)
