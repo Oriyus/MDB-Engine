@@ -563,6 +563,7 @@ ui.text(s.draw_calls .. " draws, " .. s.static_merged .. " merged", 0.02, 0.95)<
   <li><b>Events</b> at clip times → <code>on_anim_event</code>, or <code>"sound:Sounds/x.wav"</code> plays a sound.</li>
   <li><b>Root motion</b>: the root bone's travel moves the entity.</li>
   <li><b>IK</b>: <i>look</i> (head turns towards a target) and <i>limb</i> (two-bone reach), also in Edit mode.</li>
+  <li><b>Foot placement</b> (Inspector &gt; Animator &gt; Foot placement; <i>Find feet</i> picks bones named foot / ankle / paw): during Play a ray under each foot finds the ground; feet move up or down to it and turn with its slope, and the pelvis drops for the lowest one so downhill legs reach. Keep the entity's origin at the feet. On a character controller it fades out in the air. The terrain demo's <i>Hillside Fox</i> uses it.</li>
 </ul>
 <pre><code class="lua">self.animator:play("Run", 0.3)
 self.animator:set_layer(1, { clip = "Survey", mask = "b_Neck_04", weight = 0, additive = true })
@@ -1456,6 +1457,12 @@ a:layer_weight(1, 1, 0.5)                -- fade to 1 over 0.5 s
 a:set_ik(1, { type = "look", bone = "b_Head_05", target = scene.find("Player"), max_angle = 70, chain = 2 })
 a:set_ik(2, { type = "limb", bone = "b_RightHand", target = vec3(1, 1, 0), pole = vec3(0, 0, 1) })
 a:ik_weight(1, 0.5)
+
+-- foot placement (rays through physics, during Play)
+a:set_feet{ bones = { "b_LeftFoot01_017", "b_RightFoot01_021", "b_LeftHand_011", "b_RightHand_08" },
+            ray_up = 0.5, ray_down = 0.5, max_pelvis_drop = 0.35, align_slope = 1, smoothing = 15 }
+a:set_feet{ weight = 0 }                 -- off for a moment (a climb, a cutscene); enabled = false turns it off
+local f = a:feet()                       -- settings + f.lift[i], f.ground[i], f.normal[i], f.pelvis_drop, f.fade
 local head = a:bone_position("b_Head_05")</code></pre>
 <h3>Animation graphs</h3>
 <pre><code class="lua">self:add_animator{ graph = "AnimGraphs/fox.json" }   -- or set a.graph = "AnimGraphs/fox.json" ("" = back to clips)

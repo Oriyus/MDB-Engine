@@ -7,6 +7,7 @@
 #include "Scene/Fog.h"
 #include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <unordered_map>
 #include <vector>
@@ -144,6 +145,13 @@ namespace Engine {
         void UpdateOrbitPositions();   // place orbiting entities from their current angle, without advancing it
         // Advance every Animator by dt and compute its bone matrices (dt 0: just pose it, e.g. in the editor)
         void UpdateAnimations(float dt);
+        // Foot placement (AnimatorComponent::Feet) asks these. GroundRay: the first hit of a ray from origin along dir
+        // within maxDistance, ignoring entity `ignore` (point and normal out); GameSession sets it to a physics raycast
+        // during Play, and without it the feet are left as animated. Grounded: 1 / 0 when the entity is a character
+        // controller on the ground / in the air, -1 when unknown (feet are placed whenever the rays hit).
+        std::function<bool(const glm::vec3& origin, const glm::vec3& dir, float maxDistance, entt::entity ignore,
+            glm::vec3& point, glm::vec3& normal)> GroundRay;
+        std::function<int(entt::entity)> Grounded;
         // Where a bone of an animated model is now, in world space (after IK). NaN if unknown.
         glm::vec3 BonePosition(entt::entity e, const std::string& bone);
 

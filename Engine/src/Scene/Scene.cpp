@@ -245,6 +245,9 @@ namespace Engine {
         float SafeAcos(float x) { return std::acos(std::clamp(x, -1.0f, 1.0f)); }
     }
 
+    static void SolveLimb(const Model& model, AnimatorComponent& an, std::vector<Model::NodePose>& pose,
+        int end, const glm::vec3& target, const glm::vec3& pole, bool hasPole, float w);
+
     // Solve the Animator's IK goals on `pose` (all in model space). targets[i] is goal i's target in
     // model space; modelForward is the entity's +Z in model space. an.Globals is kept up to date.
     static void SolveIK(const Model& model, AnimatorComponent& an, std::vector<Model::NodePose>& pose,
@@ -285,18 +288,23 @@ namespace Engine {
                 continue;
             }
 
-            // Limb: two-bone IK (a = root of the limb, b = the middle joint, c = the end), in three exact steps
-            // with the positions refreshed between them: bend b to the right length, swing a to point at the
-            // target, then twist around that line so b bends towards the pole.
+            SolveLimb(model, an, pose, end, target, entityToModel * ik.Pole, glm::length(ik.Pole) > 1e-5f, w);
+        }
+    }
+
+    // Limb: two-bone IK (a = root of the limb, b = the middle joint, c = the end), in three exact steps
+    // with the positions refreshed between them: bend b to the right length, swing a to point at the
+    // target, then twist around that line so b bends towards the pole (model space). an.Globals is kept up to date.
+    static void SolveLimb(const Model& model, AnimatorComponent& an, std::vector<Model::NodePose>& pose,
+        int end, const glm::vec3& target, const glm::vec3& pole, bool hasPole, float w) {
+        {
             const int b = model.NodeParent(end);
             const int a = b >= 0 ? model.NodeParent(b) : -1;
-            if (a < 0) continue;
+            if (a < 0) return;
             auto pos = [&](int n) { return glm::vec3(an.Globals[n][3]); };
             const float lab = glm::length(pos(b) - pos(a)), lcb = glm::length(pos(end) - pos(b));
-            if (lab < 1e-6f || lcb < 1e-6f) continue;
+            if (lab < 1e-6f || lcb < 1e-6f) return;
             const glm::quat oldA = pose[a].R, oldB = pose[b].R;
-            const glm::vec3 pole = entityToModel * ik.Pole;
-            const bool hasPole = glm::length(ik.Pole) > 1e-5f;
 
             // 1) Bend: the angle at b that makes |c - a| the distance to the target (clamped to reach)
             const float reach = std::clamp(glm::length(target - pos(a)), std::abs(lab - lcb) + 1e-4f, (lab + lcb) * 0.9999f);
@@ -333,6 +341,112 @@ namespace Engine {
                 pose[a].R = glm::normalize(glm::slerp(oldA, pose[a].R, w));
                 pose[b].R = glm::normalize(glm::slerp(oldB, pose[b].R, w));
             }
+            model.PoseToGlobals(pose, an.Globals);
+        }
+    }
+
+    // Foot placement (FootPlacement in Components.h) on the final pose, before the IK goals. modelToWorld = the
+    // entity's world matrix * LocalOffset. Rays go along world down from RayUp above the entity's origin.
+    static void PlaceFeet(const Model& model, AnimatorComponent& an, std::vector<Model::NodePose>& pose,
+        const glm::mat4& modelToWorld, const glm::mat4& entityWorld, entt::entity self, float dt,
+        const std::function<bool(const glm::vec3&, const glm::vec3&, float, entt::entity, glm::vec3&, glm::vec3&)>& ray,
+        int grounded) {
+        FootPlacement& fp = an.Feet;
+        // How far a smoothed value goes towards its target this frame (dt 0: all the way)
+        const float follow = (fp.Smoothing <= 0.0f || dt <= 0.0f) ? 1.0f : 1.0f - std::exp(-fp.Smoothing * dt);
+        // In the air (a character controller): fade out over about 0.15 s, back in on landing
+        const float fadeTarget = grounded == 0 ? 0.0f : 1.0f;
+        fp.Fade = dt <= 0.0f ? fadeTarget
+            : (fadeTarget > fp.Fade ? std::min(fadeTarget, fp.Fade + dt / 0.15f) : std::max(fadeTarget, fp.Fade - dt / 0.15f));
+        const float w = std::clamp(fp.Weight, 0.0f, 1.0f) * fp.Fade;
+
+        const glm::mat4 worldToModel = glm::inverse(modelToWorld);
+        const glm::mat3 dirToModel(worldToModel);
+        const glm::mat3 normalToModel = glm::transpose(glm::mat3(modelToWorld));
+        const glm::vec3 up(0.0f, 1.0f, 0.0f);
+        const float originY = entityWorld[3].y;
+        const float rayUp = std::max(fp.RayUp, 0.0f), rayDown = std::max(fp.RayDown, 0.0f);
+        const float maxTilt = glm::radians(std::clamp(fp.MaxSlope, 0.0f, 89.0f));
+
+        // 1) Probe the ground under each foot (world): the smoothed height from the origin, and the slope
+        struct Leg { int End = -1; glm::vec3 Foot{ 0.0f }; glm::quat Rot{ 1.0f, 0.0f, 0.0f, 0.0f }; };
+        static thread_local std::vector<Leg> legs;
+        legs.assign(fp.Feet.size(), Leg{});
+        float lowest = 0.0f;
+        bool any = false;
+        for (size_t i = 0; i < fp.Feet.size(); i++) {
+            FootIKLeg& leg = fp.Feet[i];
+            const int end = model.FindNode(leg.Bone);
+            if (end < 0 || end >= (int)an.Globals.size() || model.NodeParent(end) < 0 || model.NodeParent(model.NodeParent(end)) < 0) continue;
+            legs[i].End = end;
+            legs[i].Foot = glm::vec3(modelToWorld * an.Globals[end][3]);
+            legs[i].Rot = RotationOf(an.Globals[end]);
+
+            float lift = 0.0f;
+            glm::vec3 normal = up;
+            glm::vec3 point, n;
+            const glm::vec3 from(legs[i].Foot.x, originY + rayUp, legs[i].Foot.z);
+            const bool hit = ray && ray(from, -up, rayUp + rayDown, self, point, n);
+            if (hit) {
+                lift = std::clamp(point.y - originY, -rayDown, rayUp);
+                normal = glm::length(n) > 1e-5f ? glm::normalize(n) : up;
+                if (normal.y < 0.0f) normal = up;
+            }
+            leg.Ground = hit ? 1.0f : 0.0f;
+            leg.Lift += (lift - leg.Lift) * follow;
+            leg.Normal = glm::normalize(glm::mix(leg.Normal, normal, follow));
+            lowest = any ? std::min(lowest, leg.Lift) : leg.Lift;
+            any = true;
+        }
+        // The pelvis goes down by the lowest foot's drop, so that leg can still reach
+        const float drop = any ? std::clamp(lowest, -std::max(fp.MaxPelvisDrop, 0.0f), 0.0f) : 0.0f;
+        fp.PelvisDrop += (drop - fp.PelvisDrop) * follow;
+        if (w <= 0.0f || !any) return;
+
+        // 2) Lower the pelvis (its translation, in its parent's space)
+        // "" = the nearest common ancestor of the bones the legs hang from (a quadruped: the hip, not the spine)
+        int pelvis = fp.Pelvis.empty() ? -1 : model.FindNode(fp.Pelvis);
+        if (fp.Pelvis.empty()) {
+            for (const Leg& l : legs) {
+                if (l.End < 0) continue;
+                const int hangsFrom = model.NodeParent(model.NodeParent(model.NodeParent(l.End)));
+                if (pelvis < 0) { pelvis = hangsFrom; continue; }
+                auto isAncestorOrSelf = [&](int anc, int n) { for (; n >= 0; n = model.NodeParent(n)) if (n == anc) return true; return false; };
+                while (pelvis >= 0 && !isAncestorOrSelf(pelvis, hangsFrom)) pelvis = model.NodeParent(pelvis);
+                if (pelvis < 0) break;
+            }
+        }
+        if (pelvis >= 0 && pelvis < (int)pose.size() && std::abs(fp.PelvisDrop) > 1e-6f) {
+            const glm::vec3 now = glm::vec3(modelToWorld * an.Globals[pelvis][3]);
+            const glm::vec3 want = glm::vec3(worldToModel * glm::vec4(now + up * (fp.PelvisDrop * w), 1.0f));
+            const int parent = model.NodeParent(pelvis);
+            const glm::mat4 parentGlobal = parent >= 0 ? an.Globals[parent] : glm::mat4(1.0f);
+            pose[pelvis].T = glm::vec3(glm::inverse(parentGlobal) * glm::vec4(want, 1.0f));
+            model.PoseToGlobals(pose, an.Globals);
+        }
+
+        // 3) Each foot: two-bone IK to the animated position moved by the ground's height (so a raised foot
+        //    stays raised by as much), then turn it with the slope from its animated rotation
+        const glm::vec3 upModel = glm::normalize(dirToModel * up);
+        for (size_t i = 0; i < fp.Feet.size(); i++) {
+            const Leg& l = legs[i];
+            if (l.End < 0) continue;
+            const FootIKLeg& leg = fp.Feet[i];
+            const glm::vec3 targetWorld = l.Foot + up * (leg.Lift * w);
+            SolveLimb(model, an, pose, l.End, glm::vec3(worldToModel * glm::vec4(targetWorld, 1.0f)), glm::vec3(0.0f), false, 1.0f);
+
+            glm::quat tilt(1.0f, 0.0f, 0.0f, 0.0f);
+            const float amount = std::clamp(fp.AlignSlope, 0.0f, 1.0f) * w;
+            if (amount > 0.0f) {
+                glm::vec3 nModel = glm::normalize(normalToModel * leg.Normal);
+                const float angle = SafeAcos(glm::dot(upModel, nModel));
+                tilt = RotationBetween(upModel, nModel);
+                if (angle > maxTilt && angle > 1e-5f) tilt = glm::slerp(glm::quat(1.0f, 0.0f, 0.0f, 0.0f), tilt, maxTilt / angle);
+                tilt = glm::slerp(glm::quat(1.0f, 0.0f, 0.0f, 0.0f), tilt, amount);
+            }
+            // The foot's model-space rotation becomes tilt * (its animated one), whatever the leg did to it
+            const glm::quat current = RotationOf(an.Globals[l.End]);
+            RotateNode(model, an.Globals, pose, l.End, glm::normalize(tilt * l.Rot * glm::inverse(current)));
             model.PoseToGlobals(pose, an.Globals);
         }
     }
@@ -470,6 +584,13 @@ namespace Engine {
                 }
             }
             model->PoseToGlobals(pose, an.Globals);
+
+            // Foot placement on the ground under each foot, then the IK goals on top
+            if (an.Feet.Enabled && !an.Feet.Feet.empty()) {
+                const glm::mat4 entityWorld = GetWorldMatrix(e);
+                PlaceFeet(*model, an, pose, entityWorld * mr.LocalOffset, entityWorld, e, dt, GroundRay,
+                    Grounded ? Grounded(e) : -1);
+            }
 
             // Inverse kinematics on the final pose, in model space (the entity's world * LocalOffset undone)
             if (!an.IK.empty()) {

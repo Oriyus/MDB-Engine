@@ -4812,6 +4812,69 @@ private:
                     ImGui::TextDisabled("Look faces the target within Max angle of the entity's +Z.\nScripts: set_ik, ik_weight, bone_position.");
                     ImGui::TreePop();
                 }
+
+                // Foot placement: feet on uneven ground during Play (rays through physics)
+                FootPlacement& fp = an.Feet;
+                if (ImGui::TreeNode("FootPlacement", "Foot placement%s", fp.Enabled ? " (on)" : "")) {
+                    const auto bones = model->NodeNames();
+                    ImGui::Checkbox("Enabled##feet", &fp.Enabled);
+                    ImGui::SetItemTooltip("During Play, a ray under each foot finds the ground: feet move up or down to it\n"
+                        "and turn with its slope, and the pelvis drops for the lowest one.\nThe entity's origin should be at the feet.");
+                    int removeFoot = -1;
+                    for (int i = 0; i < (int)fp.Feet.size(); i++) {
+                        ImGui::PushID(3000 + i);
+                        const std::string label = "Foot " + std::to_string(i + 1);
+                        if (ImGui::BeginCombo(label.c_str(), fp.Feet[i].Bone.empty() ? "(choose)" : fp.Feet[i].Bone.c_str())) {
+                            for (const auto& b : bones)
+                                if (ImGui::Selectable(b.c_str(), fp.Feet[i].Bone == b)) fp.Feet[i].Bone = b;
+                            ImGui::EndCombo();
+                        }
+                        ImGui::SetItemTooltip("The end of the leg (ankle, paw): its parent and grandparent bend");
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("x")) removeFoot = i;
+                        if (m_PlayState != PlayState::Edit && fp.Enabled)
+                            ImGui::TextDisabled("    ground %+.2f m%s", fp.Feet[i].Lift, fp.Feet[i].Ground > 0.5f ? "" : " (no hit)");
+                        ImGui::PopID();
+                    }
+                    if (removeFoot >= 0) fp.Feet.erase(fp.Feet.begin() + removeFoot);
+                    if (fp.Feet.size() < 8 && ImGui::Button("Add foot")) fp.Feet.push_back({});
+                    ImGui::SameLine();
+                    if (ImGui::Button("Find feet")) {
+                        // The topmost bone of each chain whose name says foot / ankle / paw (Foot01, not its Foot02 child)
+                        auto lower = [](std::string s) { for (char& c : s) c = (char)std::tolower((unsigned char)c); return s; };
+                        auto isFoot = [&](int n) {
+                            const std::string s = lower(bones[n]);
+                            return s.find("foot") != std::string::npos || s.find("ankle") != std::string::npos || s.find("paw") != std::string::npos;
+                        };
+                        std::vector<FootIKLeg> found;
+                        for (int n = 0; n < (int)bones.size(); n++) {
+                            if (!isFoot(n) || (model->NodeParent(n) >= 0 && isFoot(model->NodeParent(n)))) continue;
+                            if (model->NodeParent(n) < 0 || model->NodeParent(model->NodeParent(n)) < 0) continue;
+                            found.push_back(FootIKLeg{ bones[n] });
+                        }
+                        if (!found.empty()) { fp.Feet = std::move(found); fp.Enabled = true; }
+                        else LOG_WARN("Find feet: no bone named like foot, ankle or paw (add them by hand)");
+                    }
+                    if (ImGui::BeginCombo("Pelvis", fp.Pelvis.empty() ? "(automatic)" : fp.Pelvis.c_str())) {
+                        if (ImGui::Selectable("(automatic)", fp.Pelvis.empty())) fp.Pelvis.clear();
+                        for (const auto& b : bones)
+                            if (ImGui::Selectable(b.c_str(), fp.Pelvis == b)) fp.Pelvis = b;
+                        ImGui::EndCombo();
+                    }
+                    ImGui::SetItemTooltip("Lowered so the downhill leg reaches (automatic: the bone all legs hang from)");
+                    ImGui::SliderFloat("Weight##feet", &fp.Weight, 0.0f, 1.0f);
+                    ImGui::DragFloat("Step up", &fp.RayUp, 0.01f, 0.0f, 5.0f, "%.2f m");
+                    ImGui::SetItemTooltip("The highest ground above the origin a foot goes up to");
+                    ImGui::DragFloat("Step down", &fp.RayDown, 0.01f, 0.0f, 5.0f, "%.2f m");
+                    ImGui::SetItemTooltip("The lowest ground below the origin a foot goes down to");
+                    ImGui::DragFloat("Pelvis drop", &fp.MaxPelvisDrop, 0.01f, 0.0f, 5.0f, "%.2f m");
+                    ImGui::SliderFloat("Align to slope", &fp.AlignSlope, 0.0f, 1.0f);
+                    ImGui::SliderFloat("Max slope", &fp.MaxSlope, 0.0f, 89.0f, "%.0f deg");
+                    ImGui::DragFloat("Smoothing", &fp.Smoothing, 0.1f, 0.0f, 60.0f, "%.1f /s");
+                    ImGui::SetItemTooltip("How fast the feet follow the ground (0 = at once)");
+                    ImGui::TextDisabled("Scripts: e.animator:set_feet{...}, feet().");
+                    ImGui::TreePop();
+                }
             }
             if (ImGui::Button("Remove##animator")) e.Remove<AnimatorComponent>();
         }

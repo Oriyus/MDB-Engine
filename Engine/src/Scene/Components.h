@@ -430,6 +430,36 @@ namespace Engine {
         glm::vec3 Pole{ 0.0f };           // Limb: bend direction in entity space (0 = keep the current bend)
     };
 
+    // Foot placement: plants the feet on uneven ground during Play. Each frame a ray goes down under every foot
+    // (from RayUp above the entity's origin to RayDown below it, through the scene's GroundRay: physics, the
+    // entity itself ignored). Where the ground is higher or lower than the origin, the foot moves by that much
+    // (two-bone IK on Bone's parent and grandparent, so the animation's own lift is kept) and turns with the
+    // ground's slope; the pelvis goes down by the lowest foot's drop (at most MaxPelvisDrop) so downhill legs
+    // reach. The origin should be at the feet (Create > Character puts it there). Runs before the IK goals.
+    // On a character controller it fades out while the character is in the air.
+    struct FootIKLeg {
+        std::string Bone;                 // the end of the leg (ankle / paw); its parent and grandparent bend
+        // Runtime (not saved)
+        float Lift = 0.0f;                // smoothed ground height under the foot, from the origin (m, world)
+        glm::vec3 Normal{ 0.0f, 1.0f, 0.0f };   // smoothed ground normal (world)
+        float Ground = 0.0f;              // last frame: 1 = the ray hit ground, 0 = it didn't
+    };
+    struct FootPlacement {
+        bool Enabled = false;
+        std::vector<FootIKLeg> Feet;
+        std::string Pelvis;               // the bone lowered for downhill legs ("" = the parent of the first leg's top bone)
+        float Weight = 1.0f;
+        float RayUp = 0.5f;               // m above the origin the rays start (the highest step a foot goes up)
+        float RayDown = 0.5f;             // m below the origin the ground may be (the deepest a foot goes down)
+        float MaxPelvisDrop = 0.35f;      // m
+        float AlignSlope = 1.0f;          // 0..1: how much the feet turn with the ground
+        float MaxSlope = 40.0f;           // degrees: steeper ground turns the feet only this much
+        float Smoothing = 15.0f;          // 1/s: how fast heights and slopes follow the ground (0 = at once)
+        // Runtime (not saved)
+        float PelvisDrop = 0.0f;          // smoothed, m (<= 0)
+        float Fade = 1.0f;                // 0..1: on a character controller, 0 while in the air
+    };
+
     // One layer of a running animation graph (runtime, not saved): its state, and the one it is fading out of
     struct AnimGraphLayerState {
         int State = -1;                   // state id (-1: not started: the layer enters its Entry state)
@@ -465,6 +495,7 @@ namespace Engine {
         bool RootMotion = false;
         std::string RootBone;
         std::vector<AnimIK> IK;           // solved after layers, in order
+        FootPlacement Feet;               // plants the feet on the ground (before IK)
 
         // Runtime state (not saved)
         float Time = 0.0f;                // seconds into ActiveClip

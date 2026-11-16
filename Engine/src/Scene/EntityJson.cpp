@@ -194,6 +194,14 @@ namespace Engine {
                                     { "maxAngle", ik.MaxAngle },{ "chain", ik.Chain },{ "pole", ik.Pole } });
                 j["animator"]["ik"] = iks;
             }
+            if (a.Feet.Enabled || !a.Feet.Feet.empty()) {      // whole, only when used
+                const FootPlacement& f = a.Feet;
+                json feet = json::array();
+                for (const auto& leg : f.Feet) feet.push_back(leg.Bone);
+                j["animator"]["feet"] = { { "enabled", f.Enabled },{ "bones", feet },{ "pelvis", f.Pelvis },{ "weight", f.Weight },
+                    { "rayUp", f.RayUp },{ "rayDown", f.RayDown },{ "maxPelvisDrop", f.MaxPelvisDrop },
+                    { "alignSlope", f.AlignSlope },{ "maxSlope", f.MaxSlope },{ "smoothing", f.Smoothing } };
+            }
             if (a.RootMotion || !a.RootBone.empty()) {
                 j["animator"]["rootMotion"] = a.RootMotion;
                 j["animator"]["rootBone"] = a.RootBone;
@@ -526,6 +534,21 @@ namespace Engine {
                     if (ji.contains("pole")) ik.Pole = ji["pole"].get<glm::vec3>();
                     a.IK.push_back(ik);
                 }
+            if (ja.contains("feet") && ja["feet"].is_object()) {
+                const json& jf = ja["feet"];
+                FootPlacement& f = a.Feet;
+                f.Enabled = jf.value("enabled", true);
+                if (jf.contains("bones"))
+                    for (const auto& b : jf["bones"]) if (b.is_string()) f.Feet.push_back(FootIKLeg{ b.get<std::string>() });
+                f.Pelvis = jf.value("pelvis", std::string());
+                f.Weight = jf.value("weight", 1.0f);
+                f.RayUp = jf.value("rayUp", 0.5f);
+                f.RayDown = jf.value("rayDown", 0.5f);
+                f.MaxPelvisDrop = jf.value("maxPelvisDrop", 0.35f);
+                f.AlignSlope = jf.value("alignSlope", 1.0f);
+                f.MaxSlope = jf.value("maxSlope", 40.0f);
+                f.Smoothing = jf.value("smoothing", 15.0f);
+            }
             a.RootMotion = ja.value("rootMotion", false);
             a.RootBone = ja.value("rootBone", std::string());
             if (ja.contains("events"))

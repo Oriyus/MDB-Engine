@@ -686,6 +686,25 @@ void BuildTerrainDemo(Scene& scene, const LevelAssets& a, PrefabLibrary&) {
         brb.Mass = 5.0f;
     }
 
+    // A fox wandering a hillside west of the meadow: foot placement keeps its paws on the slope
+    if (a.Fox && a.Fox->IsSkinned()) {
+        const glm::vec2 at(-18.0f, 12.0f);
+        float y = 0.0f;
+        TerrainSurfaceAt(scene, at.x, at.y, y);
+        Entity e = scene.CreateEntity("Hillside Fox");
+        e.Get<TransformComponent>().Position = glm::vec3(at.x, y, at.y);
+        auto& mr = e.Add<MeshRendererComponent>();
+        mr.Geometry = a.Fox;
+        mr.LocalOffset = a.Fox->GetGroundedMatrix(1.6f);
+        mr.UseModelMaterials = a.Fox->HasTexturedMaterials();
+        auto& an = e.Add<AnimatorComponent>();
+        an.Graph = "AnimGraphs/fox.json";
+        an.Feet.Enabled = true;
+        for (const char* bone : { "b_LeftFoot01_017", "b_RightFoot01_021", "b_LeftHand_011", "b_RightHand_08" })
+            an.Feet.Feet.push_back(FootIKLeg{ bone });
+        e.Add<ScriptComponent>().Path = "Scripts/wander_graph.lua";
+    }
+
     {
         Entity cam = scene.CreateEntity("Main Camera");
         auto& tr = cam.Get<TransformComponent>();

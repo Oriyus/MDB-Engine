@@ -117,6 +117,25 @@ namespace Engine {
         m_Scene.Fog = FogOfWarState{};
         m_Scene.ResetParticles();        // emitters start over (the editor preview already ran them)
         m_Physics->Sync(m_Scene);
+        // Foot placement asks the physics world for the ground. An animated model is often a child of the body or
+        // character that carries it ("Player" > "Model"), so both look up the nearest one with a body.
+        auto carrier = [this](entt::entity e) {
+            for (entt::entity n = e; n != entt::null; n = m_Scene.GetParent(n))
+                if (m_Physics->HasCharacter(n) || m_Physics->HasBody(n)) return n;
+            return e;
+        };
+        m_Scene.GroundRay = [this, carrier](const glm::vec3& origin, const glm::vec3& dir, float maxDistance, entt::entity ignore,
+            glm::vec3& point, glm::vec3& normal) {
+            RayHit hit;
+            if (!m_Physics->Raycast(origin, dir, maxDistance, hit, carrier(ignore))) return false;
+            point = hit.Point; normal = hit.Normal;
+            return true;
+        };
+        m_Scene.Grounded = [this, carrier](entt::entity e) {
+            const entt::entity c = carrier(e);
+            if (!m_Physics->HasCharacter(c)) return -1;
+            return m_Physics->GetCharacterState(c).Grounded ? 1 : 0;
+        };
         m_Scripts->Start(m_Scene);
         m_Scene.BuildStaticBatches();    // after on_create, which may build or change the level
         m_Running = true;
@@ -130,6 +149,8 @@ namespace Engine {
         *m_Fog = FogOfWar{};
         m_Scene.Fog = FogOfWarState{};
         m_Physics->Reset();
+        m_Scene.GroundRay = nullptr;
+        m_Scene.Grounded = nullptr;
         m_Running = false;
     }
 

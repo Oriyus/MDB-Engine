@@ -177,6 +177,9 @@ namespace Engine {
     //                          set_ik(n, { type = "look"|"limb", bone, target = vec3 or entity, offset, weight,
     //                                      max_angle, chain, pole }), ik_weight(n, w), remove_ik(n), ik_count(),
     //                          ik(n) -> { type, bone, target = world point, entity, offset, weight, max_angle, chain, pole },
+    //                          set_feet{ enabled, bones = { names }, pelvis, weight, ray_up, ray_down, max_pelvis_drop,
+    //                                    align_slope, max_slope, smoothing }  (foot placement: feet on uneven ground),
+    //                          feet() -> those keys + lift / ground / normal per foot, pelvis_drop, fade,
     //                          bone_position(name) -> world vec3 or nil (after layers and IK),
     //                          bone_forward(name) -> the world direction it faces (at rest: the entity's +Z) }
     //     Layers play another clip over the base one on a bone and everything below it (mask "" = all).

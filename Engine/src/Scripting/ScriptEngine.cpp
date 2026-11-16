@@ -1399,6 +1399,50 @@ namespace Engine {
                 auto& iks = a.E.Get<AnimatorComponent>().IK;
                 if (n >= 1 && n <= (int)iks.size()) iks.erase(iks.begin() + (n - 1));
             },
+            // ---- Foot placement: set_feet{ enabled, bones = { "LeftFoot", ... }, pelvis, weight, ray_up, ray_down,
+            //      max_pelvis_drop, align_slope, max_slope (degrees), smoothing } changes the keys given (bones replaces
+            //      the list; enabled defaults to true when bones are given). feet() -> those keys plus, per foot,
+            //      lift (m from the origin), ground (true when its ray hit) and normal, and pelvis_drop, fade.
+            "set_feet", [](const AnimatorRef& a, sol::table opts) {
+                FootPlacement& f = a.E.Get<AnimatorComponent>().Feet;
+                if (const auto bones = opts.get<sol::optional<sol::table>>("bones")) {
+                    std::vector<FootIKLeg> legs;
+                    for (size_t i = 1; i <= bones->size(); i++) {
+                        const auto name = bones->get<sol::optional<std::string>>(i);
+                        if (!name) throw std::runtime_error("feet bones must be bone names");
+                        FootIKLeg leg{ *name };
+                        for (const FootIKLeg& old : f.Feet) if (old.Bone == *name) leg = old;   // keep its smoothing
+                        legs.push_back(leg);
+                    }
+                    f.Feet = std::move(legs);
+                    f.Enabled = true;
+                }
+                f.Enabled = opts.get<sol::optional<bool>>("enabled").value_or(f.Enabled);
+                f.Pelvis = opts.get<sol::optional<std::string>>("pelvis").value_or(f.Pelvis);
+                if (const auto w = opts.get<sol::optional<float>>("weight")) f.Weight = std::clamp(*w, 0.0f, 1.0f);
+                f.RayUp = std::max(0.0f, opts.get<sol::optional<float>>("ray_up").value_or(f.RayUp));
+                f.RayDown = std::max(0.0f, opts.get<sol::optional<float>>("ray_down").value_or(f.RayDown));
+                f.MaxPelvisDrop = std::max(0.0f, opts.get<sol::optional<float>>("max_pelvis_drop").value_or(f.MaxPelvisDrop));
+                f.AlignSlope = std::clamp(opts.get<sol::optional<float>>("align_slope").value_or(f.AlignSlope), 0.0f, 1.0f);
+                f.MaxSlope = std::clamp(opts.get<sol::optional<float>>("max_slope").value_or(f.MaxSlope), 0.0f, 89.0f);
+                f.Smoothing = std::max(0.0f, opts.get<sol::optional<float>>("smoothing").value_or(f.Smoothing));
+            },
+            "feet", [this](const AnimatorRef& a) {
+                const FootPlacement& f = a.E.Get<AnimatorComponent>().Feet;
+                sol::table bones = Lua->create_table(), lift = Lua->create_table(), ground = Lua->create_table(), normal = Lua->create_table();
+                for (size_t i = 0; i < f.Feet.size(); i++) {
+                    bones[i + 1] = f.Feet[i].Bone;
+                    lift[i + 1] = f.Feet[i].Lift;
+                    ground[i + 1] = f.Feet[i].Ground > 0.5f;
+                    normal[i + 1] = f.Feet[i].Normal;
+                }
+                sol::table t = Lua->create_table_with("enabled", f.Enabled, "bones", bones, "pelvis", f.Pelvis, "weight", f.Weight,
+                    "ray_up", f.RayUp, "ray_down", f.RayDown, "max_pelvis_drop", f.MaxPelvisDrop, "align_slope", f.AlignSlope,
+                    "max_slope", f.MaxSlope, "smoothing", f.Smoothing);
+                t["lift"] = lift; t["ground"] = ground; t["normal"] = normal;
+                t["pelvis_drop"] = f.PelvisDrop; t["fade"] = f.Fade;
+                return t;
+            },
             "ik_count", [](const AnimatorRef& a) { return (int)a.E.Get<AnimatorComponent>().IK.size(); },
             "ik", [this](const AnimatorRef& a, int n) -> sol::object {
                 const auto& iks = a.E.Get<AnimatorComponent>().IK;

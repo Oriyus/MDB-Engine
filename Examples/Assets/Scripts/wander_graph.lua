@@ -2,6 +2,8 @@
 -- the graph's parameters, and AnimGraphs/fox.json decides what plays (Idle / Walk-Run blend / a one-shot Look,
 -- plus an additive head layer). Try it: give the Script Demo's Fox the Graph "AnimGraphs/fox.json" (Inspector >
 -- Animator) and this script, press Play, and open the graph (Edit graph) to watch its states live.
+-- With foot placement on (Inspector > Animator > Foot placement), the fox also keeps to the ground under it (a
+-- raycast), so it can wander over a hillside: the terrain demo has one doing that.
 
 local radius = 2.5
 local plan = {                     -- { metres per second, seconds }: walk, run, stop (look around), walk slowly
@@ -10,10 +12,12 @@ local plan = {                     -- { metres per second, seconds }: walk, run,
 local center, angle = nil, 0
 local step, left = 1, 0
 local speed = 0                    -- eased towards the plan's speed, so the blend glides from walk to run
+local follow_ground = false        -- on when the animator has foot placement
 
 function on_create(self)
     center = self.position
     left = plan[1][2]
+    follow_ground = self.animator:feet().enabled
 end
 
 function on_anim_event(self, name, state)
@@ -40,5 +44,10 @@ function on_update(self, dt)
         self.position = center + vec3(math.cos(angle), 0, math.sin(angle)) * radius
         local dir = vec3(-math.sin(angle), 0, math.cos(angle))   -- along the circle (the model faces +Z)
         self.rotation = vec3(0, math.atan(dir.x, dir.z), 0)
+    end
+    if follow_ground then          -- stand on whatever is under it (the feet then sort out the slope)
+        local p = self.position
+        local hit = scene.raycast(vec3(p.x, p.y + 3, p.z), vec3(0, -1, 0), 10, self)
+        if hit then self.position = vec3(p.x, hit.point.y, p.z) end
     end
 end

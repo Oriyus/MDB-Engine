@@ -663,6 +663,82 @@
       }
     },
     {
+      "animator": {
+        "blendTime": 0.25,
+        "clip": "",
+        "feet": {
+          "alignSlope": 1.0,
+          "bones": [
+            "b_LeftFoot01_017",
+            "b_RightFoot01_021",
+            "b_LeftHand_011",
+            "b_RightHand_08"
+          ],
+          "enabled": true,
+          "maxPelvisDrop": 0.35,
+          "maxSlope": 40.0,
+          "pelvis": "",
+          "rayDown": 0.5,
+          "rayUp": 0.5,
+          "smoothing": 15.0,
+          "weight": 1.0
+        },
+        "graph": "AnimGraphs/fox.json",
+        "loop": true,
+        "playing": true,
+        "speed": 1.0
+      },
+      "id": 7312998740125530461,
+      "meshRenderer": {
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
+        "geometry": "model:Models/Fox.glb",
+        "localOffset": [
+          0.010341271758079529,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.010341271758079529,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.010341271758079529,
+          0.0,
+          3.9448821098631015e-08,
+          0.0012589634861797094,
+          0.11101426929235458,
+          1.0
+        ],
+        "opacity": 1.0,
+        "static": false,
+        "useModelMaterials": true
+      },
+      "name": "Hillside Fox",
+      "script": {
+        "path": "Scripts/wander_graph.lua"
+      },
+      "transform": {
+        "position": [
+          -18.0,
+          7.2,
+          12.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
       "directionalLight": {
         "castShadows": true,
         "color": [
