@@ -84,16 +84,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.25,
-          0.2199999988079071,
-          0.30000001192092896
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "cone",
         "localOffset": [
           1.0,
@@ -113,12 +103,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.30000001192092896,
+        "materials": [
+          "Materials/Generated/Hat.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.6000000238418579,
         "static": false,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Hat",
@@ -147,16 +136,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          1.0,
-          0.8999999761581421,
-          0.4000000059604645
-        ],
-        "emissive": [
-          1.2000000476837158,
-          0.8999999761581421,
-          0.20000000298023224
-        ],
         "geometry": "sphere",
         "localOffset": [
           1.0,
@@ -176,12 +155,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Eye.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.20000000298023224,
         "static": false,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Eye",
@@ -210,16 +188,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          1.0,
-          0.8999999761581421,
-          0.4000000059604645
-        ],
-        "emissive": [
-          1.2000000476837158,
-          0.8999999761581421,
-          0.20000000298023224
-        ],
         "geometry": "sphere",
         "localOffset": [
           1.0,
@@ -239,12 +207,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Eye.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.20000000298023224,
         "static": false,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Eye",
@@ -273,16 +240,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.3499999940395355,
-          0.07999999821186066,
-          0.07000000029802322
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "sphere",
         "localOffset": [
           1.0,
@@ -302,12 +259,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Head.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.5,
         "static": false,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Head",
@@ -336,16 +292,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.7799999713897705,
-          0.1599999964237213,
-          0.11999999731779099
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "capsule",
         "localOffset": [
           1.0,
@@ -365,12 +311,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Body.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.550000011920929,
         "static": false,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Body",
@@ -396,7 +341,9 @@
     {
       "id": 17784842239026777214,
       "name": "Enemy",
-      "npc": { "id": "goblin" },
+      "npc": {
+        "id": "goblin"
+      },
       "transform": {
         "position": [
           3.5,
@@ -450,16 +397,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "model:Models/Fox.glb",
         "localOffset": [
           0.009048612788319588,
@@ -479,12 +416,8 @@
           0.09713748842477798,
           1.0
         ],
-        "metallic": 0.0,
         "opacity": 1.0,
-        "roughness": 0.5,
         "static": false,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": true
       },
       "name": "Hero",
@@ -512,16 +445,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.8500000238418579,
-          0.6499999761581421,
-          0.25
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "cube",
         "localOffset": [
           1.0,
@@ -541,12 +464,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.6000000238418579,
+        "materials": [
+          "Materials/Generated/Lid.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.4000000059604645,
         "static": false,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Lid",
@@ -597,16 +519,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.5,
-          0.30000001192092896,
-          0.15000000596046448
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "cube",
         "localOffset": [
           0.8999999761581421,
@@ -626,12 +538,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Chest_helmet.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.800000011920929,
         "static": false,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Chest: helmet",
@@ -701,16 +612,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.20000000298023224,
-          0.699999988079071,
-          0.800000011920929
-        ],
-        "emissive": [
-          0.10000000149011612,
-          0.6000000238418579,
-          0.800000011920929
-        ],
         "geometry": "cube",
         "localOffset": [
           1.0,
@@ -730,12 +631,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Exit_tactics_test_From_Cellar.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.5,
         "static": false,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Exit: tactics_test.json > From Cellar",
@@ -826,16 +726,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.7149999737739563,
-          0.46799999475479126,
-          0.25999999046325684
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "cube",
         "localOffset": [
           1.0,
@@ -855,12 +745,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Crate.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.699999988079071,
         "static": true,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Crate",
@@ -906,16 +795,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.7149999737739563,
-          0.46799999475479126,
-          0.25999999046325684
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "cube",
         "localOffset": [
           1.0,
@@ -935,12 +814,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Crate.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.699999988079071,
         "static": true,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Crate",
@@ -986,16 +864,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.550000011920929,
-          0.5,
-          0.44999998807907104
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "cube",
         "localOffset": [
           1.0,
@@ -1015,12 +883,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Pillar.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.699999988079071,
         "static": true,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Pillar",
@@ -1066,16 +933,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.550000011920929,
-          0.5,
-          0.44999998807907104
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "cube",
         "localOffset": [
           1.0,
@@ -1095,12 +952,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Pillar.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.699999988079071,
         "static": true,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Pillar",
@@ -1146,16 +1002,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.550000011920929,
-          0.5,
-          0.44999998807907104
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "cube",
         "localOffset": [
           1.0,
@@ -1175,12 +1021,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Pillar.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.699999988079071,
         "static": true,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Pillar",
@@ -1226,16 +1071,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.550000011920929,
-          0.5,
-          0.44999998807907104
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "cube",
         "localOffset": [
           1.0,
@@ -1255,12 +1090,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Pillar.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.699999988079071,
         "static": true,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Pillar",
@@ -1306,16 +1140,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.30000001192092896,
-          0.2800000011920929,
-          0.3199999928474426
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "cube",
         "localOffset": [
           1.0,
@@ -1335,12 +1159,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Wall_E_2.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.699999988079071,
         "static": true,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Wall E",
@@ -1386,16 +1209,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.30000001192092896,
-          0.2800000011920929,
-          0.3199999928474426
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "cube",
         "localOffset": [
           1.0,
@@ -1415,12 +1228,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Wall_E_2.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.699999988079071,
         "static": true,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Wall W",
@@ -1466,16 +1278,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.30000001192092896,
-          0.2800000011920929,
-          0.3199999928474426
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "cube",
         "localOffset": [
           1.0,
@@ -1495,12 +1297,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Wall_E_2.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.699999988079071,
         "static": true,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Wall S",
@@ -1546,16 +1347,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.30000001192092896,
-          0.2800000011920929,
-          0.3199999928474426
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "cube",
         "localOffset": [
           1.0,
@@ -1575,12 +1366,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Wall_E_2.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.699999988079071,
         "static": true,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Wall N",
@@ -1656,16 +1446,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.800000011920929,
-          0.800000011920929,
-          0.800000011920929
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "plane",
         "localOffset": [
           1.0,
@@ -1685,12 +1465,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Floor.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.8500000238418579,
         "static": true,
-        "texture": "checker",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Floor",
@@ -1768,10 +1547,27 @@
       "gravity": 9.8100004196167
     },
     "post": {
+      "contrast": 1.0,
       "exposure": 1.0,
       "fxaa": true,
       "gamma": true,
-      "toneMap": 2
+      "grain": 0.0,
+      "highlightTint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "saturation": 1.0,
+      "shadowTint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "taa": true,
+      "temperature": 0.0,
+      "tint": 0.0,
+      "toneMap": 2,
+      "vignette": 0.0
     },
     "shadows": {
       "cascadeCount": 4,
@@ -1779,11 +1575,38 @@
       "enabled": true,
       "pointBias": 0.05000000074505806,
       "pointFar": 30.0,
+      "pointInterval": 2,
       "shadowDistance": 60.0,
       "sunBias": 0.0020000000949949026,
       "sunCascades": true,
       "sunDistance": 30.0,
       "sunExtent": 12.0
+    },
+    "volumetricFog": {
+      "ambientIntensity": 1.0,
+      "anisotropy": 0.6000000238418579,
+      "baseHeight": 0.0,
+      "color": [
+        0.8600000143051147,
+        0.8899999856948853,
+        0.9300000071525574
+      ],
+      "density": 0.03999999910593033,
+      "enabled": false,
+      "heightFalloff": 3.0,
+      "maxDistance": 80.0,
+      "noiseAmount": 0.6000000238418579,
+      "noiseScale": 0.11999999731779099,
+      "pointLightIntensity": 1.0,
+      "steps": 32,
+      "sunIntensity": 1.0,
+      "windDirection": 30.0,
+      "windSpeed": 0.5
+    },
+    "wind": {
+      "direction": 30.0,
+      "speed": 1.0,
+      "strength": 1.0
     }
   },
   "version": 3

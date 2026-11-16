@@ -256,7 +256,7 @@ namespace Engine::Characters {
             mr.Geometry = g;
             mr.LocalOffset = model->GetPlacementMatrix(std::max(0.01f, height));
             mr.UseModelMaterials = model->HasTexturedMaterials();
-            if (mr.UseModelMaterials) mr.Color = glm::vec3(1.0f);
+            mr.Overrides = {};                            // the model's own look
             if (model->IsSkinned() && !e.Has<AnimatorComponent>()) {
                 auto& an = e.Add<AnimatorComponent>();
                 if (!model->AnimationNames().empty()) an.Clip = model->AnimationNames().front();
@@ -325,9 +325,9 @@ namespace Engine::Characters {
             auto& mr = e.Add<MeshRendererComponent>();
             mr.Geometry = res.FindGeometry ? res.FindGeometry("cube") : nullptr;
             mr.LocalOffset = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.15f, 0.0f)) * glm::scale(glm::mat4(1.0f), glm::vec3(0.3f));
-            mr.Color = glm::vec3(0.95f, 0.75f, 0.25f);
-            mr.Metallic = 0.6f;
-            mr.Roughness = 0.35f;
+            mr.Overrides.Color = glm::vec3(0.95f, 0.75f, 0.25f);   // gold (an override: saved with the pickup)
+            mr.Overrides.Metallic = 0.6f;
+            mr.Overrides.Roughness = 0.35f;
             h = e.GetHandle();
         }
         auto& reg = scene.Registry();

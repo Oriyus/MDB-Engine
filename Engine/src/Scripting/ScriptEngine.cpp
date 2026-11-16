@@ -14,6 +14,7 @@
 #include "Navigation/NavGrid.h"
 #include "Navigation/FogOfWar.h"
 #include "Scene/EntityJson.h"          // glm <-> json
+#include "Renderer/MaterialAsset.h"
 #include "Runtime/UILayout.h"
 #include "Runtime/UIDocument.h"
 #include "Runtime/GameDatabase.h"
@@ -224,6 +225,30 @@ namespace Engine {
             std::stable_sort(out.begin(), out.end(), [](const MeshLod& a, const MeshLod& b) { return a.Distance < b.Distance; });
             return out;
         }
+
+        // A material file for a slot; a script error if there is no such file
+        MaterialSlot MaterialSlotFor(const std::string& path) const {
+            MaterialSlot s;
+            s.Path = path;
+            if (path.empty()) return s;
+            s.Asset = Resources.LoadMaterial ? Resources.LoadMaterial(path) : nullptr;
+            if (!s.Asset || s.Asset->Missing) throw std::runtime_error("no material file '" + path + "'");
+            return s;
+        }
+        // e.mesh.materials / add_mesh{ materials }: { "Materials/a.mat", "", ... } (one per part)
+        std::vector<MaterialSlot> ParseMaterialSlots(const sol::table& t) const {
+            std::vector<MaterialSlot> out;
+            for (size_t i = 1; i <= t.size(); i++) {
+                const sol::optional<std::string> p = t.get<sol::optional<std::string>>(i);
+                if (!p) throw std::runtime_error("materials: entry " + std::to_string(i) + " is not a string");
+                out.push_back(MaterialSlotFor(*p));
+            }
+            while (!out.empty() && out.back().Path.empty()) out.pop_back();
+            return out;
+        }
+        // material.set: each changed file's contents before Play changed it (put back by Stop)
+        std::unordered_map<std::string, nlohmann::json> MaterialOriginals;
+        void BindMaterials();
     };
 
     // ---------------------------------------------------------------- API
@@ -256,18 +281,21 @@ namespace Engine {
 
         // ---- component views
         lua.new_usertype<MeshRef>("Mesh", sol::no_constructor,
+            // Per-object overrides of the material's values (MeshOverrides): reading gives the override, else the first
+            // part's material value; clear_overrides() puts the material's back
             "color", sol::property(
-                [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().Color; },
-                [](const MeshRef& m, const glm::vec3& v) { m.E.Get<MeshRendererComponent>().Color = v; }),
+                [](const MeshRef& m) { auto& mr = m.E.Get<MeshRendererComponent>(); return mr.Overrides.Color.value_or(PartMaterialOf(mr).Color); },
+                [](const MeshRef& m, const glm::vec3& v) { m.E.Get<MeshRendererComponent>().Overrides.Color = v; }),
             "emissive", sol::property(
-                [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().Emissive; },
-                [](const MeshRef& m, const glm::vec3& v) { m.E.Get<MeshRendererComponent>().Emissive = v; }),
+                [](const MeshRef& m) { auto& mr = m.E.Get<MeshRendererComponent>(); return mr.Overrides.Emissive.value_or(PartMaterialOf(mr).EmissiveColor); },
+                [](const MeshRef& m, const glm::vec3& v) { m.E.Get<MeshRendererComponent>().Overrides.Emissive = v; }),
             "metallic", sol::property(
-                [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().Metallic; },
-                [](const MeshRef& m, float v) { m.E.Get<MeshRendererComponent>().Metallic = v; }),
+                [](const MeshRef& m) { auto& mr = m.E.Get<MeshRendererComponent>(); return mr.Overrides.Metallic.value_or(PartMaterialOf(mr).Metallic); },
+                [](const MeshRef& m, float v) { m.E.Get<MeshRendererComponent>().Overrides.Metallic = std::clamp(v, 0.0f, 1.0f); }),
             "roughness", sol::property(
-                [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().Roughness; },
-                [](const MeshRef& m, float v) { m.E.Get<MeshRendererComponent>().Roughness = v; }),
+                [](const MeshRef& m) { auto& mr = m.E.Get<MeshRendererComponent>(); return mr.Overrides.Roughness.value_or(PartMaterialOf(mr).Roughness); },
+                [](const MeshRef& m, float v) { m.E.Get<MeshRendererComponent>().Overrides.Roughness = std::clamp(v, 0.0f, 1.0f); }),
+            "clear_overrides", [](const MeshRef& m) { m.E.Get<MeshRendererComponent>().Overrides = {}; },
             // opacity below 1 on an opaque mesh makes it see-through (alpha_mode "blend")
             "opacity", sol::property(
                 [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().Opacity; },
@@ -289,18 +317,16 @@ namespace Engine {
             "wind", sol::property(
                 [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().Wind; },
                 [](const MeshRef& m, float v) { m.E.Get<MeshRendererComponent>().Wind = std::max(v, 0.0f); }),
-            "specular", sol::property(           // 0..1: reflection of a non-metal (0 = matte, no sheen)
-                [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().Specular; },
-                [](const MeshRef& m, float v) { m.E.Get<MeshRendererComponent>().Specular = std::clamp(v, 0.0f, 1.0f); }),
+            "specular", sol::readonly_property(  // the material's (change it in the material file)
+                [](const MeshRef& m) { return PartMaterialOf(m.E.Get<MeshRendererComponent>()).Specular; }),
             "double_sided", sol::property(       // back faces drawn too (a plane seen from behind)
                 [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().DoubleSided; },
                 [](const MeshRef& m, bool v) { m.E.Get<MeshRendererComponent>().DoubleSided = v; }),
             "cast_shadows", sol::property(
                 [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().CastShadows; },
                 [](const MeshRef& m, bool v) { m.E.Get<MeshRendererComponent>().CastShadows = v; }),
-            "unlit", sol::property(
-                [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().Unlit; },
-                [](const MeshRef& m, bool v) { m.E.Get<MeshRendererComponent>().Unlit = v; }),
+            "unlit", sol::readonly_property(     // the material's
+                [](const MeshRef& m) { return PartMaterialOf(m.E.Get<MeshRendererComponent>()).Unlit; }),
             "geometry", sol::property(
                 [this](const MeshRef& m) {
                     const auto& g = m.E.Get<MeshRendererComponent>().Geometry;
@@ -329,6 +355,31 @@ namespace Engine {
             "cull_distance", sol::property(      // metres; 0 = drawn at any distance
                 [](const MeshRef& m) { return m.E.Get<MeshRendererComponent>().CullDistance; },
                 [](const MeshRef& m, float v) { m.E.Get<MeshRendererComponent>().CullDistance = std::max(v, 0.0f); }),
+            // Material files ("Materials/x.mat"): material = the first part's (setting it gives every part that one),
+            // materials = one per part (a copy; assign a whole list, "" = the part's own values)
+            "material", sol::property(
+                [](const MeshRef& m) {
+                    const auto& mats = m.E.Get<MeshRendererComponent>().Materials;
+                    return mats.empty() ? std::string() : mats[0].Path;
+                },
+                [this](const MeshRef& m, const std::string& path) {
+                    auto& mr = m.E.Get<MeshRendererComponent>();
+                    const size_t parts = mr.Geometry ? std::max<size_t>(mr.Geometry->SubmeshCount(), 1) : 1;
+                    const MaterialSlot slot = MaterialSlotFor(path);      // first: a missing file changes nothing
+                    mr.Materials.clear();
+                    if (!path.empty()) mr.Materials.assign(parts, slot);
+                }),
+            "materials", sol::property(
+                [this](const MeshRef& m) {
+                    sol::table t = Lua->create_table();
+                    int i = 1;
+                    for (const MaterialSlot& s : m.E.Get<MeshRendererComponent>().Materials) t[i++] = s.Path;
+                    return t;
+                },
+                [this](const MeshRef& m, sol::table t) {
+                    auto& mr = m.E.Get<MeshRendererComponent>();
+                    mr.Materials = ParseMaterialSlots(t);
+                }),
             "lod", sol::readonly_property(       // the level drawn last frame: 0 = geometry, #lods + 1 = culled
                 [](const MeshRef& m) { return (int)m.E.Get<MeshRendererComponent>().LodLevel; }));
 
@@ -610,16 +661,15 @@ namespace Engine {
                 mr.Geometry = Resources.FindGeometry ? Resources.FindGeometry(geo) : nullptr;
                 if (!mr.Geometry) throw std::runtime_error("unknown geometry '" + geo + "'");
                 if (opts) {
-                    const std::string tex = opts->get_or<std::string>("texture", "");
-                    if (!tex.empty()) {
-                        mr.Texture = Resources.FindTexture ? Resources.FindTexture(tex) : nullptr;
-                        if (!mr.Texture) throw std::runtime_error("unknown texture '" + tex + "'");
-                    }
-                    mr.Color = opts->get_or<glm::vec3>("color", mr.Color);
-                    mr.Emissive = opts->get_or<glm::vec3>("emissive", mr.Emissive);
-                    mr.Metallic = opts->get_or<float>("metallic", mr.Metallic);
-                    mr.Roughness = opts->get_or<float>("roughness", mr.Roughness);
-                    mr.Unlit = opts->get_or<bool>("unlit", mr.Unlit);
+                    // The look lives in material files now; these went with it
+                    for (const char* moved : { "texture", "unlit", "specular" })
+                        if (opts->get<sol::object>(moved).valid())
+                            throw std::runtime_error(std::string("add_mesh: '") + moved + "' is a material value now: give a material file (material = \"Materials/x.mat\")");
+                    // Per-object overrides of the material's values
+                    if (const auto v = opts->get<sol::optional<glm::vec3>>("color")) mr.Overrides.Color = *v;
+                    if (const auto v = opts->get<sol::optional<glm::vec3>>("emissive")) mr.Overrides.Emissive = *v;
+                    if (const auto v = opts->get<sol::optional<float>>("metallic")) mr.Overrides.Metallic = std::clamp(*v, 0.0f, 1.0f);
+                    if (const auto v = opts->get<sol::optional<float>>("roughness")) mr.Overrides.Roughness = std::clamp(*v, 0.0f, 1.0f);
                     if (const auto am = opts->get<sol::optional<std::string>>("alpha_mode")) mr.Alpha = AlphaModeFromString(*am);
                     if (const auto op = opts->get<sol::optional<float>>("opacity")) {
                         mr.Opacity = std::clamp(*op, 0.0f, 1.0f);
@@ -629,16 +679,17 @@ namespace Engine {
                     mr.CastShadows = opts->get<sol::optional<bool>>("cast_shadows").value_or(mr.CastShadows);
                     mr.Static = opts->get<sol::optional<bool>>("static").value_or(mr.Static);
                     mr.DoubleSided = opts->get<sol::optional<bool>>("double_sided").value_or(mr.DoubleSided);
-                    mr.Specular = std::clamp(opts->get<sol::optional<float>>("specular").value_or(mr.Specular), 0.0f, 1.0f);
                     mr.Wind = std::max(opts->get<sol::optional<float>>("wind").value_or(mr.Wind), 0.0f);
                     if (const auto lods = opts->get<sol::optional<sol::table>>("lods")) mr.Lods = ParseLods(*lods);
                     mr.CullDistance = std::max(opts->get<sol::optional<float>>("cull_distance").value_or(0.0f), 0.0f);
+                    if (const auto mats = opts->get<sol::optional<sol::table>>("materials")) mr.Materials = ParseMaterialSlots(*mats);
+                    else if (const auto mat = opts->get<sol::optional<std::string>>("material"); mat && !mat->empty())
+                        mr.Materials.assign(std::max<size_t>(mr.Geometry->SubmeshCount(), 1), MaterialSlotFor(*mat));
                     // fit = metres: a model file is scaled and centred to that size (models come in any units)
                     if (const auto fit = opts->get<sol::optional<float>>("fit")) {
                         if (const auto* model = dynamic_cast<const Model*>(mr.Geometry.get())) {
                             mr.LocalOffset = model->GetGroundedMatrix(*fit);   // feet on the entity's origin
                             mr.UseModelMaterials = model->HasTexturedMaterials();
-                            if (mr.UseModelMaterials && !opts->get<sol::optional<glm::vec3>>("color")) mr.Color = glm::vec3(1.0f);
                         }
                     }
                 }
@@ -1999,6 +2050,7 @@ namespace Engine {
         });
 
         BindDatabase();             // db.*, e.npc, e.pickup, scene.spawn_npc / spawn_pickup / pickups / npcs
+        BindMaterials();            // material.get / set / exists
         BindUIDocuments();          // ui.show
     }
 
@@ -2234,6 +2286,52 @@ namespace Engine {
         Events.push_back({ "npc_died", data() });
         if (def && !def->DeathEvent.empty()) Events.push_back({ def->DeathEvent, data() });
         if (!def || def->RemoveOnDeath) PendingDestroy.push_back(h);
+    }
+
+    // ---- material files: read their values, change them for everything using them (until Play stops)
+    void ScriptEngine::Impl::BindMaterials() {
+        sol::state& lua = *Lua;
+        sol::table mt = lua.create_named_table("material");
+        auto load = [this](const std::string& path) {
+            auto m = Resources.LoadMaterial ? Resources.LoadMaterial(path) : nullptr;
+            if (!m || m->Missing) throw std::runtime_error("no material file '" + path + "'");
+            return m;
+        };
+        mt.set_function("exists", [this](const std::string& path) {
+            auto m = Resources.LoadMaterial && !path.empty() ? Resources.LoadMaterial(path) : nullptr;
+            return m && !m->Missing;
+        });
+        // Every value after the parent's (MaterialAsset.h names the keys; colours are vec3)
+        mt.set_function("get", [this, load](const std::string& path) {
+            auto m = load(path);
+            nlohmann::json j = MaterialDescToJson(m->Desc);
+            sol::table t = Lua->create_table();
+            for (auto it = j.begin(); it != j.end(); ++it) {
+                const auto& v = it.value();
+                if (v.is_array() && v.size() == 3) t[it.key()] = glm::vec3(v[0].get<float>(), v[1].get<float>(), v[2].get<float>());
+                else t[it.key()] = FromJson(v);
+            }
+            if (!m->Parent().empty()) t["parent"] = m->Parent();
+            return t;
+        });
+        // One value, for every part and terrain layer using the file; put back when Play stops (nothing is saved)
+        mt.set_function("set", [this, load](const std::string& path, const std::string& key, sol::object value) {
+            auto m = load(path);
+            static const MaterialDesc def;
+            const nlohmann::json known = MaterialDescToJson(def);
+            const auto slot = known.find(key);
+            if (slot == known.end() || key == "shader") throw std::runtime_error("material.set: unknown key '" + key + "'");
+            nlohmann::json v;
+            if (value.is<glm::vec3>()) { const glm::vec3 c = value.as<glm::vec3>(); v = nlohmann::json::array({ c.x, c.y, c.z }); }
+            else if (value.get_type() == sol::type::table) v = ToJson(value);
+            else v = ToJson(value);
+            if (slot->type_name() != std::string(v.type_name()) && !(slot->is_number() && v.is_number()))
+                throw std::runtime_error("material.set: " + key + " takes a " + slot->type_name());
+            if (!MaterialOriginals.count(path)) MaterialOriginals[path] = m->File;
+            nlohmann::json file = m->File;
+            file[key] = v;
+            if (Resources.SetMaterialFile) Resources.SetMaterialFile(path, file);
+        });
     }
 
     void ScriptEngine::Impl::BindDatabase() {
@@ -2878,6 +2976,9 @@ namespace Engine {
         m.RestartRequested = false;
         m.Events.clear();           // they hold Lua values
         m.UICode.clear();           // so do these
+        for (auto& [path, original] : m.MaterialOriginals)   // material.set lasts one Play
+            if (m.Resources.SetMaterialFile) m.Resources.SetMaterialFile(path, original);
+        m.MaterialOriginals.clear();
         m.UIProxy = sol::protected_function();
         m.Lua.reset();
         m.ActiveScene = nullptr;

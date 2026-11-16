@@ -65,6 +65,7 @@ namespace {
         case K::Dialogue:    return { "TALK", IM_COL32(220, 170, 70, 255) };
         case K::AnimGraph:   return { "ANIM", IM_COL32(230, 110, 90, 255) };
         case K::UILayout:    return { "UI", IM_COL32(120, 200, 230, 255) };
+        case K::Material:    return { "MAT", IM_COL32(236, 196, 92, 255) };
         case K::Texture:     return { upper.c_str(), IM_COL32(200, 90, 130, 255) };
         default:             return { upper.empty() ? "FILE" : upper.c_str(), IM_COL32(120, 124, 132, 255) };
         }
@@ -82,6 +83,7 @@ AssetBrowser::Kind AssetBrowser::KindOf(const std::string& path) {
     if (ext == ".lua") return Kind::Script;
     if (ext == ".wav" || ext == ".mp3" || ext == ".flac" || ext == ".ogg") return Kind::Sound;
     if (ext == ".hdr") return Kind::Environment;
+    if (ext == ".mat") return Kind::Material;
     if (ext == ".vert" || ext == ".frag" || ext == ".glsl" || ext == ".comp") return Kind::Shader;
     if (ext == ".json") {
         const std::string folder = Lower(FolderOf(path));
@@ -103,6 +105,7 @@ const char* AssetBrowser::KindName(Kind k) {
     case Kind::Shader: return "Shader";        case Kind::Dialogue: return "Dialogue";
     case Kind::AnimGraph: return "Animation graph";
     case Kind::UILayout: return "UI layout";
+    case Kind::Material: return "Material";
     default: return "File";
     }
 }
@@ -262,6 +265,19 @@ std::vector<AssetBrowser::Action> AssetBrowser::Draw(bool* open, const std::func
                 m_ForceScan = true;
                 m_Status = "Created " + rel;
             }
+            if (ImGui::MenuItem("New Material")) {
+                const std::string name = UniqueName(m_Folder, "NewMaterial", ".mat");
+                const std::string rel = (m_Folder.empty() ? "" : m_Folder + "/") + name;
+                std::ofstream out(fs::u8path(m_AssetDir + rel));
+                out << "{\n  \"version\": 1,\n  \"shader\": \"standard\",\n  \"color\": [0.8, 0.8, 0.8],\n  \"roughness\": 0.5\n}\n";
+                out.close();
+                m_Selected = rel;
+                m_RenameTarget = rel;
+                std::snprintf(m_RenameBuf, sizeof(m_RenameBuf), "%s", name.c_str());
+                m_OpenRename = true;
+                m_ForceScan = true;
+                m_Status = "Created " + rel;
+            }
             if (ImGui::MenuItem("New Folder")) {
                 const std::string name = UniqueName(m_Folder, "New Folder", "");
                 const std::string rel = (m_Folder.empty() ? "" : m_Folder + "/") + name;
@@ -409,6 +425,7 @@ void AssetBrowser::HandleItem(const Entry& e) {
         case Kind::Dialogue: m_Actions.push_back({ Action::OpenDialogue, e.Path }); break;
         case Kind::AnimGraph: m_Actions.push_back({ Action::OpenAnimGraph, e.Path }); break;
         case Kind::UILayout: m_Actions.push_back({ Action::OpenUILayout, e.Path }); break;
+        case Kind::Material: m_Actions.push_back({ Action::OpenMaterial, e.Path }); break;
         default: m_Actions.push_back({ Action::OpenExternal, e.Path }); break;
         }
     };
@@ -429,8 +446,24 @@ void AssetBrowser::HandleItem(const Entry& e) {
         m_Selected = e.Path;
         const char* openLabel = e.Type == Kind::Folder ? "Open" : e.Type == Kind::Scene ? "Open Scene"
             : (e.Type == Kind::Model || e.Type == Kind::Prefab) ? "Place in Scene" : e.Type == Kind::Sound ? "Play"
-            : e.Type == Kind::Environment ? "Use as Sky" : e.Type == Kind::Dialogue ? "Edit Dialogue" : "Open";
+            : e.Type == Kind::Environment ? "Use as Sky" : e.Type == Kind::Dialogue ? "Edit Dialogue"
+            : e.Type == Kind::Material ? "Edit Material" : "Open";
         if (ImGui::MenuItem(openLabel)) open();
+        if (e.Type == Kind::Material && ImGui::MenuItem("New Variant")) {
+            // A material that starts as this one and keeps following it, except for the values it changes
+            const std::string folder = FolderOf(e.Path);
+            const std::string name = UniqueName(folder, fs::u8path(e.Path).stem().string() + "_variant", ".mat");
+            const std::string rel = (folder.empty() ? "" : folder + "/") + name;
+            std::ofstream out(fs::u8path(m_AssetDir + rel));
+            out << "{\n  \"version\": 1,\n  \"parent\": \"" << e.Path << "\"\n}\n";
+            out.close();
+            m_Selected = rel;
+            m_RenameTarget = rel;
+            std::snprintf(m_RenameBuf, sizeof(m_RenameBuf), "%s", name.c_str());
+            m_OpenRename = true;
+            m_ForceScan = true;
+            m_Status = "Created " + rel;
+        }
         if (e.Type != Kind::Folder && ImGui::MenuItem("Open with System")) m_Actions.push_back({ Action::OpenExternal, e.Path });
         if (ImGui::MenuItem("Show in Explorer")) Platform::ShowInExplorer(m_AssetDir + e.Path);
         if (ImGui::MenuItem("Copy Path")) ImGui::SetClipboardText(e.Path.c_str());

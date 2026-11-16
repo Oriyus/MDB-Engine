@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "shader": "standard",
+  "color": [1.0, 0.78, 0.34],
+  "metallic": 1.0,
+  "roughness": 0.28
+}

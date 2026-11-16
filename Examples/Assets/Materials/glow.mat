@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "shader": "standard",
+  "color": [0.1, 0.12, 0.15],
+  "roughness": 0.4,
+  "emissive": [0.3, 0.8, 1.0],
+  "emissiveIntensity": 3.0
+}

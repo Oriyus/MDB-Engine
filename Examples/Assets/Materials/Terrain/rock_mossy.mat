@@ -1,0 +1,13 @@
+{
+  "color": [
+    0.72,
+    0.86,
+    0.58
+  ],
+  "parent": "Materials/Terrain/rock.mat",
+  "uvScale": [
+    2.0,
+    2.0
+  ],
+  "version": 1
+}

@@ -37,12 +37,18 @@ float ModelPreview::PreferredHeight(float width) const {
 }
 
 // ---------------------------------------------------------------- the scene
+bool ModelPreview::IsMaterial() const {
+    return m_Path.size() > 4 && m_Path.compare(m_Path.size() - 4, 4, ".mat") == 0;
+}
+
 void ModelPreview::Build(ResourceLibrary& resources) {
     m_Built = m_Path;
+    m_BuiltShape = m_Shape;
     m_Scene.Clear();
     m_ModelEntity = m_Ground = entt::null;
-    m_Model = resources.LoadModel(m_Path);
-    m_Failed = !m_Model || !m_Model->IsValid();
+    const bool material = IsMaterial();
+    m_Model = material ? nullptr : resources.LoadModel(m_Path);
+    m_Failed = !material && (!m_Model || !m_Model->IsValid());
     m_Clip = 0;
     m_Playing = true;
     if (m_Failed) { m_Model.reset(); return; }
@@ -57,9 +63,31 @@ void ModelPreview::Build(ResourceLibrary& resources) {
         Entity g = m_Scene.CreateEntity("Ground");           // 12 x 12 m
         auto& mr = g.Add<MeshRendererComponent>();
         mr.Geometry = resources.Plane();
-        mr.Color = glm::vec3(0.42f, 0.43f, 0.45f);
-        mr.Roughness = 0.9f;
+        mr.Overrides.Color = glm::vec3(0.42f, 0.43f, 0.45f);   // the preview's own scene: overrides, no material file
+        mr.Overrides.Roughness = 0.9f;
         m_Ground = g.GetHandle();
+    }
+
+    // A material: on a 1.6 m shape standing on the ground
+    if (material) {
+        Entity e = m_Scene.CreateEntity("Shape");
+        auto& mr = e.Add<MeshRendererComponent>();
+        const float size = 1.6f;
+        const float height = m_Shape == 2 ? 2.0f * size : size;            // the capsule is twice as tall as wide
+        mr.Geometry = m_Shape == 1 ? std::shared_ptr<Renderable>(resources.Cube())
+                    : m_Shape == 2 ? std::shared_ptr<Renderable>(resources.Capsule()) : std::shared_ptr<Renderable>(resources.Sphere());
+        mr.LocalOffset = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, height * 0.5f, 0.0f)) * glm::scale(glm::mat4(1.0f), glm::vec3(size));
+        MaterialSlot slot;
+        slot.Path = m_Path;
+        slot.Asset = resources.LoadMaterial(m_Path);
+        mr.Materials.push_back(slot);
+        m_ModelEntity = e.GetHandle();
+        m_FileSize = glm::vec3(0.0f);
+        m_Center = glm::vec3(0.0f, height * 0.5f, 0.0f);
+        m_Radius = 0.5f * glm::length(glm::vec3(size, height, size)) * (m_Shape == 1 ? 1.0f : 0.85f);
+        ResetView();
+        if (m_Renderer) m_Renderer->ResetTemporalHistory();
+        return;
     }
 
     // The model: 2 m across at its largest side, standing on the origin (as the editor places it), own materials
@@ -126,7 +154,7 @@ void ModelPreview::Render(float dt, ResourceLibrary& resources) {
         m_Renderer->GetEnvironment().Blur = 2.0f;
         m_Renderer->Post.Vignette = 0.25f;
     }
-    if (m_Built != m_Path) Build(resources);
+    if (m_Built != m_Path || (IsMaterial() && m_BuiltShape != m_Shape)) Build(resources);
     if (m_Failed) return;
 
     if (m_Ground != entt::null) {
@@ -155,9 +183,11 @@ void ModelPreview::Draw(float height) {
 
     ImGui::SeparatorText(("Preview: " + name).c_str());
     ImGui::SetItemTooltip("%s", m_Path.c_str());
-    ImGui::SameLine(ImGui::GetContentRegionMax().x - ImGui::GetFrameHeight());
-    if (ImGui::SmallButton("x##closepreview")) { SetAsset(""); return; }
-    ImGui::SetItemTooltip("Close the preview (select a model in Assets to show it again)");
+    if (Closable) {
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - ImGui::GetFrameHeight());
+        if (ImGui::SmallButton("x##closepreview")) { SetAsset(""); return; }
+        ImGui::SetItemTooltip("Close the preview (select a model or material in Assets to show it again)");
+    }
 
     const float lines = ImGui::GetFrameHeightWithSpacing() + ImGui::GetTextLineHeightWithSpacing() * 3.0f;
     const float avail = ImGui::GetContentRegionAvail().x;
@@ -209,6 +239,13 @@ void ModelPreview::Draw(float height) {
     ImGui::SameLine();
     ImGui::Checkbox("Turn", &m_Spin);
     ImGui::SetItemTooltip("Turn the camera slowly round the model");
+    if (IsMaterial()) {
+        static const char* kShapes[] = { "Sphere", "Cube", "Capsule" };
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(std::max(80.0f, ImGui::GetContentRegionAvail().x));
+        ImGui::Combo("##shape", &m_Shape, kShapes, IM_ARRAYSIZE(kShapes));
+        ImGui::SetItemTooltip("The shape the material is shown on");
+    }
     if (m_Model && m_Model->IsSkinned() && !m_Model->AnimationNames().empty()) {
         const auto& clips = m_Model->AnimationNames();
         ImGui::SameLine();

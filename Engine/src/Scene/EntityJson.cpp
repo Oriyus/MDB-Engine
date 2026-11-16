@@ -3,6 +3,7 @@
 #include "Scene/Components.h"
 #include "Scene/SceneSerializer.h"
 #include "Scene/Terrain.h"
+#include "Renderer/MaterialAsset.h"
 #include "Core/Log.h"
 
 #include <cstdio>
@@ -27,13 +28,7 @@ namespace Engine {
             auto& mr = e.Get<MeshRendererComponent>();
             j["meshRenderer"] = {
                 { "geometry", res.GeometryName ? res.GeometryName(mr.Geometry) : std::string() },
-                { "texture",  res.TextureName ? res.TextureName(mr.Texture) : std::string() },
-                { "color", mr.Color },
                 { "localOffset", mr.LocalOffset },
-                { "metallic", mr.Metallic },
-                { "roughness", mr.Roughness },
-                { "emissive", mr.Emissive },
-                { "unlit", mr.Unlit },
                 { "useModelMaterials", mr.UseModelMaterials },
                 { "alphaMode", AlphaModeName(mr.Alpha) },
                 { "opacity", mr.Opacity },
@@ -44,7 +39,14 @@ namespace Engine {
             // Only when it sways, so other mesh renderers keep their old JSON (no prefab overrides appear)
             if (mr.Wind != 0.0f) j["meshRenderer"]["wind"] = mr.Wind;
             if (mr.DoubleSided) j["meshRenderer"]["doubleSided"] = true;      // likewise only when set
-            if (mr.Specular != 1.0f) j["meshRenderer"]["specular"] = mr.Specular;
+            if (mr.Overrides.Any()) {                     // a script's per-object values (save games), only when set
+                json o = json::object();
+                if (mr.Overrides.Color) o["color"] = *mr.Overrides.Color;
+                if (mr.Overrides.Emissive) o["emissive"] = *mr.Overrides.Emissive;
+                if (mr.Overrides.Metallic) o["metallic"] = *mr.Overrides.Metallic;
+                if (mr.Overrides.Roughness) o["roughness"] = *mr.Overrides.Roughness;
+                j["meshRenderer"]["overrides"] = std::move(o);
+            }
             if (!mr.BlocksGrass) j["meshRenderer"]["blocksGrass"] = false;          // likewise only when changed
             if (mr.GrassMargin != 0.0f) j["meshRenderer"]["grassMargin"] = mr.GrassMargin;
             if (!mr.Lods.empty()) {                       // levels of detail, likewise only when there are any
@@ -54,6 +56,15 @@ namespace Engine {
                 j["meshRenderer"]["lods"] = std::move(lods);
             }
             if (mr.CullDistance > 0.0f) j["meshRenderer"]["cullDistance"] = mr.CullDistance;
+            {                                             // material files per part, likewise only when any is set
+                size_t n = mr.Materials.size();
+                while (n > 0 && mr.Materials[n - 1].Path.empty()) n--;
+                if (n > 0) {
+                    json mats = json::array();
+                    for (size_t i = 0; i < n; i++) mats.push_back(mr.Materials[i].Path);
+                    j["meshRenderer"]["materials"] = std::move(mats);
+                }
+            }
         }
         if (e.Has<PointLightComponent>()) {
             auto& l = e.Get<PointLightComponent>();
@@ -142,6 +153,7 @@ namespace Engine {
                 if (!L.HeightMap.empty()) jl["heightMap"] = L.HeightMap;
                 if (L.NormalStrength != 1.0f) jl["normalStrength"] = L.NormalStrength;
                 if (L.NormalFlipY) jl["normalFlipY"] = true;
+                if (!L.LayerMaterial.Path.empty()) jl["material"] = L.LayerMaterial.Path;
                 layers.push_back(jl);
             }
             j["terrain"] = { { "size", t.Size },{ "data", t.DataPath },{ "layers", layers },{ "blend", t.Blend },
@@ -204,18 +216,57 @@ namespace Engine {
         return j;
     }
 
+    // Files from before material files kept the look on the Mesh Renderer (texture, color, metallic, roughness, emissive,
+    // unlit, specular). A look that isn't the default becomes a material file (ResourceRegistry::MaterialForLook: one
+    // per distinct look, shared, named after the first object that had it) in the part slots still empty. On a model
+    // using its own materials the colour was a tint: it becomes a colour override (the same when the file's colour is
+    // white, as usual for textured models).
+    static void MigrateOldLook(const json& jm, Entity e, MeshRendererComponent& mr, const ResourceRegistry& res) {
+        static const char* kOld[] = { "texture", "color", "metallic", "roughness", "emissive", "unlit", "specular" };
+        if (std::none_of(std::begin(kOld), std::end(kOld), [&](const char* k) { return jm.contains(k); })) return;
+        MaterialDesc d;
+        if (auto it = jm.find("color"); it != jm.end() && it->is_array()) d.Color = it->get<glm::vec3>();
+        d.Metallic = std::clamp(jm.value("metallic", 0.0f), 0.0f, 1.0f);
+        d.Roughness = std::clamp(jm.value("roughness", 0.5f), 0.0f, 1.0f);
+        if (auto it = jm.find("emissive"); it != jm.end() && it->is_array()) d.Emissive = it->get<glm::vec3>();
+        d.Unlit = jm.value("unlit", false);
+        d.Specular = std::clamp(jm.value("specular", 1.0f), 0.0f, 1.0f);
+        std::string tex = jm.value("texture", std::string());
+        if (tex.rfind("texture:", 0) == 0) tex = tex.substr(8);
+        d.AlbedoMap = tex;                                // "checker" is the built-in checker map
+        if (mr.UseModelMaterials) {
+            if (d.Color != glm::vec3(1.0f)) mr.Overrides.Color = d.Color;
+            return;
+        }
+        const MaterialDesc def;
+        if (MaterialDescToJson(d, &def).empty() || !res.MaterialForLook || !res.LoadMaterial) return;   // the default look
+        const std::string name = e.Has<TagComponent>() ? e.Get<TagComponent>().Tag : std::string();
+        const std::string path = res.MaterialForLook(name, d);
+        if (path.empty()) return;
+        MaterialSlot slot;
+        slot.Path = path;
+        slot.Asset = res.LoadMaterial(path);
+        const size_t parts = mr.Geometry ? std::max<size_t>(mr.Geometry->SubmeshCount(), 1) : 1;
+        if (mr.Materials.size() < parts) mr.Materials.resize(parts);
+        for (MaterialSlot& s : mr.Materials) if (s.Path.empty()) s = slot;
+    }
+
     void ComponentsFromJson(const json& j, Entity e, const ResourceRegistry& res) {
-        if (j.contains("meshRenderer")) {
+        // Lights used to carry a glowing cube as their marker (an unlit "cube" Mesh Renderer, scaled small). The editor
+        // draws gizmos for them now and nothing about a light is rendered: that old marker (and the scale, which only
+        // shaped it) is dropped. Any other mesh on a light is kept.
+        const bool lightMarker = j.contains("meshRenderer") && (j.contains("pointLight") || j.contains("directionalLight")) &&
+            j["meshRenderer"].value("unlit", false) && j["meshRenderer"].value("geometry", std::string()) == "cube";
+        if (lightMarker && e.Has<TransformComponent>()) {
+            e.Get<TransformComponent>().Scale = glm::vec3(1.0f);
+            ENGINE_INFO("Removed the old marker cube from light {}: lights show as gizmos in the editor",
+                        e.Has<TagComponent>() ? e.Get<TagComponent>().Tag : std::string());
+        }
+        if (j.contains("meshRenderer") && !lightMarker) {
             const auto& jm = j["meshRenderer"];
             MeshRendererComponent mr;
             if (res.FindGeometry) mr.Geometry = res.FindGeometry(jm.at("geometry").get<std::string>());
-            if (res.FindTexture) mr.Texture = res.FindTexture(jm.at("texture").get<std::string>());
-            mr.Color = jm.at("color").get<glm::vec3>();
             mr.LocalOffset = jm.at("localOffset").get<glm::mat4>();
-            mr.Metallic = jm.value("metallic", 0.0f);
-            mr.Roughness = jm.value("roughness", 0.5f);
-            mr.Emissive = jm.contains("emissive") ? jm["emissive"].get<glm::vec3>() : glm::vec3(0.0f);
-            mr.Unlit = jm.at("unlit").get<bool>();
             mr.UseModelMaterials = jm.value("useModelMaterials", false);
             mr.Alpha = AlphaModeFromName(jm.value("alphaMode", std::string("opaque")));
             mr.Opacity = jm.value("opacity", 1.0f);
@@ -224,7 +275,13 @@ namespace Engine {
             mr.Static = jm.value("static", false);
             mr.Wind = jm.value("wind", 0.0f);
             mr.DoubleSided = jm.value("doubleSided", false);
-            mr.Specular = std::clamp(jm.value("specular", 1.0f), 0.0f, 1.0f);
+            if (auto it = jm.find("overrides"); it != jm.end() && it->is_object()) {
+                const json& o = *it;
+                if (o.contains("color")) mr.Overrides.Color = o["color"].get<glm::vec3>();
+                if (o.contains("emissive")) mr.Overrides.Emissive = o["emissive"].get<glm::vec3>();
+                if (o.contains("metallic")) mr.Overrides.Metallic = o["metallic"].get<float>();
+                if (o.contains("roughness")) mr.Overrides.Roughness = o["roughness"].get<float>();
+            }
             mr.BlocksGrass = jm.value("blocksGrass", true);
             mr.GrassMargin = jm.value("grassMargin", 0.0f);
             if (auto it = jm.find("lods"); it != jm.end() && it->is_array()) {
@@ -238,6 +295,14 @@ namespace Engine {
                 SortLods(mr);
             }
             mr.CullDistance = std::max(jm.value("cullDistance", 0.0f), 0.0f);
+            if (auto it = jm.find("materials"); it != jm.end() && it->is_array())
+                for (const auto& jp : *it) {
+                    MaterialSlot slot;
+                    if (jp.is_string()) slot.Path = jp.get<std::string>();
+                    if (!slot.Path.empty() && res.LoadMaterial) slot.Asset = res.LoadMaterial(slot.Path);
+                    mr.Materials.push_back(std::move(slot));
+                }
+            MigrateOldLook(jm, e, mr, res);
             e.Add<MeshRendererComponent>(mr);
         }
         if (j.contains("pointLight")) {
@@ -396,6 +461,8 @@ namespace Engine {
                     L.NormalStrength = jl[i].value("normalStrength", 1.0f);
                     L.NormalFlipY = jl[i].value("normalFlipY", false);
                     L.Surface = res.LoadTerrainSurface ? res.LoadTerrainSurface(L) : nullptr;
+                    L.LayerMaterial.Path = jl[i].value("material", std::string());
+                    L.LayerMaterial.Asset = !L.LayerMaterial.Path.empty() && res.LoadMaterial ? res.LoadMaterial(L.LayerMaterial.Path) : nullptr;
                 }
             }
             // An entity being given the same terrain again (prefab sync, undo) keeps its data object

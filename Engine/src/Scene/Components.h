@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -92,23 +93,39 @@ namespace Engine {
         glm::vec3 Center{ 0.0f };
     };
 
-    // Geometry + material in one component for now. We'll split material out later.
+    // A material file used by a mesh part or a terrain layer (Renderer/MaterialAsset.h). Path is what files store;
+    // Asset is the loaded material (ResourceRegistry::LoadMaterial), shared with every other user of that file.
+    struct MaterialAsset;
+    struct MaterialSlot {
+        std::string Path;                         // "Materials/brick.mat", relative to Assets; empty = none
+        std::shared_ptr<MaterialAsset> Asset;
+    };
+
     // One level of detail of a Mesh Renderer: used from Distance metres on (see MeshRendererComponent::Lods)
     struct MeshLod {
         std::shared_ptr<Renderable> Geometry;     // null (a file that failed to load): the level before stays
         float Distance = 20.0f;
     };
 
+    // Per-object surface values a script sets on top of the part's material (e.mesh.color = ..., add_mesh{ color }):
+    // each replaces the material's value while set. The editor never makes them (it shows them, with a Clear button);
+    // they are written to JSON only when set, so save games keep a script's tints.
+    struct MeshOverrides {
+        std::optional<glm::vec3> Color;           // sRGB-style, replaces the material's colour (its maps still apply)
+        std::optional<glm::vec3> Emissive;        // linear
+        std::optional<float> Metallic, Roughness;
+        bool Any() const { return Color || Emissive || Metallic || Roughness; }
+    };
+
     struct MeshRendererComponent {
         std::shared_ptr<Renderable> Geometry;
-        std::shared_ptr<Texture2D>  Texture;      // optional
-        glm::vec3 Color{ 1.0f };                  // tints the texture, or is the flat color
         glm::mat4 LocalOffset{ 1.0f };            // applied before the entity transform (used by models)
-        float Metallic = 0.0f;
-        float Roughness = 0.5f;
-        glm::vec3 Emissive{ 0.0f };               // linear, can exceed 1
-        bool  Unlit = false;
-        bool  UseModelMaterials = false;   // use the model file's materials; Color becomes a tint
+        bool  UseModelMaterials = false;   // parts without a material file use the model file's own materials
+        // The look: material files, one per part (a model's submeshes in order; a plain mesh has one). A part draws with
+        // its slot's material, else the model's own (UseModelMaterials), else the built-in Default (DefaultMaterial()).
+        // Opacity and Alpha multiply / raise the material's transparency; Overrides replace values from scripts.
+        std::vector<MaterialSlot> Materials;
+        MeshOverrides Overrides;
         // Transparency. With model materials the stronger of this and the material's mode is used
         // (Opaque < Cutout < Blend), and Opacity multiplies the material's alpha.
         AlphaMode Alpha = AlphaMode::Opaque;
@@ -119,9 +136,6 @@ namespace Engine {
         // visible from behind (leaves, cloth, a sign). With model materials, a part is double-sided when this or
         // its material says so. Back faces cost extra only on these parts.
         bool  DoubleSided = false;
-        // Specular reflection, 0..1, for non-metals: 1 = the usual 4% plus the bright grazing-angle reflection, 0 = none
-        // (matte bark, cloth, unglazed clay). Multiplies the model material's own value.
-        float Specular = 1.0f;
         // Static: never moves or changes while playing. Static parts with the same material are merged
         // into a few big meshes when Play starts (Scene::BuildStaticBatches), saving per-object work.
         bool  Static = false;
@@ -158,6 +172,9 @@ namespace Engine {
     // ("lod_distance", scaled by the LocalOffset) or ones from the model's size (about when it fills 40%, 20%, 10% ...
     // of the screen height). Call after Geometry and LocalOffset are set. False (Lods untouched): the file has none.
     bool AssignModelLods(MeshRendererComponent& mr, const Model& model);
+    // The material a part draws with: its slot's material file, else the model's own (UseModelMaterials), else the
+    // built-in Default. Script overrides (mr.Overrides) are not in it.
+    const Material& PartMaterialOf(const MeshRendererComponent& mr, uint32_t part = 0);
 
     // An area kept free of grass (every FoliageComponent), shaped by hand: paths, yards, under a table. Lies in the
     // entity's X/Z (its rotation and scale apply). Drawn as an outline in the editor, never rendered.
@@ -306,6 +323,9 @@ namespace Engine {
         std::string HeightMap;                    // grey: drives height blending and the stochastic seams
         float NormalStrength = 1.0f;
         bool  NormalFlipY = false;                // DirectX-style normal map (green = down the image)
+        // A material file: when set, the layer's look (colour texture and tint, roughness, normal / roughness / height
+        // maps, normal strength) comes from it and the fields above are unused; Tiling and Variation stay the layer's
+        MaterialSlot LayerMaterial;
         std::shared_ptr<const TerrainSurfaceMaps> Surface;   // the three packed (runtime: ResourceRegistry::LoadTerrainSurface)
     };
     struct TerrainComponent {

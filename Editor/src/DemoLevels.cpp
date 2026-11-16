@@ -7,6 +7,7 @@
 #include "Scene/Particles.h"
 #include "Scene/Terrain.h"
 #include "Renderer/Model.h"
+#include "Renderer/MaterialAsset.h"
 #include "Core/Log.h"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -17,6 +18,25 @@
 using namespace Engine;
 
 namespace {
+
+    // The look of a part: a material file with these values (an existing one under Materials/Generated with the same
+    // values, else a new one named after `name`: LevelAssets::MaterialForLook), in every part's slot
+    void SetLook(const LevelAssets& a, MeshRendererComponent& mr, const std::string& name, const glm::vec3& color,
+                 float roughness = 0.5f, float metallic = 0.0f, const glm::vec3& emissive = glm::vec3(0.0f),
+                 const std::string& albedoMap = "") {
+        if (!a.MaterialForLook || !a.LoadMaterial) return;
+        MaterialDesc d;
+        d.Color = color;
+        d.Roughness = roughness;
+        d.Metallic = metallic;
+        d.Emissive = emissive;
+        d.AlbedoMap = albedoMap;
+        MaterialSlot slot;
+        slot.Path = a.MaterialForLook(name, d);
+        if (slot.Path.empty()) return;
+        slot.Asset = a.LoadMaterial(slot.Path);
+        mr.Materials.assign(mr.Geometry ? std::max<size_t>(mr.Geometry->SubmeshCount(), 1) : 1, slot);
+    }
 
     // ---- small builders. A "box" is the unit cube scaled to `size`, with a matching collider.
     Entity AddBox(Scene& scene, const LevelAssets& a, const std::string& name, const glm::vec3& pos,
@@ -29,8 +49,7 @@ namespace {
         t.Scale = size;
         auto& mr = e.Add<MeshRendererComponent>();
         mr.Geometry = a.Cube;
-        mr.Color = color;
-        mr.Roughness = 0.7f;
+        SetLook(a, mr, name, color, 0.7f);
         e.Add<RigidBodyComponent>().Type = type;
         return e;
     }
@@ -45,8 +64,7 @@ namespace {
         t.Scale = glm::vec3(sx, thick, sz);
         auto& mr = e.Add<MeshRendererComponent>();
         mr.Geometry = a.Cube;
-        mr.Color = color;
-        mr.Emissive = emissive;
+        SetLook(a, mr, name, color, 0.5f, 0.0f, emissive);
         auto& rb = e.Add<RigidBodyComponent>();
         rb.IsTrigger = true;
         rb.Size = glm::vec3(1.0f, height / thick, 1.0f);      // collider sizes are multiplied by the scale
@@ -62,10 +80,7 @@ namespace {
         t.Scale = glm::vec3(0.3f, 0.3f, 0.08f);
         auto& mr = e.Add<MeshRendererComponent>();
         mr.Geometry = a.Cube;
-        mr.Color = glm::vec3(1.0f, 0.8f, 0.2f);
-        mr.Metallic = 1.0f;
-        mr.Roughness = 0.3f;
-        mr.Emissive = glm::vec3(0.6f, 0.4f, 0.05f);
+        SetLook(a, mr, "Coin", glm::vec3(1.0f, 0.8f, 0.2f), 0.3f, 1.0f, glm::vec3(0.6f, 0.4f, 0.05f));
         e.Add<SpinComponent>().Speed = glm::vec3(0.0f, 2.0f, 0.0f);
         auto& rb = e.Add<RigidBodyComponent>();
         rb.IsTrigger = true;
@@ -81,9 +96,7 @@ namespace {
         t.Scale = glm::vec3(0.8f);
         auto& mr = e.Add<MeshRendererComponent>();
         mr.Geometry = a.Sphere;
-        mr.Texture = a.Checker;
-        mr.Color = glm::vec3(0.3f, 0.55f, 1.0f);
-        mr.Roughness = 0.35f;
+        SetLook(a, mr, "Player", glm::vec3(0.3f, 0.55f, 1.0f), 0.35f, 0.0f, glm::vec3(0.0f), "checker");
         auto& rb = e.Add<RigidBodyComponent>();
         rb.Shape = ColliderShape::Sphere;
         rb.Mass = 2.0f;
@@ -99,9 +112,7 @@ namespace {
         t.Scale = glm::vec3(scale, 1.0f, scale);
         auto& mr = e.Add<MeshRendererComponent>();
         mr.Geometry = a.Plane;
-        mr.Texture = a.Checker;
-        mr.Color = glm::vec3(0.8f);
-        mr.Roughness = 0.85f;
+        SetLook(a, mr, "Floor", glm::vec3(0.8f), 0.85f, 0.0f, glm::vec3(0.0f), "checker");
         auto& rb = e.Add<RigidBodyComponent>();
         rb.Type = BodyType::Static;
         rb.Size = glm::vec3(12.0f, 1.0f, 12.0f);
@@ -149,7 +160,7 @@ namespace {
         e.Get<TransformComponent>().Scale = glm::vec3(0.4f);
         auto& mr = e.Add<MeshRendererComponent>();
         mr.Geometry = a.Sphere;
-        mr.Roughness = 0.4f;
+        SetLook(a, mr, "Drop", glm::vec3(1.0f), 0.4f);
         auto& rb = e.Add<RigidBodyComponent>();
         rb.Shape = ColliderShape::Sphere;
         rb.Restitution = 0.35f;
@@ -192,7 +203,6 @@ namespace {
             mr.Geometry = a.Fox;
             mr.LocalOffset = a.Fox->GetGroundedMatrix(1.4f);
             mr.UseModelMaterials = a.Fox->HasTexturedMaterials();
-            mr.Color = glm::vec3(1.0f);
             auto& an = e.Add<AnimatorComponent>();
             an.Clip = "Survey";
             for (float t : { 0.10f, 0.45f }) an.Events.push_back({ "Walk", t, "sound:Sounds/step.wav" });
@@ -200,23 +210,22 @@ namespace {
         }
         else {                                         // no fox model: a blue block
             mr.Geometry = a.Cube;
-            mr.Color = glm::vec3(0.3f, 0.55f, 1.0f);
+            SetLook(a, mr, "Fox block", glm::vec3(0.3f, 0.55f, 1.0f));
             mr.LocalOffset = BlockOffset(0.6f, 1.4f);
         }
     }
 
     // A part of a placeholder figure: a primitive under `parent`, placed in its space
-    Entity AddPart(Scene& scene, Entity parent, const char* name, const std::shared_ptr<Renderable>& geometry,
-        const glm::vec3& pos, const glm::vec3& scale, const glm::vec3& color, float roughness = 0.5f, float metallic = 0.0f) {
+    Entity AddPart(Scene& scene, const LevelAssets& a, Entity parent, const char* name, const std::shared_ptr<Renderable>& geometry,
+        const glm::vec3& pos, const glm::vec3& scale, const glm::vec3& color, float roughness = 0.5f, float metallic = 0.0f,
+        const glm::vec3& emissive = glm::vec3(0.0f)) {
         Entity e = scene.CreateEntity(name);
         auto& t = e.Get<TransformComponent>();
         t.Position = pos;
         t.Scale = scale;
         auto& mr = e.Add<MeshRendererComponent>();
         mr.Geometry = geometry;
-        mr.Color = color;
-        mr.Roughness = roughness;
-        mr.Metallic = metallic;
+        SetLook(a, mr, name, color, roughness, metallic, emissive);
         e.Add<ParentComponent>(ParentComponent{ parent.Get<IDComponent>().ID });
         return e;
     }
@@ -230,12 +239,12 @@ namespace {
         e.Add<NpcComponent>().Id = "goblin";          // its stats and loot: the database (Data/database.json)
         const glm::vec3 red(0.78f, 0.16f, 0.12f), dark(0.35f, 0.08f, 0.07f);
         const auto& body = a.Capsule ? a.Capsule : a.Cube;
-        AddPart(scene, e, "Body", body, glm::vec3(0.0f, 0.62f, 0.0f), glm::vec3(0.56f, 0.32f, 0.56f), red, 0.55f);
-        AddPart(scene, e, "Head", a.Sphere, glm::vec3(0.0f, 1.3f, 0.0f), glm::vec3(0.42f), dark, 0.5f);
+        AddPart(scene, a, e, "Body", body, glm::vec3(0.0f, 0.62f, 0.0f), glm::vec3(0.56f, 0.32f, 0.56f), red, 0.55f);
+        AddPart(scene, a, e, "Head", a.Sphere, glm::vec3(0.0f, 1.3f, 0.0f), glm::vec3(0.42f), dark, 0.5f);
         for (float side : { -1.0f, 1.0f })
-            AddPart(scene, e, "Eye", a.Sphere, glm::vec3(0.09f * side, 1.35f, 0.17f), glm::vec3(0.09f), glm::vec3(1.0f, 0.9f, 0.4f), 0.2f)
-                .Get<MeshRendererComponent>().Emissive = glm::vec3(1.2f, 0.9f, 0.2f);
-        if (a.Cone) AddPart(scene, e, "Hat", a.Cone, glm::vec3(0.0f, 1.62f, 0.0f), glm::vec3(0.36f, 0.32f, 0.36f), glm::vec3(0.25f, 0.22f, 0.3f), 0.6f, 0.3f);
+            AddPart(scene, a, e, "Eye", a.Sphere, glm::vec3(0.09f * side, 1.35f, 0.17f), glm::vec3(0.09f), glm::vec3(1.0f, 0.9f, 0.4f), 0.2f, 0.0f,
+                glm::vec3(1.2f, 0.9f, 0.2f));
+        if (a.Cone) AddPart(scene, a, e, "Hat", a.Cone, glm::vec3(0.0f, 1.62f, 0.0f), glm::vec3(0.36f, 0.32f, 0.36f), glm::vec3(0.25f, 0.22f, 0.3f), 0.6f, 0.3f);
     }
 
     // The camera (tactics_camera.lua) and the entity running tactics.lua
@@ -258,8 +267,7 @@ namespace {
         t.Scale = glm::vec3(1.0f, 0.04f, 1.0f);
         auto& mr = e.Add<MeshRendererComponent>();
         mr.Geometry = a.Cube;
-        mr.Color = glm::vec3(0.2f, 0.7f, 0.8f);
-        mr.Emissive = glm::vec3(0.1f, 0.6f, 0.8f);
+        SetLook(a, mr, "Exit", glm::vec3(0.2f, 0.7f, 0.8f), 0.5f, 0.0f, glm::vec3(0.1f, 0.6f, 0.8f));
         e.Add<ScriptComponent>().Path = "Scripts/exit.lua";
     }
 
@@ -278,8 +286,7 @@ namespace {
         chest.Get<TransformComponent>().Rotation = glm::vec3(0.0f, yaw, 0.0f);
         auto& mr = chest.Add<MeshRendererComponent>();
         mr.Geometry = a.Cube;
-        mr.Color = wood;
-        mr.Roughness = 0.8f;
+        SetLook(a, mr, "Chest", wood, 0.8f);
         mr.LocalOffset = glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.275f, 0.0f)), glm::vec3(0.9f, 0.55f, 0.6f));
         auto& rb = chest.Add<RigidBodyComponent>();    // static: its cell is not walkable
         rb.Type = BodyType::Static;
@@ -296,9 +303,7 @@ namespace {
         lt.Scale = glm::vec3(0.94f, 0.12f, 0.62f);
         auto& lm = lid.Add<MeshRendererComponent>();
         lm.Geometry = a.Cube;
-        lm.Color = trim;
-        lm.Metallic = 0.6f;
-        lm.Roughness = 0.4f;
+        SetLook(a, lm, "Chest lid", trim, 0.4f, 0.6f);
         lid.Add<ParentComponent>(ParentComponent{ hinge.Get<IDComponent>().ID });
     }
 
@@ -309,8 +314,7 @@ namespace {
         e.Add<NpcComponent>().Id = "sage";
         auto& mr = e.Add<MeshRendererComponent>();
         mr.Geometry = a.Cube;
-        mr.Color = glm::vec3(0.25f, 0.7f, 0.65f);
-        mr.Roughness = 0.5f;
+        SetLook(a, mr, "Sage", glm::vec3(0.25f, 0.7f, 0.65f), 0.5f);
         mr.LocalOffset = BlockOffset(0.6f, 1.7f);
         auto& rb = e.Add<RigidBodyComponent>();
         rb.Type = BodyType::Static;
@@ -323,7 +327,7 @@ namespace {
         ht.Scale = glm::vec3(0.5f, 0.24f, 0.5f);
         auto& hm = hat.Add<MeshRendererComponent>();
         hm.Geometry = a.Cube;
-        hm.Color = glm::vec3(0.35f, 0.25f, 0.6f);
+        SetLook(a, hm, "Sage hat", glm::vec3(0.35f, 0.25f, 0.6f));
         hat.Add<ParentComponent>(ParentComponent{ e.Get<IDComponent>().ID });
     }
 
@@ -356,7 +360,6 @@ void BuildScriptDemo(Scene& scene, const LevelAssets& a, PrefabLibrary& prefabs)
         mr.Geometry = a.Fox;
         mr.LocalOffset = a.Fox->GetGroundedMatrix(1.6f);
         mr.UseModelMaterials = a.Fox->HasTexturedMaterials();
-        mr.Color = glm::vec3(1.0f);
         auto& an = e.Add<AnimatorComponent>();
         an.Clip = "Walk";
         // Footsteps: a sound event on each paw strike (two per Walk cycle, two per Run stride)
@@ -386,7 +389,7 @@ void BuildScriptDemo(Scene& scene, const LevelAssets& a, PrefabLibrary& prefabs)
         for (int i = 0; i < 5; i++) {
             Entity e = AddBox(scene, a, "Fence", glm::vec3(-4.4f + i * 2.2f, -0.35f, -5.6f), glm::vec3(2.2f, 1.3f, 0.04f), glm::vec3(1.0f));
             auto& mr = e.Get<MeshRendererComponent>();
-            mr.Texture = a.Fence;
+            SetLook(a, mr, "Fence", glm::vec3(1.0f), 0.7f, 0.0f, glm::vec3(0.0f), "Textures/fence.png");
             mr.Alpha = AlphaMode::Cutout;
         }
     }
@@ -394,9 +397,8 @@ void BuildScriptDemo(Scene& scene, const LevelAssets& a, PrefabLibrary& prefabs)
         Entity e = AddBox(scene, a, "Stained glass", glm::vec3(1.6f, 0.0f, -4.3f), glm::vec3(2.0f, 2.0f, 0.05f),
             glm::vec3(1.0f), BodyType::Static, glm::vec3(0.0f, glm::radians(-15.0f), 0.0f));
         auto& mr = e.Get<MeshRendererComponent>();
-        mr.Texture = a.Window;
+        SetLook(a, mr, "Stained glass", glm::vec3(1.0f), 0.1f, 0.0f, glm::vec3(0.0f), "Textures/window.png");
         mr.Alpha = AlphaMode::Blend;
-        mr.Roughness = 0.1f;
     }
     MarkStatic(scene);
     LOG_INFO("Script demo built. Press Play (Ctrl+P).");
@@ -431,7 +433,7 @@ void BuildCoinRush(Scene& scene, const LevelAssets& a, PrefabLibrary& prefabs) {
     {
         Entity e = AddBox(scene, a, "Sweeper", glm::vec3(0.0f, 0.75f, -4.5f), glm::vec3(4.4f, 0.35f, 0.35f),
             glm::vec3(0.9f, 0.3f, 0.2f), BodyType::Kinematic);
-        e.Get<MeshRendererComponent>().Emissive = glm::vec3(0.4f, 0.05f, 0.02f);
+        SetLook(a, e.Get<MeshRendererComponent>(), "Sweeper", glm::vec3(0.9f, 0.3f, 0.2f), 0.7f, 0.0f, glm::vec3(0.4f, 0.05f, 0.02f));
         e.Add<SpinComponent>().Speed = glm::vec3(0.0f, 1.4f, 0.0f);
     }
 
@@ -635,6 +637,9 @@ void BuildTerrainDemo(Scene& scene, const LevelAssets& a, PrefabLibrary&) {
         t.Layers[i].HeightMap = base + "_height.png";
         t.Layers[i].Roughness = 1.0f;
         if (a.TerrainSurface) t.Layers[i].Surface = a.TerrainSurface(t.Layers[i]);
+        // The same look as a material file (Assets/Materials/Terrain), which wins when it loads
+        t.Layers[i].LayerMaterial.Path = std::string("Materials/Terrain/") + kNames[i] + ".mat";
+        if (a.LoadMaterial) t.Layers[i].LayerMaterial.Asset = a.LoadMaterial(t.Layers[i].LayerMaterial.Path);
     }
     t.Layers[0].Tiling = 3.0f;
     t.Layers[2].Tiling = 7.0f;
@@ -652,8 +657,7 @@ void BuildTerrainDemo(Scene& scene, const LevelAssets& a, PrefabLibrary&) {
         tr.Scale = glm::vec3(10.0f, 1.0f, 10.0f);          // the 12 m plane: 120 m
         auto& mr = w.Add<MeshRendererComponent>();
         mr.Geometry = a.Plane;
-        mr.Color = glm::vec3(0.16f, 0.32f, 0.38f);
-        mr.Roughness = 0.06f;
+        SetLook(a, mr, "Water", glm::vec3(0.16f, 0.32f, 0.38f), 0.06f);
         mr.Alpha = AlphaMode::Blend;
         mr.Opacity = 0.7f;
         mr.CastShadows = false;

@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "shader": "standard",
+  "color": [1.0, 1.0, 1.0],
+  "albedoMap": "Textures/Terrain/sand.jpg",
+  "roughness": 1.0,
+  "roughnessMap": "Textures/Terrain/sand_rough.png",
+  "normalMap": "Textures/Terrain/sand_normal.png",
+  "heightMap": "Textures/Terrain/sand_height.png"
+}

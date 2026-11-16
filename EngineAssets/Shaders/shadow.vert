@@ -84,7 +84,9 @@ void main() {
     vec4 world = inst.Model * pos;
     world = ApplyWind(world, pos.xyz, inst, a_Wind);
     v_WorldPos = world.xyz;
-    v_TexCoord = a_TexCoord;
+    // A material's texture placement and normal strength ride in the Normal matrix's padding (Scene.cpp SetSurfaceExtras):
+    // zeros = no change
+    v_TexCoord = a_TexCoord * (1.0 + vec2(inst.Normal[0].w, inst.Normal[1].w)) + inst.Normal[3].xy;
     v_Alpha = inst.Color.a;
     gl_Position = u_LightVP * world;
 }

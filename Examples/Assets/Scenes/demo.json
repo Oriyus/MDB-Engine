@@ -6,16 +6,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "blend",
         "castShadows": true,
-        "color": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "cube",
         "localOffset": [
           1.0,
@@ -35,12 +25,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Stained_glass.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.10000000149011612,
         "static": true,
-        "texture": "texture:Textures/window.png",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Stained glass",
@@ -86,16 +75,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
         "castShadows": true,
-        "color": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "cube",
         "localOffset": [
           1.0,
@@ -115,12 +94,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Fence.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.699999988079071,
         "static": true,
-        "texture": "texture:Textures/fence.png",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Fence",
@@ -166,16 +144,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
         "castShadows": true,
-        "color": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "cube",
         "localOffset": [
           1.0,
@@ -195,12 +163,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Fence.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.699999988079071,
         "static": true,
-        "texture": "texture:Textures/fence.png",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Fence",
@@ -246,16 +213,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
         "castShadows": true,
-        "color": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "cube",
         "localOffset": [
           1.0,
@@ -275,12 +232,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Fence.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.699999988079071,
         "static": true,
-        "texture": "texture:Textures/fence.png",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Fence",
@@ -326,16 +282,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
         "castShadows": true,
-        "color": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "cube",
         "localOffset": [
           1.0,
@@ -355,12 +301,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Fence.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.699999988079071,
         "static": true,
-        "texture": "texture:Textures/fence.png",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Fence",
@@ -406,16 +351,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "cutout",
         "castShadows": true,
-        "color": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "cube",
         "localOffset": [
           1.0,
@@ -435,12 +370,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Fence.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.699999988079071,
         "static": true,
-        "texture": "texture:Textures/fence.png",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Fence",
@@ -545,16 +479,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "model:Models/Fox.glb",
         "localOffset": [
           0.010341271758079529,
@@ -574,12 +498,8 @@
           0.11101426929235458,
           1.0
         ],
-        "metallic": 0.0,
         "opacity": 1.0,
-        "roughness": 0.5,
         "static": false,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": true
       },
       "name": "Fox",
@@ -610,16 +530,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.30000001192092896,
-          0.550000011920929,
-          1.0
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "sphere",
         "localOffset": [
           1.0,
@@ -639,12 +549,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Player.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.3499999940395355,
         "static": false,
-        "texture": "checker",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Player",
@@ -849,16 +758,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.25,
-          0.30000001192092896,
-          0.4000000059604645
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "cube",
         "localOffset": [
           1.0,
@@ -878,12 +777,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Pad.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.5,
         "static": false,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Pad",
@@ -962,16 +860,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.800000011920929,
-          0.800000011920929,
-          0.800000011920929
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "plane",
         "localOffset": [
           1.0,
@@ -991,12 +879,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Floor.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.8500000238418579,
         "static": true,
-        "texture": "checker",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Floor",
@@ -1074,10 +961,27 @@
       "gravity": 9.8100004196167
     },
     "post": {
+      "contrast": 1.0,
       "exposure": 1.0,
       "fxaa": true,
       "gamma": true,
-      "toneMap": 2
+      "grain": 0.0,
+      "highlightTint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "saturation": 1.0,
+      "shadowTint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "taa": true,
+      "temperature": 0.0,
+      "tint": 0.0,
+      "toneMap": 2,
+      "vignette": 0.0
     },
     "shadows": {
       "cascadeCount": 4,
@@ -1085,11 +989,38 @@
       "enabled": true,
       "pointBias": 0.05000000074505806,
       "pointFar": 30.0,
+      "pointInterval": 2,
       "shadowDistance": 60.0,
       "sunBias": 0.0020000000949949026,
       "sunCascades": true,
       "sunDistance": 30.0,
       "sunExtent": 12.0
+    },
+    "volumetricFog": {
+      "ambientIntensity": 1.0,
+      "anisotropy": 0.6000000238418579,
+      "baseHeight": 0.0,
+      "color": [
+        0.8600000143051147,
+        0.8899999856948853,
+        0.9300000071525574
+      ],
+      "density": 0.03999999910593033,
+      "enabled": false,
+      "heightFalloff": 3.0,
+      "maxDistance": 80.0,
+      "noiseAmount": 0.6000000238418579,
+      "noiseScale": 0.11999999731779099,
+      "pointLightIntensity": 1.0,
+      "steps": 32,
+      "sunIntensity": 1.0,
+      "windDirection": 30.0,
+      "windSpeed": 0.5
+    },
+    "wind": {
+      "direction": 30.0,
+      "speed": 1.0,
+      "strength": 1.0
     }
   },
   "version": 3

@@ -1,0 +1,11 @@
+{
+  "albedoMap": "checker",
+  "color": [
+    0.30000001192092896,
+    0.550000011920929,
+    1.0
+  ],
+  "roughness": 0.3499999940395355,
+  "shader": "standard",
+  "version": 1
+}

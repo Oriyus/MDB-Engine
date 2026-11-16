@@ -33,7 +33,7 @@ out vec3 v_WorldPos;
 out vec3 v_Normal;
 out vec2 v_TexCoord;
 out vec4  v_Color;        // the same at every vertex of a mesh (foliage.vert varies it along a blade)
-flat out vec3  v_Surface;     // metallic, roughness, specular (0..1, 1 = the usual 4% for non-metals)
+flat out vec4  v_Surface;     // metallic, roughness, specular (0..1, 1 = the usual 4% for non-metals), normal map strength
 flat out vec3  v_Emissive;
 flat out int   v_EntityID;
 flat out int   v_Unlit;
@@ -106,9 +106,11 @@ void main() {
     v_PrevClip = u_PrevViewProjection * prevWorld;
     v_WorldPos = world.xyz;
     v_Normal = mat3(inst.Normal) * nrm;   // correct under non-uniform scaling
-    v_TexCoord = a_TexCoord;
+    // A material's texture placement and normal strength ride in the Normal matrix's padding (Scene.cpp SetSurfaceExtras):
+    // zeros = no change
+    v_TexCoord = a_TexCoord * (1.0 + vec2(inst.Normal[0].w, inst.Normal[1].w)) + inst.Normal[3].xy;
     v_Color = inst.Color * a_VertexColor;   // sRGB-style both: pow(a*b, 2.2) = pow(a, 2.2) * pow(b, 2.2) in lit.frag
-    v_Surface = vec3(inst.Surface.xy, 1.0 - float(inst.Info.z) / 1000.0);   // Info.z: 1000 x (1 - specular)
+    v_Surface = vec4(inst.Surface.xy, 1.0 - float(inst.Info.z) / 1000.0, 1.0 - inst.Normal[2].w);   // Info.z: 1000 x (1 - specular)
     v_Emissive = inst.Emissive.rgb;
     v_EntityID = inst.Info.x;
     v_Unlit = inst.Info.y;

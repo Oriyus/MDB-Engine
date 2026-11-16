@@ -110,21 +110,30 @@ namespace Engine {
     //   e:flash([color = white [, seconds = 0.25 [, strength = 3]]])   a hit flash on the entity and every mesh below it
     //   e.visible   shown or hidden (runtime, not saved): the entity and every mesh below it; hidden ones cast no shadow
     //   e:has(kind), e:remove(kind)     kind = "mesh" "body" "collider" "light" "sun" "script" "spin" "orbit" "camera" "audio" "animator" "particles"
-    //   e.mesh   -> nil or { color, emissive, metallic, roughness, unlit, geometry ("cube" "sphere" ...),
+    //   e.mesh   -> nil or { color, emissive, metallic, roughness (per-object overrides of the material's values: reading gives
+    //               the override, else the first part's material; clear_overrides() removes them), geometry ("cube" "sphere" ...),
     //               opacity (0..1; below 1 makes an opaque mesh "blend"), alpha_mode ("opaque" "cutout" "blend"),
     //               alpha_cutoff, cast_shadows, static (merged when Play starts; read-only in effect during Play),
     //               wind (sway in the scene's wind: 0 still, 1 a tree), double_sided (back faces drawn too),
-    //               specular (0..1: reflection of a non-metal, 0 = matte),
+    //               specular, unlit (read only: the material's),
     //               lods (levels of detail: a list of { geometry, distance }, nearest first; reading gives a copy, assign a
     //               whole list to change them), cull_distance (metres; 0 = drawn at any distance), lod (read only: the level
-    //               drawn last frame, 0 = geometry, #lods + 1 = beyond cull_distance) }
+    //               drawn last frame, 0 = geometry, #lods + 1 = beyond cull_distance),
+    //               material ("Materials/x.mat", "" = none; setting it gives every part that file), materials (one path per part,
+    //               "" = the model's own or the Default; a copy, assign a whole list); a missing file is an error }
     //   e.light  -> nil or { color, intensity, shadows }
     //   e.body   -> nil or { velocity, angular_velocity, type, trigger, lock_rotation, mass,
     //                         add_force(v) (newtons, lasts this frame: call each frame), add_impulse(v) }
-    //   e:add_mesh{ geometry="cube"|"sphere"|"plane"|"capsule"|"cylinder"|"cone"|"model:Models/x.glb", texture="checker", color=vec3,
-    //               metallic, roughness, emissive, unlit, fit=metres (models: scaled to that size, standing on the origin),
-    //               opacity, alpha_mode, alpha_cutoff, cast_shadows, static, wind, double_sided, specular,
-    //               lods = { { geometry = "model:Models/x_lod1.glb", distance = 25 }, ... }, cull_distance }
+    //   e:add_mesh{ geometry="cube"|"sphere"|"plane"|"capsule"|"cylinder"|"cone"|"model:Models/x.glb", color=vec3 (and
+    //               metallic, roughness, emissive: overrides), fit=metres (models: scaled to that size, standing on the origin),
+    //               opacity, alpha_mode, alpha_cutoff, cast_shadows, static, wind, double_sided (texture, unlit and
+    //               specular are material values: an error here),
+    //               lods = { { geometry = "model:Models/x_lod1.glb", distance = 25 }, ... }, cull_distance,
+    //               material = "Materials/x.mat" (every part) or materials = { "Materials/a.mat", "", ... } (per part) }
+    //   material.exists(path) -> bool        a material file (Assets/Materials/*.mat; Renderer/MaterialAsset.h names its keys)
+    //   material.get(path) -> table           every value after its parent's (colours as vec3, maps as paths, parent)
+    //   material.set(path, key, value)        changes it for every part and terrain layer using it, until Play stops
+    //                                         (never saved); an unknown key or a wrong type is an error
     //   e:add_body{ type="dynamic"|"static"|"kinematic", shape="box"|"sphere"|"capsule"|"convex"|"mesh"|"none", size=number|vec3,
     //               center=vec3, mass, friction, bounciness, trigger=bool, velocity=vec3,
     //               lock_rotation=bool (dynamic: physics never turns it; characters) }

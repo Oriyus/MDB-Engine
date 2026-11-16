@@ -28,7 +28,16 @@ namespace Engine {
         // Specular reflection of a non-metal, 0..1 (glTF KHR_materials_specular specularFactor; Blender's Specular IOR
         // Level exports it): scales the usual 4% reflectance and the bright reflection at grazing angles. 0 = none.
         float Specular = 1.0f;
+        // Set by material files (Renderer/MaterialAsset.h); model files leave the defaults
+        float NormalStrength = 1.0f;              // scales the normal map's tilt (0 = flat)
+        glm::vec2 UVScale{ 1.0f };                // texture coordinates x scale + offset, for every map of the part
+        glm::vec2 UVOffset{ 0.0f };
+        bool Unlit = false;                       // its colour only, no lighting (like Mesh Renderer Unlit)
+        bool CastShadows = true;                  // and the Mesh Renderer's Cast shadows
     };
+
+    // The look of a mesh part with no material file and no model material: white, roughness 0.5, standard
+    const Material& DefaultMaterial();
 
     // A terrain's surface (Scene/Terrain.h): up to four layers blended by a weight map, drawn by lit.frag's terrain
     // branch. Scene::BuildDrawList fills one per terrain each frame; DrawBatch::Terrain points at it.

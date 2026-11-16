@@ -42,6 +42,8 @@
 #include "AnimGraphEditor.h"
 #include "DatabaseEditor.h"
 #include "UIEditor.h"
+#include "MaterialEditor.h"
+#include "Renderer/MaterialAsset.h"
 #include "ModelPreview.h"
 #include "Runtime/GameDatabase.h"
 #include "Runtime/Characters.h"
@@ -88,9 +90,11 @@ public:
         // Shared engine pieces: named resources, the render pipeline, and the play-mode systems
         Splash::Report(0.08f, "Compiling shaders");
         m_Resources = std::make_unique<ResourceLibrary>(Projects::Current().AssetDir(), Projects::EngineDir());
+        m_Resources->SetWriteGeneratedMaterials(true);   // older scenes' Mesh Renderer looks become files under Materials/Generated
         m_Renderer = std::make_unique<SceneRenderer>(Projects::EngineDir(), Projects::Current().AssetDir());
         Splash::Report(0.10f, "Starting physics, audio and scripting");
         m_Session = std::make_unique<GameSession>(m_Scene, Projects::Current().AssetDir(), Projects::EngineDir(), m_Resources->Registry());
+        m_TerrainEditor.OnEditMaterial = [this](const std::string& path) { m_MaterialEditor.Open(path); m_ShowMaterialEditor = true; };
         m_TerrainEditor.SetCreateAsset([this](const std::string& path) {
             const Entity e = CreateAsset(path);
             return e ? e.GetHandle() : entt::null;
@@ -122,9 +126,7 @@ public:
             e.Get<TransformComponent>().Position = glm::vec3(0.0f, -1.0f, 0.0f);
             auto& mr = e.Add<MeshRendererComponent>();
             mr.Geometry = m_Plane;
-            mr.Texture = m_Checker;
-            mr.Color = glm::vec3(0.8f);
-            mr.Roughness = 0.85f;
+            SetLook(mr, "Floor", glm::vec3(0.8f), 0.85f, 0.0f, glm::vec3(0.0f), "checker");
 
             auto& rb = e.Add<RigidBodyComponent>();
             rb.Type = BodyType::Static;
@@ -138,7 +140,7 @@ public:
             e.Get<TransformComponent>().Position = glm::vec3(-2.5f, -0.5f, 0.0f);
             auto& mr = e.Add<MeshRendererComponent>();
             mr.Geometry = m_Cube;
-            mr.Texture = m_Checker;
+            SetLook(mr, "Checker", glm::vec3(1.0f), 0.5f, 0.0f, glm::vec3(0.0f), "checker");
             e.Add<SpinComponent>().Speed = glm::vec3(0.0f, 0.6f, 0.0f);
             if (std::filesystem::exists(std::filesystem::u8path(Projects::Current().AssetDir() + "Scripts/bob.lua")))
                 e.Add<ScriptComponent>().Path = "Scripts/bob.lua";   // hops up and down while playing (the Examples project)
@@ -157,7 +159,6 @@ public:
                 mr.Geometry = model;
                 mr.LocalOffset = model->GetNormalizeMatrix(2.0f);
                 mr.UseModelMaterials = model->HasTexturedMaterials();
-                mr.Color = mr.UseModelMaterials ? glm::vec3(1.0f) : glm::vec3(0.85f, 0.6f, 0.35f);
                 e.Add<SpinComponent>().Speed = glm::vec3(0.0f, 0.3f, 0.0f);
 
                 auto& rb = e.Add<RigidBodyComponent>();
@@ -300,6 +301,14 @@ public:
         // The UI Editor: every edit goes live (ui.show draws the new layout at once while playing)
         m_UIEditor.OnChanged = [this](const std::string& path, std::shared_ptr<const Engine::UIDocument> doc) { m_Resources->SetUIDocument(path, doc); };
         m_UIEditor.TextureId = [this](const std::string& p) -> uint32_t { auto t = m_Resources->LoadTexture(p); return t ? t->GetID() : 0; };
+        // The Material Editor: every edit goes live on every part and terrain layer using the file
+        m_MaterialEditor.SetResources(m_Resources.get());
+        m_MaterialEditor.TextureId = [this](const std::string& p) -> uint32_t { auto t = m_Resources->LoadTexture(p); return t ? t->GetID() : 0; };
+        if (auto mf = EnvVar("MDB_OPEN_MATERIAL"); !mf.empty()) {   // test hook: "Materials/x.mat"
+            m_MaterialEditor.Open(mf);
+            if (EnvVar("MDB_SAVE_MATERIAL") == "1") m_MaterialEditor.Save();   // re-save it through the editor
+            m_ShowMaterialEditor = true;
+        }
         if (auto ul = EnvVar("MDB_OPEN_UI"); !ul.empty()) {   // test hook: "UI/x.json[#widget name]"
             const size_t hash = ul.find('#');
             m_UIEditor.Open(ul.substr(0, hash));
@@ -416,7 +425,8 @@ public:
         bool kesc = EdgePressed(Key::Escape, m_EscDown);
         bool kp = EdgePressed(Key::P, m_PDown);
         const bool dialogueKeys = (m_ShowDialogue && m_Dialogue.IsFocused()) || (m_ShowAnimGraph && m_AnimGraph.IsFocused()) ||
-                                  (m_ShowDatabase && m_Database.IsFocused()) || (m_ShowUIEditor && m_UIEditor.IsFocused());   // those editors have their own shortcuts
+                                  (m_ShowDatabase && m_Database.IsFocused()) || (m_ShowUIEditor && m_UIEditor.IsFocused()) ||
+                                  (m_ShowMaterialEditor && m_MaterialEditor.IsFocused());   // those editors have their own shortcuts
         if (!typing && kesc && !dialogueKeys) {
             if (m_PlayState != PlayState::Edit) m_PlayCmd = PlayCmd::Stop;
             else RequestQuit();
@@ -467,6 +477,8 @@ public:
             if (f5) {
                 m_Renderer->ReloadShaders();
                 m_Preview.ReloadShaders();
+                m_MaterialEditor.ReloadShaders();
+                m_Resources->RefreshMaterials([this](const Engine::MaterialAsset& m) { return m_MaterialEditor.Holds(m); });
                 if (m_PlayState != PlayState::Edit) m_ReloadScripts = true;   // applied next frame
             }
             if (knSpawn) SpawnCube();
@@ -616,6 +628,12 @@ public:
         UpdateEditorHidden();
         { PROFILE_SCOPE("Render"); m_Renderer->Render(m_Scene, view, vw, vh); }
         { PROFILE_SCOPE("Asset preview"); m_Preview.Render(dt, *m_Resources); }
+        { PROFILE_SCOPE("Material preview"); m_MaterialEditor.Render(dt); }
+        // Material files edited outside the editor (or by git) are read again, about once a second
+        if ((m_MaterialCheck += dt) > 1.0f) {
+            m_MaterialCheck = 0.0f;
+            m_Resources->RefreshMaterials([this](const Engine::MaterialAsset& m) { return m_MaterialEditor.Holds(m); });
+        }
 
         glViewport(0, 0, (int)GetWindow().GetWidth(), (int)GetWindow().GetHeight());
     }
@@ -667,6 +685,12 @@ public:
                 ImGui::SetNextWindowDockID(vp->DockId, ImGuiCond_FirstUseEver);
             m_UIEditor.Draw(&m_ShowUIEditor);
         }
+        if (m_ShowMaterialEditor) {
+            if (ImGuiWindow* ins = ImGui::FindWindowByName("Inspector"); ins && ins->DockId)
+                ImGui::SetNextWindowDockID(ins->DockId, ImGuiCond_FirstUseEver);   // a tab beside the Inspector
+            m_MaterialEditor.Draw(&m_ShowMaterialEditor);
+        }
+        DrawMaterialQuitModal();
         DrawDatabaseQuitModal();
         DrawUIQuitModal();
         DrawGraphQuitModal();
@@ -732,6 +756,7 @@ public:
     void RequestQuit() {
         if (m_Database.IsDirty() && !m_DbDiscarded) { m_AskDbQuit = true; m_ShowDatabase = true; return; }
         if (m_UIEditor.IsDirty() && !m_UIDiscarded) { m_AskUIQuit = true; m_ShowUIEditor = true; return; }
+        if (m_MaterialEditor.IsDirty() && !m_MaterialDiscarded) { m_AskMaterialQuit = true; m_ShowMaterialEditor = true; return; }
         if (m_AnimGraph.IsDirty() && !m_GraphDiscarded) { m_AskGraphQuit = true; m_ShowAnimGraph = true; return; }
         if (m_Dialogue.IsDirty() && !m_DialogueDiscarded) { m_AskDialogueQuit = true; m_ShowDialogue = true; return; }
         if (m_History.IsDirty()) m_Confirm = ConfirmAction::Quit;
@@ -872,6 +897,7 @@ public:
     bool OnCloseRequested() override {
         if (m_Database.IsDirty() && !m_DbDiscarded && !m_QuitConfirmed) { m_AskDbQuit = true; m_ShowDatabase = true; return false; }
         if (m_UIEditor.IsDirty() && !m_UIDiscarded && !m_QuitConfirmed) { m_AskUIQuit = true; m_ShowUIEditor = true; return false; }
+        if (m_MaterialEditor.IsDirty() && !m_MaterialDiscarded && !m_QuitConfirmed) { m_AskMaterialQuit = true; m_ShowMaterialEditor = true; return false; }
         if (m_AnimGraph.IsDirty() && !m_GraphDiscarded && !m_QuitConfirmed) { m_AskGraphQuit = true; m_ShowAnimGraph = true; return false; }
         if (m_Dialogue.IsDirty() && !m_DialogueDiscarded && !m_QuitConfirmed) { m_AskDialogueQuit = true; m_ShowDialogue = true; return false; }
         if (m_QuitConfirmed || !m_History.IsDirty()) return true;
@@ -902,6 +928,30 @@ public:
         }
         ImGui::SameLine();
         if (ImGui::Button("Cancel", ImVec2(110, 0))) { m_AskGraphQuit = false; m_SwitchProject.clear(); ImGui::CloseCurrentPopup(); }
+        ImGui::EndPopup();
+    }
+
+    // Quitting with unsaved changes in the Material Editor: asked first
+    void DrawMaterialQuitModal() {
+        if (m_AskMaterialQuit && !ImGui::IsPopupOpen("Unsaved material changes")) ImGui::OpenPopup("Unsaved material changes");
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        if (!ImGui::BeginPopupModal("Unsaved material changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+        ImGui::Text("The material %s has unsaved changes.", m_MaterialEditor.Path().c_str());
+        ImGui::Spacing();
+        if (ImGui::Button("Save", ImVec2(110, 0)) && m_MaterialEditor.Save()) {
+            m_AskMaterialQuit = false;
+            ImGui::CloseCurrentPopup();
+            RequestQuit();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Discard", ImVec2(110, 0))) {
+            m_AskMaterialQuit = false;
+            m_MaterialDiscarded = true;
+            ImGui::CloseCurrentPopup();
+            RequestQuit();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(110, 0))) { m_AskMaterialQuit = false; m_SwitchProject.clear(); ImGui::CloseCurrentPopup(); }
         ImGui::EndPopup();
     }
 
@@ -1084,9 +1134,9 @@ public:
                 e.Get<TransformComponent>().Position = glm::vec3((col - 2) * 1.3f, 2.0f + (2 - row) * 1.3f, -3.5f);
                 auto& mr = e.Add<MeshRendererComponent>();
                 mr.Geometry = m_Sphere;
-                mr.Color = glm::vec3(0.9f, 0.55f, 0.25f);    // copper-ish
-                mr.Metallic = row / float(n - 1);
-                mr.Roughness = 0.05f + 0.95f * col / float(n - 1);
+                mr.Overrides.Color = glm::vec3(0.9f, 0.55f, 0.25f);    // copper-ish; a test grid of overrides, not 25 material files
+                mr.Overrides.Metallic = row / float(n - 1);
+                mr.Overrides.Roughness = 0.05f + 0.95f * col / float(n - 1);
             }
         }
     }
@@ -1187,8 +1237,8 @@ public:
 
         auto& mr = e.Add<MeshRendererComponent>();
         mr.Geometry = sphere ? std::shared_ptr<Renderable>(m_Sphere) : std::shared_ptr<Renderable>(m_Cube);
-        mr.Color = glm::vec3(Rand(0.3f, 1.0f), Rand(0.3f, 1.0f), Rand(0.3f, 1.0f));
-        mr.Roughness = 0.4f;
+        mr.Overrides.Color = glm::vec3(Rand(0.3f, 1.0f), Rand(0.3f, 1.0f), Rand(0.3f, 1.0f));   // thrown during Play: an override
+        mr.Overrides.Roughness = 0.4f;
 
         auto& rb = e.Add<RigidBodyComponent>();
         rb.Shape = sphere ? ColliderShape::Sphere : ColliderShape::Box;
@@ -1296,6 +1346,8 @@ public:
         const char* layers[4] = { "grass", "earth", "rock", "sand" };
         for (int i = 0; i < 4; i++) a.TerrainLayers[i] = m_Resources->LoadTexture(std::string("Textures/Terrain/") + layers[i] + ".jpg");
         a.TerrainSurface = [this](const Engine::TerrainLayer& L) { return m_Resources->LoadTerrainSurface(L); };
+        a.LoadMaterial = [this](const std::string& p) { return m_Resources->LoadMaterial(p); };
+        a.MaterialForLook = [this](const std::string& n, const Engine::MaterialDesc& d) { return m_Resources->MaterialForLook(n, d); };
         return a;
     }
     void BuildLevel(void (*build)(Engine::Scene&, const LevelAssets&, Engine::PrefabLibrary&)) {
@@ -1947,7 +1999,7 @@ private:
             ImGui::Separator();
             if (ImGui::MenuItem("Frame Selected", "F")) FrameSelected();
             ImGui::Separator();
-            if (ImGui::MenuItem("Reload Shaders", "F5")) { m_Renderer->ReloadShaders(); m_Preview.ReloadShaders(); }
+            if (ImGui::MenuItem("Reload Shaders", "F5")) { m_Renderer->ReloadShaders(); m_Preview.ReloadShaders(); m_MaterialEditor.ReloadShaders(); }
             ImGui::EndMenu();
         }
 
@@ -1981,6 +2033,7 @@ private:
             ImGui::MenuItem("AnimGraph Editor", nullptr, &m_ShowAnimGraph);
             ImGui::MenuItem("Database", nullptr, &m_ShowDatabase);
             ImGui::MenuItem("UI Editor", nullptr, &m_ShowUIEditor);
+            ImGui::MenuItem("Material Editor", nullptr, &m_ShowMaterialEditor);
             ImGui::Separator();
             if (ImGui::MenuItem("Hide Panels", "F1", !m_ShowUI)) m_ShowUI = !m_ShowUI;
             if (ImGui::MenuItem("Full Screen", "F11", GetWindow().IsFullscreen())) m_ToggleFullscreen = true;
@@ -2574,9 +2627,7 @@ private:
             e.Get<TransformComponent>().Position = glm::vec3(0.0f, -1.0f, 0.0f);
             auto& mr = e.Add<MeshRendererComponent>();
             mr.Geometry = m_Plane;
-            mr.Texture = m_Checker;
-            mr.Color = glm::vec3(0.8f);
-            mr.Roughness = 0.85f;
+            SetLook(mr, "Floor", glm::vec3(0.8f), 0.85f, 0.0f, glm::vec3(0.0f), "checker");
             mr.Static = true;
             auto& rb = e.Add<RigidBodyComponent>();
             rb.Type = BodyType::Static;
@@ -2597,7 +2648,6 @@ private:
         mr.Geometry = model;
         mr.LocalOffset = model->GetPlacementMatrix(2.0f);
         mr.UseModelMaterials = model->HasTexturedMaterials();
-        if (mr.UseModelMaterials) mr.Color = glm::vec3(1.0f);
         if (model->HasVertexWind() && mr.Wind == 0.0f) mr.Wind = 1.0f;   // vegetation with painted wind weights sways
         if (Engine::AssignModelLods(mr, *model))           // the file has its own levels of detail
             LOG_INFO("{}: {} level(s) of detail from the file, from {:.1f} m", path, model->LodCount(), mr.Lods.front().Distance);
@@ -2617,6 +2667,152 @@ private:
     }
 
     // Model files under Assets/Models, subfolders included, as "Models/..." (the Geometry pickers), sorted
+    // The look of an object the editor builds: a material file with these values (an existing one under
+    // Materials/Generated with the same values, else a new one named after `name`), in every part's slot
+    void SetLook(Engine::MeshRendererComponent& mr, const std::string& name, const glm::vec3& color, float roughness = 0.5f,
+                 float metallic = 0.0f, const glm::vec3& emissive = glm::vec3(0.0f), const std::string& albedoMap = "") {
+        Engine::MaterialDesc d;
+        d.Color = color;
+        d.Roughness = roughness;
+        d.Metallic = metallic;
+        d.Emissive = emissive;
+        d.AlbedoMap = albedoMap;
+        Engine::MaterialSlot slot;
+        slot.Path = m_Resources->MaterialForLook(name, d);
+        if (slot.Path.empty()) return;
+        slot.Asset = m_Resources->LoadMaterial(slot.Path);
+        mr.Materials.assign(mr.Geometry ? std::max<size_t>(mr.Geometry->SubmeshCount(), 1) : 1, slot);
+    }
+
+    // Every material file (.mat) under Assets, any folder
+    std::vector<std::string> ListMaterialFiles() const {
+        std::error_code ec;
+        std::vector<std::string> files;
+        const std::filesystem::path assets = std::filesystem::u8path(Projects::Current().AssetDir());
+        for (auto it = std::filesystem::recursive_directory_iterator(assets, ec);
+             !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
+            std::string ext = it->path().extension().string();
+            std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+            if (ext != ".mat") continue;
+            const auto rel = std::filesystem::relative(it->path(), assets, ec).generic_u8string();
+            files.emplace_back(rel.begin(), rel.end());
+        }
+        std::sort(files.begin(), files.end());
+        return files;
+    }
+
+    // A material file picker (combo + drop from Assets + Edit). True when the path changed.
+    bool MaterialFilePicker(const char* label, Engine::MaterialSlot& slot, const char* empty = "(none)") {
+        bool changed = false;
+        ImGui::PushID(label);
+        const float editW = ImGui::CalcTextSize("Edit").x + ImGui::GetStyle().FramePadding.x * 2.0f + ImGui::GetStyle().ItemSpacing.x;
+        ImGui::SetNextItemWidth(ImGui::CalcItemWidth() - (slot.Path.empty() ? 0.0f : editW));
+        const bool missing = slot.Asset && slot.Asset->Missing;
+        if (missing) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.45f, 0.45f, 1.0f));
+        if (ImGui::BeginCombo("##mat", slot.Path.empty() ? empty : slot.Path.c_str(), ImGuiComboFlags_HeightLarge)) {
+            if (missing) ImGui::PopStyleColor();
+            if (ImGui::Selectable(empty, slot.Path.empty())) { slot = {}; changed = true; }
+            const auto files = ListMaterialFiles();
+            if (files.empty()) ImGui::TextDisabled("No .mat files (Assets: right-click > New Material)");
+            for (const auto& file : files)
+                if (ImGui::Selectable(file.c_str(), file == slot.Path)) { slot.Path = file; changed = true; }
+            ImGui::EndCombo();
+        }
+        else if (missing) ImGui::PopStyleColor();
+        if (missing) ImGui::SetItemTooltip("No such file: drawn magenta");
+        if (auto drop = AssetBrowser::AcceptDrop({ AssetBrowser::Kind::Material }); !drop.empty()) { slot.Path = drop; changed = true; }
+        if (changed) slot.Asset = slot.Path.empty() ? nullptr : m_Resources->LoadMaterial(slot.Path);
+        if (!slot.Path.empty()) {
+            ImGui::SameLine();
+            if (ImGui::Button("Edit")) { m_MaterialEditor.Open(slot.Path); m_ShowMaterialEditor = true; ImGui::SetWindowFocus("Material Editor"); }
+        }
+        ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+        ImGui::TextUnformatted(label);
+        ImGui::PopID();
+        return changed;
+    }
+
+    // Inspector > Mesh Renderer > Materials: the look, a material file per part (a model's submeshes; a shape has one).
+    // An empty slot draws with the model's own material (Use model materials) or the built-in Default.
+    void DrawMaterialSlots(Engine::Entity e, Engine::MeshRendererComponent& mr) {
+        using namespace Engine;
+        if (!mr.Geometry) return;
+        const uint32_t parts = std::max(mr.Geometry->SubmeshCount(), 1u);
+        ImGui::SeparatorText("Materials");
+        ImGui::SetItemTooltip("Material files (.mat) give this object its look, one per part. Drop a material from Assets on a\n"
+            "slot, or on the object in the Viewport (every part). Edit opens it in the Material Editor.");
+        bool changed = false;
+        if (mr.Materials.size() < parts) mr.Materials.resize(parts);
+        for (uint32_t i = 0; i < parts; i++) {
+            std::string label = parts == 1 ? std::string("Material") : "Part " + std::to_string(i);
+            const Material* own = mr.UseModelMaterials ? mr.Geometry->GetSubmeshMaterial(i) : nullptr;
+            if (parts > 1 && own && !own->Name.empty()) label += " (" + own->Name + ")";
+            changed |= MaterialFilePicker(label.c_str(), mr.Materials[i], own ? "(the model's own)" : "(Default)");
+            if (mr.Materials[i].Path.empty()) {
+                ImGui::SameLine();
+                ImGui::PushID((int)i);
+                if (ImGui::SmallButton("Make")) { MakeMaterialFromPart(e, mr, i); changed = true; }
+                ImGui::SetItemTooltip("Save this part's current look as a new material file (Assets/Materials) and use it");
+                ImGui::PopID();
+            }
+        }
+        if (parts > 1 && !mr.Materials.empty() && !mr.Materials[0].Path.empty() && ImGui::SmallButton("Use part 0's for every part")) {
+            for (auto& s : mr.Materials) s = mr.Materials[0];
+            changed = true;
+        }
+        if (mr.Geometry->GetSubmeshMaterial(0)) {
+            if (ImGui::Checkbox("Use model materials", &mr.UseModelMaterials)) changed = true;
+            ImGui::SetItemTooltip("Parts without a material file use the model file's own materials (else the Default)");
+        }
+        // Values a script set on this object (MeshOverrides): shown, not edited here
+        if (mr.Overrides.Any()) {
+            std::string what;
+            if (mr.Overrides.Color) what += "colour ";
+            if (mr.Overrides.Emissive) what += "emissive ";
+            if (mr.Overrides.Metallic) what += "metallic ";
+            if (mr.Overrides.Roughness) what += "roughness ";
+            ImGui::TextDisabled("Overrides: %s", what.c_str());
+            ImGui::SetItemTooltip("Per-object values on top of the material, set by a script (e.mesh.color = ...) or an older\n"
+                                  "scene. Change the look with a material instead; Clear removes them.");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Clear##overrides")) { mr.Overrides = {}; changed = true; }
+        }
+        // Trailing empty slots aren't kept, so an untouched object keeps no list
+        while (!mr.Materials.empty() && mr.Materials.back().Path.empty()) mr.Materials.pop_back();
+        if (changed) m_MaybeChanged = true;
+    }
+
+    // A new material file with a part's current look (its material, with any overrides baked in)
+    void MakeMaterialFromPart(Engine::Entity e, Engine::MeshRendererComponent& mr, uint32_t part) {
+        using namespace Engine;
+        const Material& mat = PartMaterialOf(mr, part);
+        MaterialDesc d;
+        d.Color = mr.Overrides.Color.value_or(mat.Color);
+        d.Metallic = mr.Overrides.Metallic.value_or(mat.Metallic);
+        d.Roughness = mr.Overrides.Roughness.value_or(mat.Roughness);
+        d.Emissive = mr.Overrides.Emissive.value_or(mat.EmissiveColor);
+        d.Specular = mat.Specular; d.Unlit = mat.Unlit; d.CastShadows = mat.CastShadows;
+        d.Mode = mat.Mode; d.Alpha = mat.Alpha; d.AlphaCutoff = mat.AlphaCutoff; d.DoubleSided = mat.DoubleSided;
+        // A safe file name from the entity's name
+        std::string base = e.Get<TagComponent>().Tag;
+        for (char& c : base) if (!std::isalnum((unsigned char)c) && c != '_' && c != '-') c = '_';
+        if (base.empty()) base = "Material";
+        if (mr.Geometry->SubmeshCount() > 1) base += "_" + std::to_string(part);
+        std::string path;
+        for (int n = 0; n < 1000; n++) {
+            path = "Materials/" + base + (n ? "_" + std::to_string(n) : "") + ".mat";
+            std::error_code ec;
+            if (!std::filesystem::exists(std::filesystem::u8path(Projects::Current().AssetDir() + path), ec)) break;
+        }
+        std::string error;
+        if (!m_Resources->SaveMaterial(path, MaterialDescToJson(d), &error)) { LOG_ERROR("Make material: {}", error); return; }
+        mr.Materials.resize(std::max<size_t>(mr.Materials.size(), part + 1));
+        mr.Materials[part].Path = path;
+        mr.Materials[part].Asset = m_Resources->LoadMaterial(path);
+        mr.Overrides = {};                            // baked into the file
+        LOG_INFO("Made {}{}", path, mat.Albedo || mat.Normal ? " (texture maps embedded in a model file are not copied)" : "");
+    }
+
     std::vector<std::string> ListModelFiles() const {
         std::error_code ec;
         std::vector<std::string> files;
@@ -2818,11 +3014,26 @@ private:
             if (!e.Has<MeshRendererComponent>()) { LOG_WARN("{} has no Mesh Renderer to put {} on", name, path); return; }
             if (auto tex = m_Resources->LoadTexture(path)) {
                 auto& mr = e.Get<MeshRendererComponent>();
-                mr.Texture = tex;
-                mr.UseModelMaterials = false;            // the texture replaces the model's own materials
+                (void)tex;
+                LOG_WARN("{}: a texture goes into a material now. Drop a material (.mat) on it, or Inspector > Mesh Renderer > Materials > Make, then set the map", name);
+                return;
                 LOG_INFO("{}: texture {}", name, path);
             }
             break;
+        case AssetBrowser::Kind::Material: {
+            if (!e.Has<MeshRendererComponent>()) {
+                if (e.Has<TerrainComponent>()) LOG_WARN("{}: set a material on a layer in Inspector > Terrain > Layers", name);
+                else LOG_WARN("{} has no Mesh Renderer to put {} on", name, path);
+                return;
+            }
+            auto& mr = e.Get<MeshRendererComponent>();
+            MaterialSlot slot;
+            slot.Path = path;
+            slot.Asset = m_Resources->LoadMaterial(path);
+            mr.Materials.assign(mr.Geometry ? std::max<size_t>(mr.Geometry->SubmeshCount(), 1) : 1, slot);   // every part
+            LOG_INFO("{}: material {}", name, path);
+            break;
+        }
         case AssetBrowser::Kind::Script:
             if (e.Has<ScriptComponent>()) e.Get<ScriptComponent>().Path = path;
             else e.Add<ScriptComponent>().Path = path;
@@ -2857,6 +3068,11 @@ private:
             case AssetBrowser::Action::SetSky:
                 if (a.Path.rfind("Environments/", 0) == 0) m_Renderer->RequestEnvironment(a.Path.substr(13));
                 else LOG_WARN("Sky maps load from Assets/Environments ({} is elsewhere)", a.Path);
+                break;
+            case AssetBrowser::Action::OpenMaterial:
+                m_MaterialEditor.Open(a.Path);
+                m_ShowMaterialEditor = true;
+                ImGui::SetWindowFocus("Material Editor");
                 break;
             case AssetBrowser::Action::OpenUILayout:
                 m_UIEditor.Open(a.Path);
@@ -2918,7 +3134,7 @@ private:
             if (!npc.empty()) PlaceNpc(npc, PointUnderMouse(origin, size));
             if (!item.empty()) PlacePickup(item, PointUnderMouse(origin, size));
         }
-        const std::string path = AssetBrowser::AcceptDrop({ K::Model, K::Prefab, K::Texture, K::Script, K::Sound, K::Environment });
+        const std::string path = AssetBrowser::AcceptDrop({ K::Model, K::Prefab, K::Texture, K::Script, K::Sound, K::Environment, K::Material });
         if (path.empty()) return;
         entt::entity hit = entt::null;
         const glm::vec3 point = PointUnderMouse(origin, size, &hit);
@@ -3417,7 +3633,7 @@ private:
         }
         {   // an asset dropped on this row (applied after the tree)
             using K = AssetBrowser::Kind;
-            const std::string asset = AssetBrowser::AcceptDrop({ K::Model, K::Prefab, K::Texture, K::Script, K::Sound });
+            const std::string asset = AssetBrowser::AcceptDrop({ K::Model, K::Prefab, K::Texture, K::Script, K::Sound, K::Material });
             if (!asset.empty()) m_AssetDrop = { asset, e, true };
         }
         DrawEyeToggle(e, rowMin, rowMax);
@@ -3880,7 +4096,7 @@ private:
         // A model file selected in Assets gets a preview at the bottom; the entity's fields scroll above it
         if (const std::string& sel = m_Assets.Selected(); sel != m_PreviewSource) {
             m_PreviewSource = sel;
-            m_Preview.SetAsset(AssetBrowser::KindOf(sel) == AssetBrowser::Kind::Model ? sel : "");
+            m_Preview.SetAsset(AssetBrowser::KindOf(sel) == AssetBrowser::Kind::Model || AssetBrowser::KindOf(sel) == AssetBrowser::Kind::Material ? sel : "");
         }
         float previewH = 0.0f;
         if (m_Preview.Active()) {
@@ -3965,24 +4181,8 @@ private:
                 }
                 if (auto drop = AssetBrowser::AcceptDrop({ AssetBrowser::Kind::Model }); !drop.empty()) AssignModel(mr, drop);   // dragged from Assets
             }
-            ImGui::ColorEdit3("Color", &mr.Color.x);
-            if (!mr.UseModelMaterials) {
-                ImGui::SliderFloat("Metallic", &mr.Metallic, 0.0f, 1.0f);
-                ImGui::SliderFloat("Roughness", &mr.Roughness, 0.04f, 1.0f);
-                ImGui::ColorEdit3("Emissive", &mr.Emissive.x, ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float);
-            }
-            ImGui::SliderFloat("Specular", &mr.Specular, 0.0f, 1.0f);
-            ImGui::SetItemTooltip("How much a non-metal reflects: 1 = the usual 4%% plus the bright sheen at grazing\n"
-                "angles, 0 = none (matte bark, cloth, dry clay). With model materials it multiplies\n"
-                "the file's own value (glTF KHR_materials_specular: Blender's Specular IOR Level).");
-            if (mr.UseModelMaterials && mr.Geometry) {
-                float lowest = 1.0f;
-                for (uint32_t i = 0; i < mr.Geometry->SubmeshCount(); i++)
-                    if (const auto* m = mr.Geometry->GetSubmeshMaterial(i)) lowest = std::min(lowest, m->Specular);
-                if (lowest < 1.0f) ImGui::TextDisabled("The file lowers specular to %.2f on some parts", lowest);
-            }
-            ImGui::Checkbox("Unlit", &mr.Unlit);
-            ImGui::SameLine();
+            DrawMaterialSlots(e, mr);
+            ImGui::SeparatorText("Rendering");
             ImGui::Checkbox("Cast shadows", &mr.CastShadows);
             ImGui::Checkbox("Static", &mr.Static);
             ImGui::SetItemTooltip("Never moves or changes during Play: merged with other static\n"
@@ -4024,48 +4224,6 @@ private:
                 if (mr.Alpha == AlphaMode::Cutout) ImGui::SliderFloat("Alpha cutoff", &mr.AlphaCutoff, 0.0f, 1.0f);
                 if (mr.Alpha == AlphaMode::Opaque && mr.Opacity < 1.0f)
                     ImGui::TextDisabled("Opacity is used by Cutout and Blend only");
-            }
-            if (mr.Geometry && mr.Geometry->GetSubmeshMaterial(0)) {
-                ImGui::Checkbox("Use model materials", &mr.UseModelMaterials);
-                if (mr.UseModelMaterials) {
-                    ImGui::TextDisabled("Color tints the model's own materials");
-                    if (ImGui::TreeNode("Materials")) {
-                        for (uint32_t i = 0; i < mr.Geometry->SubmeshCount(); i++) {
-                            const Material* mat = mr.Geometry->GetSubmeshMaterial(i);
-                            ImGui::BulletText("%s  M:%.2f R:%.2f%s%s%s", mat->Name.empty() ? "(unnamed)" : mat->Name.c_str(),
-                                mat->Metallic, mat->Roughness,
-                                mat->Albedo ? " [tex]" : "", mat->Normal ? " [normal]" : "",
-                                mat->Mode == AlphaMode::Blend ? " [blend]" : mat->Mode == AlphaMode::Cutout ? " [cutout]" : "");
-                        }
-                        ImGui::TreePop();
-                    }
-                }
-            }
-            if (!mr.UseModelMaterials) {
-                // Texture: none, the built-in checker, or an image from Assets/Textures (its alpha is used
-                // by Cutout and Blend)
-                const auto registry = m_Resources->Registry();
-                std::string current = mr.Texture ? registry.TextureName(mr.Texture) : "(none)";
-                if (current.rfind("texture:", 0) == 0) current = current.substr(8);
-                if (ImGui::BeginCombo("Texture", current.empty() ? "(custom)" : current.c_str())) {
-                    if (ImGui::Selectable("(none)", !mr.Texture)) mr.Texture = nullptr;
-                    if (ImGui::Selectable("checker", current == "checker")) mr.Texture = m_Checker;
-                    ImGui::Separator();
-                    std::error_code ec;
-                    std::vector<std::string> files;
-                    for (const auto& f : std::filesystem::directory_iterator(std::filesystem::u8path(Projects::Current().AssetDir()) / "Textures", ec)) {
-                        std::string ext = f.path().extension().string();
-                        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return (char)std::tolower(c); });
-                        if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp")
-                            files.push_back("Textures/" + f.path().filename().string());
-                    }
-                    std::sort(files.begin(), files.end());
-                    for (const auto& file : files)
-                        if (ImGui::Selectable(file.c_str(), current == file))
-                            if (auto tex = m_Resources->LoadTexture(file)) mr.Texture = tex;
-                    ImGui::EndCombo();
-                }
-                if (auto drop = AssetBrowser::AcceptDrop({ AssetBrowser::Kind::Texture }); !drop.empty()) { if (auto t = m_Resources->LoadTexture(drop)) mr.Texture = t; }
             }
         }
 
@@ -4804,7 +4962,7 @@ private:
 
         auto& mr = e.Add<MeshRendererComponent>();
         mr.Geometry = m_Cube;
-        mr.Color = glm::vec3(Rand(0.3f, 1.0f), Rand(0.3f, 1.0f), Rand(0.3f, 1.0f));
+        mr.Overrides.Color = glm::vec3(Rand(0.3f, 1.0f), Rand(0.3f, 1.0f), Rand(0.3f, 1.0f));   // a quick test cube: a colour override
 
         e.Add<SpinComponent>().Speed = glm::vec3(Rand(-2.0f, 2.0f), Rand(0.5f, 2.0f), Rand(-2.0f, 2.0f));
 
@@ -4902,7 +5060,11 @@ private:
     bool  m_ShowDatabase = false;
     bool  m_AskDbQuit = false, m_DbDiscarded = false;
     UIEditor m_UIEditor{ Projects::Current().AssetDir() };   // the UI Editor (layouts in Assets/UI for ui.show)
+    MaterialEditor m_MaterialEditor{ Projects::EngineDir(), Projects::Current().AssetDir() };   // .mat files
     bool  m_ShowUIEditor = false;
+    bool  m_ShowMaterialEditor = false;
+    bool  m_AskMaterialQuit = false, m_MaterialDiscarded = false;
+    float m_MaterialCheck = 0.0f;              // seconds since material files were last checked for changes
     bool  m_AskUIQuit = false, m_UIDiscarded = false;
     std::shared_ptr<const Engine::GameDatabase> m_LastDb;   // the database before the last edit (to see what changed)
     bool  m_AskGraphQuit = false, m_GraphDiscarded = false;           // quitting with an unsaved graph

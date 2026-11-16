@@ -1,5 +1,6 @@
 #include "Runtime/ResourceLibrary.h"
 #include "Core/SplashScreen.h"
+#include "Renderer/MaterialAsset.h"
 #include "Renderer/Mesh.h"
 #include "Renderer/Model.h"
 #include "Renderer/Texture.h"
@@ -316,6 +317,9 @@ namespace Engine {
         r.LoadAnimGraph = [this](const std::string& path) { return LoadAnimGraph(path); };
         r.LoadDatabase = [this]() { return LoadDatabase(); };
         r.LoadUIDocument = [this](const std::string& path) { return LoadUIDocument(path); };
+        r.LoadMaterial = [this](const std::string& path) { return LoadMaterial(path); };
+        r.SetMaterialFile = [this](const std::string& path, const nlohmann::json& j) { SetMaterialFile(path, j); };
+        r.MaterialForLook = [this](const std::string& hint, const MaterialDesc& d) { return MaterialForLook(hint, d); };
         return r;
     }
 

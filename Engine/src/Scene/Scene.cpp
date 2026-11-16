@@ -6,6 +6,7 @@
 #include "Renderer/Shader.h"
 #include "Renderer/Shadowmap.h"
 #include "Renderer/Material.h"
+#include "Renderer/MaterialAsset.h"
 #include "Renderer/Environment.h"
 #include "Renderer/Model.h"
 #include "Renderer/Mesh.h"
@@ -661,31 +662,61 @@ namespace Engine {
         bool DoubleSided = false;          // the component or the model material asks for it
     };
 
+    // Whether a Mesh Renderer is drawn part by part (each submesh with its own material): with model materials or
+    // material files. Otherwise it is one part (-1 = the whole renderable) in the component's own values.
+    static bool SplitParts(const MeshRendererComponent& mr) { return mr.UseModelMaterials || !mr.Materials.empty(); }
+    static uint32_t PartCount(const MeshRendererComponent& mr, const Renderable* geometry) {
+        return SplitParts(mr) ? std::max(geometry->SubmeshCount(), 1u) : 1u;
+    }
+    // The material of part i: its slot's material file, else the model file's (Use model materials), else the built-in
+    // Default. Never null. geometry: the level of detail drawn (its parts follow the main one's slots).
+    static const Material* PartMaterial(const MeshRendererComponent& mr, const Renderable* geometry, uint32_t i) {
+        if (i < mr.Materials.size() && mr.Materials[i].Asset) return &mr.Materials[i].Asset->Surface;
+        if (mr.UseModelMaterials)
+            if (const Material* m = geometry->GetSubmeshMaterial(i)) return m;
+        return &DefaultMaterial();
+    }
+    // A part's values: its material's, with the script overrides (MeshOverrides) in their place
+    struct PartLook { glm::vec3 Color, Emissive; float Metallic, Roughness; };
+    static PartLook LookOf(const MeshRendererComponent& mr, const Material& m) {
+        const MeshOverrides& o = mr.Overrides;
+        return { o.Color.value_or(m.Color), o.Emissive.value_or(m.EmissiveColor),
+                 o.Metallic.value_or(m.Metallic), o.Roughness.value_or(m.Roughness) };
+    }
+    // A material's texture placement and normal strength in the spare padding of InstanceData::Normal (a mat3 in a
+    // mat4), coded so that zeros, what every other instance has, mean no change: lit.vert / shadow.vert read them
+    static void SetSurfaceExtras(InstanceData& inst, const Material* mat) {
+        if (!mat) return;
+        inst.Normal[0].w = mat->UVScale.x - 1.0f;
+        inst.Normal[1].w = mat->UVScale.y - 1.0f;
+        inst.Normal[2].w = 1.0f - mat->NormalStrength;
+        inst.Normal[3].x = mat->UVOffset.x;
+        inst.Normal[3].y = mat->UVOffset.y;
+    }
+
     // geometry: the level of detail being drawn (null = mr.Geometry)
     static SurfaceAlpha GetSurfaceAlpha(const MeshRendererComponent& mr, uint32_t part, const Renderable* geometry = nullptr) {
         if (!geometry) geometry = mr.Geometry.get();
-        const Material* mat = mr.UseModelMaterials ? geometry->GetSubmeshMaterial(part) : nullptr;
+        const Material* mat = PartMaterial(mr, geometry, part);
         SurfaceAlpha s;
         s.Mode = mr.Alpha;
         s.Alpha = std::clamp(mr.Opacity, 0.0f, 1.0f);
         s.Cutoff = mr.AlphaCutoff;
-        s.Albedo = mat ? mat->Albedo.get() : mr.Texture.get();
-        s.DoubleSided = mr.DoubleSided || (mat && mat->DoubleSided);
-        if (mat) {
-            if ((int)mat->Mode > (int)s.Mode) s.Mode = mat->Mode;
-            if (mr.Alpha != AlphaMode::Cutout) s.Cutoff = mat->AlphaCutoff;
-            s.Alpha *= mat->Alpha;
-        }
+        s.Albedo = mat->Albedo.get();
+        s.DoubleSided = mr.DoubleSided || mat->DoubleSided;
+        if ((int)mat->Mode > (int)s.Mode) s.Mode = mat->Mode;
+        if (mr.Alpha != AlphaMode::Cutout) s.Cutoff = mat->AlphaCutoff;
+        s.Alpha *= mat->Alpha;
         // Alpha-tested: smaller mips keep as many pixels above the cutoff as full size (once per texture),
         // so cut-out leaves don't thin out with distance. After the material is merged in: it decides the mode.
         if (s.Mode == AlphaMode::Cutout && s.Albedo) s.Albedo->PreserveAlphaCoverage(s.Cutoff);
         return s;
     }
 
-    // Specular factor of a part (Mesh Renderer x model material) as InstanceData::Info.z = 1000 x (1 - specular), so
-    // zero, the default of every instance, means full specular. lit.vert turns it back into 0..1.
-    static int SpecularCode(const MeshRendererComponent& mr, const Material* mat) {
-        const float s = std::clamp(mr.Specular * (mat ? mat->Specular : 1.0f), 0.0f, 1.0f);
+    // Specular factor of a part's material as InstanceData::Info.z = 1000 x (1 - specular), so zero, the default of
+    // every instance, means full specular. lit.vert turns it back into 0..1.
+    static int SpecularCode(const Material* mat) {
+        const float s = std::clamp(mat->Specular, 0.0f, 1.0f);
         return (int)std::lround((1.0f - s) * 1000.0f);
     }
 
@@ -914,10 +945,11 @@ namespace Engine {
             int Specular = 0;                // SpecularCode
             glm::vec3 EmissiveColor{ 0.0f };
             int Unlit = 0, CastShadows = 1, DoubleSided = 0;
+            float NormalStrength = 1.0f;
             glm::ivec3 Cell{ 0 };
             auto Tie() const {
                 return std::tie(Albedo, Normal, MetalRough, Emissive, Mode, Cutoff, Color.x, Color.y, Color.z, Alpha,
-                    Metallic, Roughness, EmissiveColor.x, EmissiveColor.y, EmissiveColor.z, Unlit, CastShadows, DoubleSided, Specular,
+                    Metallic, Roughness, EmissiveColor.x, EmissiveColor.y, EmissiveColor.z, Unlit, CastShadows, DoubleSided, Specular, NormalStrength,
                     Cell.x, Cell.y, Cell.z);
             }
             bool operator<(const StaticKey& o) const { return Tie() < o.Tie(); }
@@ -961,7 +993,8 @@ namespace Engine {
             if (!mr.Static || !mr.Geometry || GetBonePalette(e, mr) || mr.Wind != 0.0f) continue;   // swaying parts stay apart
             if (!mr.Lods.empty() || mr.CullDistance > 0.0f) continue;    // levels of detail are picked per frame, by distance
             if (uses[mr.Geometry.get()] > 1) continue;                   // repeated: instancing handles it better
-            const uint32_t parts = mr.UseModelMaterials ? mr.Geometry->SubmeshCount() : 1;
+            const uint32_t parts = PartCount(mr, mr.Geometry.get());
+            const bool split = SplitParts(mr) && mr.Geometry->SubmeshCount() > 1;   // drawn submesh by submesh
 
             // All or nothing: an entity with a see-through part (sorted per object) is drawn on its own
             bool mergeable = true;
@@ -978,33 +1011,37 @@ namespace Engine {
             // Collect every part first, so a part without CPU geometry leaves the entity unmerged
             std::vector<Part> collected;
             for (uint32_t i = 0; i < parts && mergeable; i++) {
-                const Material* mat = mr.UseModelMaterials ? mr.Geometry->GetSubmeshMaterial(i) : nullptr;
+                const Material* mat = PartMaterial(mr, mr.Geometry.get(), i);
                 partV.clear(); partI.clear();
-                if (!mr.Geometry->GetPartVertices(mat ? (int32_t)i : -1, partV, partI) || partI.empty()) { mergeable = false; break; }
+                if (!mr.Geometry->GetPartVertices(split ? (int32_t)i : -1, partV, partI) || partI.empty()) { mergeable = false; break; }
                 const SurfaceAlpha s = GetSurfaceAlpha(mr, i);
 
                 Part p;
                 p.Key.Albedo = s.Albedo;
-                p.Key.Normal = mat ? mat->Normal.get() : nullptr;
-                p.Key.MetalRough = mat ? mat->MetalRough.get() : nullptr;
-                p.Key.Emissive = mat ? mat->Emissive.get() : nullptr;
+                const PartLook look = LookOf(mr, *mat);
+                p.Key.Normal = mat->Normal.get();
+                p.Key.MetalRough = mat->MetalRough.get();
+                p.Key.Emissive = mat->Emissive.get();
                 p.Key.Mode = (int)s.Mode;
                 p.Key.Cutoff = s.Mode == AlphaMode::Cutout ? s.Cutoff : 0.5f;
-                p.Key.Color = mat ? mat->Color * mr.Color : mr.Color;
+                p.Key.Color = look.Color;
                 p.Key.Alpha = s.Alpha;
-                p.Key.Metallic = mat ? mat->Metallic : mr.Metallic;
-                p.Key.Roughness = mat ? mat->Roughness : mr.Roughness;
-                p.Key.Specular = SpecularCode(mr, mat);
-                p.Key.EmissiveColor = mat ? mat->EmissiveColor : mr.Emissive;
-                p.Key.Unlit = mr.Unlit ? 1 : 0;
-                p.Key.CastShadows = mr.CastShadows ? 1 : 0;
+                p.Key.Metallic = look.Metallic;
+                p.Key.Roughness = look.Roughness;
+                p.Key.Specular = SpecularCode(mat);
+                p.Key.EmissiveColor = look.Emissive;
+                p.Key.Unlit = mat->Unlit ? 1 : 0;
+                p.Key.CastShadows = (mr.CastShadows && mat->CastShadows) ? 1 : 0;
                 p.Key.DoubleSided = s.DoubleSided ? 1 : 0;
+                p.Key.NormalStrength = mat->NormalStrength;
                 p.Key.Cell = glm::ivec3(glm::floor(center / kStaticCell));
+                const glm::vec2 uvScale = mat ? mat->UVScale : glm::vec2(1.0f), uvOffset = mat ? mat->UVOffset : glm::vec2(0.0f);
                 p.V.reserve(partV.size());
                 for (const Vertex& v : partV) {
                     Vertex w = v;
                     w.Position = glm::vec3(world * glm::vec4(v.Position, 1.0f));
                     w.Normal = glm::normalize(normalMatrix * v.Normal);
+                    w.TexCoord = v.TexCoord * uvScale + uvOffset;   // the material's placement, baked in
                     p.V.push_back(w);
                 }
                 p.I = partI;
@@ -1060,6 +1097,7 @@ namespace Engine {
             sb.Instance.Surface = glm::vec4(key.Metallic, key.Roughness, 0.0f, 0.0f);
             sb.Instance.Emissive = glm::vec4(key.EmissiveColor, 0.0f);
             sb.Instance.Info = glm::ivec4(-1, key.Unlit, key.Specular, 0);   // no single entity: click-picking finds nothing
+            sb.Instance.Normal[2].w = 1.0f - key.NormalStrength;              // SetSurfaceExtras (the UVs are baked in)
             m_StaticBatches.push_back(std::move(sb));
         }
     }
@@ -1253,7 +1291,7 @@ namespace Engine {
                 list.CurWorld[key] = world;
             }
             // (A new level of detail changes the shadow's shape too.)
-            if (shadowSettings && mr.CastShadows && !mr.Unlit && (bones || prevWorld != world || lodChanged)) {
+            if (shadowSettings && mr.CastShadows && (bones || prevWorld != world || lodChanged)) {
                 glm::vec3 center, extent;
                 Frustum::WorldBox(world, mn, mx, center, extent);
                 const float radius = glm::length(extent);
@@ -1266,7 +1304,7 @@ namespace Engine {
             if (geometry != mr.Geometry.get()) list.LodReduced++;
 
             // Which shadow views this caster can show up in (light markers must not block light)
-            const bool anyShadow = !mr.Merged && !views.empty() && mr.CastShadows && !mr.Unlit && classifyShadows(world, mn, mx);
+            const bool anyShadow = !mr.Merged && !views.empty() && mr.CastShadows && classifyShadows(world, mn, mx);
             if (!visible && !anyShadow) continue;
 
             InstanceData base;
@@ -1274,7 +1312,7 @@ namespace Engine {
             base.PrevModel = prevWorld;
             base.Normal = glm::mat4(glm::transpose(glm::inverse(glm::mat3(world))));
             // Info.w: the drawn geometry carries wind weights per vertex (vegetation COLOR_0): lit.vert / shadow.vert use them
-            base.Info = glm::ivec4((int)entt::to_integral(entity), mr.Unlit ? 1 : 0, 0, geometry->HasVertexWind() ? 1 : 0);
+            base.Info = glm::ivec4((int)entt::to_integral(entity), 0, 0, geometry->HasVertexWind() ? 1 : 0);
             // Wind (lit.vert / shadow.vert): its amount, and the mesh's height range (local) that sets how much each vertex moves
             glm::vec3 windMin(0.0f), windMax(1.0f);
             if (mr.Wind != 0.0f) mr.Geometry->GetLocalBounds(windMin, windMax);
@@ -1282,25 +1320,29 @@ namespace Engine {
 
             const glm::vec3 lodTint = TintLodLevels ? kLodTint[std::min<size_t>(level, std::size(kLodTint) - 1)] : glm::vec3(1.0f);
 
-            const uint32_t parts = mr.UseModelMaterials ? geometry->SubmeshCount() : 1;
+            const uint32_t parts = PartCount(mr, geometry);
+            const bool split = SplitParts(mr) && geometry->SubmeshCount() > 1;   // drawn submesh by submesh
             for (uint32_t i = 0; i < parts; i++) {
-                const Material* mat = mr.UseModelMaterials ? geometry->GetSubmeshMaterial(i) : nullptr;
+                const Material* mat = PartMaterial(mr, geometry, i);
                 const SurfaceAlpha s = GetSurfaceAlpha(mr, i, geometry);
 
-                // With a model material the component Color tints it; metallic/roughness/emissive come from the file
+                // The material's values, with the script overrides in their place
+                const PartLook look = LookOf(mr, *mat);
                 InstanceData inst = base;
-                inst.Color = glm::vec4((mat ? mat->Color * mr.Color : mr.Color) * lodTint, s.Alpha);
-                inst.Surface = glm::vec4(mat ? mat->Metallic : mr.Metallic, mat ? mat->Roughness : mr.Roughness, mr.Wind, windMax.y - windMin.y);
-                glm::vec3 emissive = mat ? mat->EmissiveColor : mr.Emissive;
+                inst.Color = glm::vec4(look.Color * lodTint, s.Alpha);
+                inst.Surface = glm::vec4(look.Metallic, look.Roughness, mr.Wind, windMax.y - windMin.y);
+                glm::vec3 emissive = look.Emissive;
                 if (mr.FlashTime > 0.0f && mr.FlashDuration > 0.0f) emissive += mr.FlashColor * (mr.FlashTime / mr.FlashDuration);
                 inst.Emissive = glm::vec4(emissive, windMin.y);
-                inst.Info.z = SpecularCode(mr, mat);              // lit.vert: specular = 1 - Info.z / 1000
+                if (mat->Unlit) inst.Info.y = 1;
+                SetSurfaceExtras(inst, mat);                       // UV scale / offset, normal strength
+                inst.Info.z = SpecularCode(mat);                   // lit.vert: specular = 1 - Info.z / 1000
 
                 DrawList::Item item;
                 item.Instance = list.AddInstance(inst);
                 DrawBatch& b = item.State;
                 b.Geometry = geometry;
-                b.Part = mat ? (int32_t)i : -1;
+                b.Part = split ? (int32_t)i : -1;
                 b.Albedo = s.Albedo;
                 b.Normal = mat ? mat->Normal.get() : nullptr;
                 b.MetalRough = mat ? mat->MetalRough.get() : nullptr;
@@ -1310,7 +1352,7 @@ namespace Engine {
                 b.DoubleSided = s.DoubleSided;
                 b.Bones = bones;
 
-                if (anyShadow) {
+                if (anyShadow && (!mat || (mat->CastShadows && !mat->Unlit))) {
                     // Shadows only need the albedo, and only to alpha-test: opaque casters share batches
                     DrawList::Item sh = item;
                     sh.State.Normal = sh.State.MetalRough = sh.State.Emissive = nullptr;
@@ -1345,10 +1387,19 @@ namespace Engine {
             m.Splat = data.SplatTexture();
             for (int i = 0; i < TerrainComponent::MaxLayers; i++) {
                 const TerrainLayer& L = tc.Layers[i];
-                m.Layers[i] = L.Texture.get();
-                m.Color[i] = glm::vec4(L.Color, std::clamp(L.Roughness, 0.04f, 1.0f));
                 m.Tiling[i] = std::max(L.Tiling, 0.01f);
                 m.Variation[i] = std::clamp(L.Variation, 0.0f, 1.0f);
+                if (const MaterialAsset* mat = L.LayerMaterial.Asset.get()) {   // a material file gives the look
+                    m.Layers[i] = mat->Surface.Albedo.get();
+                    m.Color[i] = glm::vec4(mat->Surface.Color, std::clamp(mat->Desc.Roughness, 0.04f, 1.0f));
+                    const bool maps = mat->TerrainMaps && mat->TerrainMaps->Texture;
+                    m.Surface[i] = maps ? mat->TerrainMaps->Texture.get() : nullptr;
+                    m.Maps[i] = maps ? mat->TerrainMaps->Maps : 0;
+                    m.NormalStrength[i] = mat->Desc.NormalStrength;
+                    continue;
+                }
+                m.Layers[i] = L.Texture.get();
+                m.Color[i] = glm::vec4(L.Color, std::clamp(L.Roughness, 0.04f, 1.0f));
                 const bool maps = L.Surface && L.Surface->Texture;
                 m.Surface[i] = maps ? L.Surface->Texture.get() : nullptr;
                 m.Maps[i] = maps ? L.Surface->Maps : 0;
@@ -1628,3 +1679,10 @@ namespace Engine {
     }
 
 } // namespace Engine
+
+namespace Engine {
+    const Material& PartMaterialOf(const MeshRendererComponent& mr, uint32_t part) {
+        if (!mr.Geometry) return part < mr.Materials.size() && mr.Materials[part].Asset ? mr.Materials[part].Asset->Surface : DefaultMaterial();
+        return *PartMaterial(mr, mr.Geometry.get(), part);
+    }
+}

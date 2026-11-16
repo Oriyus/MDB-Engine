@@ -33,16 +33,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.8999999761581421,
-          0.8500000238418579,
-          0.20000000298023224
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "sphere",
         "localOffset": [
           1.0,
@@ -62,12 +52,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Ball_3.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.699999988079071,
         "static": false,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Ball",
@@ -113,16 +102,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.8999999761581421,
-          0.75,
-          0.20000000298023224
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "sphere",
         "localOffset": [
           1.0,
@@ -142,12 +121,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Ball_4.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.699999988079071,
         "static": false,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Ball",
@@ -193,16 +171,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.8999999761581421,
-          0.6499999761581421,
-          0.20000000298023224
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "sphere",
         "localOffset": [
           1.0,
@@ -222,12 +190,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Ball_5.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.699999988079071,
         "static": false,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Ball",
@@ -273,16 +240,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.8999999761581421,
-          0.550000011920929,
-          0.20000000298023224
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "sphere",
         "localOffset": [
           1.0,
@@ -302,12 +259,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Ball_6.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.699999988079071,
         "static": false,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Ball",
@@ -353,16 +309,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.8999999761581421,
-          0.44999998807907104,
-          0.20000000298023224
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "sphere",
         "localOffset": [
           1.0,
@@ -382,12 +328,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Ball_7.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.699999988079071,
         "static": false,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Ball",
@@ -433,16 +378,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "opaque",
         "castShadows": true,
-        "color": [
-          0.8999999761581421,
-          0.3499999940395355,
-          0.20000000298023224
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "sphere",
         "localOffset": [
           1.0,
@@ -462,12 +397,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Ball_8.mat"
+        ],
         "opacity": 1.0,
-        "roughness": 0.699999988079071,
         "static": false,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Ball",
@@ -571,16 +505,6 @@
         "alphaCutoff": 0.5,
         "alphaMode": "blend",
         "castShadows": false,
-        "color": [
-          0.1599999964237213,
-          0.3199999928474426,
-          0.3799999952316284
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
         "geometry": "plane",
         "localOffset": [
           1.0,
@@ -600,12 +524,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
+        "materials": [
+          "Materials/Generated/Water.mat"
+        ],
         "opacity": 0.699999988079071,
-        "roughness": 0.05999999865889549,
         "static": false,
-        "texture": "",
-        "unlit": false,
         "useModelMaterials": false
       },
       "name": "Water",
@@ -660,13 +583,14 @@
               1.0,
               1.0
             ],
-            "roughness": 0.949999988079071,
             "heightMap": "Textures/Terrain/grass_height.png",
+            "material": "Materials/Terrain/grass.mat",
             "normalMap": "Textures/Terrain/grass_normal.png",
             "roughness": 1.0,
             "roughnessMap": "Textures/Terrain/grass_rough.png",
             "texture": "texture:Textures/Terrain/grass.jpg",
-            "tiling": 3.0
+            "tiling": 3.0,
+            "variation": 1.0
           },
           {
             "color": [
@@ -674,13 +598,14 @@
               1.0,
               1.0
             ],
-            "roughness": 0.8999999761581421,
             "heightMap": "Textures/Terrain/earth_height.png",
+            "material": "Materials/Terrain/earth.mat",
             "normalMap": "Textures/Terrain/earth_normal.png",
             "roughness": 1.0,
             "roughnessMap": "Textures/Terrain/earth_rough.png",
             "texture": "texture:Textures/Terrain/earth.jpg",
-            "tiling": 4.0
+            "tiling": 4.0,
+            "variation": 1.0
           },
           {
             "color": [
@@ -688,13 +613,14 @@
               1.0,
               1.0
             ],
-            "roughness": 0.800000011920929,
             "heightMap": "Textures/Terrain/rock_height.png",
+            "material": "Materials/Terrain/rock.mat",
             "normalMap": "Textures/Terrain/rock_normal.png",
             "roughness": 1.0,
             "roughnessMap": "Textures/Terrain/rock_rough.png",
             "texture": "texture:Textures/Terrain/rock.jpg",
-            "tiling": 7.0
+            "tiling": 7.0,
+            "variation": 1.0
           },
           {
             "color": [
@@ -702,13 +628,14 @@
               1.0,
               1.0
             ],
-            "roughness": 0.949999988079071,
             "heightMap": "Textures/Terrain/sand_height.png",
+            "material": "Materials/Terrain/sand.mat",
             "normalMap": "Textures/Terrain/sand_normal.png",
             "roughness": 1.0,
             "roughnessMap": "Textures/Terrain/sand_rough.png",
             "texture": "texture:Textures/Terrain/sand.jpg",
-            "tiling": 4.0
+            "tiling": 4.0,
+            "variation": 1.0
           }
         ],
         "resolution": 257,

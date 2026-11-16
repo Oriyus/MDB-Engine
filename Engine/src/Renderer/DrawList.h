@@ -15,7 +15,9 @@ namespace Engine {
     // u_Instances[u_Indices[u_InstanceBase + gl_InstanceID]]. Layout matches std430.
     struct InstanceData {
         glm::mat4  Model{ 1.0f };
-        glm::mat4  Normal{ 1.0f };          // transpose(inverse(mat3(Model))), padded to a mat4
+        // transpose(inverse(mat3(Model))), padded to a mat4. The padding holds a material's extras (Scene.cpp SetSurfaceExtras),
+        // zero = none: [0].w / [1].w UV scale - 1, [3].xy UV offset, [2].w 1 - normal strength
+        glm::mat4  Normal{ 1.0f };
         glm::vec4  Color{ 1.0f };           // rgb: sRGB-style colour, a: alpha (opacity x material alpha)
         glm::vec4  Surface{ 0.0f };         // x: metallic, y: roughness
         glm::vec4  Emissive{ 0.0f };        // rgb: linear emissive

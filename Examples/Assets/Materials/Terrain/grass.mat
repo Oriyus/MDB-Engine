@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "shader": "standard",
+  "color": [1.0, 1.0, 1.0],
+  "albedoMap": "Textures/Terrain/grass.jpg",
+  "roughness": 1.0,
+  "roughnessMap": "Textures/Terrain/grass_rough.png",
+  "normalMap": "Textures/Terrain/grass_normal.png",
+  "heightMap": "Textures/Terrain/grass_height.png"
+}

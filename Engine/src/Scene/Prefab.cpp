@@ -101,7 +101,7 @@ namespace Engine {
         // back. A hand-edited "0.2" becomes the float the engine actually stores, so parts compare
         // equal to it and overrides only list real differences.
         void Normalise(json& node, Scene& scratch) {
-            Entity probe = scratch.CreateEntity();
+            Entity probe = scratch.CreateEntity(node.value("name", std::string("Prefab part")));   // named: older looks become files named after it
             ComponentsFromJson(node["components"], probe, Resources);
             node["components"] = ComponentsToJson(probe, Resources);
             if (node.contains("transform")) {

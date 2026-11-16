@@ -383,11 +383,43 @@ e.Add&lt;RigidBodyComponent&gt;().Type = BodyType::Static;</code></pre>
 <h2>Materials &amp; PBR</h2>
 <p>The lit shader is metallic-roughness PBR (Cook-Torrance GGX) with albedo, normal, metal/rough and emissive maps. Lighting is done in linear space; colour pickers and albedo/emissive textures are sRGB.</p>
 <ul>
-  <li><b>Metallic</b> 0..1, <b>Roughness</b> 0..1, <b>Emissive</b> colour (above 1 glows with bloom).</li>
-  <li><b>Unlit</b>: drawn as a bright emitter (intended for light markers).</li>
-  <li>Models can use their own materials (<i>Use model materials</i>).</li>
+  <li>Every look lives in a <b>material</b>: colour and colour map, metallic, roughness, specular, emission, normal map, unlit (below). The Mesh Renderer only says which material each part uses, plus per-object transparency, shadows, wind and levels of detail.</li>
+  <li>A part with no material file uses the model file's own material (<i>Use model materials</i>), else the built-in <b>Default</b> (white, roughness 0.5).</li>
+  <li><b>Unlit</b> materials draw their colour as a bright emitter, with no lighting or shadows.</li>
 </ul>
-<pre><code class="lua">self:add_mesh{ geometry = "sphere", color = vec3(0.9, 0.2, 0.2), metallic = 1, roughness = 0.25 }</code></pre>
+<pre><code class="lua">self:add_mesh{ geometry = "sphere", material = "Materials/gold.mat" }</code></pre>
+
+<h3>Material files (.mat)</h3>
+<p>A material file, <code>Assets/Materials/&lt;name&gt;.mat</code>, is a reusable surface: make it once, then use it on any Mesh Renderer part and any terrain layer. Change the file and everything using it changes with it, also while playing. It is JSON, and every key is optional:</p>
+<pre><code class="json">{
+  "version": 1, "shader": "standard",
+  "color": [1, 1, 1], "albedoMap": "Textures/Terrain/rock.jpg",
+  "alphaMode": "opaque", "alpha": 1, "alphaCutoff": 0.5, "doubleSided": false, "castShadows": true, "unlit": false,
+  "metallic": 0, "roughness": 1, "specular": 1,
+  "metalRoughMap": "",                        // packed like glTF: green = roughness, blue = metallic
+  "roughnessMap": "Textures/Terrain/rock_rough.png", "metallicMap": "",   // grey maps, used without a packed one
+  "normalMap": "Textures/Terrain/rock_normal.png", "normalStrength": 1, "normalFlipY": false,   // DirectX-style when flipped
+  "emissive": [0, 0, 0], "emissiveIntensity": 1, "emissiveMap": "",
+  "heightMap": "Textures/Terrain/rock_height.png",   // terrain layers blend by it
+  "uvScale": [1, 1], "uvOffset": [0, 0]
+}</code></pre>
+<ul>
+  <li><b>Variants.</b> A file with <code>"parent": "Materials/stone.mat"</code> starts as its parent and holds only the values it changes, so later edits to the parent reach it too (<code>Materials/Terrain/rock_mossy.mat</code> is a greener rock at twice the repeat).</li>
+  <li><b>On meshes.</b> Inspector &gt; Mesh Renderer &gt; <b>Materials</b> has a slot per part (a model's submeshes, one for a shape). A part draws with its slot's material; the Mesh Renderer's Opacity multiplies its alpha. An empty slot shows "(the model's own)" or "(Default)". <b>Make</b> saves a part's current look as a new file. Dropping a material from Assets on an object in the Viewport or a Hierarchy row gives every part that material.</li>
+  <li><b>On terrain.</b> Inspector &gt; Terrain &gt; Layers: a layer's material gives its colour map and tint, roughness, normal, grey roughness and height maps. Tiling and Variation stay the layer's. The terrain example (<code>terrain.json</code>) uses <code>Materials/Terrain/{grass,earth,rock,sand}.mat</code>. Metallic and the packed metal/rough map are not used on terrain.</li>
+  <li><b>Batching is unchanged.</b> Values travel per instance, so parts with different materials but the same textures still draw together. A material's UV scale/offset and normal strength sit in spare room of the instance data. Static merging bakes the UV placement into the merged vertices.</li>
+  <li>A missing file draws <b>magenta</b>, and the part fills in once the file appears. Files changed outside the editor are read again within a second.</li>
+  <li><code>"shader"</code> names the shader the values feed: only <code>"standard"</code> (lit.frag's PBR) so far. Node-based shader graphs are the next step.</li>
+  <li><b>Per-object overrides.</b> A script can give one object its own colour, emissive, metallic or roughness on top of its material (<code>self.mesh.color = ...</code>, <code>add_mesh{ color = ... }</code>): hazards that pulse, a highlighted unit. The editor shows them under Materials with a <b>Clear</b> button but never makes them. They are saved only when set, so save games keep a script's tints.</li>
+  <li><b>Older scenes and prefabs</b> kept the look on the Mesh Renderer itself. When one loads in the editor, each distinct look becomes a material file under <code>Materials/Generated/</code>, named after the first object that had it and shared by every object with the same values. Save the scene to keep it in the new form. A tint on a model's own materials becomes a colour override instead. The Game converts in memory and never writes files.</li>
+</ul>
+<pre><code class="lua">self:add_mesh{ geometry = "sphere", material = "Materials/gold.mat" }
+self.mesh.material = "Materials/glow.mat"            -- every part
+self.mesh.materials = { "Materials/a.mat", "" }      -- per part ("" = the model's own or the Default)
+self.mesh.emissive = vec3(2, 0.3, 0)                 -- this object only (an override)
+self.mesh:clear_overrides()                          -- back to the material's values
+local m = material.get("Materials/gold.mat")         -- every value after the parent's
+material.set("Materials/glow.mat", "emissiveIntensity", 6)   -- for everything using it, until Play stops</code></pre>
 </section>
 
 <section class="doc" data-group="Engine" id="engine-transparency">
@@ -402,10 +434,10 @@ e.Add&lt;RigidBodyComponent&gt;().Type = BodyType::Static;</code></pre>
 <pre><code class="lua">self.mesh.opacity = 0.4          -- now see-through
 self:add_mesh{ geometry = "cube", texture = "texture:Textures/fence.png", alpha_mode = "cutout" }</code></pre>
 <h3>Specular (how shiny a non-metal is)</h3>
-<p>Every non-metal surface reflects a little light: about 4% when you look straight at it, rising to a bright sheen at grazing angles. On dark, rough materials such as bark, soil or cloth, that sheen can read as an unwanted plastic or wet look. Lower it with the Mesh Renderer's <b>Specular</b> slider (1 = the usual reflection, 0 = none at all). With <b>Use model materials</b>, the slider multiplies the model's own value. Metals are not affected: their reflection is their colour.</p>
-<p>Models can set it too. In Blender, the Principled BSDF's <b>Specular IOR Level</b> exports as glTF <code>KHR_materials_specular</code>, which the engine reads (0.5 in Blender is the normal amount and exports as 1; 0 exports as 0, no reflection). The Inspector shows when a model file lowers it. Lowering roughness does the opposite of what you might expect here: a fully rough surface (roughness 1) still has the grazing sheen, so use Specular to remove it.</p>
-<pre><code class="lua">self.mesh.specular = 0           -- matte: no reflections or highlights
-self:add_mesh{ geometry = "cube", specular = 0.3 }</code></pre>
+<p>Every non-metal surface reflects a little light: about 4% when you look straight at it, rising to a bright sheen at grazing angles. On dark, rough materials such as bark, soil or cloth, that sheen can read as an unwanted plastic or wet look. Lower it with the material's <b>Specular</b> slider (Material Editor; 1 = the usual reflection, 0 = none at all). Metals are not affected: their reflection is their colour.</p>
+<p>Models can set it too. In Blender, the Principled BSDF's <b>Specular IOR Level</b> exports as glTF <code>KHR_materials_specular</code>, which the engine reads (0.5 in Blender is the normal amount and exports as 1; 0 exports as 0, no reflection). Lowering roughness does the opposite of what you might expect here: a fully rough surface (roughness 1) still has the grazing sheen, so use Specular to remove it.</p>
+<pre><code class="lua">log(self.mesh.specular)           -- read only: set it in the material file
+material.set("Materials/bark.mat", "specular", 0)   -- matte, for everything using it (until Play stops)</code></pre>
 
 <h3>Vertex colours: weathering on buildings, wind on plants</h3>
 <p>A glTF model's vertex colours (<code>COLOR_0</code>) mean different things depending on the asset's <b>category</b>, a custom property named <code>category</code> that exports as a glTF <code>extras</code> entry. The engine looks in the file's <code>asset</code>, then its scenes, nodes (Blender objects), meshes and materials. The first one found decides, and case does not matter.</p>
@@ -743,6 +775,7 @@ audio.set_volume("music", 0.6)                    -- or "master"; audio.volume(b
 <tr><td><code>dialogue_test.lua</code></td><td>Dialogue runner on the Sage's dialogue (31)</td></tr>
 <tr><td><code>anim_graph_test.lua</code></td><td>Animation graphs on a spawned fox: states, blend, conditions, triggers, Any State, exit time, play_state, an additive layer weight (17)</td></tr>
 <tr><td><code>transform_test.lua</code></td><td>Rotations through Euler angles near gimbal lock (4)</td></tr>
+<tr><td><code>material_test.lua</code></td><td>Material files: values, variants, mesh slots from scripts, material.set, errors, save round trip (17; <code>MDB_SCENE=demo.json</code>)</td></tr>
 <tr><td><code>engine_features_test.lua</code></td><td>world_to_screen, decals, line of sight, cover, primitives, flash (22)</td></tr>
 <tr><td><code>fog_test.lua</code></td><td>Fog of war: reveal, explore, save / load, e.visible (17)</td></tr>
 <tr><td><code>terrain_test.lua</code></td><td>Terrain on <code>terrain.json</code>: height lookups, physics agreeing with the drawn surface, navigation, grass on a layer, bodies resting on it (10)</td></tr>
@@ -1035,6 +1068,18 @@ MDBEditor.exe &gt; log.txt</code></pre>
 </ul>
 </section>
 
+<section class="doc" data-group="Editor" id="editor-material">
+<h2>Material Editor</h2>
+<p><b>Window &gt; Material Editor</b>, a double-click on a <code>.mat</code> file in Assets, or a material slot's <b>Edit</b> button opens one material file (it docks beside the Inspector). Selecting a material in Assets also previews it at the bottom of the Inspector.</p>
+<ul>
+  <li><b>Preview</b> on a sphere, cube or capsule. Drag to orbit, use the wheel to zoom, double-click to reset.</li>
+  <li><b>Values</b>: Surface (colour and colour map, alpha mode, double-sided, cast shadows, unlit), Metal and roughness (sliders, a packed map or grey maps), Normal map (strength, DirectX), Emission, Height, Placement (UV scale and offset). Map pickers list the images under Assets and take drops from the Assets panel.</li>
+  <li><b>Parent</b> makes the material a variant. A dot before a value means the variant changes it; click the dot to use the parent's value again. Clearing the parent keeps the look by copying every value in.</li>
+  <li>Every edit goes live at once on everything using the file, also while playing. <b>Save</b> (Ctrl+S) writes the file and <b>Revert</b> reads it again. It has its own undo (Ctrl+Z / Ctrl+Y) while the window has focus, and it asks before switching to another material or quitting with unsaved changes.</li>
+  <li>Assets panel: right-click empty space &gt; <b>New Material</b>; right-click a material &gt; <b>New Variant</b>.</li>
+</ul>
+</section>
+
 <section class="doc" data-group="Editor" id="editor-ui">
 <h2>UI Editor</h2>
 <p><b>Window &gt; UI Editor</b> (or double-click a file in <code>Assets/UI</code>) designs game UI as <b>layouts</b>: files in <code>Assets/UI/&lt;name&gt;.json</code> that a script draws every frame with <a href="#script-ui-layouts"><code>ui.show</code></a>. A layout is a tree of the same widgets scripts place with <code>ui.begin_panel</code> and friends, drawn by the same layout code, so the preview is exactly what the game shows.</p>
@@ -1189,12 +1234,13 @@ copy.position = self.position + self.right * 2</code></pre>
 <h2>Mesh &amp; lights</h2>
 <pre><code class="lua">self:add_mesh{ geometry = "model:Models/Fox.glb", fit = 1.6 }      -- scaled to 1.6 m, standing on the origin
 self:add_mesh{ geometry = "capsule" }        -- also "cube" "sphere" "plane" "cylinder" "cone"
-self:add_mesh{ geometry = "cube", texture = "checker", color = vec3(0.3, 0.6, 1),
-               metallic = 0, roughness = 0.4, emissive = vec3(0, 0, 0), cast_shadows = true, static = false,
+self:add_mesh{ geometry = "cube", material = "Materials/gold.mat",   -- the look: a material file (texture, unlit, specular live there)
+               color = vec3(0.3, 0.6, 1), roughness = 0.4,   -- optional per-object overrides of the material
+               cast_shadows = true, static = false,
                double_sided = false }   -- double_sided: back faces drawn too
 
 local m = self.mesh                 -- nil without a Mesh Renderer
-m.color = vec3(1, 0.2, 0.2)
+m.color = vec3(1, 0.2, 0.2)          -- an override on this object only (m:clear_overrides() removes it)
 m.opacity = 0.5                     -- below 1: see-through ("blend")
 m.alpha_mode = "cutout"; m.alpha_cutoff = 0.4
 m.geometry = "sphere"

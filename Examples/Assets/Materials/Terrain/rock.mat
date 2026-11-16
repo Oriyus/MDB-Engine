@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "shader": "standard",
+  "color": [1.0, 1.0, 1.0],
+  "albedoMap": "Textures/Terrain/rock.jpg",
+  "roughness": 1.0,
+  "roughnessMap": "Textures/Terrain/rock_rough.png",
+  "normalMap": "Textures/Terrain/rock_normal.png",
+  "heightMap": "Textures/Terrain/rock_height.png"
+}

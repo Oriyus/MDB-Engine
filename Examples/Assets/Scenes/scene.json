@@ -1,17 +1,11 @@
 {
   "entities": [
     {
+      "id": 16622674859485893299,
       "meshRenderer": {
-        "color": [
-          0.7596089839935303,
-          0.36569440364837646,
-          0.4957678020000458
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
         "geometry": "sphere",
         "localOffset": [
           1.0,
@@ -31,10 +25,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
-        "roughness": 0.4000000059604645,
-        "texture": "",
-        "unlit": false,
+        "materials": [
+          "Materials/Generated/Ball.mat"
+        ],
+        "opacity": 1.0,
+        "static": false,
         "useModelMaterials": false
       },
       "name": "Ball",
@@ -53,6 +48,7 @@
           1.0,
           1.0
         ],
+        "trigger": false,
         "type": 1
       },
       "transform": {
@@ -74,17 +70,11 @@
       }
     },
     {
+      "id": 6875875520138755203,
       "meshRenderer": {
-        "color": [
-          0.5940885543823242,
-          0.8718847632408142,
-          0.490215539932251
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
         "geometry": "sphere",
         "localOffset": [
           1.0,
@@ -104,10 +94,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
-        "roughness": 0.4000000059604645,
-        "texture": "",
-        "unlit": false,
+        "materials": [
+          "Materials/Generated/Ball_2.mat"
+        ],
+        "opacity": 1.0,
+        "static": false,
         "useModelMaterials": false
       },
       "name": "Ball",
@@ -126,6 +117,7 @@
           1.0,
           1.0
         ],
+        "trigger": false,
         "type": 1
       },
       "transform": {
@@ -156,42 +148,7 @@
         ],
         "intensity": 0.4000000059604645
       },
-      "meshRenderer": {
-        "color": [
-          1.0,
-          0.8999999761581421,
-          0.4000000059604645
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "geometry": "cube",
-        "localOffset": [
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0
-        ],
-        "metallic": 0.0,
-        "roughness": 0.5,
-        "texture": "",
-        "unlit": true,
-        "useModelMaterials": false
-      },
+      "id": 13689701437336352091,
       "name": "Sun",
       "transform": {
         "position": [
@@ -205,49 +162,14 @@
           0.0
         ],
         "scale": [
-          0.11999999731779099,
-          0.11999999731779099,
-          0.6000000238418579
+          1.0,
+          1.0,
+          1.0
         ]
       }
     },
     {
-      "meshRenderer": {
-        "color": [
-          0.4000000059604645,
-          0.6000000238418579,
-          1.0
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "geometry": "cube",
-        "localOffset": [
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0
-        ],
-        "metallic": 0.0,
-        "roughness": 0.5,
-        "texture": "",
-        "unlit": true,
-        "useModelMaterials": false
-      },
+      "id": 5210357536872848227,
       "name": "Light 2",
       "orbit": {
         "angle": 3.140000104904175,
@@ -281,49 +203,14 @@
           0.0
         ],
         "scale": [
-          0.15000000596046448,
-          0.15000000596046448,
-          0.15000000596046448
+          1.0,
+          1.0,
+          1.0
         ]
       }
     },
     {
-      "meshRenderer": {
-        "color": [
-          1.0,
-          0.949999988079071,
-          0.8500000238418579
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "geometry": "cube",
-        "localOffset": [
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0,
-          0.0,
-          0.0,
-          0.0,
-          0.0,
-          1.0
-        ],
-        "metallic": 0.0,
-        "roughness": 0.5,
-        "texture": "",
-        "unlit": true,
-        "useModelMaterials": false
-      },
+      "id": 1619359809379792120,
       "name": "Light",
       "orbit": {
         "angle": 0.0,
@@ -357,24 +244,18 @@
           0.0
         ],
         "scale": [
-          0.15000000596046448,
-          0.15000000596046448,
-          0.15000000596046448
+          1.0,
+          1.0,
+          1.0
         ]
       }
     },
     {
+      "id": 4714783642398435502,
       "meshRenderer": {
-        "color": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
         "geometry": "model",
         "localOffset": [
           99.24331665039063,
@@ -394,10 +275,8 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
-        "roughness": 0.5,
-        "texture": "",
-        "unlit": false,
+        "opacity": 1.0,
+        "static": false,
         "useModelMaterials": true
       },
       "name": "Model",
@@ -427,17 +306,11 @@
       }
     },
     {
+      "id": 13234046284063579346,
       "meshRenderer": {
-        "color": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
         "geometry": "cube",
         "localOffset": [
           1.0,
@@ -457,10 +330,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
-        "roughness": 0.5,
-        "texture": "checker",
-        "unlit": false,
+        "materials": [
+          "Materials/Generated/Cube.mat"
+        ],
+        "opacity": 1.0,
+        "static": false,
         "useModelMaterials": false
       },
       "name": "Cube",
@@ -490,17 +364,11 @@
       }
     },
     {
+      "id": 7480992084840397706,
       "meshRenderer": {
-        "color": [
-          0.800000011920929,
-          0.800000011920929,
-          0.800000011920929
-        ],
-        "emissive": [
-          0.0,
-          0.0,
-          0.0
-        ],
+        "alphaCutoff": 0.5,
+        "alphaMode": "opaque",
+        "castShadows": true,
         "geometry": "plane",
         "localOffset": [
           1.0,
@@ -520,10 +388,11 @@
           0.0,
           1.0
         ],
-        "metallic": 0.0,
-        "roughness": 0.8500000238418579,
-        "texture": "checker",
-        "unlit": false,
+        "materials": [
+          "Materials/Generated/Floor.mat"
+        ],
+        "opacity": 1.0,
+        "static": false,
         "useModelMaterials": false
       },
       "name": "Floor",
@@ -542,6 +411,7 @@
           1.0,
           12.0
         ],
+        "trigger": false,
         "type": 0
       },
       "transform": {
@@ -563,5 +433,104 @@
       }
     }
   ],
-  "version": 1
+  "settings": {
+    "ao": {
+      "bias": 0.02500000037252903,
+      "enabled": true,
+      "radius": 0.5,
+      "samples": 16,
+      "strength": 1.0
+    },
+    "bloom": {
+      "enabled": true,
+      "intensity": 0.11999999731779099,
+      "knee": 0.5,
+      "maxBrightness": 8.0,
+      "radius": 1.0,
+      "threshold": 1.0
+    },
+    "camera": {
+      "focusDistance": 6.0,
+      "pitch": 0.0,
+      "position": [
+        0.0,
+        1.0,
+        6.0
+      ],
+      "yaw": -90.0
+    },
+    "environment": {
+      "blur": 0.0,
+      "intensity": 0.6000000238418579,
+      "map": "",
+      "rotation": 0.0,
+      "showSky": true
+    },
+    "physics": {
+      "gravity": 9.8100004196167
+    },
+    "post": {
+      "contrast": 1.0,
+      "exposure": 1.0,
+      "fxaa": true,
+      "gamma": true,
+      "grain": 0.0,
+      "highlightTint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "saturation": 1.0,
+      "shadowTint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "taa": true,
+      "temperature": 0.0,
+      "tint": 0.0,
+      "toneMap": 2,
+      "vignette": 0.0
+    },
+    "shadows": {
+      "cascadeCount": 4,
+      "cascadeSplit": 0.75,
+      "enabled": true,
+      "pointBias": 0.05000000074505806,
+      "pointFar": 30.0,
+      "pointInterval": 2,
+      "shadowDistance": 60.0,
+      "sunBias": 0.0020000000949949026,
+      "sunCascades": true,
+      "sunDistance": 30.0,
+      "sunExtent": 12.0
+    },
+    "volumetricFog": {
+      "ambientIntensity": 1.0,
+      "anisotropy": 0.6000000238418579,
+      "baseHeight": 0.0,
+      "color": [
+        0.8600000143051147,
+        0.8899999856948853,
+        0.9300000071525574
+      ],
+      "density": 0.03999999910593033,
+      "enabled": false,
+      "heightFalloff": 3.0,
+      "maxDistance": 80.0,
+      "noiseAmount": 0.6000000238418579,
+      "noiseScale": 0.11999999731779099,
+      "pointLightIntensity": 1.0,
+      "steps": 32,
+      "sunIntensity": 1.0,
+      "windDirection": 30.0,
+      "windSpeed": 0.5
+    },
+    "wind": {
+      "direction": 30.0,
+      "speed": 1.0,
+      "strength": 1.0
+    }
+  },
+  "version": 3
 }

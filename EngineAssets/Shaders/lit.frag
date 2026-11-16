@@ -4,7 +4,7 @@ in vec3 v_WorldPos;
 in vec3 v_Normal;
 in vec2 v_TexCoord;
 in vec4  v_Color;            // per instance (DrawList), or per vertex (foliage.vert): rgb sRGB-style, a alpha
-flat in vec3  v_Surface;     // metallic, roughness, specular (KHR_materials_specular factor x Mesh Renderer Specular)
+flat in vec4  v_Surface;     // metallic, roughness, specular (KHR_materials_specular factor x Mesh Renderer Specular), normal strength
 flat in vec3  v_Emissive;
 flat in int   v_EntityID;
 flat in int   v_Unlit;
@@ -410,6 +410,7 @@ void main() {
     vec3 N = Ng;
     if (u_UseNormalMap == 1) {
         vec3 m = texture(u_NormalMap, v_TexCoord).xyz * 2.0 - 1.0;
+        m.xy *= v_Surface.w;                                 // the material's normal strength
         N = PerturbNormal(Ng, v_WorldPos, v_TexCoord, m);
     }
     if (terrainNormals) N = PerturbNormal(Ng, v_WorldPos, v_TexCoord, terrainN);

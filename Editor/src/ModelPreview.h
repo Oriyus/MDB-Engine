@@ -11,7 +11,7 @@ namespace Engine { class SceneRenderer; class ResourceLibrary; class Model; }
 // The Inspector's preview of a model file selected in the Assets panel (glTF, GLB, FBX, OBJ ...): its own small
 // scene (the model scaled to 2 m and standing on a ground plane, a sun, the procedural sky) drawn by its own
 // SceneRenderer, so it never touches the level being edited. Drag to orbit, wheel to zoom, double-click to reset;
-// animated models play a clip.
+// animated models play a clip. A material file (".mat") is shown on a sphere, cube or capsule instead.
 //
 // Render (outside the ImGui frame, from OnUpdate) draws only if Draw ran the frame before, so a hidden preview
 // costs nothing. The renderer is made the first time a model is shown.
@@ -32,6 +32,7 @@ public:
     float PreferredHeight(float width) const;
 
     void ReloadShaders();
+    bool Closable = true;                     // the header's x button (the Material Editor's preview has none)
 
 private:
     void Build(Engine::ResourceLibrary& resources);
@@ -58,5 +59,8 @@ private:
     uint32_t m_Width = 0, m_Height = 0;       // the picture's size last frame (pixels)
     bool m_Drawn = false;                     // Draw ran since the last Render
     bool m_ShowGround = true, m_Spin = false, m_Playing = true;
+    // A material file (".mat") is shown on a shape instead of a model
+    bool IsMaterial() const;
+    int m_Shape = 0, m_BuiltShape = -1;       // 0 sphere, 1 cube, 2 capsule
     int m_Clip = 0;
 };

@@ -279,21 +279,6 @@ namespace Engine {
         for (auto handle : temp.Registry().view<TagComponent>())
             m_Scene.CreateFromSnapshot(temp.CaptureEntity(handle));
 
-        // Lights used to carry a glowing cube as their marker (an unlit "cube" Mesh Renderer, scaled small). The editor
-        // draws gizmos for them now (arrows for suns, a lightbulb for point lights) and nothing about a light is
-        // rendered: drop that old marker (and the scale, which only shaped it). Any other mesh on a light is left alone.
-        auto& reg = m_Scene.Registry();
-        std::vector<entt::entity> markers;
-        auto isMarker = [&](const MeshRendererComponent& mr) {
-            return mr.Unlit && m_Resources.GeometryName && m_Resources.GeometryName(mr.Geometry) == "cube";
-        };
-        for (auto [e, light, mr] : reg.view<DirectionalLightComponent, MeshRendererComponent>().each()) if (isMarker(mr)) markers.push_back(e);
-        for (auto [e, light, mr] : reg.view<PointLightComponent, MeshRendererComponent>().each()) if (isMarker(mr)) markers.push_back(e);
-        for (entt::entity e : markers) {
-            reg.remove<MeshRendererComponent>(e);
-            reg.get<TransformComponent>(e).Scale = glm::vec3(1.0f);
-        }
-        if (!markers.empty()) ENGINE_INFO("Removed the old marker cube from {} light(s): lights show as gizmos in the editor", markers.size());
 
         if (root.contains("settings")) {
             m_Scene.AmbientIntensity = ambient;

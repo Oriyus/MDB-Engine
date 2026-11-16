@@ -6,6 +6,7 @@
 
 #include <glm/glm.hpp>
 #include <functional>
+#include <nlohmann/json.hpp>
 #include <memory>
 #include <string>
 
@@ -17,6 +18,7 @@ namespace Engine {
     struct AnimGraph;
     struct GameDatabase;
     struct UIDocument;
+    struct MaterialDesc;
     class PrefabLibrary;
 
     // Maps names stored in the file to live resources, and back
@@ -35,6 +37,13 @@ namespace Engine {
         std::function<std::shared_ptr<const GameDatabase>()> LoadDatabase;
         // A UI layout ("UI/x.json"); null if missing or unreadable. Cheap to call (cached until the file changes).
         std::function<std::shared_ptr<const UIDocument>(const std::string&)> LoadUIDocument;
+        // A material file ("Materials/x.mat"); the shared, live object (ResourceLibrary::LoadMaterial). Null for an empty path.
+        std::function<std::shared_ptr<MaterialAsset>(const std::string&)> LoadMaterial;
+        // Replace a material's contents (not the file) for every user: script material.set, undone when Play stops
+        std::function<void(const std::string&, const nlohmann::json&)> SetMaterialFile;
+        // A material file with this look (older files kept it on the Mesh Renderer): an existing one under
+        // Materials/Generated with the same values, else a new one named after nameHint. Its path; "" if it can't be made.
+        std::function<std::string(const std::string& nameHint, const MaterialDesc&)> MaterialForLook;
     };
 
     // Everything about a level that isn't an entity. The scene's ambient intensity is saved

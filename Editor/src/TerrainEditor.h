@@ -8,7 +8,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace Engine { class Scene; class Camera; class ResourceLibrary; struct TerrainComponent; }
+namespace Engine { class Scene; class Camera; class ResourceLibrary; struct TerrainComponent; struct TerrainLayer; }
 
 // The terrain tools: sculpt and paint brushes used in the Viewport, chosen in the Inspector's Terrain section, plus
 // the whole-terrain operations there (generate, flatten, paint all, import a heightmap, resolution).
@@ -45,6 +45,8 @@ public:
     // Makes an instance of a model or prefab at the origin, unparented, without selecting it (main.cpp)
     using CreateAssetFn = std::function<entt::entity(const std::string& path)>;
     void SetCreateAsset(CreateAssetFn f) { m_CreateAsset = std::move(f); }
+    // A layer's Edit button: open that material file in the Material Editor (main.cpp)
+    std::function<void(const std::string& path)> OnEditMaterial;
     ScatterSettings& Scatter() { return m_Scatter; }
     // Fill the whole terrain by the rules (up to Density, keeping Spacing to what is there); the number placed
     int ScatterFill(Engine::Scene& scene, entt::entity terrain);
@@ -90,6 +92,8 @@ private:
 
     ScatterSettings m_Scatter;
     CreateAssetFn m_CreateAsset;
+    // A layer's material picker; true when the layer uses a material file (its look comes from there)
+    bool LayerMaterialRow(Engine::TerrainLayer& L, Engine::ResourceLibrary& resources, const std::string& assetDir, int index);
     std::mt19937 m_Rng{ 1u };
     float m_ScatterBudget = 0.0f;
     entt::entity m_ScatterGroup = entt::null;

@@ -320,6 +320,7 @@ void TerrainEditor::DrawInspector(Scene& scene, entt::entity entity, ResourceLib
 
     // ---- layers
     ImGui::SeparatorText("Layers");
+    ImGui::TextDisabled("A layer takes its look from a material file, or from its own values below.");
     const auto registry = resources.Registry();
     for (int i = 0; i < TerrainComponent::MaxLayers; i++) {
         TerrainLayer& L = t.Layers[i];
@@ -327,6 +328,21 @@ void TerrainEditor::DrawInspector(Scene& scene, entt::entity entity, ResourceLib
         if (ImGui::RadioButton("##paint", m_Tool == Tool::Paint && m_Brush.Layer == i)) { m_Brush.Layer = i; SetTool(Tool::Paint); }
         ImGui::SetItemTooltip("Paint with this layer");
         ImGui::SameLine();
+        if (LayerMaterialRow(L, resources, assetDir, i)) {
+            // The look comes from the material file: only how it is laid on the ground stays the layer's
+            ImGui::Indent(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x);
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.45f);
+            ImGui::DragFloat("##tiling", &L.Tiling, 0.05f, 0.05f, 500.0f, "repeat %.1f m");
+            ImGui::SetItemTooltip("The material's maps repeat every this many metres");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            ImGui::SliderFloat("##variation", &L.Variation, 0.0f, 1.0f, "variation %.2f");
+            ImGui::SetItemTooltip("Stochastic tiling (see a layer without a material)");
+            ImGui::Unindent(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x);
+            ImGui::PopID();
+            continue;
+        }
+        ImGui::Indent(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x);
         ImGui::ColorEdit3("##color", &L.Color.x, ImGuiColorEditFlags_NoInputs);
         ImGui::SetItemTooltip("Tint (the colour itself without a texture)");
         ImGui::SameLine();
@@ -348,7 +364,6 @@ void TerrainEditor::DrawInspector(Scene& scene, entt::entity entity, ResourceLib
         }
         if (auto drop = AssetBrowser::AcceptDrop({ AssetBrowser::Kind::Texture }); !drop.empty())
             if (auto tex = resources.LoadTexture(drop)) L.Texture = tex;
-        ImGui::Indent(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x);
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.45f);
         ImGui::DragFloat("##tiling", &L.Tiling, 0.05f, 0.05f, 500.0f, "repeat %.1f m");
         ImGui::SetItemTooltip("The texture repeats every this many metres");
@@ -843,4 +858,41 @@ void TerrainEditor::DrawScatterInspector(Scene& scene, entt::entity terrain, con
     if (ImGui::Button("Clear group") && g != entt::null) { scene.DestroyEntity(Entity(g, &scene)); m_Status = "Cleared " + s.Group; }
     if (!m_Status.empty()) ImGui::TextDisabled("%s", m_Status.c_str());
     ImGui::PopID();
+}
+
+// Inspector > Terrain > a layer's material file: a combo of the .mat files under Assets (plus drops from Assets) and an
+// Edit button. True when the layer has one.
+bool TerrainEditor::LayerMaterialRow(TerrainLayer& L, ResourceLibrary& resources, const std::string& assetDir, int index) {
+    const bool has = !L.LayerMaterial.Path.empty();
+    const float editW = has ? ImGui::CalcTextSize("Edit").x + ImGui::GetStyle().FramePadding.x * 2.0f + ImGui::GetStyle().ItemSpacing.x : 0.0f;
+    ImGui::SetNextItemWidth(has ? ImGui::GetContentRegionAvail().x - editW : ImGui::GetContentRegionAvail().x);
+    const std::string preview = has ? L.LayerMaterial.Path : std::string(kLayerNames[index]) + ": own values (no material)";
+    bool changed = false;
+    std::string pick = L.LayerMaterial.Path;
+    if (ImGui::BeginCombo("##material", preview.c_str(), ImGuiComboFlags_HeightLarge)) {
+        if (ImGui::Selectable("(own values)", !has)) { pick.clear(); changed = true; }
+        std::error_code ec;
+        const auto root = std::filesystem::u8path(assetDir);
+        std::vector<std::string> files;
+        for (auto it = std::filesystem::recursive_directory_iterator(root, ec); !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
+            if (!it->is_regular_file()) continue;
+            const std::string rel = std::filesystem::relative(it->path(), root, ec).generic_string();
+            if (AssetBrowser::KindOf(rel) == AssetBrowser::Kind::Material) files.push_back(rel);
+        }
+        std::sort(files.begin(), files.end());
+        for (const auto& f : files) if (ImGui::Selectable(f.c_str(), f == pick)) { pick = f; changed = true; }
+        ImGui::EndCombo();
+    }
+    ImGui::SetItemTooltip("A material file (.mat) for this layer: its colour map and tint, roughness, normal / roughness /\n"
+                          "height maps. The packed metal / rough map and metallic are not used on terrain.");
+    if (auto drop = AssetBrowser::AcceptDrop({ AssetBrowser::Kind::Material }); !drop.empty()) { pick = drop; changed = true; }
+    if (has) {
+        ImGui::SameLine();
+        if (ImGui::Button("Edit") && OnEditMaterial) OnEditMaterial(L.LayerMaterial.Path);
+    }
+    if (changed) {
+        L.LayerMaterial.Path = pick;
+        L.LayerMaterial.Asset = pick.empty() ? nullptr : resources.LoadMaterial(pick);
+    }
+    return !L.LayerMaterial.Path.empty();
 }

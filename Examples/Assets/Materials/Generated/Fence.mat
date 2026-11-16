@@ -1,0 +1,6 @@
+{
+  "albedoMap": "Textures/fence.png",
+  "roughness": 0.699999988079071,
+  "shader": "standard",
+  "version": 1
+}

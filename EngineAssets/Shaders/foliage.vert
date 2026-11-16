@@ -37,7 +37,7 @@ out vec3 v_WorldPos;
 out vec3 v_Normal;
 out vec2 v_TexCoord;
 out vec4 v_Color;
-flat out vec3  v_Surface;     // metallic, roughness, specular (0..1, 1 = the usual 4% for non-metals)
+flat out vec4  v_Surface;     // metallic, roughness, specular (0..1, 1 = the usual 4% for non-metals), normal map strength
 flat out vec3  v_Emissive;
 flat out int   v_EntityID;
 flat out int   v_Unlit;
@@ -88,7 +88,7 @@ void main() {
     vec3 col = mix(u_BaseColor, tip, smoothstep(0.0, 0.9, h)) * c.Color.rgb;
     if (a_TexCoord.y > 0.5) col = c.Flower.rgb;
     v_Color = vec4(col, 1.0);
-    v_Surface = vec3(0.0, u_Roughness, 1.0);
+    v_Surface = vec4(0.0, u_Roughness, 1.0, 1.0);
     v_Emissive = vec3(0.0);
     v_EntityID = -1;             // not written: the entity-ID target is masked, so clicks pick the ground under the grass
     v_Unlit = 0;

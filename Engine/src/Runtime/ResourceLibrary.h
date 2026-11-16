@@ -1,7 +1,10 @@
 #pragma once
 #include "Scene/SceneSerializer.h"
 
+#include <nlohmann/json.hpp>
 #include <filesystem>
+#include <functional>
+#include <vector>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -15,6 +18,8 @@ namespace Engine {
     struct AnimGraph;
     struct GameDatabase;
     struct UIDocument;
+    struct MaterialAsset;
+    struct MaterialDesc;
 
     // The shared meshes and textures that scene and prefab files refer to by name:
     //   geometry "cube" (unit cube), "plane" (12 x 12), "sphere" (diameter 1), "model" (Models/BoomBox.glb),
@@ -66,6 +71,32 @@ namespace Engine {
         // The editor's live copy (edited while the game runs): what LoadUIDocument returns until the file changes again
         void SetUIDocument(const std::string& path, std::shared_ptr<const UIDocument> doc);
 
+        // ---- Material files ("Materials/x.mat", Renderer/MaterialAsset.h)
+        // Loaded once and kept: every caller gets the same object, which changes in place when the file changes
+        // (RefreshMaterials) or the editor edits it, so every part and terrain layer using it follows. A missing file
+        // gives an asset marked Missing (drawn magenta) that loads once the file appears. Null only for an empty path.
+        std::shared_ptr<MaterialAsset> LoadMaterial(const std::string& path);
+        // The editor's unsaved contents of a material (its own keys): used from now on, resolved with the materials
+        // that inherit from it, until the file is read again
+        void SetMaterialFile(const std::string& path, const nlohmann::json& contents);
+        // Write a material file (with "version": 1) and use its contents
+        bool SaveMaterial(const std::string& path, const nlohmann::json& contents, std::string* error = nullptr);
+        // Read the file again (dropping SetMaterialFile changes)
+        void ReloadMaterial(const std::string& path);
+        // Re-read material files that changed on disk (or appeared), except those keep() says to keep. True if any did.
+        bool RefreshMaterials(const std::function<bool(const MaterialAsset&)>& keep = {});
+        std::vector<std::shared_ptr<MaterialAsset>> LoadedMaterials() const;   // by path
+        // A material with this look (older scene files kept it on the Mesh Renderer): a file under Materials/Generated
+        // with the same values, else a new one named after nameHint (made unique). Written to disk only after
+        // SetWriteGeneratedMaterials(true) (the editor); otherwise it lives in memory (the Game never writes Assets).
+        std::string MaterialForLook(const std::string& nameHint, const MaterialDesc& look);
+        void SetWriteGeneratedMaterials(bool write) { m_WriteGenerated = write; }
+        // A linear image for material data (normal, metal / roughness maps), optionally with green flipped
+        // (DirectX normal maps); cached. Null if it can't be read.
+        std::shared_ptr<Texture2D> LoadDataTexture(const std::string& path, bool flipGreen = false);
+        // Grey roughness and metallic maps (either may be empty) packed into glTF's G / B layout; cached
+        std::shared_ptr<Texture2D> PackMetalRough(const std::string& roughness, const std::string& metallic);
+
         // Name <-> resource mapping for SceneSerializer, PrefabLibrary and ScriptEngine.
         // The functions keep a pointer to this library, so it must outlive their users.
         ResourceRegistry Registry();
@@ -88,6 +119,14 @@ namespace Engine {
         bool m_DatabaseLive = false;
         struct CachedUI { std::shared_ptr<const UIDocument> Data; std::filesystem::file_time_type Stamp; bool Missing = false; };
         std::unordered_map<std::string, CachedUI> m_UIDocs;                       // by path
+        std::unordered_map<std::string, std::shared_ptr<Texture2D>> m_DataTextures;   // linear maps, packed maps
+        struct CachedMaterial { std::shared_ptr<MaterialAsset> Asset; std::filesystem::file_time_type Stamp{}; std::string ReadError; bool Virtual = false; };
+        std::unordered_map<std::string, CachedMaterial> m_Materials;              // by path
+        std::unordered_map<std::string, std::string> m_Looks;                      // generated materials: values (JSON) -> path
+        bool m_LooksIndexed = false, m_WriteGenerated = false;
+        void ReadMaterialFile(CachedMaterial& c);
+        void ResolveMaterialTree(MaterialAsset& m, std::vector<MaterialAsset*>& resolving, std::vector<const MaterialAsset*>& done);
+        void ResolveMaterials();
     };
 
 } // namespace Engine
