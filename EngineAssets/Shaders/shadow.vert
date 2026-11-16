@@ -1,6 +1,9 @@
 #version 450 core
 
 layout(location = 0) in vec3 a_Position;
+#ifdef MDB_GRAPH_VERTEX
+layout(location = 1) in vec3 a_Normal;      // a shader graph's vertex offset may follow the normal
+#endif
 layout(location = 2) in vec2 a_TexCoord;    // for alpha-tested shadows
 layout(location = 3) in ivec4 a_Bones;      // skinned meshes only
 layout(location = 4) in vec4 a_Weights;
@@ -73,6 +76,17 @@ vec4 ApplyWind(vec4 world, vec3 local, Instance inst, vec4 wd) {
     return world;
 }
 
+#ifdef MDB_GRAPH_VERTEX
+// @GRAPH_CODE
+// A shader graph's Vertex Offset (world space, metres), at a given time (motion vectors use last frame's)
+vec3 GraphOffset(vec3 worldPos, vec3 worldNormal, vec2 uv, float time) {
+    SGIn gIn;
+    gIn.UV = uv; gIn.WorldPos = worldPos; gIn.WorldNormal = worldNormal;
+    gIn.ViewDir = vec3(0.0, 1.0, 0.0); gIn.Time = time; gIn.ScreenUV = vec2(0.5);
+    return GraphVertexOffset(gIn);
+}
+#endif
+
 void main() {
     Instance inst = u_Instances[u_Indices[u_InstanceBase + gl_InstanceID]];
     vec4 pos = vec4(a_Position, 1.0);
@@ -83,6 +97,10 @@ void main() {
     }
     vec4 world = inst.Model * pos;
     world = ApplyWind(world, pos.xyz, inst, a_Wind);
+#ifdef MDB_GRAPH_VERTEX
+    world.xyz += GraphOffset(world.xyz, normalize(mat3(inst.Normal) * a_Normal),
+                             a_TexCoord * (1.0 + vec2(inst.Normal[0].w, inst.Normal[1].w)) + inst.Normal[3].xy, u_SceneWindTime);
+#endif
     v_WorldPos = world.xyz;
     // A material's texture placement and normal strength ride in the Normal matrix's padding (Scene.cpp SetSurfaceExtras):
     // zeros = no change

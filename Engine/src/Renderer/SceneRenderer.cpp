@@ -2,6 +2,7 @@
 #include "Core/SplashScreen.h"
 #include "Renderer/Shader.h"
 #include "Renderer/DrawList.h"
+#include "Renderer/ShaderGraph.h"
 #include "Renderer/ParticleRenderer.h"
 #include "Renderer/DecalRenderer.h"
 #include "Renderer/FoliageRenderer.h"
@@ -391,6 +392,10 @@ namespace Engine {
         I.Prepass = std::make_unique<Shader>(I.ShaderPath("lit.vert"), I.ShaderPath("depth_prepass.frag"));
         I.FoliagePrepass = std::make_unique<Shader>(I.ShaderPath("foliage.vert"), I.ShaderPath("depth_prepass.frag"));
         I.Prepass->QuietMissing = true;       // given the lighting uniforms like the lit shaders
+        // Shader graph materials draw with copies of these four that carry the graph (Renderer/ShaderGraph.h): they
+        // record what they are given, which is replayed onto the copy when a batch switches to it
+        { int v = 0; for (Shader* s : { I.Lit.get(), I.Prepass.get(), I.PointDepth.get(), I.SunDepth.get() }) { s->Record = true; s->GraphVariant = v++; } }
+        SGProgram::SetShaderDir(I.ShaderPath(""));
         I.FoliagePrepass->QuietMissing = true;
         I.Wire->QuietMissing = true;          // given the lit.frag lighting uniforms (Scene::Render)
         I.SelectMask->QuietMissing = true;
@@ -647,6 +652,7 @@ namespace Engine {
                          I.Wire.get(), I.SelectMask.get(), I.Outline.get(), I.Grid.get(), I.TAAResolve.get(), I.Prepass.get(), I.FoliagePrepass.get() })
             s->Reload();
         I.Env->ReloadSkyShader();
+        SGProgram::ReloadAll();                // shader graph programs are made again from the new files on first use
     }
 
     void SceneRenderer::RequestEnvironment(const std::string& hdrFile) {

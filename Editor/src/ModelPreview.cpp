@@ -179,7 +179,7 @@ void ModelPreview::Draw(float height) {
     if (m_Path.empty()) return;
     const float startY = ImGui::GetCursorPosY();
     const size_t slash = m_Path.find_last_of('/');
-    const std::string name = slash == std::string::npos ? m_Path : m_Path.substr(slash + 1);
+    const std::string name = !Title.empty() ? Title : slash == std::string::npos ? m_Path : m_Path.substr(slash + 1);
 
     ImGui::SeparatorText(("Preview: " + name).c_str());
     ImGui::SetItemTooltip("%s", m_Path.c_str());

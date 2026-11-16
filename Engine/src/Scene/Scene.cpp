@@ -7,6 +7,7 @@
 #include "Renderer/Shadowmap.h"
 #include "Renderer/Material.h"
 #include "Renderer/MaterialAsset.h"
+#include "Renderer/ShaderGraph.h"
 #include "Renderer/Environment.h"
 #include "Renderer/Model.h"
 #include "Renderer/Mesh.h"
@@ -946,10 +947,11 @@ namespace Engine {
             glm::vec3 EmissiveColor{ 0.0f };
             int Unlit = 0, CastShadows = 1, DoubleSided = 0;
             float NormalStrength = 1.0f;
+            const SGBinding* Graph = nullptr;
             glm::ivec3 Cell{ 0 };
             auto Tie() const {
                 return std::tie(Albedo, Normal, MetalRough, Emissive, Mode, Cutoff, Color.x, Color.y, Color.z, Alpha,
-                    Metallic, Roughness, EmissiveColor.x, EmissiveColor.y, EmissiveColor.z, Unlit, CastShadows, DoubleSided, Specular, NormalStrength,
+                    Metallic, Roughness, EmissiveColor.x, EmissiveColor.y, EmissiveColor.z, Unlit, CastShadows, DoubleSided, Specular, NormalStrength, Graph,
                     Cell.x, Cell.y, Cell.z);
             }
             bool operator<(const StaticKey& o) const { return Tie() < o.Tie(); }
@@ -1034,6 +1036,7 @@ namespace Engine {
                 p.Key.CastShadows = (mr.CastShadows && mat->CastShadows) ? 1 : 0;
                 p.Key.DoubleSided = s.DoubleSided ? 1 : 0;
                 p.Key.NormalStrength = mat->NormalStrength;
+                p.Key.Graph = mat->Graph.get();
                 p.Key.Cell = glm::ivec3(glm::floor(center / kStaticCell));
                 const glm::vec2 uvScale = mat ? mat->UVScale : glm::vec2(1.0f), uvOffset = mat ? mat->UVOffset : glm::vec2(0.0f);
                 p.V.reserve(partV.size());
@@ -1093,6 +1096,7 @@ namespace Engine {
             sb.State.Mode = (AlphaMode)key.Mode;
             sb.State.Cutoff = key.Cutoff;
             sb.State.DoubleSided = key.DoubleSided != 0;
+            sb.State.Graph = key.Graph;
             sb.Instance.Color = glm::vec4(key.Color, key.Alpha);
             sb.Instance.Surface = glm::vec4(key.Metallic, key.Roughness, 0.0f, 0.0f);
             sb.Instance.Emissive = glm::vec4(key.EmissiveColor, 0.0f);
@@ -1214,6 +1218,7 @@ namespace Engine {
             if (anyShadow) {
                 DrawList::Item sh = item;
                 sh.State.Normal = sh.State.MetalRough = sh.State.Emissive = nullptr;
+                if (sh.State.Graph && !sh.State.Graph->WritesAlpha && !sh.State.Graph->HasVertexOffset) sh.State.Graph = nullptr;
                 if (sb.State.Mode == AlphaMode::Opaque) { sh.State.Albedo = nullptr; sh.State.Cutoff = 0.5f; }
                 for (size_t v = 0; v < views.size(); v++) if (inView[v]) shadow[v].push_back(sh);
             }
@@ -1351,11 +1356,13 @@ namespace Engine {
                 b.Cutoff = s.Cutoff;
                 b.DoubleSided = s.DoubleSided;
                 b.Bones = bones;
+                b.Graph = mat->Graph.get();
 
                 if (anyShadow && (!mat || (mat->CastShadows && !mat->Unlit))) {
                     // Shadows only need the albedo, and only to alpha-test: opaque casters share batches
                     DrawList::Item sh = item;
                     sh.State.Normal = sh.State.MetalRough = sh.State.Emissive = nullptr;
+                    if (sh.State.Graph && !sh.State.Graph->WritesAlpha && !sh.State.Graph->HasVertexOffset) sh.State.Graph = nullptr;   // only a graph's alpha matters here
                     if (s.Mode == AlphaMode::Opaque) { sh.State.Albedo = nullptr; sh.State.Cutoff = 0.5f; }
                     for (size_t v = 0; v < views.size(); v++) if (inView[v]) shadow[v].push_back(sh);
                 }
@@ -1363,6 +1370,7 @@ namespace Engine {
                 if (highlighted) {
                     DrawList::Item sel = item;
                     sel.State.Normal = sel.State.MetalRough = sel.State.Emissive = nullptr;
+                    sel.State.Graph = nullptr;
                     if (s.Mode == AlphaMode::Opaque) { sel.State.Albedo = nullptr; sel.State.Cutoff = 0.5f; }
                     selected.push_back(sel);
                 }
@@ -1485,10 +1493,22 @@ namespace Engine {
         if (views.size() != list.ShadowViews.size()) return;   // the list was built without shadows
         list.Bind();
 
-        auto drawCasters = [&](Shader& sh, const std::vector<DrawBatch>& batches) {
-            sh.SetInt("u_Texture", 0);
+        auto drawCasters = [&](Shader& base, const std::vector<DrawBatch>& batches) {
+            base.SetInt("u_Texture", 0);
             CullSwitch cull;
+            const SGBinding* graph = nullptr;
+            Shader* cur = &base;
             for (const DrawBatch& b : batches) {
+                // A shader graph that writes alpha cuts its shadow with its own copy of the depth shader
+                if (b.Graph != graph) {
+                    graph = b.Graph;
+                    Shader* next = &base;
+                    if (graph && graph->Program && base.GraphVariant >= 0 && (b.Mode != AlphaMode::Opaque || graph->HasVertexOffset))
+                        if (Shader* g = graph->Program->Get(base.GraphVariant)) { base.ReplayInto(*g); next = g; }
+                    if (next != cur) { next->Bind(); cur = next; }
+                    if (graph && cur != &base) graph->Apply(*cur);
+                }
+                Shader& sh = *cur;
                 cull.Set(b.DoubleSided);                // a double-sided plane casts whichever side faces the light
                 // Cutout casts its cut shape; see-through (Blend) casts only where alpha >= 0.5
                 const bool test = b.Mode != AlphaMode::Opaque;
@@ -1631,8 +1651,25 @@ namespace Engine {
         auto drawBatches = [&](const std::vector<DrawBatch>& batches) {
             CullSwitch cull;
             const TerrainMaterial* terrain = nullptr;
+            const SGBinding* graph = nullptr;
+            Shader* cur = &shader;                   // a shader graph batch swaps in the graph's program (batches are sorted by graph)
             shader.SetInt("u_Terrain", 0);
             for (const DrawBatch& b : batches) {
+                if (b.Graph != graph) {
+                    graph = b.Graph;
+                    Shader* next = &shader;
+                    // The depth pre-pass needs the graph only for its alpha; the lit pass always
+                    const bool wanted = graph && graph->Program && shader.GraphVariant >= 0 &&
+                        (shader.GraphVariant == 0 || graph->HasVertexOffset || (graph->WritesAlpha && b.Mode == AlphaMode::Cutout));
+                    if (wanted)
+                        if (Shader* g = graph->Program->Get(shader.GraphVariant)) {
+                            shader.ReplayInto(*g);           // the lighting, camera and per-pass values the plain shader got
+                            next = g;
+                        }
+                    if (next != cur) { next->Bind(); cur = next; terrain = nullptr; cur->SetInt("u_Terrain", 0); }
+                    if (graph && cur != &shader) graph->Apply(*cur);
+                }
+                Shader& shader = *cur;
                 cull.Set(b.DoubleSided);
                 shader.SetInt("u_DoubleSided", b.DoubleSided ? 1 : 0);   // lit.frag: back faces lit from their side
                 if (b.Albedo)     b.Albedo->Bind(0);
@@ -1654,7 +1691,8 @@ namespace Engine {
                 shader.SetInt("u_InstanceBase", (int)b.First);
                 DrawBatchGeometry(b);
             }
-            if (terrain) shader.SetInt("u_Terrain", 0);
+            if (terrain) cur->SetInt("u_Terrain", 0);
+            if (cur != &shader) shader.Bind();      // back to the plain program for whoever draws next
         };
 
         if (pass == RenderPass::Opaque) {

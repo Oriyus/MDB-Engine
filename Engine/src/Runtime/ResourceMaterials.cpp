@@ -1,6 +1,7 @@
 // ResourceLibrary: material files (Renderer/MaterialAsset.h) and the data textures they use
 #include "Runtime/ResourceLibrary.h"
 #include "Renderer/MaterialAsset.h"
+#include "Renderer/ShaderGraph.h"
 #include "Renderer/Texture.h"
 #include "Core/Log.h"
 
@@ -16,6 +17,90 @@
 using json = nlohmann::json;
 
 namespace Engine {
+
+    // A shader graph file, its compiled form and program (shared by every material using it)
+    struct ResourceLibrary::CachedShaderGraph {
+        std::shared_ptr<const ShaderGraph> Graph;
+        std::filesystem::file_time_type Stamp{};
+        bool Live = false;                        // the editor's copy (SetShaderGraph): not read from the file
+        bool Missing = false;
+        SGCompiled Compiled;
+        std::shared_ptr<SGProgram> Program;
+        void Compile() {
+            Compiled = Graph ? CompileShaderGraph(*Graph) : SGCompiled{};
+            Program = Compiled.Ok ? SGProgram::For(Compiled.Code, Compiled.VertexCode) : nullptr;
+        }
+    };
+
+    ResourceLibrary::CachedShaderGraph* ResourceLibrary::ShaderGraphEntry(const std::string& path) {
+        namespace fs = std::filesystem;
+        if (path.empty()) return nullptr;
+        auto& slot = m_ShaderGraphs[path];
+        if (slot) return slot.get();
+        slot = std::make_shared<CachedShaderGraph>();
+        std::error_code ec;
+        const fs::path file = fs::u8path(m_AssetDir + path);
+        slot->Stamp = fs::last_write_time(file, ec);
+        slot->Missing = (bool)ec;
+        if (slot->Missing) { ENGINE_WARN("Shader graph {}: no such file", path); return slot.get(); }
+        try {
+            std::ifstream in(file, std::ios::binary);
+            slot->Graph = std::make_shared<const ShaderGraph>(ShaderGraph::FromJson(json::parse(in)));
+        }
+        catch (const std::exception& e) { ENGINE_WARN("Shader graph {}: {}", path, e.what()); }
+        slot->Compile();
+        if (slot->Graph && !slot->Compiled.Ok) ENGINE_WARN("Shader graph {} has errors", path);
+        return slot.get();
+    }
+
+    std::shared_ptr<const ShaderGraph> ResourceLibrary::LoadShaderGraph(const std::string& path) {
+        CachedShaderGraph* c = ShaderGraphEntry(path);
+        return c ? c->Graph : nullptr;
+    }
+
+    const SGCompiled* ResourceLibrary::CompiledShaderGraph(const std::string& path) {
+        CachedShaderGraph* c = ShaderGraphEntry(path);
+        return c && c->Graph ? &c->Compiled : nullptr;
+    }
+
+    void ResourceLibrary::SetShaderGraph(const std::string& path, const ShaderGraph& graph) {
+        CachedShaderGraph* c = ShaderGraphEntry(path);
+        if (!c) return;
+        c->Graph = std::make_shared<const ShaderGraph>(graph);
+        c->Live = true;
+        c->Missing = false;
+        c->Compile();
+        ResolveMaterials();
+    }
+
+    bool ResourceLibrary::RefreshShaderGraphs(const std::function<bool(const std::string&)>& keep) {
+        namespace fs = std::filesystem;
+        std::vector<std::string> changed;
+        for (auto& [path, c] : m_ShaderGraphs) {
+            if (keep && keep(path)) continue;
+            std::error_code ec;
+            const auto stamp = fs::last_write_time(fs::u8path(m_AssetDir + path), ec);
+            if (ec || (stamp == c->Stamp && !c->Live)) continue;
+            changed.push_back(path);
+        }
+        for (const std::string& p : changed) m_ShaderGraphs.erase(p);   // read again on next use
+        if (!changed.empty()) ResolveMaterials();
+        return !changed.empty();
+    }
+
+    std::string ResourceLibrary::GraphPreviewMaterial(const std::string& graphPath) {
+        const std::string path = graphPath + ".preview.mat";
+        if (auto it = m_Materials.find(path); it != m_Materials.end()) return path;
+        auto m = std::make_shared<MaterialAsset>();
+        m->Path = path;
+        // Cutout and double-sided, so a graph that writes alpha shows its holes (alpha 1 passes everywhere)
+        m->File = { { "shader", graphPath }, { "alphaMode", "cutout" }, { "doubleSided", true } };
+        CachedMaterial& c = m_Materials[path];
+        c.Asset = m;
+        c.Virtual = true;                                // never on disk
+        ResolveMaterials();
+        return path;
+    }
 
     namespace {
         // An image under Assets as RGBA rows, bottom row first (like Texture2D). False if it can't be read.
@@ -135,10 +220,22 @@ namespace Engine {
                 merged = MaterialDescToJson(parent->Desc);
             }
         }
-        for (auto it = m.File.begin(); it != m.File.end(); ++it)
-            if (it.key() != "version" && it.key() != "parent") merged[it.key()] = it.value();
+        for (auto it = m.File.begin(); it != m.File.end(); ++it) {
+            if (it.key() == "version" || it.key() == "parent") continue;
+            if (it.key() == "params" && it->is_object() && merged.contains("params") && merged["params"].is_object()) {
+                for (auto p = it->begin(); p != it->end(); ++p) merged["params"][p.key()] = p.value();   // one by one
+                continue;
+            }
+            merged[it.key()] = it.value();
+        }
         m.Desc = MaterialDescFromJson(merged);
-        if (m.Desc.Shader != "standard" && m.Error.empty())
+        const SGCompiled* graph = nullptr;
+        if (m.Desc.IsGraph()) {
+            graph = CompiledShaderGraph(m.Desc.Shader);
+            if (!graph && m.Error.empty()) m.Error = "can't read the shader graph " + m.Desc.Shader;
+            else if (graph && !graph->Ok && m.Error.empty()) m.Error = "the shader graph " + m.Desc.Shader + " has errors";
+        }
+        else if (m.Desc.Shader != "standard" && m.Error.empty())
             m.Error = "unknown shader \"" + m.Desc.Shader + "\" (drawn with standard)";
 
         // The textures, for mesh parts
@@ -164,6 +261,47 @@ namespace Engine {
         s.UVOffset = d.UVOffset;
         s.Unlit = d.Unlit;
         s.CastShadows = d.CastShadows;
+
+        // A shader graph gives the surface: the program and the params' values (the material's, else the graph's)
+        if (d.IsGraph()) {
+            s.Albedo = s.Normal = s.MetalRough = s.Emissive = nullptr;
+            s.Color = glm::vec3(1.0f);                       // the object's tint only
+            s.EmissiveColor = glm::vec3(0.0f);
+            s.Metallic = 0.0f; s.Roughness = 0.5f; s.Specular = 1.0f; s.NormalStrength = 1.0f;
+            s.UVScale = glm::vec2(1.0f); s.UVOffset = glm::vec2(0.0f);
+            const CachedShaderGraph* cg = graph ? ShaderGraphEntry(d.Shader) : nullptr;
+            if (!graph || !graph->Ok || !cg || !cg->Program) s.Color = glm::vec3(1.0f, 0.0f, 1.0f);   // magenta: broken
+            else {
+                auto b = std::make_shared<SGBinding>();
+                b->Program = cg->Program;
+                b->WritesAlpha = graph->WritesAlpha;
+                b->HasVertexOffset = graph->HasVertexOffset;
+                for (size_t i = 0; i < graph->Params.size(); i++) {
+                    const SGParam& p = graph->Params[i];
+                    SGBinding::Value v;
+                    v.Uniform = graph->Uniforms[i];
+                    const json* own = (!p.Name.empty() && p.Name[0] != '_' && d.Params.contains(p.Name)) ? &d.Params[p.Name] : nullptr;
+                    if (p.Type == "texture") {
+                        const std::string path = own && own->is_string() ? own->get<std::string>() : p.Texture;
+                        v.Kind = 5;
+                        v.Unit = graph->TextureUnits[i];
+                        v.Tex = path.empty() ? nullptr : path == "checker" ? m_Checker : p.Linear ? LoadDataTexture(path) : LoadTexture(path);
+                    }
+                    else {
+                        glm::vec4 x = p.Default;
+                        if (own && own->is_number()) x.x = own->get<float>();
+                        else if (own && own->is_array())
+                            for (size_t k = 0; k < own->size() && k < 4; k++) if ((*own)[k].is_number()) x[(int)k] = (*own)[k].get<float>();
+                        if (p.Type == "color") x = glm::vec4(glm::pow(glm::max(glm::vec3(x), glm::vec3(0.0f)), glm::vec3(2.2f)), x.w);   // to linear
+                        v.Kind = p.Type == "float" ? 1 : p.Type == "vec2" ? 2 : p.Type == "vec4" ? 4 : 3;
+                        v.V = x;
+                    }
+                    b->Values.push_back(std::move(v));
+                }
+                s.Graph = b;
+                s.Unlit = d.Unlit || graph->Unlit;
+            }
+        }
 
         // The same maps packed the way terrain layers read them (normal, grey roughness, height)
         TerrainLayer layer;

@@ -155,6 +155,25 @@ namespace Engine {
         return std::make_shared<Mesh>(vertices, indices);
     }
 
+    std::shared_ptr<Mesh> Mesh::CreateGrid(float size, uint32_t segments, float uvRepeat) {
+        segments = std::clamp(segments, 1u, 1024u);
+        const float s = size * 0.5f;
+        std::vector<Vertex> vertices;
+        std::vector<uint32_t> indices;
+        vertices.reserve(size_t(segments + 1) * (segments + 1));
+        for (uint32_t j = 0; j <= segments; j++)              // UVs as CreatePlane: u along +X, v along -Z
+            for (uint32_t i = 0; i <= segments; i++) {
+                const float u = (float)i / segments, v = (float)j / segments;
+                vertices.push_back({ glm::vec3(-s + u * size, 0.0f, s - v * size), glm::vec3(0, 1, 0), glm::vec2(u * uvRepeat, v * uvRepeat) });
+            }
+        for (uint32_t j = 0; j < segments; j++)
+            for (uint32_t i = 0; i < segments; i++) {
+                const uint32_t a = j * (segments + 1) + i, b = a + 1, c = a + segments + 2, d = a + segments + 1;
+                indices.insert(indices.end(), { a, b, c, c, d, a });   // the plane's winding
+            }
+        return std::make_shared<Mesh>(vertices, indices);
+    }
+
     std::shared_ptr<Mesh> Mesh::CreateSphere(uint32_t segments) {
         segments = std::max(segments, 8u);
         const uint32_t rings = segments / 2;

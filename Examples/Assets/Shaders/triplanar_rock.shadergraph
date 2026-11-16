@@ -1,0 +1,149 @@
+{
+    "version":  1,
+    "settings":  {
+                     "unlit":  false
+                 },
+    "params":  [
+                   {
+                       "name":  "Rock",
+                       "type":  "texture",
+                       "default":  "Textures/Terrain/rock.jpg"
+                   },
+                   {
+                       "name":  "Scale",
+                       "type":  "float",
+                       "default":  0.5
+                   },
+                   {
+                       "name":  "Tint",
+                       "type":  "color",
+                       "default":  [
+                                       1.0,
+                                       1.0,
+                                       1.0
+                                   ]
+                   }
+               ],
+    "nodes":  [
+                  {
+                      "id":  1,
+                      "type":  "Output",
+                      "pos":  [
+                                  910,
+                                  0
+                              ],
+                      "values":  {
+                                     "Roughness":  [
+                                                       0.85
+                                                   ]
+                                 }
+                  },
+                  {
+                      "id":  2,
+                      "type":  "Property",
+                      "pos":  [
+                                  0,
+                                  0
+                              ],
+                      "values":  {
+                                     "param":  "Rock"
+                                 }
+                  },
+                  {
+                      "id":  3,
+                      "type":  "Property",
+                      "pos":  [
+                                  0,
+                                  252
+                              ],
+                      "values":  {
+                                     "param":  "Scale"
+                                 }
+                  },
+                  {
+                      "id":  4,
+                      "type":  "Triplanar",
+                      "pos":  [
+                                  260,
+                                  84
+                              ],
+                      "values":  {
+
+                                 }
+                  },
+                  {
+                      "id":  5,
+                      "type":  "Property",
+                      "pos":  [
+                                  260,
+                                  420
+                              ],
+                      "values":  {
+                                     "param":  "Tint"
+                                 }
+                  },
+                  {
+                      "id":  6,
+                      "type":  "Multiply",
+                      "pos":  [
+                                  572,
+                                  126
+                              ],
+                      "values":  {
+
+                                 }
+                  }
+              ],
+    "links":  [
+                  {
+                      "from":  [
+                                   2,
+                                   "Texture"
+                               ],
+                      "to":  [
+                                 4,
+                                 "Texture"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   3,
+                                   "Value"
+                               ],
+                      "to":  [
+                                 4,
+                                 "Scale"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   4,
+                                   "RGB"
+                               ],
+                      "to":  [
+                                 6,
+                                 "A"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   5,
+                                   "Value"
+                               ],
+                      "to":  [
+                                 6,
+                                 "B"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   6,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 1,
+                                 "BaseColor"
+                             ]
+                  }
+              ]
+}

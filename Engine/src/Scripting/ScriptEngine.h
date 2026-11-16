@@ -124,14 +124,17 @@ namespace Engine {
     //   e.light  -> nil or { color, intensity, shadows }
     //   e.body   -> nil or { velocity, angular_velocity, type, trigger, lock_rotation, mass,
     //                         add_force(v) (newtons, lasts this frame: call each frame), add_impulse(v) }
-    //   e:add_mesh{ geometry="cube"|"sphere"|"plane"|"capsule"|"cylinder"|"cone"|"model:Models/x.glb", color=vec3 (and
+    //   e:add_mesh{ geometry="cube"|"sphere"|"plane"|"grid"|"capsule"|"cylinder"|"cone"|"model:Models/x.glb", color=vec3 (and
     //               metallic, roughness, emissive: overrides), fit=metres (models: scaled to that size, standing on the origin),
     //               opacity, alpha_mode, alpha_cutoff, cast_shadows, static, wind, double_sided (texture, unlit and
     //               specular are material values: an error here),
     //               lods = { { geometry = "model:Models/x_lod1.glb", distance = 25 }, ... }, cull_distance,
     //               material = "Materials/x.mat" (every part) or materials = { "Materials/a.mat", "", ... } (per part) }
     //   material.exists(path) -> bool        a material file (Assets/Materials/*.mat; Renderer/MaterialAsset.h names its keys)
-    //   material.get(path) -> table           every value after its parent's (colours as vec3, maps as paths, parent)
+    //   material.get(path) -> table           every value after its parent's (colours as vec3, maps as paths, parent, params of a
+    //                                         shader graph material, error: "" or why it draws magenta)
+    //   material.set_param(path, name, value) a shader graph param (number, list, vec3 colour or texture path), for
+    //                                         everything using the material, until Play stops
     //   material.set(path, key, value)        changes it for every part and terrain layer using it, until Play stops
     //                                         (never saved); an unknown key or a wrong type is an error
     //   e:add_body{ type="dynamic"|"static"|"kinematic", shape="box"|"sphere"|"capsule"|"convex"|"mesh"|"none", size=number|vec3,

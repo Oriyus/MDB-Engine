@@ -6,6 +6,8 @@
 
 namespace Engine {
 
+    struct SGBinding;   // Renderer/ShaderGraph.h
+
     // How a surface uses alpha. The numbers are stored in scene files: append only.
     //   Opaque: alpha ignored.  Cutout: pixels below the cutoff are dropped (leaves, fences).
     //   Blend: see-through, drawn after the opaque scene, back to front (glass, water, ghosts).
@@ -34,6 +36,9 @@ namespace Engine {
         glm::vec2 UVOffset{ 0.0f };
         bool Unlit = false;                       // its colour only, no lighting (like Mesh Renderer Unlit)
         bool CastShadows = true;                  // and the Mesh Renderer's Cast shadows
+        // A shader graph material ("shader": "Shaders/x.shadergraph"): the graph gives the surface; the values above
+        // are its render state (alpha mode, cutoff, double-sided, shadows, unlit) and the textures stay empty
+        std::shared_ptr<const SGBinding> Graph;
     };
 
     // The look of a mesh part with no material file and no model material: white, roughness 0.5, standard

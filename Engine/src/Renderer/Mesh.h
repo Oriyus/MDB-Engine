@@ -62,6 +62,8 @@ namespace Engine {
         static std::shared_ptr<Mesh> CreateCube();
         // Flat square on the XZ plane facing +Y. UVs run 0..uvRepeat.
         static std::shared_ptr<Mesh> CreatePlane(float size, float uvRepeat = 1.0f);
+        // The same square split into segments x segments quads (shader graph vertex offsets need points to move: water)
+        static std::shared_ptr<Mesh> CreateGrid(float size, uint32_t segments, float uvRepeat = 1.0f);
 
     private:
         std::unique_ptr<VertexArray> m_VAO;

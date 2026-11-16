@@ -59,6 +59,7 @@ namespace Engine {
     std::shared_ptr<Mesh> ResourceLibrary::Capsule() { if (!m_Capsule) m_Capsule = Mesh::CreateCapsule(40); return m_Capsule; }
     std::shared_ptr<Mesh> ResourceLibrary::Cylinder() { if (!m_Cylinder) m_Cylinder = Mesh::CreateCylinder(40); return m_Cylinder; }
     std::shared_ptr<Mesh> ResourceLibrary::Cone() { if (!m_Cone) m_Cone = Mesh::CreateCone(40); return m_Cone; }
+    std::shared_ptr<Mesh> ResourceLibrary::Grid() { if (!m_Grid) m_Grid = Mesh::CreateGrid(12.0f, 128, 6.0f); return m_Grid; }
 
     std::shared_ptr<Model> ResourceLibrary::SampleModel() {
         if (!m_Model) m_Model = std::make_shared<Model>(m_EngineDir + "Models/BoomBox.glb");   // built in: "model"
@@ -271,6 +272,7 @@ namespace Engine {
             if (g == m_Capsule) return "capsule";
             if (g == m_Cylinder) return "cylinder";
             if (g == m_Cone) return "cone";
+            if (g == m_Grid) return "grid";
             if (g == m_Model) return "model";
             for (const auto& [path, m] : m_Models) {
                 if (!m) continue;
@@ -287,6 +289,7 @@ namespace Engine {
             if (n == "capsule") return Capsule();
             if (n == "cylinder") return Cylinder();
             if (n == "cone") return Cone();
+            if (n == "grid") return Grid();
             if (n == "model") return SampleModel();
             if (n.rfind("model:", 0) == 0) {
                 // "model:<path>#lod<k>": level k of the levels of detail inside that file (Model::Lod)

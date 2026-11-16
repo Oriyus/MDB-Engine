@@ -57,6 +57,7 @@ namespace Engine {
         Get(j, "heightMap", d.HeightMap);
         GetVec(j, "uvScale", d.UVScale);
         GetVec(j, "uvOffset", d.UVOffset);
+        if (auto it = j.find("params"); it != j.end() && it->is_object()) d.Params = *it;
         d.Alpha = std::clamp(d.Alpha, 0.0f, 1.0f);
         d.AlphaCutoff = std::clamp(d.AlphaCutoff, 0.0f, 1.0f);
         d.Metallic = std::clamp(d.Metallic, 0.0f, 1.0f);
@@ -97,6 +98,7 @@ namespace Engine {
         put("heightMap", d.HeightMap, b.HeightMap);
         putV("uvScale", d.UVScale, b.UVScale);
         putV("uvOffset", d.UVOffset, b.UVOffset);
+        if (!d.Params.empty() && (all || d.Params != b.Params)) j["params"] = d.Params;
         return j;
     }
 

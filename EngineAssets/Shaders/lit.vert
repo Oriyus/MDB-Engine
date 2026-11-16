@@ -86,6 +86,17 @@ vec4 ApplyWind(vec4 world, vec3 local, Instance inst, float windTime, vec4 wd) {
     return world;
 }
 
+#ifdef MDB_GRAPH_VERTEX
+// @GRAPH_CODE
+// A shader graph's Vertex Offset (world space, metres), at a given time (motion vectors use last frame's)
+vec3 GraphOffset(vec3 worldPos, vec3 worldNormal, vec2 uv, float time) {
+    SGIn gIn;
+    gIn.UV = uv; gIn.WorldPos = worldPos; gIn.WorldNormal = worldNormal;
+    gIn.ViewDir = vec3(0.0, 1.0, 0.0); gIn.Time = time; gIn.ScreenUV = vec2(0.5);
+    return GraphVertexOffset(gIn);
+}
+#endif
+
 void main() {
     Instance inst = u_Instances[u_Indices[u_InstanceBase + gl_InstanceID]];
 
@@ -102,6 +113,14 @@ void main() {
     // Motion vectors: this frame and last, without the TAA jitter. Skinned parts move with their entity only
     // (the previous bone pose is not kept), and their limbs are left to the resolve's neighbourhood clamp.
     vec4 prevWorld = ApplyWind(inst.PrevModel * pos, pos.xyz, inst, u_SceneWindTimePrev, a_Wind);
+#ifdef MDB_GRAPH_VERTEX
+    {
+        vec3 gN = normalize(mat3(inst.Normal) * nrm);
+        vec2 gUV = a_TexCoord * (1.0 + vec2(inst.Normal[0].w, inst.Normal[1].w)) + inst.Normal[3].xy;
+        world.xyz += GraphOffset(world.xyz, gN, gUV, u_SceneWindTime);
+        prevWorld.xyz += GraphOffset(prevWorld.xyz, gN, gUV, u_SceneWindTimePrev);
+    }
+#endif
     v_CurClip = u_CurViewProjection * world;
     v_PrevClip = u_PrevViewProjection * prevWorld;
     v_WorldPos = world.xyz;

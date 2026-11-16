@@ -1,0 +1,281 @@
+{
+    "version":  1,
+    "settings":  {
+                     "unlit":  false
+                 },
+    "params":  [
+                   {
+                       "name":  "Amount",
+                       "type":  "float",
+                       "default":  0.45
+                   },
+                   {
+                       "name":  "Base",
+                       "type":  "color",
+                       "default":  [
+                                       0.6,
+                                       0.6,
+                                       0.65
+                                   ]
+                   },
+                   {
+                       "name":  "Edge",
+                       "type":  "color",
+                       "default":  [
+                                       1.0,
+                                       0.45,
+                                       0.1
+                                   ]
+                   }
+               ],
+    "nodes":  [
+                  {
+                      "id":  1,
+                      "type":  "Output",
+                      "pos":  [
+                                  1170,
+                                  0
+                              ],
+                      "values":  {
+                                     "Roughness":  [
+                                                       0.5
+                                                   ]
+                                 }
+                  },
+                  {
+                      "id":  2,
+                      "type":  "Fractal Noise",
+                      "pos":  [
+                                  0,
+                                  126
+                              ],
+                      "values":  {
+                                     "Scale":  [
+                                                   6.0
+                                               ]
+                                 }
+                  },
+                  {
+                      "id":  3,
+                      "type":  "Property",
+                      "pos":  [
+                                  0,
+                                  420
+                              ],
+                      "values":  {
+                                     "param":  "Amount"
+                                 }
+                  },
+                  {
+                      "id":  4,
+                      "type":  "Subtract",
+                      "pos":  [
+                                  260,
+                                  210
+                              ],
+                      "values":  {
+
+                                 }
+                  },
+                  {
+                      "id":  5,
+                      "type":  "Add",
+                      "pos":  [
+                                  494,
+                                  210
+                              ],
+                      "values":  {
+                                     "B":  [
+                                               0.5
+                                           ]
+                                 }
+                  },
+                  {
+                      "id":  6,
+                      "type":  "Smoothstep",
+                      "pos":  [
+                                  728,
+                                  336
+                              ],
+                      "values":  {
+                                     "Edge 1":  [
+                                                    0.5
+                                                ],
+                                     "Edge 2":  [
+                                                    0.56
+                                                ]
+                                 }
+                  },
+                  {
+                      "id":  7,
+                      "type":  "One Minus",
+                      "pos":  [
+                                  936,
+                                  336
+                              ],
+                      "values":  {
+
+                                 }
+                  },
+                  {
+                      "id":  8,
+                      "type":  "Property",
+                      "pos":  [
+                                  728,
+                                  630
+                              ],
+                      "values":  {
+                                     "param":  "Edge"
+                                 }
+                  },
+                  {
+                      "id":  9,
+                      "type":  "Multiply",
+                      "pos":  [
+                                  936,
+                                  588
+                              ],
+                      "values":  {
+                                     "B":  [
+                                               1.0
+                                           ]
+                                 }
+                  },
+                  {
+                      "id":  10,
+                      "type":  "Multiply",
+                      "pos":  [
+                                  1118,
+                                  588
+                              ],
+                      "values":  {
+                                     "B":  [
+                                               6.0
+                                           ]
+                                 }
+                  },
+                  {
+                      "id":  11,
+                      "type":  "Property",
+                      "pos":  [
+                                  728,
+                                  -210
+                              ],
+                      "values":  {
+                                     "param":  "Base"
+                                 }
+                  }
+              ],
+    "links":  [
+                  {
+                      "from":  [
+                                   2,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 4,
+                                 "A"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   3,
+                                   "Value"
+                               ],
+                      "to":  [
+                                 4,
+                                 "B"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   4,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 5,
+                                 "A"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   5,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 1,
+                                 "Alpha"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   5,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 6,
+                                 "In"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   6,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 7,
+                                 "In"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   8,
+                                   "Value"
+                               ],
+                      "to":  [
+                                 9,
+                                 "A"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   7,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 9,
+                                 "B"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   9,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 10,
+                                 "A"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   10,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 1,
+                                 "Emission"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   11,
+                                   "Value"
+                               ],
+                      "to":  [
+                                 1,
+                                 "BaseColor"
+                             ]
+                  }
+              ]
+}

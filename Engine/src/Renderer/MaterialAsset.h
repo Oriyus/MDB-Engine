@@ -26,7 +26,9 @@ namespace Engine {
     //
     // Every key is optional. With a parent, the file holds only what it changes: the parent's values (its own parent's
     // first) are read, then this file's keys replace them, so a variant follows later edits of its parent.
-    // "shader" names the shader the values feed: "standard" (lit.frag's PBR) is the only one so far.
+    // "shader" names the shader the values feed: "standard" (lit.frag's PBR) or a shader graph ("Shaders/x.shadergraph",
+    // Renderer/ShaderGraph.h), whose params are set in "params": { "Tint": [1, 0, 0], "Albedo": "Textures/x.png" }; with a
+    // graph only the render-state values are used (alphaMode, alphaCutoff, doubleSided, castShadows, unlit).
     struct MaterialDesc {
         std::string Shader = "standard";
         glm::vec3 Color{ 1.0f };                  // sRGB-style
@@ -50,6 +52,10 @@ namespace Engine {
         std::string EmissiveMap;
         std::string HeightMap;
         glm::vec2 UVScale{ 1.0f }, UVOffset{ 0.0f };
+        // A shader graph material: the values of the graph's params by name (numbers: a number or a list; textures: a path).
+        // A variant's params are merged into its parent's one by one.
+        nlohmann::json Params = nlohmann::json::object();
+        bool IsGraph() const { return Shader.size() > 12 && Shader.compare(Shader.size() - 12, 12, ".shadergraph") == 0; }
     };
 
     // The keys a file may hold (besides version and parent), in the order they are written

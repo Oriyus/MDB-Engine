@@ -43,6 +43,8 @@
 #include "DatabaseEditor.h"
 #include "UIEditor.h"
 #include "MaterialEditor.h"
+#include "ShaderGraphEditor.h"
+#include "Renderer/ShaderGraph.h"
 #include "Renderer/MaterialAsset.h"
 #include "ModelPreview.h"
 #include "Runtime/GameDatabase.h"
@@ -303,7 +305,16 @@ public:
         m_UIEditor.TextureId = [this](const std::string& p) -> uint32_t { auto t = m_Resources->LoadTexture(p); return t ? t->GetID() : 0; };
         // The Material Editor: every edit goes live on every part and terrain layer using the file
         m_MaterialEditor.SetResources(m_Resources.get());
+        m_ShaderGraph.SetResources(m_Resources.get());
+        m_ShaderGraph.TextureId = [this](const std::string& p) -> uint32_t { auto t = p == "checker" ? m_Checker : m_Resources->LoadTexture(p); return t ? t->GetID() : 0; };
+        if (auto sg = EnvVar("MDB_OPEN_SHADERGRAPH"); !sg.empty()) {   // test hook: "Shaders/x.shadergraph"
+            m_ShaderGraph.Open(sg);
+            if (auto pr = EnvVar("MDB_SHADERGRAPH_PRESET"); !pr.empty()) m_ShaderGraph.LoadPreset(pr);   // test hook: replace it with a preset
+            if (EnvVar("MDB_SAVE_SHADERGRAPH") == "1") m_ShaderGraph.Save();
+            m_ShowShaderGraph = true;
+        }
         m_MaterialEditor.TextureId = [this](const std::string& p) -> uint32_t { auto t = m_Resources->LoadTexture(p); return t ? t->GetID() : 0; };
+        m_MaterialEditor.OnEditGraph = [this](const std::string& g) { m_ShaderGraph.Open(g); m_ShowShaderGraph = true; ImGui::SetWindowFocus("###ShaderGraph"); };
         if (auto mf = EnvVar("MDB_OPEN_MATERIAL"); !mf.empty()) {   // test hook: "Materials/x.mat"
             m_MaterialEditor.Open(mf);
             if (EnvVar("MDB_SAVE_MATERIAL") == "1") m_MaterialEditor.Save();   // re-save it through the editor
@@ -426,7 +437,7 @@ public:
         bool kp = EdgePressed(Key::P, m_PDown);
         const bool dialogueKeys = (m_ShowDialogue && m_Dialogue.IsFocused()) || (m_ShowAnimGraph && m_AnimGraph.IsFocused()) ||
                                   (m_ShowDatabase && m_Database.IsFocused()) || (m_ShowUIEditor && m_UIEditor.IsFocused()) ||
-                                  (m_ShowMaterialEditor && m_MaterialEditor.IsFocused());   // those editors have their own shortcuts
+                                  (m_ShowMaterialEditor && m_MaterialEditor.IsFocused()) || (m_ShowShaderGraph && m_ShaderGraph.IsFocused());   // those editors have their own shortcuts
         if (!typing && kesc && !dialogueKeys) {
             if (m_PlayState != PlayState::Edit) m_PlayCmd = PlayCmd::Stop;
             else RequestQuit();
@@ -478,6 +489,8 @@ public:
                 m_Renderer->ReloadShaders();
                 m_Preview.ReloadShaders();
                 m_MaterialEditor.ReloadShaders();
+                m_ShaderGraph.ReloadShaders();
+                m_Resources->RefreshShaderGraphs([this](const std::string& p) { return m_ShaderGraph.Holds(p); });
                 m_Resources->RefreshMaterials([this](const Engine::MaterialAsset& m) { return m_MaterialEditor.Holds(m); });
                 if (m_PlayState != PlayState::Edit) m_ReloadScripts = true;   // applied next frame
             }
@@ -629,9 +642,11 @@ public:
         { PROFILE_SCOPE("Render"); m_Renderer->Render(m_Scene, view, vw, vh); }
         { PROFILE_SCOPE("Asset preview"); m_Preview.Render(dt, *m_Resources); }
         { PROFILE_SCOPE("Material preview"); m_MaterialEditor.Render(dt); }
+        { PROFILE_SCOPE("Shader graph preview"); m_ShaderGraph.Render(dt); }
         // Material files edited outside the editor (or by git) are read again, about once a second
         if ((m_MaterialCheck += dt) > 1.0f) {
             m_MaterialCheck = 0.0f;
+            m_Resources->RefreshShaderGraphs([this](const std::string& p) { return m_ShaderGraph.Holds(p); });
             m_Resources->RefreshMaterials([this](const Engine::MaterialAsset& m) { return m_MaterialEditor.Holds(m); });
         }
 
@@ -690,7 +705,13 @@ public:
                 ImGui::SetNextWindowDockID(ins->DockId, ImGuiCond_FirstUseEver);   // a tab beside the Inspector
             m_MaterialEditor.Draw(&m_ShowMaterialEditor);
         }
+        if (m_ShowShaderGraph) {
+            if (ImGuiWindow* vp = ImGui::FindWindowByName("Viewport"); vp && vp->DockId)
+                ImGui::SetNextWindowDockID(vp->DockId, ImGuiCond_FirstUseEver);   // a tab beside the Viewport
+            m_ShaderGraph.Draw(&m_ShowShaderGraph);
+        }
         DrawMaterialQuitModal();
+        DrawShaderGraphQuitModal();
         DrawDatabaseQuitModal();
         DrawUIQuitModal();
         DrawGraphQuitModal();
@@ -757,6 +778,7 @@ public:
         if (m_Database.IsDirty() && !m_DbDiscarded) { m_AskDbQuit = true; m_ShowDatabase = true; return; }
         if (m_UIEditor.IsDirty() && !m_UIDiscarded) { m_AskUIQuit = true; m_ShowUIEditor = true; return; }
         if (m_MaterialEditor.IsDirty() && !m_MaterialDiscarded) { m_AskMaterialQuit = true; m_ShowMaterialEditor = true; return; }
+        if (m_ShaderGraph.IsDirty() && !m_GraphEditorDiscarded) { m_AskGraphEditorQuit = true; m_ShowShaderGraph = true; return; }
         if (m_AnimGraph.IsDirty() && !m_GraphDiscarded) { m_AskGraphQuit = true; m_ShowAnimGraph = true; return; }
         if (m_Dialogue.IsDirty() && !m_DialogueDiscarded) { m_AskDialogueQuit = true; m_ShowDialogue = true; return; }
         if (m_History.IsDirty()) m_Confirm = ConfirmAction::Quit;
@@ -898,6 +920,7 @@ public:
         if (m_Database.IsDirty() && !m_DbDiscarded && !m_QuitConfirmed) { m_AskDbQuit = true; m_ShowDatabase = true; return false; }
         if (m_UIEditor.IsDirty() && !m_UIDiscarded && !m_QuitConfirmed) { m_AskUIQuit = true; m_ShowUIEditor = true; return false; }
         if (m_MaterialEditor.IsDirty() && !m_MaterialDiscarded && !m_QuitConfirmed) { m_AskMaterialQuit = true; m_ShowMaterialEditor = true; return false; }
+        if (m_ShaderGraph.IsDirty() && !m_GraphEditorDiscarded && !m_QuitConfirmed) { m_AskGraphEditorQuit = true; m_ShowShaderGraph = true; return false; }
         if (m_AnimGraph.IsDirty() && !m_GraphDiscarded && !m_QuitConfirmed) { m_AskGraphQuit = true; m_ShowAnimGraph = true; return false; }
         if (m_Dialogue.IsDirty() && !m_DialogueDiscarded && !m_QuitConfirmed) { m_AskDialogueQuit = true; m_ShowDialogue = true; return false; }
         if (m_QuitConfirmed || !m_History.IsDirty()) return true;
@@ -928,6 +951,30 @@ public:
         }
         ImGui::SameLine();
         if (ImGui::Button("Cancel", ImVec2(110, 0))) { m_AskGraphQuit = false; m_SwitchProject.clear(); ImGui::CloseCurrentPopup(); }
+        ImGui::EndPopup();
+    }
+
+    // Quitting with unsaved changes in the Shader Graph Editor: asked first
+    void DrawShaderGraphQuitModal() {
+        if (m_AskGraphEditorQuit && !ImGui::IsPopupOpen("Unsaved shader graph changes")) ImGui::OpenPopup("Unsaved shader graph changes");
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        if (!ImGui::BeginPopupModal("Unsaved shader graph changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+        ImGui::Text("The shader graph %s has unsaved changes.", m_ShaderGraph.Path().c_str());
+        ImGui::Spacing();
+        if (ImGui::Button("Save", ImVec2(110, 0)) && m_ShaderGraph.Save()) {
+            m_AskGraphEditorQuit = false;
+            ImGui::CloseCurrentPopup();
+            RequestQuit();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Discard", ImVec2(110, 0))) {
+            m_AskGraphEditorQuit = false;
+            m_GraphEditorDiscarded = true;
+            ImGui::CloseCurrentPopup();
+            RequestQuit();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(110, 0))) { m_AskGraphEditorQuit = false; m_SwitchProject.clear(); ImGui::CloseCurrentPopup(); }
         ImGui::EndPopup();
     }
 
@@ -1342,7 +1389,7 @@ public:
         EnsureSphere();
         LevelAssets a{ m_Cube, m_Plane, m_Sphere, m_Checker, m_Resources->LoadModel("Models/Fox.glb"),
             m_Resources->LoadTexture("Textures/fence.png"), m_Resources->LoadTexture("Textures/window.png"),
-            m_Resources->Capsule(), m_Resources->Cone() };
+            m_Resources->Capsule(), m_Resources->Cone(), m_Resources->Grid() };
         const char* layers[4] = { "grass", "earth", "rock", "sand" };
         for (int i = 0; i < 4; i++) a.TerrainLayers[i] = m_Resources->LoadTexture(std::string("Textures/Terrain/") + layers[i] + ".jpg");
         a.TerrainSurface = [this](const Engine::TerrainLayer& L) { return m_Resources->LoadTerrainSurface(L); };
@@ -2034,6 +2081,7 @@ private:
             ImGui::MenuItem("Database", nullptr, &m_ShowDatabase);
             ImGui::MenuItem("UI Editor", nullptr, &m_ShowUIEditor);
             ImGui::MenuItem("Material Editor", nullptr, &m_ShowMaterialEditor);
+            ImGui::MenuItem("Shader Graph", nullptr, &m_ShowShaderGraph);
             ImGui::Separator();
             if (ImGui::MenuItem("Hide Panels", "F1", !m_ShowUI)) m_ShowUI = !m_ShowUI;
             if (ImGui::MenuItem("Full Screen", "F11", GetWindow().IsFullscreen())) m_ToggleFullscreen = true;
@@ -2849,7 +2897,7 @@ private:
                 }
                 ImGui::Separator();
             }
-            for (const char* builtin : { "cube", "sphere", "plane", "capsule", "cylinder", "cone" })
+            for (const char* builtin : { "cube", "sphere", "plane", "grid", "capsule", "cylinder", "cone" })
                 if (ImGui::Selectable(builtin, current == builtin)) { geometry = registry.FindGeometry(builtin); changed = true; }
             ImGui::Separator();
             for (const auto& file : ListModelFiles()) {
@@ -3068,6 +3116,15 @@ private:
             case AssetBrowser::Action::SetSky:
                 if (a.Path.rfind("Environments/", 0) == 0) m_Renderer->RequestEnvironment(a.Path.substr(13));
                 else LOG_WARN("Sky maps load from Assets/Environments ({} is elsewhere)", a.Path);
+                break;
+            case AssetBrowser::Action::OpenShaderGraph:
+                m_ShaderGraph.Open(a.Path);
+                m_ShowShaderGraph = true;
+                ImGui::SetWindowFocus("###ShaderGraph");
+                break;
+            case AssetBrowser::Action::NewShaderGraph:
+                m_ShaderGraph.New(a.Path);
+                m_ShowShaderGraph = true;
                 break;
             case AssetBrowser::Action::OpenMaterial:
                 m_MaterialEditor.Open(a.Path);
@@ -4165,7 +4222,7 @@ private:
                 std::string current = registry.GeometryName(mr.Geometry);
                 if (current.rfind("model:", 0) == 0) current = current.substr(6);
                 if (ImGui::BeginCombo("Geometry", current.empty() ? "(custom)" : current.c_str())) {
-                    for (const char* builtin : { "cube", "sphere", "plane", "capsule", "cylinder", "cone" })
+                    for (const char* builtin : { "cube", "sphere", "plane", "grid", "capsule", "cylinder", "cone" })
                         if (ImGui::Selectable(builtin, current == builtin)) {
                             DropFileLods(mr);                      // the old model's own levels don't fit a shape
                             mr.Geometry = registry.FindGeometry(builtin);
@@ -5061,8 +5118,11 @@ private:
     bool  m_AskDbQuit = false, m_DbDiscarded = false;
     UIEditor m_UIEditor{ Projects::Current().AssetDir() };   // the UI Editor (layouts in Assets/UI for ui.show)
     MaterialEditor m_MaterialEditor{ Projects::EngineDir(), Projects::Current().AssetDir() };   // .mat files
+    ShaderGraphEditor m_ShaderGraph{ Projects::EngineDir(), Projects::Current().AssetDir() };    // .shadergraph files
     bool  m_ShowUIEditor = false;
     bool  m_ShowMaterialEditor = false;
+    bool  m_ShowShaderGraph = false;
+    bool  m_AskGraphEditorQuit = false, m_GraphEditorDiscarded = false;
     bool  m_AskMaterialQuit = false, m_MaterialDiscarded = false;
     float m_MaterialCheck = 0.0f;              // seconds since material files were last checked for changes
     bool  m_AskUIQuit = false, m_UIDiscarded = false;

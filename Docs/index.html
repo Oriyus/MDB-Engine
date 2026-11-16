@@ -422,6 +422,37 @@ local m = material.get("Materials/gold.mat")         -- every value after the pa
 material.set("Materials/glow.mat", "emissiveIntensity", 6)   -- for everything using it, until Play stops</code></pre>
 </section>
 
+<section class="doc" data-group="Engine" id="engine-shader-graphs">
+<h2>Shader graphs</h2>
+<p>A <b>shader graph</b> (<code>Assets/Shaders/&lt;name&gt;.shadergraph</code>) designs a surface as a network of nodes, like Unity's Shader Graph, Amplify Shader or Unreal's material editor. A material uses it with <code>"shader": "Shaders/x.shadergraph"</code>. The graph describes the <b>surface</b> only: base colour, alpha, metallic, roughness, specular, normal (tangent space) and emission, plus a vertex offset; the inputs of its <b>Output</b> node. Lights, cascaded shadows, image-based light, fog of war, TAA and the editor's view modes stay the engine's, so a graph material is lit and shadowed like any other.</p>
+<ul>
+  <li><b>Params</b> are the values a graph exposes: float, vec2, vec3, vec4, color (sRGB in pickers, linear in the shader) and texture (with a <i>Data (linear)</i> switch for normal maps, roughness and masks). Each material using the graph sets its own in <code>"params"</code>, so one graph serves many materials. A variant's params are merged into its parent's one by one.</li>
+  <li><b>Nodes</b>, about 60:
+    <ul>
+      <li><b>Input:</b> UV, Position, Normal, View Direction, Screen Position, Time, Float, Vector2/3/4, Color, Property.</li>
+      <li><b>Texture:</b> Sample Texture, Sample Normal Map, Triplanar.</li>
+      <li><b>UV:</b> Tiling And Offset, Panner, Rotate UV, World UV.</li>
+      <li><b>Math:</b> Add, Subtract, Multiply, Divide, Power, Min/Max, Modulo, Step, One Minus, Negate, Absolute, Floor, Ceiling, Fraction, Square Root, Sine, Cosine, Saturate, Normalize, Clamp, Lerp, Smoothstep, Remap, Posterize, Length, Distance, Dot and Cross Product.</li>
+      <li><b>Vector:</b> Split, Combine.</li>
+      <li><b>Procedural:</b> Noise, Fractal Noise, Voronoi, Checker, Gradient, Waves (four directional sine waves at deep-water speeds: Height for a Vertex Offset, a matching tangent-space Normal for the plane / grid's UVs, and Slope for foam).</li>
+      <li><b>Surface:</b> Fresnel, Desaturate, Contrast, Hue Shift, Normal Blend, Normal Strength, Height Blend.</li>
+      <li><b>Logic:</b> Compare.</li>
+    </ul>
+    Math nodes take any size: a number goes into any vector, a wider vector into a narrower input keeps its first components.</li>
+  <li><b>Render state is the material's:</b> alpha mode and cutoff, double-sided, cast shadows, unlit. A graph whose Alpha is connected cuts the depth pre-pass and the shadows too (a Cutout material: holes cast holes).</li>
+  <li><b>How it runs.</b> The graph compiles to one GLSL function, put into <code>lit.frag</code>, <code>depth_prepass.frag</code>, <code>shadow.frag</code> and <code>sun_shadow.frag</code> at <code>// @GRAPH_CODE</code>. Each graph has those four programs, built on first use and shared by every material using the graph. Batches are sorted by graph; switching to one replays the lighting values the plain shader got that pass. Param values are uniforms per batch, and textures use units 18 to 31 (at most 14 per graph). The object's tint (a script's <code>e.mesh.color</code>, Opacity) multiplies the graph's colour, and its emissive (hit flash) adds to the graph's emission.</li>
+  <li>A graph with errors draws its materials <b>magenta</b>. F5 rebuilds every graph's programs.</li>
+  <li>Examples: <code>Shaders/lava</code> (panning fractal noise into emission), <code>rim_glow</code> (fresnel), <code>dissolve</code> (noise against an Amount cuts the surface, with a glowing edge), <code>triplanar_rock</code> (a rock texture from the world axes). Each has a material with the same name in <code>Materials/</code>, as has <code>wobble</code> (vertex offset, below).</li>
+</ul>
+<pre><code class="lua">self:add_mesh{ geometry = "sphere", material = "Materials/dissolve.mat" }
+material.set_param("Materials/dissolve.mat", "Amount", 0.7)        -- every object using it, until Play stops
+material.set_param("Materials/lava.mat", "Hot", vec3(0.2, 0.9, 0.3))
+log(material.get("Materials/lava.mat").error)                        -- "" when it compiles</code></pre>
+<p><b>Vertex Offset</b> (an Output input, world space, metres) moves the mesh's points: waves, wobble, breathing, custom wind. It is compiled into a second function for <code>lit.vert</code> and <code>shadow.vert</code>, so the depth pre-pass, both shadow passes and the motion vectors (evaluated at last frame's time) all move with it; such a graph always draws with its own programs. Its inputs there: UV, position and normal before the offset, Time (no view direction or screen position). Normals are not recomputed (feed a matching Normal if the lighting should follow), a mesh needs enough vertices to bend (the built-in plane has four), and culling still uses the undisplaced bounds, so keep offsets small or the object can vanish at the screen edge. Examples: <code>Shaders/wobble</code> (a travelling sine wave along the normal) and <code>Shaders/water</code>, each with its material.</p>
+<p><b>Water</b> (<code>Shaders/water.shadergraph</code>, <code>Materials/water.mat</code>: Blend, no shadows). Big waves (a Waves node fed by the Direction, Wavelength, Wave height and Speed params) move the vertices, and their normal is blended with small ripples. The colour goes from Deep in the troughs to Shallow on the crests. Fractal noise drifting over world UVs, plus the wave height, makes foam on the crests (Foam amount); foam is also rougher and opaque. Alpha rises with fresnel, so the water is clearer looking down and reflects the sky towards the horizon. Use it on the <b>grid</b> geometry (Mesh Renderer Example: <code>Shaders/wobble</code> (a travelling sine wave along the normal) with <code>Materials/wobble.mat</code>.</p>gt; Geometry: the 12 m plane as 128 x 128 quads), since a plain plane has nothing to bend. The terrain example's lake uses it.</p>
+<p>Not yet: terrain layers drawn with a graph (they use the material's standard values), sub-graphs.</p>
+</section>
+
 <section class="doc" data-group="Engine" id="engine-transparency">
 <h2>Transparency</h2>
 <table>
@@ -775,6 +806,7 @@ audio.set_volume("music", 0.6)                    -- or "master"; audio.volume(b
 <tr><td><code>dialogue_test.lua</code></td><td>Dialogue runner on the Sage's dialogue (31)</td></tr>
 <tr><td><code>anim_graph_test.lua</code></td><td>Animation graphs on a spawned fox: states, blend, conditions, triggers, Any State, exit time, play_state, an additive layer weight (17)</td></tr>
 <tr><td><code>transform_test.lua</code></td><td>Rotations through Euler angles near gimbal lock (4)</td></tr>
+<tr><td><code>shader_graph_test.lua</code></td><td>Shader graph materials: the example graphs (vertex offset and water included) compile and draw, params, set_param, overrides, save round trip (17; <code>MDB_SCENE=demo.json</code>)</td></tr>
 <tr><td><code>material_test.lua</code></td><td>Material files: values, variants, mesh slots from scripts, material.set, errors, save round trip (17; <code>MDB_SCENE=demo.json</code>)</td></tr>
 <tr><td><code>engine_features_test.lua</code></td><td>world_to_screen, decals, line of sight, cover, primitives, flash (22)</td></tr>
 <tr><td><code>fog_test.lua</code></td><td>Fog of war: reveal, explore, save / load, e.visible (17)</td></tr>
@@ -1065,6 +1097,25 @@ MDBEditor.exe &gt; log.txt</code></pre>
   <li><b>NPC stats</b>: tick a stat to give the NPC its own value; unticked ones use the stat's default. <b>Inventory</b> rows: item, count, chance, drop, equipped (only items with a slot). Drag an item from the Items list onto a row's item.</li>
   <li><b>Placing</b>: drag an NPC (or an item) from the list into the Viewport, use <b>Place in scene</b>, or <b>Create &gt; NPC</b> / <b>Create &gt; Item Pickup</b>. An NPC gets its model scaled to its height (or its prefab), its animation graph, script and capsule body. Changing those in the database updates the NPCs already placed. The Inspector's <b>NPC</b> section picks the id, opens it in the Database window, applies its looks again, and while playing shows its live stats (editable), inventory and effects.</li>
   <li>Its own undo (<b>Ctrl+Z</b> / <b>Ctrl+Y</b>), <b>Ctrl+S</b>, <b>Ctrl+D</b> and <b>Delete</b> while it has focus; quitting asks about unsaved changes. Every edit applies at once, even while the game runs.</li>
+</ul>
+</section>
+
+<section class="doc" data-group="Editor" id="editor-shader-graph">
+<h2>Shader Graph Editor</h2>
+<p><b>Window &gt; Shader Graph</b>, a double-click on a <code>.shadergraph</code> in Assets, or <b>Edit graph</b> in the Material Editor opens a graph (as a tab beside the Viewport). Assets: right-click empty space &gt; <b>New Shader Graph</b>; right-click a graph &gt; <b>New Material from Graph</b>.</p>
+<ul>
+  <li><b>Canvas.</b> Right-click or press Space to add a node from a searchable list, by category. Drag from a pin to another to connect them; let go on empty space to add a node that is already connected (the list shows only nodes that fit). Grabbing a connected input picks its link up; Alt+click or right-click an input to disconnect it. Drag nodes to move them, drag on empty space to select several (Ctrl adds), middle / right drag or Alt+drag to pan, the wheel zooms, <b>F</b> frames everything. Pins and links are coloured by type (number, vec2, vec3, vec4, texture). Unconnected inputs show their value. Every node shows a <b>thumbnail</b> of its first output (a float as grey, a vec2 as red / green), on a sphere when it depends on position, normal or view and on a flat square otherwise. Thumbnails use the params' defaults, animate with Time, rebuild a few per frame after an edit, and can be turned off in Edit Pins and links are coloured by type (number, vec2, vec3, vec4, texture). Unconnected inputs show their value.gt; Node Previews. A node with a problem has a red border; hover for its help and the error.</li>
+  <li><b>Side panel.</b>
+    <ul>
+      <li>A live <b>preview</b> on a sphere, cube or capsule, drawn as Cutout so alpha shows.</li>
+      <li><b>Settings</b> (Unlit).</li>
+      <li><b>Params:</b> name, type, default; drag one by its handle onto the canvas for its Property node.</li>
+      <li>The <b>selected node's values:</b> numbers, colours, the image of a sample node, a property's param; a dynamic input chooses how many numbers it has.</li>
+      <li><b>Problems:</b> errors per node (click to go to it), the GLSL compiler's messages, and the generated code.</li>
+    </ul></li>
+  <li>Every change goes live on every material using the graph, also while playing. Moving nodes doesn't recompile. Save (Ctrl+S) writes the file; Revert reads it again. It has its own undo (Ctrl+Z / Ctrl+Y), Delete, Ctrl+D, and asks before switching graphs or quitting with unsaved changes.</li>
+  <li><b>Presets.</b> File &gt; <b>Load Preset</b> replaces the open graph with one of the engine's graphs (Ctrl+Z undoes it); File &gt; <b>New from Preset</b> writes it as a new graph in <code>Assets/Shaders</code> and opens it, and so do the preset buttons shown when no graph is open. The presets are in <code>EngineAssets/ShaderGraphs/Presets</code>, so every project has them: Dissolve, Lava, Rim Glow, Triplanar Rock, Water, Wobble. Add your own graphs there to make them presets. Triplanar Rock's default texture is one of the Examples project's, so pick your own in another project.</li>
+  <li><b>Material Editor:</b> the <b>Shader</b> picker chooses Standard or a graph. With a graph it shows the graph's params (a dot marks the ones this material sets; click it for the graph's default) and the render state.</li>
 </ul>
 </section>
 

@@ -33,6 +33,7 @@ public:
 
     void ReloadShaders();
     bool Closable = true;                     // the header's x button (the Material Editor's preview has none)
+    std::string Title;                        // shown instead of the file name, when set
 
 private:
     void Build(Engine::ResourceLibrary& resources);

@@ -656,10 +656,9 @@ void BuildTerrainDemo(Scene& scene, const LevelAssets& a, PrefabLibrary&) {
         tr.Position = glm::vec3(0.0f, 1.3f, 0.0f);
         tr.Scale = glm::vec3(10.0f, 1.0f, 10.0f);          // the 12 m plane: 120 m
         auto& mr = w.Add<MeshRendererComponent>();
-        mr.Geometry = a.Plane;
-        SetLook(a, mr, "Water", glm::vec3(0.16f, 0.32f, 0.38f), 0.06f);
+        mr.Geometry = a.Grid ? a.Grid : a.Plane;            // the water graph's waves move its vertices
+        mr.Materials = { MaterialSlot{ "Materials/water.mat", a.LoadMaterial ? a.LoadMaterial("Materials/water.mat") : nullptr } };
         mr.Alpha = AlphaMode::Blend;
-        mr.Opacity = 0.7f;
         mr.CastShadows = false;
     }
 

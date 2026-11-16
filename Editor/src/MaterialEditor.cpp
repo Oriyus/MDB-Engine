@@ -2,6 +2,7 @@
 #include "AssetBrowser.h"
 
 #include "Renderer/MaterialAsset.h"
+#include "Renderer/ShaderGraph.h"
 #include "Runtime/ResourceLibrary.h"
 
 #include <imgui.h>
@@ -93,6 +94,7 @@ void MaterialEditor::ScanAssets() {
     m_LastScan = ImGui::GetTime();
     m_Images.clear();
     m_Materials.clear();
+    m_Graphs.clear();
     std::error_code ec;
     for (auto it = fs::recursive_directory_iterator(fs::u8path(m_AssetDir), fs::directory_options::skip_permission_denied, ec);
          it != fs::recursive_directory_iterator(); it.increment(ec)) {
@@ -102,6 +104,7 @@ void MaterialEditor::ScanAssets() {
         const auto kind = AssetBrowser::KindOf(rel);
         if (kind == AssetBrowser::Kind::Texture) m_Images.push_back(rel);
         else if (kind == AssetBrowser::Kind::Material) m_Materials.push_back(rel);
+        else if (kind == AssetBrowser::Kind::ShaderGraph) m_Graphs.push_back(rel);
     }
     std::sort(m_Images.begin(), m_Images.end());
     std::sort(m_Materials.begin(), m_Materials.end());
@@ -269,12 +272,24 @@ void MaterialEditor::Draw(bool* open) {
         }
         ImGui::SetItemTooltip("A variant starts as its parent and keeps following it, except for the values it changes "
                               "(marked with a dot; click the dot to use the parent's value again)");
-        ImGui::BeginDisabled();
-        ImGui::LabelText("Shader", "%s", m_Asset->Desc.Shader.c_str());
-        ImGui::EndDisabled();
-        ImGui::SetItemTooltip("Standard: physically based, metal / roughness (lit.frag). Shader graphs come later.");
+        Value("shader", [this](MaterialDesc& d) {
+            bool changed = false;
+            const std::string shown = d.Shader == "standard" ? "Standard" : d.Shader;
+            if (ImGui::BeginCombo("Shader", shown.c_str(), ImGuiComboFlags_HeightLarge)) {
+                ScanAssets();
+                if (ImGui::Selectable("Standard", d.Shader == "standard")) { d.Shader = "standard"; changed = true; }
+                for (const auto& g : m_Graphs) if (ImGui::Selectable(g.c_str(), g == d.Shader)) { d.Shader = g; changed = true; }
+                ImGui::EndCombo();
+            }
+            if (const std::string drop = AssetBrowser::AcceptDrop({ AssetBrowser::Kind::ShaderGraph }); !drop.empty()) { d.Shader = drop; changed = true; }
+            return changed;
+        });
+        ImGui::SetItemTooltip("Standard: physically based, metal / roughness. Or a shader graph (Shaders/*.shadergraph): the graph\n"
+                              "gives the surface and its params are set below.");
     }
 
+    if (m_Asset->Desc.IsGraph()) DrawGraphMaterial();   // the graph's params and the render state
+    else {
     ImGui::SeparatorText("Surface");
     Value("color", [](MaterialDesc& d) { return ImGui::ColorEdit3("Color", &d.Color.x); });
     Value("albedoMap", [this](MaterialDesc& d) { return MapPicker("Color map", d.AlbedoMap, "sRGB colour (and alpha); multiplied by Color"); });
@@ -332,6 +347,7 @@ void MaterialEditor::Draw(bool* open) {
     ImGui::SetItemTooltip("Repeats of every map across the mesh's texture coordinates (terrain layers use their own Tiling)");
     Value("uvOffset", [](MaterialDesc& d) { return ImGui::DragFloat2("UV offset", &d.UVOffset.x, 0.01f); });
 
+    }
     ImGui::PopItemWidth();
     ImGui::Spacing();
     ImGui::TextDisabled("Drag the file from Assets onto an object in the Viewport, a Mesh Renderer's material slot or a terrain layer.");
@@ -351,4 +367,86 @@ void MaterialEditor::Draw(bool* open) {
         ImGui::EndPopup();
     }
     ImGui::End();
+}
+
+// ---------------------------------------------------------------- a shader graph material
+void MaterialEditor::DrawGraphMaterial() {
+    const std::string graphPath = m_Asset->Desc.Shader;
+    ImGui::SeparatorText("Shader graph");
+    if (ImGui::Button("Edit graph") && OnEditGraph) OnEditGraph(graphPath);
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", graphPath.c_str());
+    const SGCompiled* c = m_Resources ? m_Resources->CompiledShaderGraph(graphPath) : nullptr;
+    if (!c) { ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "Can't read the graph"); return; }
+    if (!c->Ok) ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "The graph has errors (drawn magenta): fix them in the Shader Graph Editor");
+
+    // The graph's params: the material's own value (a dot in a variant), else the graph's default
+    const bool variant = m_File.contains("parent") && m_File["parent"].is_string() && !m_File["parent"].get<std::string>().empty();
+    const json& resolved = m_Asset->Desc.Params;
+    bool any = false;
+    for (const SGParam& p : c->Params) {
+        if (p.Name.empty() || p.Name[0] == '_') continue;           // a node's own image, not exposed
+        any = true;
+        ImGui::PushID(p.Name.c_str());
+        const bool own = m_File.contains("params") && m_File["params"].is_object() && m_File["params"].contains(p.Name);
+        const bool set = resolved.contains(p.Name);
+        // the dot: this material (or variant) sets it; click: back to the parent's / the graph's default
+        const float w = ImGui::GetFrameHeight() * 0.6f;
+        if (own) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.9f, 0.7f, 0.25f, 0.85f));
+            if (ImGui::Button("##own", ImVec2(w, ImGui::GetFrameHeight()))) { m_File["params"].erase(p.Name); Apply(); }
+            ImGui::PopStyleColor();
+            ImGui::SetItemTooltip(variant ? "This variant sets it. Click to use the parent's value." : "Set here. Click to use the graph's default.");
+        }
+        else { ImGui::Dummy(ImVec2(w, ImGui::GetFrameHeight())); ImGui::SetItemTooltip(variant && set ? "The parent's value" : "The graph's default"); }
+        ImGui::SameLine();
+
+        bool changed = false;
+        json v;
+        if (p.Type == "texture") {
+            std::string path = set && resolved[p.Name].is_string() ? resolved[p.Name].get<std::string>() : p.Texture;
+            if (MapPicker(p.Name.c_str(), path, p.Linear ? "A data texture (linear)" : "A colour texture (sRGB)")) { v = path; changed = true; }
+        }
+        else {
+            float x[4] = { p.Default.x, p.Default.y, p.Default.z, p.Default.w };
+            if (set) {
+                const json& r = resolved[p.Name];
+                if (r.is_number()) x[0] = r.get<float>();
+                else if (r.is_array()) for (size_t k = 0; k < r.size() && k < 4; k++) if (r[k].is_number()) x[k] = r[k].get<float>();
+            }
+            int n = 1;
+            if (p.Type == "color") { changed = ImGui::ColorEdit3(p.Name.c_str(), x); n = 3; }
+            else if (p.Type == "float") changed = ImGui::DragFloat(p.Name.c_str(), x, 0.01f);
+            else if (p.Type == "vec2") { changed = ImGui::DragFloat2(p.Name.c_str(), x, 0.01f); n = 2; }
+            else if (p.Type == "vec3") { changed = ImGui::DragFloat3(p.Name.c_str(), x, 0.01f); n = 3; }
+            else { changed = ImGui::DragFloat4(p.Name.c_str(), x, 0.01f); n = 4; }
+            if (changed) { if (n == 1) v = x[0]; else { v = json::array(); for (int k = 0; k < n; k++) v.push_back(x[k]); } }
+        }
+        if (changed) {
+            if (!m_File.contains("params") || !m_File["params"].is_object()) m_File["params"] = json::object();
+            m_File["params"][p.Name] = v;
+            Apply();
+        }
+        ImGui::PopID();
+    }
+    if (!any) ImGui::TextDisabled("The graph has no params (add some in the Shader Graph Editor).");
+
+    // Render state: still the material's
+    ImGui::SeparatorText("Render state");
+    Value("alphaMode", [](MaterialDesc& d) {
+        static const char* kModes[] = { "Opaque", "Cutout", "Blend" };
+        int m = (int)d.Mode;
+        if (!ImGui::Combo("Alpha mode", &m, kModes, 3)) return false;
+        d.Mode = (AlphaMode)m;
+        return true;
+    });
+    ImGui::SetItemTooltip("How the graph's Alpha is used: Opaque ignores it, Cutout drops pixels below the cutoff\n"
+                          "(the depth pre-pass and shadows cut them too), Blend is see-through.");
+    if (m_Asset->Desc.Mode == AlphaMode::Cutout)
+        Value("alphaCutoff", [](MaterialDesc& d) { return ImGui::SliderFloat("Cutoff", &d.AlphaCutoff, 0.0f, 1.0f); });
+    if (m_Asset->Desc.Mode != AlphaMode::Opaque)
+        Value("alpha", [](MaterialDesc& d) { return ImGui::SliderFloat("Alpha", &d.Alpha, 0.0f, 1.0f); });
+    Value("doubleSided", [](MaterialDesc& d) { return ImGui::Checkbox("Double-sided", &d.DoubleSided); });
+    Value("castShadows", [](MaterialDesc& d) { return ImGui::Checkbox("Cast shadows", &d.CastShadows); });
+    Value("unlit", [](MaterialDesc& d) { return ImGui::Checkbox("Unlit", &d.Unlit); });
 }

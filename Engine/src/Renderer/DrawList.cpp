@@ -7,6 +7,7 @@ namespace Engine {
 
     // Field by field (the order std::tie gave), without building tuples: it runs thousands of times a frame
     bool DrawBatch::operator<(const DrawBatch& o) const {
+        if (Graph != o.Graph) return std::less<>()(Graph, o.Graph);    // a graph is a program switch: group them first
         if (Geometry != o.Geometry) return std::less<>()(Geometry, o.Geometry);
         if (Part != o.Part) return Part < o.Part;
         if (Albedo != o.Albedo) return std::less<>()(Albedo, o.Albedo);

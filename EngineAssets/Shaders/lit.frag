@@ -353,12 +353,29 @@ vec3 EnvDir(vec3 d) {
     return vec3(c * d.x + s * d.z, d.y, -s * d.x + c * d.z);
 }
 
+#ifdef MDB_GRAPH
+uniform float u_SceneWindTime;   // the scene clock (Time node)
+#endif
+// @GRAPH_CODE
+
 void main() {
     EntityID = v_EntityID;
     Velocity = (v_CurClip.xy / v_CurClip.w - v_PrevClip.xy / v_PrevClip.w) * 0.5;   // NDC -> UV
 
     // Picker colors are sRGB, albedo textures are decoded to linear by the GPU
     vec4 base = (u_UseTexture == 1) ? texture(u_Texture, v_TexCoord) : vec4(1.0);
+#ifdef MDB_GRAPH
+    // A shader graph gives the surface (linear colour); the object's tint (v_Color: script colour, opacity) still applies
+    SGIn gIn;
+    gIn.UV = v_TexCoord;
+    gIn.WorldPos = v_WorldPos;
+    gIn.WorldNormal = normalize(gl_FrontFacing ? v_Normal : -v_Normal);
+    gIn.ViewDir = normalize(u_ViewPos - v_WorldPos);
+    gIn.Time = u_SceneWindTime;
+    gIn.ScreenUV = v_CurClip.xy / v_CurClip.w * 0.5 + 0.5;
+    SGOut g = GraphSurface(gIn);
+    base = vec4(g.BaseColor, g.Alpha);
+#endif
     vec3 albedo = pow(v_Color.rgb, vec3(2.2)) * base.rgb;
     float alpha = clamp(v_Color.a * base.a, 0.0, 1.0);
     if (u_AlphaMode == 1 && alpha < u_AlphaCutoff) discard;
@@ -402,6 +419,10 @@ void main() {
         roughness *= mr.g;
         metallic  *= mr.b;
     }
+#ifdef MDB_GRAPH
+    metallic = g.Metallic;
+    roughness = g.Roughness;
+#endif
     metallic  = clamp(metallic, 0.0, 1.0);
     roughness = clamp(roughness, 0.04, 1.0);                 // 0 would make an infinitely sharp highlight
 
@@ -414,11 +435,17 @@ void main() {
         N = PerturbNormal(Ng, v_WorldPos, v_TexCoord, m);
     }
     if (terrainNormals) N = PerturbNormal(Ng, v_WorldPos, v_TexCoord, terrainN);
+#ifdef MDB_GRAPH
+    if (g.HasNormal) N = PerturbNormal(Ng, v_WorldPos, v_TexCoord, g.Normal);
+#endif
 
     vec3 V = normalize(u_ViewPos - v_WorldPos);
     // 4% reflectance for non-metals, scaled by the specular factor (0 = no reflections or highlights at all:
     // dark bark, cloth; KHR_materials_specular / Mesh Renderer Specular). Metals keep their full reflection.
     float specular = clamp(v_Surface.z, 0.0, 1.0);
+#ifdef MDB_GRAPH
+    specular = clamp(g.Specular, 0.0, 1.0);
+#endif
     vec3 F0 = mix(vec3(0.04 * specular), albedo, metallic);
     vec3 F90 = vec3(mix(specular, 1.0, metallic));
     // See-through: the diffuse part is scaled by alpha (premultiplied), reflections stay, like glass
@@ -459,6 +486,9 @@ void main() {
 
     vec3 emissive = v_Emissive;
     if (u_UseEmissive == 1) emissive *= texture(u_EmissiveMap, v_TexCoord).rgb;
+#ifdef MDB_GRAPH
+    emissive = v_Emissive + g.Emission;                      // the object's own (flash, script override) plus the graph's
+#endif
     color += emissive * alpha;
     // Fade the reflections out too near alpha 0, so a fully faded object disappears
     if (blend) color *= min(1.0, alpha * 8.0);

@@ -2312,7 +2312,22 @@ namespace Engine {
                 else t[it.key()] = FromJson(v);
             }
             if (!m->Parent().empty()) t["parent"] = m->Parent();
+            t["error"] = m->Error;                          // "" = fine (a graph that fails to compile says so)
             return t;
+        });
+        // A shader graph material's param, for everything using the file; put back when Play stops
+        mt.set_function("set_param", [this, load](const std::string& path, const std::string& name, sol::object value) {
+            auto m = load(path);
+            if (!m->Desc.IsGraph()) throw std::runtime_error("material.set_param: " + path + " doesn't use a shader graph");
+            nlohmann::json v;
+            if (value.is<glm::vec3>()) { const glm::vec3 c = value.as<glm::vec3>(); v = nlohmann::json::array({ c.x, c.y, c.z }); }
+            else v = ToJson(value);
+            if (!v.is_number() && !v.is_string() && !v.is_array()) throw std::runtime_error("material.set_param: a number, a list, a vec3 or a texture path");
+            if (!MaterialOriginals.count(path)) MaterialOriginals[path] = m->File;
+            nlohmann::json file = m->File;
+            if (!file.contains("params") || !file["params"].is_object()) file["params"] = nlohmann::json::object();
+            file["params"][name] = v;
+            if (Resources.SetMaterialFile) Resources.SetMaterialFile(path, file);
         });
         // One value, for every part and terrain layer using the file; put back when Play stops (nothing is saved)
         mt.set_function("set", [this, load](const std::string& path, const std::string& key, sol::object value) {

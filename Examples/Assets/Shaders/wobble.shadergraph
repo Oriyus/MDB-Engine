@@ -1,0 +1,343 @@
+{
+    "version":  1,
+    "settings":  {
+                     "unlit":  false
+                 },
+    "params":  [
+                   {
+                       "name":  "Color",
+                       "type":  "color",
+                       "default":  [
+                                       0.35,
+                                       0.75,
+                                       0.45
+                                   ]
+                   },
+                   {
+                       "name":  "Amount",
+                       "type":  "float",
+                       "default":  0.06
+                   },
+                   {
+                       "name":  "Waves",
+                       "type":  "float",
+                       "default":  9.0
+                   },
+                   {
+                       "name":  "Speed",
+                       "type":  "float",
+                       "default":  3.0
+                   }
+               ],
+    "nodes":  [
+                  {
+                      "id":  1,
+                      "type":  "Output",
+                      "pos":  [
+                                  1300,
+                                  0
+                              ],
+                      "values":  {
+                                     "Roughness":  [
+                                                       0.35
+                                                   ]
+                                 }
+                  },
+                  {
+                      "id":  2,
+                      "type":  "Normal",
+                      "pos":  [
+                                  728,
+                                  546
+                              ],
+                      "values":  {
+
+                                 }
+                  },
+                  {
+                      "id":  3,
+                      "type":  "Position",
+                      "pos":  [
+                                  0,
+                                  0
+                              ],
+                      "values":  {
+
+                                 }
+                  },
+                  {
+                      "id":  4,
+                      "type":  "Split",
+                      "pos":  [
+                                  208,
+                                  0
+                              ],
+                      "values":  {
+
+                                 }
+                  },
+                  {
+                      "id":  15,
+                      "type":  "Property",
+                      "pos":  [
+                                  208,
+                                  294
+                              ],
+                      "values":  {
+                                     "param":  "Waves"
+                                 }
+                  },
+                  {
+                      "id":  5,
+                      "type":  "Multiply",
+                      "pos":  [
+                                  416,
+                                  0
+                              ],
+                      "values":  {
+
+                                 }
+                  },
+                  {
+                      "id":  6,
+                      "type":  "Time",
+                      "pos":  [
+                                  208,
+                                  504
+                              ],
+                      "values":  {
+
+                                 }
+                  },
+                  {
+                      "id":  16,
+                      "type":  "Property",
+                      "pos":  [
+                                  208,
+                                  714
+                              ],
+                      "values":  {
+                                     "param":  "Speed"
+                                 }
+                  },
+                  {
+                      "id":  7,
+                      "type":  "Multiply",
+                      "pos":  [
+                                  416,
+                                  504
+                              ],
+                      "values":  {
+
+                                 }
+                  },
+                  {
+                      "id":  8,
+                      "type":  "Add",
+                      "pos":  [
+                                  624,
+                                  168
+                              ],
+                      "values":  {
+
+                                 }
+                  },
+                  {
+                      "id":  9,
+                      "type":  "Sine",
+                      "pos":  [
+                                  806,
+                                  168
+                              ],
+                      "values":  {
+
+                                 }
+                  },
+                  {
+                      "id":  10,
+                      "type":  "Property",
+                      "pos":  [
+                                  806,
+                                  378
+                              ],
+                      "values":  {
+                                     "param":  "Amount"
+                                 }
+                  },
+                  {
+                      "id":  11,
+                      "type":  "Multiply",
+                      "pos":  [
+                                  988,
+                                  252
+                              ],
+                      "values":  {
+
+                                 }
+                  },
+                  {
+                      "id":  12,
+                      "type":  "Multiply",
+                      "pos":  [
+                                  1144,
+                                  462
+                              ],
+                      "values":  {
+
+                                 }
+                  },
+                  {
+                      "id":  13,
+                      "type":  "Property",
+                      "pos":  [
+                                  988,
+                                  -252
+                              ],
+                      "values":  {
+                                     "param":  "Color"
+                                 }
+                  }
+              ],
+    "links":  [
+                  {
+                      "from":  [
+                                   3,
+                                   "Position"
+                               ],
+                      "to":  [
+                                 4,
+                                 "In"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   4,
+                                   "G"
+                               ],
+                      "to":  [
+                                 5,
+                                 "A"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   15,
+                                   "Value"
+                               ],
+                      "to":  [
+                                 5,
+                                 "B"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   6,
+                                   "Time"
+                               ],
+                      "to":  [
+                                 7,
+                                 "A"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   16,
+                                   "Value"
+                               ],
+                      "to":  [
+                                 7,
+                                 "B"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   5,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 8,
+                                 "A"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   7,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 8,
+                                 "B"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   8,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 9,
+                                 "In"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   9,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 11,
+                                 "A"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   10,
+                                   "Value"
+                               ],
+                      "to":  [
+                                 11,
+                                 "B"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   2,
+                                   "Normal"
+                               ],
+                      "to":  [
+                                 12,
+                                 "A"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   11,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 12,
+                                 "B"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   12,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 1,
+                                 "Vertex Offset"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   13,
+                                   "Value"
+                               ],
+                      "to":  [
+                                 1,
+                                 "BaseColor"
+                             ]
+                  }
+              ]
+}

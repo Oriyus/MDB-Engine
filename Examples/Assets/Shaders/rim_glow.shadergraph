@@ -1,0 +1,200 @@
+{
+    "version":  1,
+    "settings":  {
+                     "unlit":  false
+                 },
+    "params":  [
+                   {
+                       "name":  "Base",
+                       "type":  "color",
+                       "default":  [
+                                       0.05,
+                                       0.08,
+                                       0.15
+                                   ]
+                   },
+                   {
+                       "name":  "Rim",
+                       "type":  "color",
+                       "default":  [
+                                       0.3,
+                                       0.8,
+                                       1.0
+                                   ]
+                   },
+                   {
+                       "name":  "Power",
+                       "type":  "float",
+                       "default":  3.0
+                   },
+                   {
+                       "name":  "Strength",
+                       "type":  "float",
+                       "default":  4.0
+                   }
+               ],
+    "nodes":  [
+                  {
+                      "id":  1,
+                      "type":  "Output",
+                      "pos":  [
+                                  910,
+                                  0
+                              ],
+                      "values":  {
+                                     "Roughness":  [
+                                                       0.3
+                                                   ]
+                                 }
+                  },
+                  {
+                      "id":  2,
+                      "type":  "Property",
+                      "pos":  [
+                                  0,
+                                  -168
+                              ],
+                      "values":  {
+                                     "param":  "Base"
+                                 }
+                  },
+                  {
+                      "id":  3,
+                      "type":  "Property",
+                      "pos":  [
+                                  0,
+                                  168
+                              ],
+                      "values":  {
+                                     "param":  "Power"
+                                 }
+                  },
+                  {
+                      "id":  4,
+                      "type":  "Fresnel",
+                      "pos":  [
+                                  234,
+                                  168
+                              ],
+                      "values":  {
+
+                                 }
+                  },
+                  {
+                      "id":  5,
+                      "type":  "Property",
+                      "pos":  [
+                                  234,
+                                  420
+                              ],
+                      "values":  {
+                                     "param":  "Rim"
+                                 }
+                  },
+                  {
+                      "id":  6,
+                      "type":  "Multiply",
+                      "pos":  [
+                                  468,
+                                  252
+                              ],
+                      "values":  {
+
+                                 }
+                  },
+                  {
+                      "id":  7,
+                      "type":  "Property",
+                      "pos":  [
+                                  468,
+                                  546
+                              ],
+                      "values":  {
+                                     "param":  "Strength"
+                                 }
+                  },
+                  {
+                      "id":  8,
+                      "type":  "Multiply",
+                      "pos":  [
+                                  676,
+                                  336
+                              ],
+                      "values":  {
+
+                                 }
+                  }
+              ],
+    "links":  [
+                  {
+                      "from":  [
+                                   2,
+                                   "Value"
+                               ],
+                      "to":  [
+                                 1,
+                                 "BaseColor"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   3,
+                                   "Value"
+                               ],
+                      "to":  [
+                                 4,
+                                 "Power"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   5,
+                                   "Value"
+                               ],
+                      "to":  [
+                                 6,
+                                 "A"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   4,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 6,
+                                 "B"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   6,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 8,
+                                 "A"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   7,
+                                   "Value"
+                               ],
+                      "to":  [
+                                 8,
+                                 "B"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   8,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 1,
+                                 "Emission"
+                             ]
+                  }
+              ]
+}

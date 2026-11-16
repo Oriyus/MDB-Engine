@@ -39,6 +39,7 @@ public:
     bool Holds(const Engine::MaterialAsset& m) const;
 
     std::function<uint32_t(const std::string& path)> TextureId;   // map thumbnails (GL texture, 0 = none)
+    std::function<void(const std::string& graphPath)> OnEditGraph;   // "Edit graph": open it in the Shader Graph Editor
 
 private:
     void Apply();                                 // m_File -> the live material
@@ -52,6 +53,7 @@ private:
     bool MapPicker(const char* label, std::string& path, const char* tip);
     bool MaterialPicker(const char* label, std::string& path);
     void ScanAssets();
+    void DrawGraphMaterial();                     // a shader graph material: the graph's params, the render state
 
     std::string m_EngineDir, m_AssetDir;
     Engine::ResourceLibrary* m_Resources = nullptr;
@@ -68,6 +70,6 @@ private:
 
     ModelPreview m_Preview;
 
-    std::vector<std::string> m_Images, m_Materials;       // under Assets, for the pickers
+    std::vector<std::string> m_Images, m_Materials, m_Graphs;   // under Assets, for the pickers
     double m_LastScan = -10.0;
 };

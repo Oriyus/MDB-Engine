@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "shader": "Shaders/dissolve.shadergraph",
+  "alphaMode": "cutout",
+  "alphaCutoff": 0.5,
+  "doubleSided": true
+}

@@ -505,7 +505,7 @@
         "alphaCutoff": 0.5,
         "alphaMode": "blend",
         "castShadows": false,
-        "geometry": "plane",
+        "geometry": "grid",
         "localOffset": [
           1.0,
           0.0,
@@ -525,9 +525,9 @@
           1.0
         ],
         "materials": [
-          "Materials/Generated/Water.mat"
+          "Materials/water.mat"
         ],
-        "opacity": 0.699999988079071,
+        "opacity": 1.0,
         "static": false,
         "useModelMaterials": false
       },

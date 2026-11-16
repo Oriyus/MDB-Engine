@@ -39,6 +39,7 @@ namespace Engine {
         bool DoubleSided = false;           // back faces drawn too (culling off for this batch)
         const std::vector<glm::mat4>* Bones = nullptr;   // skinned: this entity's bone palette (never shared)
         const TerrainMaterial* Terrain = nullptr;        // a terrain chunk: lit.frag blends its layers (null in shadow lists)
+        const SGBinding* Graph = nullptr;         // a shader graph material: drawn with its program and values
 
         uint32_t First = 0;                 // into DrawList::Indices
         uint32_t Count = 0;
@@ -47,7 +48,7 @@ namespace Engine {
             return Geometry == o.Geometry && Part == o.Part && Albedo == o.Albedo && Normal == o.Normal &&
                 MetalRough == o.MetalRough && Emissive == o.Emissive && Mode == o.Mode && Cutoff == o.Cutoff &&
                 DoubleSided == o.DoubleSided &&
-                Bones == o.Bones && Terrain == o.Terrain;
+                Bones == o.Bones && Terrain == o.Terrain && Graph == o.Graph;
         }
         bool operator<(const DrawBatch& o) const;   // groups equal states together
     };

@@ -20,6 +20,8 @@ namespace Engine {
     struct UIDocument;
     struct MaterialAsset;
     struct MaterialDesc;
+    struct ShaderGraph;
+    struct SGCompiled;
 
     // The shared meshes and textures that scene and prefab files refer to by name:
     //   geometry "cube" (unit cube), "plane" (12 x 12), "sphere" (diameter 1), "model" (Models/BoomBox.glb),
@@ -41,6 +43,7 @@ namespace Engine {
         std::shared_ptr<Mesh> Capsule();     // "capsule": 1 wide, 2 tall
         std::shared_ptr<Mesh> Cylinder();    // "cylinder": 1 wide, 1 tall
         std::shared_ptr<Mesh> Cone();        // "cone": 1 wide base, 1 tall
+        std::shared_ptr<Mesh> Grid();        // "grid": the 12 x 12 plane as 128 x 128 quads (for vertex offsets: water)
         std::shared_ptr<Model> SampleModel();          // may be invalid if the file is missing
         // Any model file under the asset folder, loaded once ("Models/Fox.glb"). Null if it can't be loaded.
         // In scene files its geometry name is "model:Models/Fox.glb".
@@ -91,6 +94,17 @@ namespace Engine {
         // SetWriteGeneratedMaterials(true) (the editor); otherwise it lives in memory (the Game never writes Assets).
         std::string MaterialForLook(const std::string& nameHint, const MaterialDesc& look);
         void SetWriteGeneratedMaterials(bool write) { m_WriteGenerated = write; }
+        // ---- Shader graphs ("Shaders/x.shadergraph", Renderer/ShaderGraph.h), used by materials ("shader": path)
+        // The graph, cached until the file changes (or the editor's live copy, SetShaderGraph). Null if unreadable.
+        std::shared_ptr<const ShaderGraph> LoadShaderGraph(const std::string& path);
+        // Its compiled form (errors included); null if there is no graph. Cheap to call (cached with the graph).
+        const SGCompiled* CompiledShaderGraph(const std::string& path);
+        // The editor's live copy: used from now on (also while playing); every material using it is resolved again
+        void SetShaderGraph(const std::string& path, const ShaderGraph& graph);
+        // Read graph files that changed on disk again (not the one the editor holds: keep). True if any did.
+        bool RefreshShaderGraphs(const std::function<bool(const std::string& path)>& keep = {});
+        // A material that only uses the graph with its default params (the editor's preview): its (in-memory) path
+        std::string GraphPreviewMaterial(const std::string& graphPath);
         // A linear image for material data (normal, metal / roughness maps), optionally with green flipped
         // (DirectX normal maps); cached. Null if it can't be read.
         std::shared_ptr<Texture2D> LoadDataTexture(const std::string& path, bool flipGreen = false);
@@ -103,7 +117,7 @@ namespace Engine {
 
     private:
         std::string m_AssetDir, m_EngineDir;
-        std::shared_ptr<Mesh> m_Cube, m_Plane, m_Sphere, m_Capsule, m_Cylinder, m_Cone;
+        std::shared_ptr<Mesh> m_Cube, m_Plane, m_Sphere, m_Capsule, m_Cylinder, m_Cone, m_Grid;
         std::shared_ptr<Model> m_Model;
         std::unordered_map<std::string, std::shared_ptr<Model>> m_Models;   // by path, for "model:<path>"
         std::shared_ptr<Texture2D> m_Checker;
@@ -124,6 +138,9 @@ namespace Engine {
         std::unordered_map<std::string, CachedMaterial> m_Materials;              // by path
         std::unordered_map<std::string, std::string> m_Looks;                      // generated materials: values (JSON) -> path
         bool m_LooksIndexed = false, m_WriteGenerated = false;
+        struct CachedShaderGraph;
+        std::unordered_map<std::string, std::shared_ptr<CachedShaderGraph>> m_ShaderGraphs;   // by path
+        CachedShaderGraph* ShaderGraphEntry(const std::string& path);
         void ReadMaterialFile(CachedMaterial& c);
         void ResolveMaterialTree(MaterialAsset& m, std::vector<MaterialAsset*>& resolving, std::vector<const MaterialAsset*>& done);
         void ResolveMaterials();

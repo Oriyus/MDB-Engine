@@ -1,0 +1,301 @@
+{
+    "version":  1,
+    "settings":  {
+                     "unlit":  false
+                 },
+    "params":  [
+                   {
+                       "name":  "Hot",
+                       "type":  "color",
+                       "default":  [
+                                       1.0,
+                                       0.45,
+                                       0.1
+                                   ]
+                   },
+                   {
+                       "name":  "Crust",
+                       "type":  "color",
+                       "default":  [
+                                       0.08,
+                                       0.05,
+                                       0.05
+                                   ]
+                   },
+                   {
+                       "name":  "Flow",
+                       "type":  "vec2",
+                       "default":  [
+                                       0.04,
+                                       0.015
+                                   ]
+                   },
+                   {
+                       "name":  "Glow",
+                       "type":  "float",
+                       "default":  6.0
+                   }
+               ],
+    "nodes":  [
+                  {
+                      "id":  1,
+                      "type":  "Output",
+                      "pos":  [
+                                  1170,
+                                  0
+                              ],
+                      "values":  {
+                                     "Roughness":  [
+                                                       0.75
+                                                   ]
+                                 }
+                  },
+                  {
+                      "id":  2,
+                      "type":  "Property",
+                      "pos":  [
+                                  0,
+                                  252
+                              ],
+                      "values":  {
+                                     "param":  "Flow"
+                                 }
+                  },
+                  {
+                      "id":  3,
+                      "type":  "Panner",
+                      "pos":  [
+                                  234,
+                                  126
+                              ],
+                      "values":  {
+
+                                 }
+                  },
+                  {
+                      "id":  4,
+                      "type":  "Fractal Noise",
+                      "pos":  [
+                                  494,
+                                  126
+                              ],
+                      "values":  {
+                                     "Scale":  [
+                                                   5.0
+                                               ]
+                                 }
+                  },
+                  {
+                      "id":  5,
+                      "type":  "Power",
+                      "pos":  [
+                                  728,
+                                  126
+                              ],
+                      "values":  {
+                                     "B":  [
+                                               3.0
+                                           ]
+                                 }
+                  },
+                  {
+                      "id":  6,
+                      "type":  "Property",
+                      "pos":  [
+                                  494,
+                                  420
+                              ],
+                      "values":  {
+                                     "param":  "Hot"
+                                 }
+                  },
+                  {
+                      "id":  7,
+                      "type":  "Multiply",
+                      "pos":  [
+                                  936,
+                                  252
+                              ],
+                      "values":  {
+
+                                 }
+                  },
+                  {
+                      "id":  8,
+                      "type":  "Property",
+                      "pos":  [
+                                  728,
+                                  546
+                              ],
+                      "values":  {
+                                     "param":  "Glow"
+                                 }
+                  },
+                  {
+                      "id":  9,
+                      "type":  "Multiply",
+                      "pos":  [
+                                  1144,
+                                  420
+                              ],
+                      "values":  {
+
+                                 }
+                  },
+                  {
+                      "id":  10,
+                      "type":  "Property",
+                      "pos":  [
+                                  728,
+                                  -252
+                              ],
+                      "values":  {
+                                     "param":  "Crust"
+                                 }
+                  },
+                  {
+                      "id":  11,
+                      "type":  "One Minus",
+                      "pos":  [
+                                  936,
+                                  -84
+                              ],
+                      "values":  {
+
+                                 }
+                  },
+                  {
+                      "id":  12,
+                      "type":  "Multiply",
+                      "pos":  [
+                                  1144,
+                                  -210
+                              ],
+                      "values":  {
+
+                                 }
+                  }
+              ],
+    "links":  [
+                  {
+                      "from":  [
+                                   2,
+                                   "Value"
+                               ],
+                      "to":  [
+                                 3,
+                                 "Speed"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   3,
+                                   "UV"
+                               ],
+                      "to":  [
+                                 4,
+                                 "UV"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   4,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 5,
+                                 "A"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   6,
+                                   "Value"
+                               ],
+                      "to":  [
+                                 7,
+                                 "A"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   5,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 7,
+                                 "B"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   7,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 9,
+                                 "A"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   8,
+                                   "Value"
+                               ],
+                      "to":  [
+                                 9,
+                                 "B"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   9,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 1,
+                                 "Emission"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   5,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 11,
+                                 "In"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   10,
+                                   "Value"
+                               ],
+                      "to":  [
+                                 12,
+                                 "A"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   11,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 12,
+                                 "B"
+                             ]
+                  },
+                  {
+                      "from":  [
+                                   12,
+                                   "Out"
+                               ],
+                      "to":  [
+                                 1,
+                                 "BaseColor"
+                             ]
+                  }
+              ]
+}
