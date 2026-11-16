@@ -89,6 +89,12 @@ namespace Engine {
                                { "trigger", rb.IsTrigger } };
             if (rb.LockRotation) j["rigidBody"]["lockRotation"] = true;     // only when set (no new prefab overrides)
         }
+        if (e.Has<CharacterControllerComponent>()) {
+            const auto& c = e.Get<CharacterControllerComponent>();
+            j["character"] = { { "radius", c.Radius },{ "height", c.Height },{ "center", c.Center },
+                               { "maxSlope", c.MaxSlope },{ "stepHeight", c.StepHeight },{ "stickDown", c.StickDown },
+                               { "mass", c.Mass },{ "pushStrength", c.PushStrength },{ "gravityScale", c.GravityScale } };
+        }
         if (e.Has<ColliderComponent>()) {
             auto& c = e.Get<ColliderComponent>();
             j["collider"] = { { "shape", (int)c.Shape },{ "size", c.Size },{ "center", c.Center } };
@@ -346,6 +352,20 @@ namespace Engine {
             rb.LockRotation = jr.value("lockRotation", false);
             e.Add<RigidBodyComponent>(rb);
         }
+        if (j.contains("character")) {
+            const auto& jc = j["character"];
+            CharacterControllerComponent c;
+            c.Radius = jc.value("radius", c.Radius);
+            c.Height = jc.value("height", c.Height);
+            if (jc.contains("center")) c.Center = jc["center"].get<glm::vec3>();
+            c.MaxSlope = jc.value("maxSlope", c.MaxSlope);
+            c.StepHeight = jc.value("stepHeight", c.StepHeight);
+            c.StickDown = jc.value("stickDown", c.StickDown);
+            c.Mass = jc.value("mass", c.Mass);
+            c.PushStrength = jc.value("pushStrength", c.PushStrength);
+            c.GravityScale = jc.value("gravityScale", c.GravityScale);
+            e.Add<CharacterControllerComponent>(c);
+        }
         if (j.contains("collider")) {
             const auto& jc = j["collider"];
             ColliderComponent c;
@@ -551,6 +571,7 @@ namespace Engine {
         if (e.Has<OrbitComponent>())            e.Remove<OrbitComponent>();
         if (e.Has<RigidBodyComponent>())        e.Remove<RigidBodyComponent>();
         if (e.Has<ColliderComponent>())         e.Remove<ColliderComponent>();
+        if (e.Has<CharacterControllerComponent>()) e.Remove<CharacterControllerComponent>();
         if (e.Has<ScriptComponent>())           e.Remove<ScriptComponent>();
         if (e.Has<CameraComponent>())           e.Remove<CameraComponent>();
         if (e.Has<AudioSourceComponent>())      e.Remove<AudioSourceComponent>();

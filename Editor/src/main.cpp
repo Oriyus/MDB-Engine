@@ -1872,13 +1872,18 @@ public:
             };
 
         auto& reg = m_Scene.Registry();
-        for (auto [entity, rb] : reg.view<RigidBodyComponent>().each()) {
+        for (auto [entity, rb] : reg.view<RigidBodyComponent>(entt::exclude<CharacterControllerComponent>).each()) {
             if (m_Scene.IsEditorHidden(entity)) continue;
             const ImU32 col = rb.IsTrigger ? IM_COL32(230, 90, 255, 220)
                 : rb.Type == BodyType::Static ? IM_COL32(80, 200, 255, 200)
                 : rb.Type == BodyType::Dynamic ? IM_COL32(90, 230, 110, 220)
                 : IM_COL32(255, 200, 60, 220);
             drawShape(entity, rb.Shape, rb.Size, rb.Center, col);
+        }
+        // Character controllers: their capsule, in teal
+        for (auto [entity, c] : reg.view<CharacterControllerComponent>().each()) {
+            if (m_Scene.IsEditorHidden(entity)) continue;
+            drawShape(entity, ColliderShape::Capsule, glm::vec3(2.0f * c.Radius, c.Height, 2.0f * c.Radius), c.Center, IM_COL32(60, 230, 210, 230));
         }
         // Child colliders: in their body's colour (white if no body above them: they do nothing)
         for (auto [entity, c] : reg.view<ColliderComponent>().each()) {
@@ -2206,6 +2211,19 @@ private:
         }
         if (ImGui::MenuItem("Physics Box")) SpawnBody(false, spot, glm::vec3(0.0f), true);
         if (ImGui::MenuItem("Physics Ball")) SpawnBody(true, spot, glm::vec3(0.0f), true);
+        if (ImGui::MenuItem("Character")) {                 // a controller with its origin at the feet, and a capsule to see
+            Entity e = m_Scene.CreateEntity("Character");
+            auto& c = e.Add<CharacterControllerComponent>();
+            c.Center = glm::vec3(0.0f, 0.5f * c.Height, 0.0f);
+            place(e);
+            Entity model = m_Scene.CreateEntity("Model");
+            auto& mr = model.Add<MeshRendererComponent>();
+            mr.Geometry = m_Resources->Capsule();             // 1 x 2 m
+            auto& t = model.Get<TransformComponent>();
+            t.Position = c.Center;
+            t.Scale = glm::vec3(2.0f * c.Radius, 0.5f * c.Height, 2.0f * c.Radius);
+            m_Scene.SetParent(model.GetHandle(), e.GetHandle(), false);
+        }
         if (ImGui::MenuItem("Material Grid")) SpawnMaterialGrid();
         ImGui::Separator();
         if (ImGui::BeginMenu("Prefab")) {
@@ -4341,6 +4359,38 @@ private:
             if (rb.Type != BodyType::Static && (e.Has<SpinComponent>() || e.Has<OrbitComponent>()) && rb.Type == BodyType::Dynamic)
                 ImGui::TextDisabled("Physics overrides Spin/Orbit on dynamic bodies");
             if (m_PlayState != PlayState::Edit) ImGui::TextDisabled("Changes apply on the next Play");
+            if (e.Has<CharacterControllerComponent>()) ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "Ignored: the Character Controller is this entity's body");
+        }
+
+        if (e.Has<CharacterControllerComponent>() && ImGui::CollapsingHeader("Character Controller", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto& c = e.Get<CharacterControllerComponent>();
+            ImGui::PushID("character");
+            ImGui::DragFloat("Radius", &c.Radius, 0.01f, 0.05f, 5.0f, "%.2f m");
+            ImGui::DragFloat("Height", &c.Height, 0.01f, 0.1f, 10.0f, "%.2f m");
+            ImGui::SetItemTooltip("Total, caps included");
+            ImGui::DragFloat3("Center", &c.Center.x, 0.01f);
+            ImGui::SetItemTooltip("The capsule's centre from the entity's origin. (0, height / 2, 0) puts the origin at the feet.");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Feet")) c.Center = glm::vec3(0.0f, 0.5f * c.Height, 0.0f);
+            ImGui::SetItemTooltip("Put the origin at the bottom of the capsule");
+            ImGui::SliderFloat("Max slope", &c.MaxSlope, 0.0f, 89.0f, "%.0f deg");
+            ImGui::SetItemTooltip("Steeper ground is a wall: it slides down it");
+            ImGui::DragFloat("Step height", &c.StepHeight, 0.01f, 0.0f, 2.0f, "%.2f m");
+            ImGui::SetItemTooltip("Walks up steps (and kerbs, stairs) this tall");
+            ImGui::DragFloat("Stick down", &c.StickDown, 0.01f, 0.0f, 2.0f, "%.2f m");
+            ImGui::SetItemTooltip("Stays on the ground walking down slopes and steps up to this deep (0 = never)");
+            ImGui::DragFloat("Mass", &c.Mass, 0.5f, 0.1f, 1000.0f, "%.1f kg");
+            ImGui::SetItemTooltip("How hard it presses on what it stands on");
+            ImGui::DragFloat("Push strength", &c.PushStrength, 5.0f, 0.0f, 100000.0f, "%.0f N");
+            ImGui::SetItemTooltip("The most force it pushes dynamic bodies with (0 = it can't push)");
+            ImGui::DragFloat("Gravity scale", &c.GravityScale, 0.01f, -10.0f, 10.0f);
+            if (m_PlayState != PlayState::Edit && m_Session) {
+                const CharacterState s = m_Session->Physics().GetCharacterState(e.GetHandle());
+                ImGui::TextDisabled("%s, %.2f m/s", s.Grounded ? "grounded" : s.OnSteepGround ? "on steep ground" : "in the air",
+                    glm::length(glm::vec2(s.Velocity.x, s.Velocity.z)));
+            }
+            if (ImGui::Button("Remove##character")) e.Remove<CharacterControllerComponent>();
+            ImGui::PopID();
         }
 
         if (e.Has<ParticleEmitterComponent>() && ImGui::CollapsingHeader("Particle Emitter", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -4877,6 +4927,17 @@ private:
             if (!e.Has<RigidBodyComponent>() && ImGui::MenuItem("Rigid Body")) {
                 auto& rb = e.Add<RigidBodyComponent>();
                 if (e.Has<MeshRendererComponent>()) FitCollider(e.Get<MeshRendererComponent>(), rb);
+            }
+            if (!e.Has<CharacterControllerComponent>() && ImGui::MenuItem("Character Controller")) {
+                auto& c = e.Add<CharacterControllerComponent>();
+                if (e.Has<MeshRendererComponent>()) {        // fit the capsule round the mesh, like a collider
+                    ColliderShape shape = ColliderShape::Capsule;
+                    glm::vec3 size(2.0f * c.Radius, c.Height, 2.0f * c.Radius), center = c.Center;
+                    FitCollider(e.Get<MeshRendererComponent>(), shape, size, center);
+                    c.Radius = std::max(0.05f, 0.5f * std::max(size.x, size.z));
+                    c.Height = std::max(2.0f * c.Radius, size.y);
+                    c.Center = center;
+                }
             }
             if (!e.Has<ParticleEmitterComponent>() && ImGui::MenuItem("Particle Emitter")) e.Add<ParticleEmitterComponent>();
             if (!e.Has<FoliageComponent>() && ImGui::MenuItem("Foliage")) e.Add<FoliageComponent>();

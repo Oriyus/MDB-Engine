@@ -36,6 +36,7 @@ namespace Engine {
         std::optional<OrbitComponent>               Orbit;
         std::optional<RigidBodyComponent>           RigidBody;
         std::optional<ColliderComponent>            Collider;
+        std::optional<CharacterControllerComponent> Character;
         std::optional<ScriptComponent>              Script;
         std::optional<CameraComponent>              Camera;
         std::optional<AudioSourceComponent>         AudioSource;

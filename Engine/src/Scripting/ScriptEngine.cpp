@@ -86,6 +86,7 @@ namespace Engine {
         }
         struct LightRef { ScriptEntity E; };
         struct BodyRef  { ScriptEntity E; };
+        struct CharRef  { ScriptEntity E; };
         struct CameraRef { ScriptEntity E; };
         struct AudioRef  { ScriptEntity E; };
         struct AnimatorRef { ScriptEntity E; };
@@ -394,6 +395,53 @@ namespace Engine {
                 [](const LightRef& l) { return l.E.Get<PointLightComponent>().CastShadows; },
                 [](const LightRef& l, bool v) { l.E.Get<PointLightComponent>().CastShadows = v; }));
 
+        // A character controller (CharacterControllerComponent, PhysicsWorld): walking, jumping, ground state
+        auto charPhys = [this](const CharRef& c) -> PhysicsWorld& {
+            c.E.Get<CharacterControllerComponent>();          // throws if the entity or component is gone
+            if (!Physics) throw std::runtime_error("no physics here");
+            return *Physics;
+        };
+        auto charComp = [](const CharRef& c) -> CharacterControllerComponent& { return c.E.Get<CharacterControllerComponent>(); };
+        lua.new_usertype<CharRef>("Character", sol::no_constructor,
+            "move", [charPhys](const CharRef& c, const glm::vec3& v) { charPhys(c).SetCharacterMove(c.E.Handle, v); },
+            "wanted", sol::readonly_property([charPhys](const CharRef& c) { return charPhys(c).GetCharacterMove(c.E.Handle); }),
+            "jump", [charPhys](const CharRef& c, float speed) { return charPhys(c).CharacterJump(c.E.Handle, speed); },
+            "velocity", sol::property(
+                [charPhys](const CharRef& c) { return charPhys(c).GetCharacterState(c.E.Handle).Velocity; },
+                [charPhys](const CharRef& c, const glm::vec3& v) { charPhys(c).SetCharacterVelocity(c.E.Handle, v); }),
+            "grounded", sol::readonly_property([charPhys](const CharRef& c) { return charPhys(c).GetCharacterState(c.E.Handle).Grounded; }),
+            "on_steep_ground", sol::readonly_property([charPhys](const CharRef& c) { return charPhys(c).GetCharacterState(c.E.Handle).OnSteepGround; }),
+            "ground_normal", sol::readonly_property([charPhys](const CharRef& c) { return charPhys(c).GetCharacterState(c.E.Handle).GroundNormal; }),
+            "ground_velocity", sol::readonly_property([charPhys](const CharRef& c) { return charPhys(c).GetCharacterState(c.E.Handle).GroundVelocity; }),
+            "ground_point", sol::readonly_property([charPhys](const CharRef& c) { return charPhys(c).GetCharacterState(c.E.Handle).GroundPoint; }),
+            "ground_entity", sol::readonly_property([this, charPhys](const CharRef& c) -> sol::object {
+                const entt::entity g = charPhys(c).GetCharacterState(c.E.Handle).GroundEntity;
+                return g == entt::null ? sol::make_object(*Lua, sol::lua_nil) : MakeEntity(g);
+            }),
+            // Crouch / stand up: a new height (and radius) with the feet kept where they are. False if there is no room.
+            "set_size", [charPhys, charComp](const CharRef& c, float height, sol::optional<float> radius) {
+                const auto& cc = charComp(c);
+                const float r = radius.value_or(cc.Radius);
+                glm::vec3 center = cc.Center;
+                center.y += 0.5f * (height - cc.Height);       // the bottom stays put
+                return charPhys(c).SetCharacterShape(c.E.Handle, height, r, center);
+            },
+            "radius", sol::readonly_property([charComp](const CharRef& c) { return charComp(c).Radius; }),
+            "height", sol::readonly_property([charComp](const CharRef& c) { return charComp(c).Height; }),
+            "center", sol::readonly_property([charComp](const CharRef& c) { return charComp(c).Center; }),
+            "max_slope", sol::property([charComp](const CharRef& c) { return charComp(c).MaxSlope; },
+                [charComp](const CharRef& c, float v) { charComp(c).MaxSlope = v; }),
+            "step_height", sol::property([charComp](const CharRef& c) { return charComp(c).StepHeight; },
+                [charComp](const CharRef& c, float v) { charComp(c).StepHeight = v; }),
+            "stick_down", sol::property([charComp](const CharRef& c) { return charComp(c).StickDown; },
+                [charComp](const CharRef& c, float v) { charComp(c).StickDown = v; }),
+            "mass", sol::property([charComp](const CharRef& c) { return charComp(c).Mass; },
+                [charComp](const CharRef& c, float v) { charComp(c).Mass = v; }),
+            "push_strength", sol::property([charComp](const CharRef& c) { return charComp(c).PushStrength; },
+                [charComp](const CharRef& c, float v) { charComp(c).PushStrength = v; }),
+            "gravity_scale", sol::property([charComp](const CharRef& c) { return charComp(c).GravityScale; },
+                [charComp](const CharRef& c, float v) { charComp(c).GravityScale = v; }));
+
         lua.new_usertype<BodyRef>("Body", sol::no_constructor,
             "velocity", sol::property(
                 [this](const BodyRef& b) { b.E.Get<RigidBodyComponent>(); return Physics->GetLinearVelocity(b.E.Handle); },
@@ -484,6 +532,28 @@ namespace Engine {
                 if (e.Has<PointLightComponent>()) return LightRef{ e };
                 return sol::nullopt;
             }),
+            "character", sol::readonly_property([](const ScriptEntity& e) -> sol::optional<CharRef> {
+                if (e.Has<CharacterControllerComponent>()) return CharRef{ e };
+                return sol::nullopt;
+            }),
+            "add_character", [this](const ScriptEntity& e, sol::optional<sol::table> opts) {
+                if (!e.Valid()) throw std::runtime_error("entity no longer exists");
+                CharacterControllerComponent c;
+                if (opts) {
+                    c.Radius = opts->get<sol::optional<float>>("radius").value_or(c.Radius);
+                    c.Height = opts->get<sol::optional<float>>("height").value_or(c.Height);
+                    c.Center = opts->get<sol::optional<glm::vec3>>("center").value_or(c.Center);
+                    c.MaxSlope = opts->get<sol::optional<float>>("max_slope").value_or(c.MaxSlope);
+                    c.StepHeight = opts->get<sol::optional<float>>("step_height").value_or(c.StepHeight);
+                    c.StickDown = opts->get<sol::optional<float>>("stick_down").value_or(c.StickDown);
+                    c.Mass = opts->get<sol::optional<float>>("mass").value_or(c.Mass);
+                    c.PushStrength = opts->get<sol::optional<float>>("push_strength").value_or(c.PushStrength);
+                    c.GravityScale = opts->get<sol::optional<float>>("gravity_scale").value_or(c.GravityScale);
+                }
+                e.Owner->Registry().emplace_or_replace<CharacterControllerComponent>(e.Handle, c);
+                if (Physics) Physics->Invalidate(e.Handle);    // a rigid body of its own is dropped (the character is its body)
+                return CharRef{ e };
+            },
             "body", sol::readonly_property([](const ScriptEntity& e) -> sol::optional<BodyRef> {
                 if (e.Has<RigidBodyComponent>()) return BodyRef{ e };
                 return sol::nullopt;
@@ -624,6 +694,7 @@ namespace Engine {
                 if (!e.Valid()) return false;
                 if (kind == "mesh")   return e.Has<MeshRendererComponent>();
                 if (kind == "body")   return e.Has<RigidBodyComponent>();
+                if (kind == "character") return e.Has<CharacterControllerComponent>();
                 if (kind == "light")  return e.Has<PointLightComponent>();
                 if (kind == "sun")    return e.Has<DirectionalLightComponent>();
                 if (kind == "script") return e.Has<ScriptComponent>();
@@ -641,6 +712,7 @@ namespace Engine {
                 auto& reg = e.Owner->Registry();
                 if (kind == "mesh")        reg.remove<MeshRendererComponent>(e.Handle);
                 else if (kind == "body")   reg.remove<RigidBodyComponent>(e.Handle);
+                else if (kind == "character") reg.remove<CharacterControllerComponent>(e.Handle);
                 else if (kind == "light")  reg.remove<PointLightComponent>(e.Handle);
                 else if (kind == "sun")    reg.remove<DirectionalLightComponent>(e.Handle);
                 else if (kind == "script") reg.remove<ScriptComponent>(e.Handle);
@@ -855,6 +927,16 @@ namespace Engine {
                 "normal", hit.Normal, "distance", hit.Distance);
         });
 
+        // A sphere swept along a ray (cameras, wide probes): the same result as raycast. static_only: only the level
+        scene.set_function("spherecast", [this](const glm::vec3& origin, const glm::vec3& dir, float maxDist, float radius,
+            sol::optional<ScriptEntity> ignore, sol::optional<bool> staticOnly) -> sol::object {
+            RayHit hit;
+            if (!Physics || !Physics->SphereCast(origin, dir, maxDist, radius, hit, ignore ? ignore->Handle : entt::null,
+                staticOnly.value_or(false)))
+                return sol::make_object(*Lua, sol::lua_nil);
+            return Lua->create_table_with("entity", Wrap(hit.Entity), "point", hit.Point,
+                "normal", hit.Normal, "distance", hit.Distance);
+        });
         // ---- ui: drawn over the game view this frame, in call order. x, y, w, h are 0..1 of the view
         sol::table ui = lua.create_named_table("ui");
         auto push = [this](ScriptUIItem item) { if (UI.size() < 1024) UI.push_back(std::move(item)); };

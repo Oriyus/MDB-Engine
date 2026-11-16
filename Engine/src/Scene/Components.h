@@ -84,6 +84,25 @@ namespace Engine {
         bool LockRotation = false;
     };
 
+    // A walking character (Jolt CharacterVirtual): an upright capsule moved by collision sweeps, not by the solver.
+    // It walks up steps and slopes up to MaxSlope, stays on the ground walking down them, rides moving platforms,
+    // pushes dynamic bodies (PushStrength newtons) and stands on them (Mass). Scripts give it the wanted sideways
+    // velocity every frame (e.character:move) and jumps; gravity and the ground do the rest (PhysicsWorld). Its
+    // position is the entity's (world space; physics never turns it). An entity with one has no rigid body of its
+    // own (a RigidBody there is ignored); it has an inner kinematic capsule, so raycasts hit it, triggers see it and
+    // dynamic bodies bump into it. Only the settings are stored: velocity and ground state are runtime.
+    struct CharacterControllerComponent {
+        float Radius = 0.4f;             // m (x the entity's larger X / Z scale)
+        float Height = 1.8f;             // m, caps included (x the Y scale)
+        glm::vec3 Center{ 0.0f };        // the capsule's centre from the entity's origin (0 = origin in the middle)
+        float MaxSlope = 50.0f;          // degrees: steeper ground is a wall it slides down
+        float StepHeight = 0.35f;        // walks up steps this tall (0 = none)
+        float StickDown = 0.5f;          // keeps to the ground over drops this deep while grounded (0 = never)
+        float Mass = 70.0f;              // kg: how hard it presses on what it stands on
+        float PushStrength = 300.0f;     // N: the most it pushes dynamic bodies with
+        float GravityScale = 1.0f;       // x the scene's gravity
+    };
+
     // An extra shape for the rigid body of the nearest ancestor that has one (a compound collider):
     // a table is a body with a top and four legs as child colliders. It has no body of its own and
     // sits where its entity is. Shape None is not used here.

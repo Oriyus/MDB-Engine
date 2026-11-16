@@ -15,10 +15,12 @@
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Collision/RayCast.h>
+#include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/Character/CharacterVirtual.h>
 
 #include "Physics/PhysicsWorld.h"
 #include "Scene/Scene.h"
@@ -46,7 +48,8 @@ namespace Engine {
         namespace Layers {
             constexpr JPH::ObjectLayer Static = 0;
             constexpr JPH::ObjectLayer Moving = 1;
-            constexpr JPH::uint Count = 2;
+            constexpr JPH::ObjectLayer Character = 2;   // the inner bodies of character controllers: not against static ones
+            constexpr JPH::uint Count = 3;
         }
         namespace BPLayers {
             constexpr JPH::BroadPhaseLayer Static(0);
@@ -58,6 +61,9 @@ namespace Engine {
         public:
             bool ShouldCollide(JPH::ObjectLayer a, JPH::ObjectLayer b) const override {
                 if (a == Layers::Static) return b == Layers::Moving;   // static things never collide with each other
+                // A character's inner body moves with its controller, which does its own sweeps against the level:
+                // it only needs contacts with moving things (triggers, platforms, dynamic bodies, other characters)
+                if (a == Layers::Character) return b != Layers::Static;
                 return true;
             }
         };
@@ -67,6 +73,7 @@ namespace Engine {
             BPLayerInterfaceImpl() {
                 m_Map[Layers::Static] = BPLayers::Static;
                 m_Map[Layers::Moving] = BPLayers::Moving;
+                m_Map[Layers::Character] = BPLayers::Moving;
             }
             JPH::uint GetNumBroadPhaseLayers() const override { return BPLayers::Count; }
             JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer l) const override { return m_Map[l]; }
@@ -82,7 +89,7 @@ namespace Engine {
         class ObjectVsBroadPhaseLayerFilterImpl final : public JPH::ObjectVsBroadPhaseLayerFilter {
         public:
             bool ShouldCollide(JPH::ObjectLayer l1, JPH::BroadPhaseLayer l2) const override {
-                if (l1 == Layers::Static) return l2 == BPLayers::Moving;
+                if (l1 == Layers::Static || l1 == Layers::Character) return l2 == BPLayers::Moving;
                 return true;
             }
         };
@@ -167,6 +174,26 @@ namespace Engine {
         glm::vec3 Impulse{ 0.0f };            // AddImpulse, applied once at the next fixed step
     };
 
+    // CharacterVirtual whose supporting volume (where ground contacts start) can follow a changed capsule
+    class EngineCharacter final : public JPH::CharacterVirtual {
+    public:
+        using JPH::CharacterVirtual::CharacterVirtual;
+        void SetSupportingVolume(const JPH::Plane& p) { mSupportingVolume = p; }
+    };
+
+    // A character controller: a Jolt CharacterVirtual plus what the engine keeps for it
+    struct CharBinding {
+        JPH::Ref<EngineCharacter> Ch;
+        glm::vec3 PrevPos{ 0.0f }, CurPos{ 0.0f };   // the entity's world position after the last two steps
+        glm::vec3 WrittenPos{ 0.0f };                // the local transform position as physics last left it
+        glm::vec3 Move{ 0.0f };                      // wanted sideways velocity
+        float Jump = 0.0f;                           // a jump to start in the next step
+        bool Launched = false;                       // the velocity was set: don't snap it to the ground next step
+        CharacterControllerComponent Built;          // the settings the capsule was made with
+        glm::vec3 BuiltScale{ 1.0f };
+        uint32_t InnerId = 0;                        // the inner body's BodyID (index + sequence)
+    };
+
     // A pair of bodies that touch, with how many sub-shape contacts they currently share
     struct Touch {
         entt::entity A = entt::null, B = entt::null;
@@ -192,7 +219,8 @@ namespace Engine {
         Scene* Sc = nullptr;                  // the scene from the last Step/Sync, for on-demand bodies
         entt::registry* Reg = nullptr;        // its registry
         std::unordered_map<entt::entity, Binding> Bindings;
-        std::unordered_map<uint32_t, entt::entity> BodyToEntity;   // BodyID index+sequence -> entity
+        std::unordered_map<entt::entity, CharBinding> Characters;  // after System: their inner bodies go first
+        std::unordered_map<uint32_t, entt::entity> BodyToEntity;   // BodyID index+sequence -> entity (inner bodies too)
         std::unordered_map<uint64_t, Touch> Touching;
         std::vector<CollisionEvent> Queued;    // gathered since the last Step (contacts, removed bodies)
         std::vector<CollisionEvent> Events;    // what the last Step published
@@ -205,6 +233,7 @@ namespace Engine {
                 bi.DestroyBody(b.Id);
             }
             Bindings.clear();
+            Characters.clear();
             BodyToEntity.clear();
             Touching.clear();
             Queued.clear();
@@ -215,9 +244,8 @@ namespace Engine {
             Accumulator = 0.0f;
         }
 
-        void RemoveBinding(std::unordered_map<entt::entity, Binding>::iterator it) {
-            const uint32_t id = it->second.Id.GetIndexAndSequenceNumber();
-            // Close every contact this body had, so scripts see the matching end / exit
+        // Close every contact this body had, so scripts see the matching end / exit
+        void CloseTouches(uint32_t id) {
             for (auto t = Touching.begin(); t != Touching.end();) {
                 if (uint32_t(t->first >> 32) == id || uint32_t(t->first) == id) {
                     Queued.push_back({ t->second.A, t->second.B, false, t->second.Trigger });
@@ -227,6 +255,22 @@ namespace Engine {
                     ++t;
                 }
             }
+        }
+
+        void RemoveCharacter(std::unordered_map<entt::entity, CharBinding>::iterator it) {
+            CloseTouches(it->second.InnerId);
+            BodyToEntity.erase(it->second.InnerId);
+            Characters.erase(it);                   // the CharacterVirtual removes its inner body
+        }
+
+        bool IsTrigger(entt::entity e) const {
+            auto it = Bindings.find(e);
+            return it != Bindings.end() && it->second.Trigger;
+        }
+
+        void RemoveBinding(std::unordered_map<entt::entity, Binding>::iterator it) {
+            const uint32_t id = it->second.Id.GetIndexAndSequenceNumber();
+            CloseTouches(id);
             auto& bi = System.GetBodyInterface();
             bi.RemoveBody(it->second.Id);
             bi.DestroyBody(it->second.Id);
@@ -474,8 +518,135 @@ namespace Engine {
             if (!Reg || !Reg->valid(e)) return nullptr;
             auto* rb = Reg->try_get<RigidBodyComponent>(e);
             auto* t = Reg->try_get<TransformComponent>(e);
-            if (!rb || !t) return nullptr;
+            if (!rb || !t || Reg->all_of<CharacterControllerComponent>(e)) return nullptr;   // a character is its own body
             return CreateBody(e, *t, *rb, FollowsTransform(e));
+        }
+
+        // ---- character controllers
+        // The capsule for a character's settings and its entity's world scale, plus where its feet sphere's centre is
+        // (the supporting volume: contacts below it are ground)
+        static JPH::ShapeRefC CharacterShape(const CharacterControllerComponent& c, const glm::vec3& worldScale,
+            glm::vec3& offset, float& feetY) {
+            const glm::vec3 s = glm::abs(worldScale);
+            const float r = std::max(0.02f, c.Radius * std::max(s.x, s.z));
+            const float half = std::max(0.0f, 0.5f * c.Height * s.y - r);
+            offset = c.Center * s;
+            feetY = offset.y - half;
+            if (half > 1e-4f) return new JPH::CapsuleShape(half, r);
+            return new JPH::SphereShape(r);
+        }
+
+        static bool SameShape(const CharacterControllerComponent& a, const CharacterControllerComponent& b) {
+            return a.Radius == b.Radius && a.Height == b.Height && a.Center == b.Center;
+        }
+
+        CharBinding* CreateCharacter(entt::entity e, const TransformComponent& t, const CharacterControllerComponent& c) {
+            glm::vec3 pos, scale;
+            glm::quat q;
+            WorldPose(e, pos, q, scale);
+            glm::vec3 offset;
+            float feetY;
+            JPH::ShapeRefC shape = CharacterShape(c, scale, offset, feetY);
+
+            JPH::Ref<JPH::CharacterVirtualSettings> s = new JPH::CharacterVirtualSettings();
+            s->mShape = shape;
+            s->mShapeOffset = ToJolt(offset);
+            s->mMaxSlopeAngle = glm::radians(glm::clamp(c.MaxSlope, 0.0f, 89.0f));
+            s->mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -feetY);
+            s->mMass = std::max(c.Mass, 0.1f);
+            s->mMaxStrength = std::max(c.PushStrength, 0.0f);
+            s->mEnhancedInternalEdgeRemoval = true;     // glide over the seams between mesh triangles and floor tiles
+            s->mInnerBodyShape = shape;
+            s->mInnerBodyLayer = Layers::Character;
+
+            CharBinding cb;
+            cb.Ch = new EngineCharacter(s, JPH::RVec3(pos.x, pos.y, pos.z), JPH::Quat::sIdentity(), (JPH::uint64)entt::to_integral(e), &System);
+            const JPH::BodyID inner = cb.Ch->GetInnerBodyID();
+            if (!inner.IsInvalid()) {
+                // Kinematic bodies don't touch other kinematic ones (triggers, platforms) unless one of them asks to
+                JPH::BodyLockWrite lock(System.GetBodyLockInterface(), inner);
+                if (lock.Succeeded()) lock.GetBody().SetCollideKinematicVsNonDynamic(true);
+                cb.InnerId = inner.GetIndexAndSequenceNumber();
+                BodyToEntity[cb.InnerId] = e;
+            }
+            cb.PrevPos = cb.CurPos = pos;
+            cb.WrittenPos = t.Position;
+            cb.Built = c;
+            cb.BuiltScale = scale;
+            // Find the ground right away, so scripts see `grounded` in on_create
+            cb.Ch->RefreshContacts(System.GetDefaultBroadPhaseLayerFilter(Layers::Moving), System.GetDefaultLayerFilter(Layers::Moving), {}, {}, Temp);
+            return &(Characters[e] = std::move(cb));
+        }
+
+        CharBinding* FindCharacter(entt::entity e) {
+            if (auto it = Characters.find(e); it != Characters.end()) return &it->second;
+            if (!Reg || !Reg->valid(e)) return nullptr;
+            auto* c = Reg->try_get<CharacterControllerComponent>(e);
+            auto* t = Reg->try_get<TransformComponent>(e);
+            if (!c || !t) return nullptr;
+            if (auto b = Bindings.find(e); b != Bindings.end()) RemoveBinding(b);
+            return CreateCharacter(e, *t, *c);
+        }
+
+        // Try a new capsule; false (and the old one stays) if it would overlap something
+        bool ReshapeCharacter(CharBinding& cb, const CharacterControllerComponent& c, const glm::vec3& scale) {
+            glm::vec3 offset;
+            float feetY;
+            JPH::ShapeRefC shape = CharacterShape(c, scale, offset, feetY);
+            const glm::vec3 oldOffset = ToGlm(cb.Ch->GetShapeOffset());
+            cb.Ch->SetShapeOffset(ToJolt(offset));
+            if (!cb.Ch->SetShape(shape, 1.5f * System.GetPhysicsSettings().mPenetrationSlop,
+                System.GetDefaultBroadPhaseLayerFilter(Layers::Moving), System.GetDefaultLayerFilter(Layers::Moving), {}, {}, Temp)) {
+                cb.Ch->SetShapeOffset(ToJolt(oldOffset));
+                return false;
+            }
+            cb.Ch->SetInnerBodyShape(shape);
+            cb.Ch->SetSupportingVolume(JPH::Plane(JPH::Vec3::sAxisY(), -feetY));
+            cb.Built.Radius = c.Radius;
+            cb.Built.Height = c.Height;
+            cb.Built.Center = c.Center;
+            cb.BuiltScale = scale;
+            return true;
+        }
+
+        // One fixed step of one character
+        void StepCharacter(CharBinding& cb, const CharacterControllerComponent& c, float dt) {
+            JPH::CharacterVirtual& ch = *cb.Ch;
+            ch.SetMaxSlopeAngle(glm::radians(glm::clamp(c.MaxSlope, 0.0f, 89.0f)));
+            ch.SetMass(std::max(c.Mass, 0.1f));
+            ch.SetMaxStrength(std::max(c.PushStrength, 0.0f));
+
+            const JPH::Vec3 gravity = System.GetGravity() * c.GravityScale;
+            ch.UpdateGroundVelocity();
+            const glm::vec3 groundV = ToGlm(ch.GetGroundVelocity());
+            const glm::vec3 cur = ToGlm(ch.GetLinearVelocity());
+            const bool onGround = ch.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
+
+            glm::vec3 v;
+            if (cb.Jump > 0.0f) {                     // asked for while grounded: leave the ground's motion upwards
+                v = groundV;
+                v.y = std::max(groundV.y, 0.0f) + cb.Jump;
+            }
+            else if (onGround && !cb.Launched && cur.y - groundV.y < 0.1f) {
+                v = groundV;                           // standing: move with the ground (platforms, no bouncing)
+            }
+            else {
+                v = glm::vec3(0.0f, cur.y, 0.0f);      // in the air (or launched): keep the vertical speed
+            }
+            cb.Jump = 0.0f;
+            cb.Launched = false;
+            v += ToGlm(gravity) * dt;
+            v += glm::vec3(cb.Move.x, 0.0f, cb.Move.z);
+            ch.SetLinearVelocity(ToJolt(v));
+
+            JPH::CharacterVirtual::ExtendedUpdateSettings us;
+            us.mStickToFloorStepDown = JPH::Vec3(0.0f, -std::max(c.StickDown, 0.0f), 0.0f);
+            us.mWalkStairsStepUp = JPH::Vec3(0.0f, std::max(c.StepHeight, 0.0f), 0.0f);
+            ch.ExtendedUpdate(dt, gravity, us, System.GetDefaultBroadPhaseLayerFilter(Layers::Moving),
+                System.GetDefaultLayerFilter(Layers::Moving), {}, {}, Temp);
+            cb.PrevPos = cb.CurPos;
+            const JPH::RVec3 p = ch.GetPosition();
+            cb.CurPos = glm::vec3((float)p.GetX(), (float)p.GetY(), (float)p.GetZ());
         }
 
         // Spin and Orbit write the transform every frame. On a dynamic body physics wins (as the
@@ -493,12 +664,22 @@ namespace Engine {
             Reg = &reg;
             for (auto it = Bindings.begin(); it != Bindings.end();) {
                 auto next = std::next(it);
-                if (!reg.valid(it->first) || !reg.all_of<RigidBodyComponent>(it->first)) RemoveBinding(it);
+                if (!reg.valid(it->first) || !reg.all_of<RigidBodyComponent>(it->first)
+                    || reg.all_of<CharacterControllerComponent>(it->first)) RemoveBinding(it);
                 it = next;
             }
-            reg.view<TransformComponent, RigidBodyComponent>().each(
+            for (auto it = Characters.begin(); it != Characters.end();) {
+                auto next = std::next(it);
+                if (!reg.valid(it->first) || !reg.all_of<CharacterControllerComponent>(it->first)) RemoveCharacter(it);
+                it = next;
+            }
+            reg.view<TransformComponent, RigidBodyComponent>(entt::exclude<CharacterControllerComponent>).each(
                 [&](entt::entity e, TransformComponent& t, RigidBodyComponent& rb) {
                     if (!Bindings.count(e)) CreateBody(e, t, rb, FollowsTransform(e));
+                });
+            reg.view<TransformComponent, CharacterControllerComponent>().each(
+                [&](entt::entity e, TransformComponent& t, CharacterControllerComponent& c) {
+                    if (!Characters.count(e)) CreateCharacter(e, t, c);
                 });
         }
 
@@ -514,7 +695,7 @@ namespace Engine {
                     if (t.Count++ == 0) {
                         t.A = ea->second;
                         t.B = eb->second;
-                        t.Trigger = Bindings[t.A].Trigger || Bindings[t.B].Trigger;
+                        t.Trigger = IsTrigger(t.A) || IsTrigger(t.B);
                         Queued.push_back({ t.A, t.B, true, t.Trigger, r.Point, r.Normal });
                     }
                 }
@@ -596,6 +777,27 @@ namespace Engine {
             }
         }
 
+        // Characters: a transform moved from outside teleports it; a changed capsule (Inspector, scale) is tried
+        for (auto& [e, cb] : I.Characters) {
+            const auto& t = reg.get<TransformComponent>(e);
+            const auto& c = reg.get<CharacterControllerComponent>(e);
+            glm::vec3 pos, scale;
+            glm::quat q;
+            I.WorldPose(e, pos, q, scale);
+            if (t.Position != cb.WrittenPos) {
+                cb.Ch->SetPosition(JPH::RVec3(pos.x, pos.y, pos.z));
+                cb.PrevPos = cb.CurPos = pos;
+                cb.WrittenPos = t.Position;
+            }
+            if (!Impl::SameShape(c, cb.Built) || scale != cb.BuiltScale) {
+                if (!I.ReshapeCharacter(cb, c, scale)) {   // no room: keep trying with what was asked, from the old one
+                    cb.BuiltScale = scale;
+                    cb.Built.Radius = c.Radius; cb.Built.Height = c.Height; cb.Built.Center = c.Center;
+                    I.WarnOnce(e, "its character capsule doesn't fit where it is: keeping the old size");
+                }
+            }
+        }
+
         if (steps > 0) {
             // Kinematic bodies follow their transform: give them the velocity that reaches it
             // exactly when this batch of steps ends, so they push dynamic bodies properly
@@ -623,6 +825,9 @@ namespace Engine {
                     // its time is simulated next frame, under next frame's force.
                     if (glm::dot(b.Force, b.Force) > 0.0f) bi.AddForce(b.Id, ToJolt(b.Force));
                 }
+                // Characters move first (their sweeps see the bodies where they are now), then the bodies
+                for (auto& [e, cb] : I.Characters)
+                    I.StepCharacter(cb, reg.get<CharacterControllerComponent>(e), kFixedStep);
 
                 I.System.Update(kFixedStep, 1, &I.Temp, &I.Jobs);
                 I.GatherContacts();
@@ -653,6 +858,13 @@ namespace Engine {
             b.WrittenPos = t.Position;
             b.WrittenRot = t.Rotation;
         }
+        for (auto& [e, cb] : I.Characters) {               // position only: physics never turns a character
+            auto& t = reg.get<TransformComponent>(e);
+            const glm::vec3 pos = glm::mix(cb.PrevPos, cb.CurPos, alpha);
+            if (reg.all_of<ParentComponent>(e)) scene.SetWorldPosition(e, pos);
+            else t.Position = pos;
+            cb.WrittenPos = t.Position;
+        }
         for (auto& [e, b] : I.Bindings) b.Force = glm::vec3(0.0f);   // add_force lasts one frame
 
         // Publish everything since the last Step (including bodies removed between steps)
@@ -665,6 +877,7 @@ namespace Engine {
 
     void PhysicsWorld::Invalidate(entt::entity e) {
         if (auto it = m_Impl->Bindings.find(e); it != m_Impl->Bindings.end()) m_Impl->RemoveBinding(it);
+        if (auto it = m_Impl->Characters.find(e); it != m_Impl->Characters.end()) m_Impl->RemoveCharacter(it);
     }
 
     glm::vec3 PhysicsWorld::GetLinearVelocity(entt::entity e) {
@@ -701,6 +914,74 @@ namespace Engine {
         if (Binding* b = m_Impl->Find(e); b && b->Type == BodyType::Dynamic) b->Impulse += impulse;
     }
 
+    // ---------------------------------------------------------------- character controllers
+    bool PhysicsWorld::HasCharacter(entt::entity e) const { return m_Impl->Characters.count(e) != 0; }
+    uint32_t PhysicsWorld::CharacterCount() const { return (uint32_t)m_Impl->Characters.size(); }
+
+    void PhysicsWorld::SetCharacterMove(entt::entity e, const glm::vec3& v) {
+        if (CharBinding* c = m_Impl->FindCharacter(e)) c->Move = glm::vec3(v.x, 0.0f, v.z);
+    }
+
+    glm::vec3 PhysicsWorld::GetCharacterMove(entt::entity e) {
+        CharBinding* c = m_Impl->FindCharacter(e);
+        return c ? c->Move : glm::vec3(0.0f);
+    }
+
+    bool PhysicsWorld::CharacterJump(entt::entity e, float speed) {
+        CharBinding* c = m_Impl->FindCharacter(e);
+        if (!c || speed <= 0.0f || c->Ch->GetGroundState() != JPH::CharacterBase::EGroundState::OnGround) return false;
+        c->Jump = speed;
+        return true;
+    }
+
+    void PhysicsWorld::SetCharacterVelocity(entt::entity e, const glm::vec3& v) {
+        CharBinding* c = m_Impl->FindCharacter(e);
+        if (!c) return;
+        c->Ch->SetLinearVelocity(ToJolt(v));
+        c->Move = glm::vec3(v.x, 0.0f, v.z);
+        c->Jump = 0.0f;
+        c->Launched = v.y > 0.0f;              // upwards: off the ground; otherwise standing still snaps back to it
+    }
+
+    CharacterState PhysicsWorld::GetCharacterState(entt::entity e) {
+        CharacterState s;
+        CharBinding* c = m_Impl->FindCharacter(e);
+        if (!c) return s;
+        const JPH::CharacterVirtual& ch = *c->Ch;
+        const auto g = ch.GetGroundState();
+        s.Grounded = g == JPH::CharacterBase::EGroundState::OnGround;
+        s.OnSteepGround = g == JPH::CharacterBase::EGroundState::OnSteepGround;
+        s.Velocity = ToGlm(ch.GetLinearVelocity());
+        if (g != JPH::CharacterBase::EGroundState::InAir) {
+            s.GroundNormal = ToGlm(ch.GetGroundNormal());
+            s.GroundVelocity = ToGlm(ch.GetGroundVelocity());
+            const JPH::RVec3 p = ch.GetGroundPosition();
+            s.GroundPoint = glm::vec3((float)p.GetX(), (float)p.GetY(), (float)p.GetZ());
+            if (auto it = m_Impl->BodyToEntity.find(ch.GetGroundBodyID().GetIndexAndSequenceNumber()); it != m_Impl->BodyToEntity.end())
+                s.GroundEntity = it->second;
+        }
+        return s;
+    }
+
+    bool PhysicsWorld::SetCharacterShape(entt::entity e, float height, float radius, const glm::vec3& center) {
+        Impl& I = *m_Impl;
+        CharBinding* c = I.FindCharacter(e);
+        if (!c) return false;
+        auto& comp = I.Reg->get<CharacterControllerComponent>(e);
+        CharacterControllerComponent want = comp;
+        want.Height = std::max(height, 0.05f);
+        want.Radius = std::max(radius, 0.02f);
+        want.Center = center;
+        glm::vec3 pos, scale;
+        glm::quat q;
+        I.WorldPose(e, pos, q, scale);
+        if (!I.ReshapeCharacter(*c, want, scale)) return false;
+        comp.Height = want.Height;
+        comp.Radius = want.Radius;
+        comp.Center = want.Center;
+        return true;
+    }
+
     bool PhysicsWorld::Raycast(const glm::vec3& origin, const glm::vec3& direction, float maxDistance,
         RayHit& hit, entt::entity ignore, bool staticOnly) const {
         const float len = glm::length(direction);
@@ -709,6 +990,7 @@ namespace Engine {
 
         JPH::BodyID ignoreId;
         if (auto it = m_Impl->Bindings.find(ignore); it != m_Impl->Bindings.end()) ignoreId = it->second.Id;
+        else if (auto c = m_Impl->Characters.find(ignore); c != m_Impl->Characters.end()) ignoreId = c->second.Ch->GetInnerBodyID();
 
         JPH::RRayCast ray{ JPH::RVec3(origin.x, origin.y, origin.z), ToJolt(dir) };
         JPH::RayCastResult result;
@@ -757,6 +1039,40 @@ namespace Engine {
                 h.Normal = ToGlm(lock.GetBody().GetWorldSpaceSurfaceNormal(r.mSubShapeID2, p));
             hits.push_back(h);
         }
+    }
+
+    bool PhysicsWorld::SphereCast(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, float radius,
+        RayHit& hit, entt::entity ignore, bool staticOnly) const {
+        const float len = glm::length(direction);
+        if (len < 1e-6f || maxDistance <= 0.0f || radius <= 0.0f) return false;
+        const glm::vec3 dir = direction / len;
+
+        JPH::BodyID ignoreId;
+        if (auto it = m_Impl->Bindings.find(ignore); it != m_Impl->Bindings.end()) ignoreId = it->second.Id;
+        else if (auto c = m_Impl->Characters.find(ignore); c != m_Impl->Characters.end()) ignoreId = c->second.Ch->GetInnerBodyID();
+
+        JPH::SphereShape sphere(radius);
+        sphere.SetEmbedded();                          // on the stack: no reference counting
+        const JPH::RShapeCast cast = JPH::RShapeCast::sFromWorldTransform(&sphere, JPH::Vec3::sReplicate(1.0f),
+            JPH::RMat44::sTranslation(JPH::RVec3(origin.x, origin.y, origin.z)), ToJolt(dir * maxDistance));
+        JPH::ShapeCastSettings settings;
+        settings.mBackFaceModeTriangles = JPH::EBackFaceMode::CollideWithBackFaces;   // never slip through a one-sided wall
+        settings.mBackFaceModeConvex = JPH::EBackFaceMode::CollideWithBackFaces;
+        settings.mReturnDeepestPoint = true;
+        JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
+        RayFilter filter(ignoreId, staticOnly);
+        m_Impl->System.GetNarrowPhaseQuery().CastShape(cast, settings, JPH::RVec3::sZero(), collector, {}, {}, filter);
+        if (!collector.HadHit()) return false;
+
+        const JPH::ShapeCastResult& r = collector.mHit;
+        auto ent = m_Impl->BodyToEntity.find(r.mBodyID2.GetIndexAndSequenceNumber());
+        if (ent == m_Impl->BodyToEntity.end()) return false;
+        hit.Entity = ent->second;
+        hit.Distance = std::max(0.0f, r.mFraction * maxDistance);
+        hit.Point = ToGlm(JPH::Vec3(r.mContactPointOn2));
+        const JPH::Vec3 axis = r.mPenetrationAxis;
+        hit.Normal = axis.LengthSq() > 1e-12f ? ToGlm(-axis.Normalized()) : -dir;
+        return true;
     }
 
     bool PhysicsWorld::StaticBounds(glm::vec3& mn, glm::vec3& mx) const {

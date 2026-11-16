@@ -333,7 +333,7 @@ e.Add&lt;RigidBodyComponent&gt;().Type = BodyType::Static;</code></pre>
 <h2>Modular kits (Village)</h2>
 <p>Models come in any units, so the editor normally scales a model it places to 2 m across and stands it on the origin. A <b>kit</b> is a folder of pieces that must snap together, so they keep their own size and pivot instead: a model whose folder holds a <code>kit.json</code> file is loaded with <code>Model::NativeSize</code>. Placing one from the Assets panel (dragged onto the viewport or double-clicked) also snaps it to the 0.5 m grid, marks it <b>Static</b> (merged into static batches) and gives it a static <b>Mesh</b> body, so the nav grid sees it.</p>
 <p><code>Examples/Assets/Models/Village</code> is an abandoned-village kit made in Blender by <code>Tools/village_kit.py</code> (procedural textures, deterministic). <code>Scenes/village.json</code> is a demo village built from it.</p>
-<p><b>Playing the village.</b> Press Play: a blue box, the "Player", walks with <b>W A S D</b> (relative to the camera), runs with <b>Shift</b> and jumps with <b>Space</b>. The game camera follows it (<code>follow.lua</code>). The player is a dynamic Rigid Body with <b>Lock rotation</b>, so it never tips over, and walls, fences, trees and houses with colliders stop it. Its collider is a capsule the size of the box, so it slides along walls and over small steps instead of catching on them. <code>Scripts/village_player.lua</code> has the speeds, acceleration and jump height at the top. Running <code>village_kit.py</code> again regenerates <code>village.json</code> and loses the player, along with any other changes made in the editor.</p>
+<p><b>Playing the village.</b> Press Play: a blue box, the "Player", walks with <b>W A S D</b> (relative to the camera), runs with <b>Shift</b> and jumps with <b>Space</b> and crouches while <b>C</b> or <b>Ctrl</b> is held. The game camera follows it (<code>follow.lua</code>) and comes in when a wall, house or trunk gets between them, so it never ends up inside one (leaves have no collider, so it can still look through a canopy). The player is a <a href="#engine-physics">Character Controller</a>: walls, fences, trees and houses with colliders stop it, it slides along them, walks up steps and kerbs, and pushes loose objects. <code>Scripts/village_player.lua</code> has the speeds, acceleration, jump height and crouch height at the top. Running <code>village_kit.py</code> again regenerates <code>village.json</code> and loses the player, along with any other changes made in the editor.</p>
 <p>Each piece is a <code>.gltf</code> with its <code>.bin</code>, and every piece uses the same texture atlas, <code>village_atlas.jpg</code> (the ground has its own repeating <code>village_ground.jpg</code>). A building piece therefore has one material and costs one draw per view; only iron fittings, rope and the well's water are separate small materials. The atlas holds 4 × 4 m of each texture (plaster, stone, wood, dark timber, shingles, bark), so a single face can be up to 4 m across. The engine loads each image once, whichever models use it: model textures are shared by file path, and embedded ones by content.</p>
 <table>
 <tr><th>Pieces</th><th>Pivot and fit</th></tr>
@@ -613,12 +613,22 @@ scene.spawn_particles(self.position, { preset = "Sparks", count = 40 })   -- one
   <li><b>Compound colliders</b>: Collider components on children add shapes to the nearest body above them.</li>
   <li><b>Events</b>: exactly one begin and one end per touching pair; removed bodies end their contacts.</li>
   <li><code>add_force</code> lasts the frame; <code>add_impulse</code> applies once. Moving a static body from a script teleports it.</li>
-  <li>Raycasts (closest, all hits, static only). <b>T</b> in the editor throws a ball.</li>
+  <li>Raycasts (closest, all hits, static only) and <b>sphere casts</b> (<code>scene.spherecast</code>: a ball swept along a ray, for cameras and wide probes). <b>T</b> in the editor throws a ball.</li>
 </ul>
 <pre><code class="lua">self:add_body{ type = "dynamic", shape = "sphere", size = 0.5, mass = 2, bounciness = 0.6 }
 function on_collision_begin(self, other, hit)
     log("hit " .. other.name .. " at " .. tostring(hit.point))
 end</code></pre>
+<h3>Character controller</h3>
+<p>A <b>Character Controller</b> (Inspector &gt; Add Component, or <b>Create &gt; Character</b> for one with a capsule to look at and its origin at the feet) is for anything that walks: players, NPCs that need real collision. It is an upright capsule moved by Jolt's <code>CharacterVirtual</code>, by sweeps rather than by the solver, so it never tips, bounces or catches on seams. Each fixed step:</p>
+<ul>
+  <li>It walks up <b>steps</b> up to <i>Step height</i> (0.35 m) and slopes up to <i>Max slope</i> (50&deg;). Steeper ground is a wall it slides down.</li>
+  <li>While grounded it keeps to the ground over drops up to <i>Stick down</i> (0.5 m), so walking down a slope or stairs doesn't make it hop.</li>
+  <li>It moves with the ground under it, so it <b>rides moving platforms</b> (kinematic bodies).</li>
+  <li>It <b>pushes dynamic bodies</b> with up to <i>Push strength</i> newtons and presses on what it stands on with its <i>Mass</i>.</li>
+  <li>Gravity (x <i>Gravity scale</i>) is applied for you. The script only gives the wanted sideways velocity and jumps.</li>
+</ul>
+<p>It has an inner kinematic capsule, so raycasts hit it (pass it as <code>ignore</code> to skip it), triggers report it (<code>on_trigger_enter</code>) and dynamic bodies bump into it. Collisions with the level itself are not reported as events. A Rigid Body on the same entity is ignored. Its position is the entity's, written back like a dynamic body's (interpolated); setting the position teleports it. Physics never turns it. The collider overlay draws it in teal. Only the settings are saved, not the velocity. <code>village_player.lua</code> is the example; <code>Scripts/character_test.lua</code> checks all of it.</p>
 </section>
 
 <section class="doc" data-group="Engine" id="engine-audio">
@@ -807,6 +817,8 @@ audio.set_volume("music", 0.6)                    -- or "master"; audio.volume(b
 <tr><td><code>anim_graph_test.lua</code></td><td>Animation graphs on a spawned fox: states, blend, conditions, triggers, Any State, exit time, play_state, an additive layer weight (17)</td></tr>
 <tr><td><code>transform_test.lua</code></td><td>Rotations through Euler angles near gimbal lock (4)</td></tr>
 <tr><td><code>shader_graph_test.lua</code></td><td>Shader graph materials: the example graphs (vertex offset and water included) compile and draw, params, set_param, overrides, save round trip (17; <code>MDB_SCENE=demo.json</code>)</td></tr>
+<tr><td><code>camera_collision_test.lua</code></td><td>scene.spherecast, and the follow camera: pulled in at once by a wall, never seeing through it, easing back out, ignoring dynamic bodies (15; <code>MDB_SCENE=village.json</code>)</td></tr>
+<tr><td><code>character_test.lua</code></td><td>Character controller: landing, walking, a step and a wall, jumping, a moving platform, pushing a crate, raycasts and triggers, crouching under a ceiling, slopes of 25 and 60 degrees, save round trip (27; <code>MDB_SCENE=demo.json</code>)</td></tr>
 <tr><td><code>material_test.lua</code></td><td>Material files: values, variants, mesh slots from scripts, material.set, errors, save round trip (17; <code>MDB_SCENE=demo.json</code>)</td></tr>
 <tr><td><code>engine_features_test.lua</code></td><td>world_to_screen, decals, line of sight, cover, primitives, flash (22)</td></tr>
 <tr><td><code>fog_test.lua</code></td><td>Fog of war: reveal, explore, save / load, e.visible (17)</td></tr>
@@ -1321,7 +1333,22 @@ b:add_force(vec3(0, 0, 20))         -- newtons, this frame only: call every fram
 b:add_impulse(vec3(0, 5, 0))        -- once
 
 local hit = scene.raycast(self.position, vec3(0, -1, 0), 10, self)
-if hit then log("ground at " .. hit.distance .. " m: " .. hit.entity.name) end</code></pre>
+if hit then log("ground at " .. hit.distance .. " m: " .. hit.entity.name) end
+-- a 0.3 m ball swept from p along dir, only against static bodies (the level), skipping the player
+local h = scene.spherecast(p, dir, 7, 0.3, player, true)   -- h.distance = how far its centre got</code></pre>
+
+<h3>Character controller</h3>
+<pre><code class="lua">self:add_character{ radius = 0.4, height = 1.8, center = vec3(0, 0.9, 0),   -- origin at the feet
+                    max_slope = 50, step_height = 0.35, stick_down = 0.5, mass = 70, push_strength = 300 }
+local ch = self.character
+ch:move(dir * 4)                    -- wanted sideways velocity (m/s); kept until changed: set it every frame
+if input.pressed("jump") then ch:jump(5) end   -- false (and nothing) unless grounded
+if ch.grounded then log("on " .. ch.ground_entity.name) end
+-- ch.on_steep_ground, ch.ground_normal, ch.ground_velocity (a platform's), ch.ground_point, ch.velocity (read)
+ch.velocity = vec3(0, 8, 0)         -- a launch: upward speed lasts until it lands
+if ch:set_size(1.1) then end        -- crouch: shorter with the feet in place; false if there's no room to stand up
+ch.gravity_scale = 0.5              -- also max_slope, step_height, stick_down, mass, push_strength
+self.position = spawn               -- teleports it</code></pre>
 </section>
 
 <section class="doc" data-group="Scripting" id="script-camera-audio">

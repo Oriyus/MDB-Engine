@@ -109,7 +109,7 @@ namespace Engine {
     //   e.id, e:valid(), e:destroy(), e:clone()
     //   e:flash([color = white [, seconds = 0.25 [, strength = 3]]])   a hit flash on the entity and every mesh below it
     //   e.visible   shown or hidden (runtime, not saved): the entity and every mesh below it; hidden ones cast no shadow
-    //   e:has(kind), e:remove(kind)     kind = "mesh" "body" "collider" "light" "sun" "script" "spin" "orbit" "camera" "audio" "animator" "particles"
+    //   e:has(kind), e:remove(kind)     kind = "mesh" "body" "character" "collider" "light" "sun" "script" "spin" "orbit" "camera" "audio" "animator" "particles"
     //   e.mesh   -> nil or { color, emissive, metallic, roughness (per-object overrides of the material's values: reading gives
     //               the override, else the first part's material; clear_overrides() removes them), geometry ("cube" "sphere" ...),
     //               opacity (0..1; below 1 makes an opaque mesh "blend"), alpha_mode ("opaque" "cutout" "blend"),
@@ -124,6 +124,21 @@ namespace Engine {
     //   e.light  -> nil or { color, intensity, shadows }
     //   e.body   -> nil or { velocity, angular_velocity, type, trigger, lock_rotation, mass,
     //                         add_force(v) (newtons, lasts this frame: call each frame), add_impulse(v) }
+    //   e.character -> nil or a character controller (CharacterControllerComponent: walks, steps, slopes, platforms) {
+    //                 move(v)   the wanted sideways velocity, m/s, world (y ignored); kept until changed: set it every frame
+    //                 wanted    (read) that velocity
+    //                 jump(speed) -> bool   leave the ground upwards at speed m/s; false (nothing) unless grounded
+    //                 velocity  (read) what it moved with last step; (write) a launch / knock-up: an upward y lasts
+    //                           until it lands, the sideways part becomes the wanted move
+    //                 grounded, on_steep_ground (sliding down ground steeper than max_slope), ground_normal,
+    //                 ground_velocity (a moving platform's), ground_point, ground_entity (nil in the air)
+    //                 set_size(height [, radius]) -> bool   crouch / stand: the feet stay; false if there is no room
+    //                 radius, height, center (read); max_slope (degrees), step_height, stick_down, mass, push_strength
+    //                 (newtons), gravity_scale (read / write) }
+    //                 Teleport by setting e.position. Gravity is applied for you; physics never turns it.
+    //   e:add_character{ radius=0.4, height=1.8, center=vec3 (the capsule's centre from the origin; 0 = origin in the middle),
+    //                    max_slope=50, step_height=0.35, stick_down=0.5, mass=70, push_strength=300, gravity_scale=1 }
+    //                    a rigid body on the same entity is ignored (the character is its body)
     //   e:add_mesh{ geometry="cube"|"sphere"|"plane"|"grid"|"capsule"|"cylinder"|"cone"|"model:Models/x.glb", color=vec3 (and
     //               metallic, roughness, emissive: overrides), fit=metres (models: scaled to that size, standing on the origin),
     //               opacity, alpha_mode, alpha_cutoff, cast_shadows, static, wind, double_sided (texture, unlit and
@@ -231,6 +246,8 @@ namespace Engine {
     //       { ui = path, widget, index }).
     //   ui.simulate_pointer(x, y, down [, wheel [, right]]) / ui.simulate_pointer()   test hook: overrides the pointer
     //   scene.raycast(origin, dir, max_dist [, ignore_entity]) -> nil or { entity, point, normal, distance }
+    //   scene.spherecast(origin, dir, max_dist, radius [, ignore_entity [, static_only]]) -> nil or { entity, point, normal,
+    //                    distance }   a sphere swept along the ray (distance = how far its centre got; 0 = touching at the start)
     //   scene.screen_ray(x, y) -> origin, dir          through the game camera, x, y 0..1 of the view (ui.mouse())
     //   scene.pick(x, y [, max_dist = 500]) -> nil or a raycast result along screen_ray (what is under the mouse)
     //   scene.world_to_screen(pos) -> x, y, visible, depth     where a world point is on the view (0..1; the inverse

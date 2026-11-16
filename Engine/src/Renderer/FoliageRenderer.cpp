@@ -377,7 +377,12 @@ namespace Engine {
         void GatherPressers(Scene& scene) {
             Pressers.clear();
             auto& reg = scene.Registry();
-            for (auto [e, rb] : reg.view<RigidBodyComponent>().each()) {
+            for (auto [e, c] : reg.view<CharacterControllerComponent>().each()) {
+                const glm::mat4 M = scene.GetWorldMatrix(e);
+                const glm::vec3 s(glm::length(glm::vec3(M[0])), glm::length(glm::vec3(M[1])), glm::length(glm::vec3(M[2])));
+                Pressers.push_back({ glm::vec3(M[3]) + c.Center * s, c.Radius * std::max(s.x, s.z), c.Height * s.y * 0.5f, 1.0f });
+            }
+            for (auto [e, rb] : reg.view<RigidBodyComponent>(entt::exclude<CharacterControllerComponent>).each()) {
                 if (rb.Type == BodyType::Static || rb.IsTrigger) continue;
                 const glm::mat4 M = scene.GetWorldMatrix(e);
                 const glm::vec3 s(glm::length(glm::vec3(M[0])), glm::length(glm::vec3(M[1])), glm::length(glm::vec3(M[2])));
