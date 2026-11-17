@@ -1,10 +1,12 @@
 #pragma once
 #include "Scripting/ScriptEngine.h"     // ScriptUIItem
+#include "Core/Input.h"                 // TextEvent
 
 #include <glm/glm.hpp>
 #include <cstddef>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -78,6 +80,30 @@ namespace Engine {
         float IconAlpha = 1.0f;
     };
 
+    // A one-line text field (ui.input)
+    enum class UIInputFilter : int { Any = 0, Integer = 1, Decimal = 2, Name = 3 };   // Name: letters, digits, _ and -
+    struct UIInputOptions {
+        float W = 0.0f;                          // 0: as wide as the container has left
+        float H = 0.0f;                          // 0: the theme's button height
+        float Size = 0.0f;                       // text size; 0: the theme's
+        std::string Hint;                        // shown greyed while the field is empty
+        int MaxLength = 0;                       // characters; 0: no limit
+        bool Password = false;                   // shown as *
+        UIInputFilter Filter = UIInputFilter::Any;
+        bool Disabled = false;
+        bool Focus = false;                      // take the keyboard focus when this turns true
+        bool SelectAll = true;                   // focus by Tab or Focus selects the whole text
+        bool KeepFocus = false;                  // Enter submits and keeps typing (a chat line)
+        std::string Tooltip;
+    };
+    struct UIInputResult {
+        std::string Text;                        // the text now (edits included)
+        bool Changed = false;                    // differs from what was passed in
+        bool Submitted = false;                  // Enter was pressed this frame
+        bool Cancelled = false;                  // Escape: the text went back to what it was when focused
+        bool Focused = false;                    // has the keyboard focus after this frame's keys
+    };
+
     struct UISlotResult {
         bool Clicked = false, RightClicked = false, Hovered = false;
         bool Dropped = false;                    // a drag from another slot ended here this frame
@@ -122,6 +148,15 @@ namespace Engine {
         void Space(float h);
         void Separator();
         void Tooltip(const std::string& text);   // for the widget just placed, when it is hovered
+        UIInputResult Input(const std::string& id, const std::string& text, const UIInputOptions& o);
+
+        // ---- typing. This frame's key presses and characters, in order (before BeginFrame). While a text field
+        // has the focus, games should ignore the keyboard (ScriptEngine masks its keys and actions).
+        void SetTextEvents(const std::vector<TextEvent>& events) { m_TextEvents = events; }
+        bool KeyboardFocused() const { return !m_FocusId.empty(); }
+        // A field has the focus now, or had it when this frame began (its Escape or Enter is the field's, not the game's)
+        bool WantsKeyboard() const { return !m_FocusId.empty() || m_FocusAtBegin; }
+        void Unfocus() { m_FocusId.clear(); }
 
         // ---- queries
         void LastRect(float& x, float& y, float& w, float& h) const;   // the widget just placed, 0..1 of the view
@@ -208,6 +243,18 @@ namespace Engine {
         std::string m_HotId, m_PrevHotId;        // hovered widget (tooltips)
         float m_HotTime = 0.0f;
         std::string m_TooltipText, m_PendingTooltip;
+
+        // text fields: the one with the keyboard focus edits its own copy until it lets go
+        std::vector<TextEvent> m_TextEvents;
+        std::string m_FocusId, m_FocusRequest;   // request: Tab moved here (taken when that field is drawn)
+        std::string m_EditText, m_EditOriginal, m_EditReturned;
+        size_t m_Caret = 0, m_Anchor = 0;        // byte offsets on code point boundaries
+        float m_ScrollX = 0.0f, m_Blink = 0.0f;
+        bool m_FocusSeen = false, m_FocusAtBegin = false, m_PressOnFocus = false;
+        int m_TabMove = 0;
+        std::vector<std::string> m_InputOrder;   // fields this frame, in order (Tab)
+        std::unordered_set<std::string> m_FocusAsks, m_PrevFocusAsks;
+        void TakeFocus(const std::string& id, const std::string& text, bool selectAll);
     };
 
 } // namespace Engine

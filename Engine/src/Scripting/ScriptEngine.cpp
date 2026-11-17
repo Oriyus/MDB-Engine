@@ -189,6 +189,9 @@ namespace Engine {
         bool SimPad = false;                              // input.simulate_gamepad is on
         GamepadState SimPadState;
         std::array<bool, kKeyCount> SimKeys{};            // input.simulate_key
+        std::array<bool, kKeyCount> KeyMasked{};          // held when a text field took or let go of the keyboard: up until released
+        bool KeyboardAllowed = true;                      // SetKeyboard: typing reaches text fields
+        std::vector<TextEvent> SimText;                   // ui.simulate_type / simulate_key, for the next frame
         std::string LastDevice = "keyboard";
         void LoadInputMap();
 
@@ -1149,6 +1152,59 @@ namespace Engine {
         ui.set_function("space", [this](sol::optional<float> h) { UIC.Space(h.value_or(UIC.Theme.Spacing)); });
         ui.set_function("separator", [this]() { UIC.Separator(); });
         ui.set_function("tooltip", [this](const std::string& text) { UIC.Tooltip(text); });
+        // input(id, text, { w, h, size, hint, max, password, filter = "integer"|"decimal"|"name", disabled, focus,
+        //   select_all, keep_focus, tooltip }) -> text, submitted, focused
+        ui.set_function("input", [this, optF, optB, optS](const std::string& id, sol::optional<std::string> text, sol::optional<sol::table> opts) {
+            UIInputOptions o;
+            o.W = optF(opts, "w", 0.0f);
+            o.H = optF(opts, "h", 0.0f);
+            o.Size = optF(opts, "size", 0.0f);
+            o.Hint = optS(opts, "hint", "");
+            o.MaxLength = std::max(0, (int)optF(opts, "max", 0.0f));
+            o.Password = optB(opts, "password", false);
+            const std::string filter = optS(opts, "filter", "");
+            if (filter == "integer") o.Filter = UIInputFilter::Integer;
+            else if (filter == "decimal") o.Filter = UIInputFilter::Decimal;
+            else if (filter == "name") o.Filter = UIInputFilter::Name;
+            else if (!filter.empty()) throw std::runtime_error("ui.input filter must be \"integer\", \"decimal\" or \"name\"");
+            o.Disabled = optB(opts, "disabled", false);
+            o.Focus = optB(opts, "focus", false);
+            o.SelectAll = optB(opts, "select_all", true);
+            o.KeepFocus = optB(opts, "keep_focus", false);
+            o.Tooltip = optS(opts, "tooltip", "");
+            const UIInputResult r = UIC.Input(id, text.value_or(std::string()), o);
+            return std::make_tuple(r.Text, r.Submitted, r.Focused);
+        });
+        ui.set_function("typing", [this]() { return UIC.KeyboardFocused(); });
+        ui.set_function("unfocus", [this]() { UIC.Unfocus(); });
+        // Tests: type text / press keys ("backspace", "ctrl+a", "shift+left" ...) as if on the next frame
+        ui.set_function("simulate_type", [this](const std::string& s) {
+            for (size_t i = 0; i < s.size();) {
+                const unsigned char c = (unsigned char)s[i];
+                const size_t n = c < 0x80 ? 1 : c < 0xE0 ? 2 : c < 0xF0 ? 3 : 4;
+                uint32_t cp = n == 1 ? c : c & (n == 2 ? 0x1F : n == 3 ? 0x0F : 0x07);
+                for (size_t k = 1; k < n && i + k < s.size(); k++) cp = (cp << 6) | ((unsigned char)s[i + k] & 0x3F);
+                SimText.push_back(TextEvent{ cp, 0, 0 });
+                i += n;
+            }
+        });
+        ui.set_function("simulate_key", [this](const std::string& spec) {
+            static const std::unordered_map<std::string, int> keys = {
+                { "backspace", 259 }, { "delete", 261 }, { "left", 263 }, { "right", 262 }, { "home", 268 }, { "end", 269 },
+                { "enter", 257 }, { "escape", 256 }, { "tab", 258 }, { "a", 65 }, { "c", 67 }, { "v", 86 }, { "x", 88 } };
+            int mods = 0;
+            std::string rest = spec;
+            for (size_t p; (p = rest.find('+')) != std::string::npos; rest = rest.substr(p + 1)) {
+                const std::string m = rest.substr(0, p);
+                if (m == "ctrl") mods |= Mod::Control;
+                else if (m == "shift") mods |= Mod::Shift;
+                else if (m == "alt") mods |= Mod::Alt;
+                else throw std::runtime_error("ui.simulate_key: unknown modifier \"" + m + "\"");
+            }
+            const auto it = keys.find(rest);
+            if (it == keys.end()) throw std::runtime_error("ui.simulate_key: unknown key \"" + rest + "\"");
+            SimText.push_back(TextEvent{ 0, it->second, mods });
+        });
         ui.set_function("wants_mouse", [this]() { return UIC.WantsMouse(); });
         ui.set_function("dragging", [this]() -> sol::object {
             return UIC.Dragging() && DragPayload.valid() ? DragPayload : sol::make_object(*Lua, sol::lua_nil);
@@ -2744,7 +2800,15 @@ namespace Engine {
         KeyPrev = KeyNow;
         MousePrev = MouseNow;
         PadPrev = PadNow;
-        for (int k = kKeyFirst; k < kKeyCount; k++) KeyNow[k] = Input::IsKeyDown(k) || SimKeys[k];
+        // While a text field has the keyboard the game sees no keys; keys still held when it lets go stay up until
+        // released (the Enter that submitted a name doesn't also press "interact")
+        const bool typing = UIC.KeyboardFocused();
+        for (int k = kKeyFirst; k < kKeyCount; k++) {
+            const bool down = Input::IsKeyDown(k) || SimKeys[k];
+            if (typing) KeyMasked[k] = down;
+            else if (!down) KeyMasked[k] = false;
+            KeyNow[k] = down && !typing && !KeyMasked[k];
+        }
         for (int b = 0; b < kMouseCount; b++)       MouseNow[b] = Input::IsMouseButtonDown(b);
         PadNow = SimPad ? SimPadState : Input::Gamepad();
         ApplyGamepadDeadZones(PadNow, Actions.StickDeadZone, Actions.TriggerDeadZone);
@@ -2924,6 +2988,8 @@ namespace Engine {
     }
 
     void ScriptEngine::SetUIFonts(ImFont* bold, ImFont* regular) { m_Impl->UIC.SetFonts(bold, regular); }
+    void ScriptEngine::SetKeyboard(bool allowed) { m_Impl->KeyboardAllowed = allowed; }
+    bool ScriptEngine::WantsKeyboard() const { return m_Impl->Lua && m_Impl->UIC.WantsKeyboard(); }
 
     bool ScriptEngine::ConsumeQuitRequest() {
         const bool q = m_Impl->QuitRequested;
@@ -2995,6 +3061,11 @@ namespace Engine {
         {
             UIPointerState p{ m.PtrX, m.PtrY, m.PtrInside, m.PtrDown, m.PtrRightDown, m.PtrWheel };
             if (m.SimPointer) p = m.Sim;                                  // ui.simulate_pointer (tests)
+            std::vector<TextEvent> typed;
+            if (m.KeyboardAllowed) typed = Input::TextEvents();
+            typed.insert(typed.end(), m.SimText.begin(), m.SimText.end());
+            m.SimText.clear();
+            m.UIC.SetTextEvents(typed);
             m.UIC.BeginFrame(m.UI, m.ViewAspect, p, dt);
             if (m.UIC.DragEndedLastFrame()) m.DragPayload = sol::object();
         }

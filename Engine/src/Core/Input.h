@@ -1,7 +1,9 @@
 #pragma once
 #include <array>
+#include <cstdint>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace Engine {
 
@@ -28,6 +30,20 @@ namespace Engine {
         constexpr int T = 84;
         constexpr int H = 72;
     }
+
+    // Modifier bits of a key event (GLFW's values)
+    namespace Mod {
+        constexpr int Shift = 1, Control = 2, Alt = 4, Super = 8;
+    }
+
+    // One step of typing, in the order it happened: a character typed (Char != 0, a Unicode code point, after the
+    // keyboard layout), or a key pressed or auto-repeated (Key, Mods). Text fields use these: key state polled once
+    // a frame would miss quick taps and repeats.
+    struct TextEvent {
+        uint32_t Char = 0;
+        int Key = 0;
+        int Mods = 0;
+    };
 
     namespace Mouse {
         constexpr int Left = 0, Right = 1, Middle = 2;
@@ -64,6 +80,12 @@ namespace Engine {
         // one becomes active. Only devices GLFW has a gamepad mapping for count (XInput pads, most known pads).
         static void PollGamepads();
         static const GamepadState& Gamepad();           // the active pad (Connected false if there is none)
+
+        // Typing: the window's callbacks queue events as they arrive; BeginTextFrame (Application, once per frame,
+        // before OnUpdate) makes them this frame's TextEvents.
+        static void QueueTextEvent(const TextEvent& e);
+        static void BeginTextFrame();
+        static const std::vector<TextEvent>& TextEvents();
     };
 
 } // namespace Engine

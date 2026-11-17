@@ -82,3 +82,21 @@ namespace Engine {
     const GamepadState& Input::Gamepad() { return s_Pad; }
 
 } // namespace Engine
+
+namespace Engine {
+
+    // ---- typing
+    static std::vector<TextEvent> s_PendingText, s_FrameText;
+
+    void Input::QueueTextEvent(const TextEvent& e) {
+        if (s_PendingText.size() < 1024) s_PendingText.push_back(e);   // a stuck key can't grow it forever
+    }
+
+    void Input::BeginTextFrame() {
+        s_FrameText.swap(s_PendingText);
+        s_PendingText.clear();
+    }
+
+    const std::vector<TextEvent>& Input::TextEvents() { return s_FrameText; }
+
+} // namespace Engine

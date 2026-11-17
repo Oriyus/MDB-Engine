@@ -236,6 +236,16 @@ namespace Engine {
     //       dragged slot's value when a drag ends here (nil otherwise)
     //   ui.tabs(id, { "A", "B" }, current) -> index, ui.space([units]), ui.separator()
     //   ui.tooltip(text)                     for the widget just placed (widgets also take tooltip = ...)
+    //   ui.input(id, text [, { w, h, size, hint, max = chars, password, filter = "integer"|"decimal"|"name", disabled,
+    //       focus, select_all = true, keep_focus, tooltip }]) -> text, submitted, focused
+    //       A one-line text field: keep the returned text and pass it back next frame. A click (or Tab / Shift+Tab, or
+    //       focus turning true) gives it the keyboard; caret, selection (drag, Shift, Ctrl+A), Ctrl+arrows,
+    //       Ctrl+C / X / V. Enter: submitted (and it lets go, unless keep_focus), Escape: back to the text it had when
+    //       focused. Changing the text you pass in while it is focused (clearing it after Enter) is taken over.
+    //   ui.typing() -> a text field has the keyboard: game keys and input actions read as up meanwhile (and keys
+    //       held when it lets go stay up until released); ui.unfocus() takes the keyboard back
+    //   ui.simulate_type(text), ui.simulate_key("ctrl+a" | "shift+left" | "backspace" | "enter" ...)   test hooks:
+    //       typing for the next frame
     //   ui.theme{ panel_color, panel_alpha, panel_image, panel_slice, border_color, border_alpha, title_color, title_size,
     //             text_color, text_size, muted_color, button_color, accent_color, button_text_size, button_height,
     //             padding, spacing, rounding, slot_color, slot_size, slot_image, slot_slice, tooltip_width }
@@ -376,6 +386,11 @@ namespace Engine {
         void SetPointer(float x, float y, bool inside, bool down, float wheel = 0.0f, bool rightDown = false);
         // The fonts laid-out UI measures text with (ui.label wraps, buttons fit their label). Null: ImGui's default.
         void SetUIFonts(ImFont* bold, ImFont* regular);
+        // Typing reaches script text fields (ui.input) only while allowed: the editor allows it while its Viewport has
+        // the keyboard and no ImGui text box does. WantsKeyboard: a text field has it (or had it when this frame
+        // began), so the app should leave Escape / Enter / shortcuts alone.
+        void SetKeyboard(bool allowed);
+        bool WantsKeyboard() const;
         bool ConsumeQuitRequest();                              // true once after scene.quit()
         bool ConsumeRestartRequest();                           // true once after scene.restart()
 

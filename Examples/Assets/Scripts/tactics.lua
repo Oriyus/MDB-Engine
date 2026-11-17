@@ -350,6 +350,7 @@ end
 -- ---- save slots: F6 / F9 quicksave and quickload, and a panel with three slots ("Saves" button)
 local menu_open = false
 local slot_info = {}               -- slot -> { name, time, level, play_time } (read when the panel opens)
+local save_name = ""                -- typed in the panel (ui.input): the next save's name, if given
 
 local function refresh_slots()
     slot_info = {}
@@ -359,6 +360,7 @@ end
 local function save_to(slot)
     if mode == "combat" then say("You can't save during combat") return end
     local name = string.format("%s, %d gold", level.current(), game.gold or 0)
+    if slot ~= "quick" and save_name:match("%S") then name = save_name; save_name = "" end
     local ok, err = saves.save(slot, name)
     say(ok and ("Saved: " .. slot) or ("Save failed: " .. tostring(err)))
     refresh_slots()
@@ -374,6 +376,9 @@ local function draw_save_menu()
                                      image = "Textures/panel_frame.png", slice = 20, padding = 26 }) then
         menu_open = false
     end
+    -- An optional name for the next save (while typing, the game's keys are off: "c" doesn't start combat)
+    save_name = ui.input("save_name", save_name, { hint = "Name the save (optional)", max = 32 })
+    ui.space(4)
     for i = 1, 3 do
         local slot = "slot" .. i
         local s = slot_info[slot]

@@ -1,6 +1,7 @@
 #include "Runtime/UIDocument.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -123,7 +124,7 @@ namespace Engine {
     const UINode* UIDocument::Find(uint32_t id) const { return const_cast<UIDocument*>(this)->Find(id); }
 
     std::vector<std::string> UIDocument::Issues(const std::string& assetDir) const {
-        static const char* kTypes[] = { "panel", "row", "column", "scroll", "label", "button", "image", "bar", "slot", "space", "separator" };
+        static const char* kTypes[] = { "panel", "row", "column", "scroll", "label", "button", "image", "bar", "slot", "input", "space", "separator" };
         std::vector<std::string> out;
         std::map<std::string, int> names;
         auto label = [](const UINode& n) { return n.Type + (n.Name.empty() ? std::string() : " '" + n.Name + "'"); };
@@ -133,6 +134,8 @@ namespace Engine {
             if (std::find(std::begin(kTypes), std::end(kTypes), n.Type) == std::end(kTypes)) out.push_back("unknown widget type '" + n.Type + "'");
             if (!n.Name.empty()) names[n.Name]++;
             if (n.Type == "panel" && depth > 0) out.push_back(label(n) + " is inside another widget: panels only go at the top");
+            if (n.Type == "input" && (!n.Props.contains("bind") || !n.Props["bind"].is_string() || n.Props["bind"].get<std::string>().empty()))
+                out.push_back(label(n) + " has no bind: what is typed isn't kept anywhere");
             if (n.IsContainer() && n.Children.empty()) out.push_back(label(n) + " is empty");
             if (!n.IsContainer() && !n.Children.empty()) out.push_back(label(n) + " has children, which aren't drawn");
             if (n.Type == "button" && n.Name.empty() && !n.Props.contains("on_click") && !n.Props.contains("event"))
@@ -168,6 +171,17 @@ namespace Engine {
             }
             out = glm::vec3(((v >> 16) & 255) / 255.0f, ((v >> 8) & 255) / 255.0f, (v & 255) / 255.0f);
             return true;
+        }
+
+        // A Lua string literal holding s (for writing a text field's value into its bind variable)
+        std::string LuaQuote(const std::string& s) {
+            std::string o = "\"";
+            for (const char c : s) {
+                if (c == '\\' || c == '"') { o += '\\'; o += c; }
+                else if ((unsigned char)c < 32) { char buf[8]; std::snprintf(buf, sizeof buf, "\\%03d", (int)(unsigned char)c); o += buf; }
+                else o += c;
+            }
+            return o + "\"";
         }
 
         struct Walker {
@@ -355,6 +369,41 @@ namespace Engine {
                     tooltip = false;
                     const std::string id = Key(n) + (index ? "#" + std::to_string(index) : std::string());
                     if (UI.Slot(id, o).Clicked) Clicked(n, index);
+                }
+                else if (t == "input") {
+                    // bind: the Lua variable (or field) shown and written back as it is typed
+                    UIInputOptions o;
+                    o.W = Num(n, "w", 0.0f);
+                    o.H = Num(n, "h", 0.0f);
+                    o.Size = Num(n, "size", 0.0f);
+                    o.Hint = Text(n, "hint");
+                    o.MaxLength = std::max(0, (int)Num(n, "max", 0.0f));
+                    o.Password = Bool(n, "password", false);
+                    const std::string filter = Raw(n, "filter");
+                    o.Filter = filter == "integer" ? UIInputFilter::Integer : filter == "decimal" ? UIInputFilter::Decimal
+                             : filter == "name" ? UIInputFilter::Name : UIInputFilter::Any;
+                    o.Disabled = Bool(n, "disabled", false);
+                    o.Focus = Bool(n, "focus", false);
+                    o.KeepFocus = Bool(n, "keep_focus", false);
+                    o.Tooltip = Text(n, "tooltip");
+                    tooltip = false;
+                    const std::string bind = Raw(n, "bind");
+                    const std::string value = bind.empty() ? std::string() : Eval.Text("{=(" + bind + ") or \"\"}");
+                    const std::string id = Key(n) + (index ? "#" + std::to_string(index) : std::string());
+                    const UIInputResult r = UI.Input(id, value, o);
+                    if (r.Changed) {
+                        if (!bind.empty()) Eval.Run(bind + " = " + LuaQuote(r.Text));
+                        const std::string code = Raw(n, "on_change");
+                        if (!code.empty()) Eval.Run(code);
+                    }
+                    if (r.Submitted) {
+                        Result.Clicked = Key(n);
+                        Result.Index = index;
+                        const std::string code = Raw(n, "on_submit");
+                        if (!code.empty()) Eval.Run(code);
+                        const std::string ev = Raw(n, "event");
+                        if (!ev.empty()) Eval.Event(ev, n, index);
+                    }
                 }
                 else if (t == "space") { UI.Space(Num(n, "h", UI.Theme.Spacing)); tooltip = false; }
                 else if (t == "separator") { UI.Separator(); tooltip = false; }

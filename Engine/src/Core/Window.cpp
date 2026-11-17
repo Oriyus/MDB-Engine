@@ -1,5 +1,6 @@
 #include "Core/Window.h"
 #include "Core/Log.h"
+#include "Core/Input.h"
 
 #include <glad/glad.h>      // must come before GLFW
 #include <GLFW/glfw3.h>
@@ -50,6 +51,14 @@ namespace Engine {
             self->m_Data.Width = (uint32_t)width;
             self->m_Data.Height = (uint32_t)height;
             glViewport(0, 0, width, height);
+            });
+
+        // Typing for text fields (Input::TextEvents). Installed before ImGui's backend, which calls these too.
+        glfwSetCharCallback(m_Window, [](GLFWwindow*, unsigned int codepoint) {
+            if (codepoint >= 32 && codepoint != 127) Input::QueueTextEvent(TextEvent{ codepoint, 0, 0 });
+            });
+        glfwSetKeyCallback(m_Window, [](GLFWwindow*, int key, int, int action, int mods) {
+            if (action == GLFW_PRESS || action == GLFW_REPEAT) Input::QueueTextEvent(TextEvent{ 0, key, mods });
             });
 
         glEnable(GL_DEPTH_TEST);

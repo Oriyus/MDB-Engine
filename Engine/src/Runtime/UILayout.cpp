@@ -87,6 +87,74 @@ namespace Engine {
             flush();
             return out;
         }
+
+        // ---- UTF-8 for text fields: offsets are bytes, always on a code point's first byte
+        bool IsCont(char c) { return (static_cast<unsigned char>(c) & 0xC0) == 0x80; }
+        size_t NextCp(const std::string& s, size_t i) {
+            if (i >= s.size()) return s.size();
+            i++;
+            while (i < s.size() && IsCont(s[i])) i++;
+            return i;
+        }
+        size_t PrevCp(const std::string& s, size_t i) {
+            if (i == 0) return 0;
+            i = std::min(i, s.size()) - 1;
+            while (i > 0 && IsCont(s[i])) i--;
+            return i;
+        }
+        size_t CountCp(const std::string& s) {
+            size_t n = 0;
+            for (char c : s) if (!IsCont(c)) n++;
+            return n;
+        }
+        std::string EncodeCp(uint32_t cp) {
+            std::string o;
+            if (cp < 0x80) o += (char)cp;
+            else if (cp < 0x800) { o += (char)(0xC0 | (cp >> 6)); o += (char)(0x80 | (cp & 0x3F)); }
+            else if (cp < 0x10000) { o += (char)(0xE0 | (cp >> 12)); o += (char)(0x80 | ((cp >> 6) & 0x3F)); o += (char)(0x80 | (cp & 0x3F)); }
+            else if (cp < 0x110000) {
+                o += (char)(0xF0 | (cp >> 18)); o += (char)(0x80 | ((cp >> 12) & 0x3F));
+                o += (char)(0x80 | ((cp >> 6) & 0x3F)); o += (char)(0x80 | (cp & 0x3F));
+            }
+            return o;
+        }
+        // Decodes the code point at i (bad bytes count as themselves)
+        uint32_t DecodeCp(const std::string& s, size_t i) {
+            const unsigned char c = (unsigned char)s[i];
+            const size_t end = NextCp(s, i);
+            if (c < 0x80 || end - i < 2) return c;
+            uint32_t cp = c & (end - i == 2 ? 0x1F : end - i == 3 ? 0x0F : 0x07);
+            for (size_t k = i + 1; k < end; k++) cp = (cp << 6) | ((unsigned char)s[k] & 0x3F);
+            return cp;
+        }
+        bool IsSpaceCp(const std::string& s, size_t i) { return i < s.size() && (s[i] == ' ' || s[i] == '\t'); }
+        // Ctrl+Left / Ctrl+Right: to the start of this or the previous word / past the end of this or the next one
+        size_t WordLeft(const std::string& s, size_t i) {
+            while (i > 0 && IsSpaceCp(s, PrevCp(s, i))) i = PrevCp(s, i);
+            while (i > 0 && !IsSpaceCp(s, PrevCp(s, i))) i = PrevCp(s, i);
+            return i;
+        }
+        size_t WordRight(const std::string& s, size_t i) {
+            while (i < s.size() && !IsSpaceCp(s, i)) i = NextCp(s, i);
+            while (i < s.size() && IsSpaceCp(s, i)) i = NextCp(s, i);
+            return i;
+        }
+        bool FilterAllows(UIInputFilter f, uint32_t cp) {
+            const bool digit = cp >= '0' && cp <= '9';
+            switch (f) {
+            case UIInputFilter::Integer: return digit || cp == '-' || cp == '+';
+            case UIInputFilter::Decimal: return digit || cp == '-' || cp == '+' || cp == '.' || cp == ',';
+            case UIInputFilter::Name:    return digit || cp == '_' || cp == '-' || cp > 127 ||
+                                                (cp >= 'a' && cp <= 'z') || (cp >= 'A' && cp <= 'Z');
+            default:                     return cp >= 32 && cp != 127;
+            }
+        }
+        // GLFW key codes the text field handles
+        namespace K {
+            constexpr int A = 65, C = 67, V = 86, X = 88;
+            constexpr int Escape = 256, Enter = 257, Tab = 258, Backspace = 259, Delete = 261;
+            constexpr int Right = 262, Left = 263, Home = 268, End = 269, KeypadEnter = 335;
+        }
     }
 
     // ------------------------------------------------------------------ frame
@@ -101,6 +169,12 @@ namespace Engine {
         m_HotId.clear(); m_PrevHotId.clear();
         m_HotTime = 0.0f;
         m_PrevDown = m_PrevRightDown = false;
+        m_FocusId.clear(); m_FocusRequest.clear();
+        m_FocusAtBegin = false;
+        m_TabMove = 0;
+        m_InputOrder.clear();
+        m_FocusAsks.clear(); m_PrevFocusAsks.clear();
+        m_TextEvents.clear();
         Theme = UITheme{};
     }
 
@@ -138,6 +212,15 @@ namespace Engine {
         m_LastId.clear();
         m_DragEndedLast = m_DragEnded;
         m_DragEnded = false;
+
+        m_FocusAtBegin = !m_FocusId.empty();
+        m_FocusSeen = false;
+        m_PressOnFocus = false;
+        m_TabMove = 0;
+        m_InputOrder.clear();
+        m_PrevFocusAsks.swap(m_FocusAsks);
+        m_FocusAsks.clear();
+        if (!m_FocusId.empty()) m_Blink += dt;
     }
 
     int UIContext::EndFrame() {
@@ -164,6 +247,21 @@ namespace Engine {
             EmitFrame(r, Theme.PanelColor * 0.8f, 0.97f, std::string(), 0.0f, 6.0f);
             LayoutText(m_PendingTooltip, r.X + pad, r.Y + pad, textW, o, true);
         }
+        // Text fields: the focused one wasn't drawn (its panel closed) or a press landed elsewhere: it lets go.
+        // Tab / Shift+Tab: the next / previous field drawn this frame takes the focus next frame.
+        if (!m_FocusId.empty() && (!m_FocusSeen || (m_Pressed && !m_PressOnFocus))) m_FocusId.clear();
+        m_FocusRequest.clear();                  // a Tab target that wasn't drawn this frame is forgotten
+        if (m_TabMove != 0 && !m_InputOrder.empty()) {
+            const auto it = std::find(m_InputOrder.begin(), m_InputOrder.end(), m_FocusId);
+            const int n = (int)m_InputOrder.size();
+            int i = it == m_InputOrder.end() ? (m_TabMove > 0 ? -1 : 0) : (int)(it - m_InputOrder.begin());
+            i = ((i + m_TabMove) % n + n) % n;
+            m_FocusRequest = m_InputOrder[(size_t)i];
+            m_FocusId.clear();
+        }
+        m_TabMove = 0;
+        m_TextEvents.clear();
+
         // The dragged icon follows the pointer
         if (m_Dragging && !m_DragIcon.empty() && m_Out)
             EmitImage(m_DragIcon, m_PX - 28.0f, m_PY - 28.0f, 56.0f, 56.0f, glm::vec3(1.0f), 0.9f, 0.0f);
@@ -785,6 +883,228 @@ namespace Engine {
         }
         else hovered = m_LastId == m_HotId;
         if (hovered) m_PendingTooltip = text;
+    }
+
+    // ------------------------------------------------------------------ text field
+    void UIContext::TakeFocus(const std::string& id, const std::string& text, bool selectAll) {
+        m_FocusId = id;
+        m_EditText = m_EditOriginal = m_EditReturned = text;
+        m_Caret = text.size();
+        m_Anchor = selectAll ? 0 : m_Caret;
+        m_ScrollX = 0.0f;
+        m_Blink = 0.0f;
+    }
+
+    UIInputResult UIContext::Input(const std::string& fieldId, const std::string& text, const UIInputOptions& o) {
+        const float size = o.Size > 0.0f ? o.Size : Theme.TextSize;
+        const float w = o.W > 0.0f ? o.W : Avail();
+        const float h = o.H > 0.0f ? o.H : Theme.ButtonHeight;
+        const Rect r = Place(w, h);
+        const std::string id = MakeId(fieldId);
+        if (!o.Disabled) m_InputOrder.push_back(id);
+        const float padX = 8.0f;
+        const Rect inner{ r.X + padX, r.Y, std::max(0.0f, r.W - 2.0f * padX), r.H };
+
+        const bool hovered = !o.Disabled && !m_Dragging && Hover(r);
+        if (hovered) m_HotId = id;
+        UIInputResult res;
+
+        // Taking the focus: Tab moved here, the script asked (Focus turned true), or a press on the field
+        const bool ask = o.Focus && !m_PrevFocusAsks.count(id);
+        if (o.Focus) m_FocusAsks.insert(id);
+        bool focused = m_FocusId == id;
+        if (o.Disabled && focused) { m_FocusId.clear(); focused = false; }
+        if (!o.Disabled && !focused && (m_FocusRequest == id || ask)) {
+            TakeFocus(id, text, o.SelectAll);
+            m_FocusRequest.clear();
+            focused = true;
+        }
+        // The script changed the value under the field (cleared it after Enter, say): take its text
+        if (focused && text != m_EditReturned) {
+            m_EditText = m_EditReturned = text;
+            m_Caret = m_Anchor = text.size();
+        }
+
+        std::string& s = m_EditText;
+        auto display = [&](size_t upTo) {         // what is drawn for s[0, upTo)
+            const std::string part = (focused ? s : text).substr(0, upTo);
+            return o.Password ? std::string(CountCp(part), '*') : part;
+        };
+        auto caretAt = [&](float px) {            // the code point boundary nearest to px
+            const std::string& t = focused ? s : text;
+            size_t best = 0;
+            float bestD = FLT_MAX;
+            for (size_t i = 0;; i = NextCp(t, i)) {
+                const float d = std::abs(inner.X - m_ScrollX + Measure(display(i), size, false) - px);
+                if (d < bestD) { bestD = d; best = i; }
+                if (i >= t.size()) break;
+            }
+            return best;
+        };
+        if (hovered && m_Pressed) {
+            if (!focused) { TakeFocus(id, text, false); focused = true; }
+            m_PressOnFocus = true;
+            m_ActiveId = id;
+            m_Caret = m_Anchor = caretAt(m_PX);
+            m_Blink = 0.0f;
+        }
+        else if (focused && m_ActiveId == id && m_Down) {   // dragging selects
+            m_Caret = caretAt(m_PX);
+        }
+
+        bool wasFocused = focused;
+        if (focused) {
+            m_FocusSeen = true;
+            const size_t maxLen = o.MaxLength > 0 ? (size_t)o.MaxLength : (size_t)-1;
+            auto selLo = [&]() { return std::min(m_Caret, m_Anchor); };
+            auto selHi = [&]() { return std::max(m_Caret, m_Anchor); };
+            auto deleteSel = [&]() {
+                if (m_Caret == m_Anchor) return false;
+                s.erase(selLo(), selHi() - selLo());
+                m_Caret = m_Anchor = selLo();
+                return true;
+            };
+            auto insert = [&](const std::string& in) {   // filtered, one line, up to MaxLength
+                deleteSel();
+                std::string add;
+                size_t count = CountCp(s);
+                for (size_t i = 0; i < in.size() && count < maxLen; i = NextCp(in, i)) {
+                    const uint32_t cp = DecodeCp(in, i);
+                    if (cp == '\n' || cp == '\r' || !FilterAllows(o.Filter, cp)) continue;
+                    add += cp == '\t' ? std::string(" ") : in.substr(i, NextCp(in, i) - i);
+                    count++;
+                }
+                s.insert(m_Caret, add);
+                m_Caret = m_Anchor = m_Caret + add.size();
+            };
+            auto moveTo = [&](size_t to, bool extend) { m_Caret = to; if (!extend) m_Anchor = to; };
+
+            for (const TextEvent& e : m_TextEvents) {
+                if (m_FocusId != id) break;           // Enter / Escape / Tab let go: the rest isn't ours
+                m_Blink = 0.0f;
+                if (e.Char != 0) {
+                    if (!(e.Mods & (Mod::Control | Mod::Super))) insert(EncodeCp(e.Char));
+                    continue;
+                }
+                const bool shift = (e.Mods & Mod::Shift) != 0, ctrl = (e.Mods & Mod::Control) != 0;
+                switch (e.Key) {
+                case K::Backspace:
+                    if (!deleteSel() && m_Caret > 0) {
+                        const size_t from = ctrl ? WordLeft(s, m_Caret) : PrevCp(s, m_Caret);
+                        s.erase(from, m_Caret - from);
+                        m_Caret = m_Anchor = from;
+                    }
+                    break;
+                case K::Delete:
+                    if (!deleteSel() && m_Caret < s.size()) {
+                        const size_t to = ctrl ? WordRight(s, m_Caret) : NextCp(s, m_Caret);
+                        s.erase(m_Caret, to - m_Caret);
+                    }
+                    break;
+                case K::Left:
+                    if (!shift && m_Caret != m_Anchor && !ctrl) moveTo(selLo(), false);
+                    else moveTo(ctrl ? WordLeft(s, m_Caret) : PrevCp(s, m_Caret), shift);
+                    break;
+                case K::Right:
+                    if (!shift && m_Caret != m_Anchor && !ctrl) moveTo(selHi(), false);
+                    else moveTo(ctrl ? WordRight(s, m_Caret) : NextCp(s, m_Caret), shift);
+                    break;
+                case K::Home: moveTo(0, shift); break;
+                case K::End:  moveTo(s.size(), shift); break;
+                case K::A: if (ctrl) { m_Anchor = 0; m_Caret = s.size(); } break;
+                case K::C:
+                case K::X:
+                    if (ctrl && m_Caret != m_Anchor && !o.Password && ImGui::GetCurrentContext()) {
+                        ImGui::SetClipboardText(s.substr(selLo(), selHi() - selLo()).c_str());
+                        if (e.Key == K::X) deleteSel();
+                    }
+                    break;
+                case K::V:
+                    if (ctrl && ImGui::GetCurrentContext())
+                        if (const char* clip = ImGui::GetClipboardText()) insert(clip);
+                    break;
+                case K::Enter:
+                case K::KeypadEnter:
+                    res.Submitted = true;
+                    if (!o.KeepFocus) m_FocusId.clear();
+                    break;
+                case K::Escape:
+                    res.Cancelled = true;
+                    s = m_EditOriginal;
+                    m_FocusId.clear();
+                    break;
+                case K::Tab:
+                    m_TabMove = shift ? -1 : 1;           // EndFrame moves the focus (the field order is known then)
+                    break;
+                default: break;
+                }
+            }
+            focused = m_FocusId == id;
+        }
+        res.Text = wasFocused ? s : text;
+        res.Changed = res.Text != text;
+        res.Focused = focused;
+        if (focused) m_EditReturned = res.Text;
+
+        // Drawing: box, then (clipped to the inside) the selection, the text or hint, the caret
+        const float alpha = o.Disabled ? 0.5f : 0.95f;
+        ScriptUIItem& f = Emit(ScriptUIItem::Type::Rect, r.X, r.Y, r.W, r.H);
+        f.Color = hovered && !focused ? glm::mix(Theme.SlotColor, glm::vec3(1.0f), 0.05f) : Theme.SlotColor;
+        f.Alpha = alpha;
+        f.Rounding = std::min(6.0f, Theme.Rounding);
+        ScriptUIItem& b = Emit(ScriptUIItem::Type::Border, r.X, r.Y, r.W, r.H);
+        b.Rounding = f.Rounding;
+        if (focused)      { b.Color = Theme.AccentColor; b.Alpha = 1.0f; b.Thickness = 2.0f; }
+        else if (hovered) { b.Color = glm::vec3(1.0f);   b.Alpha = 0.4f; b.Thickness = 1.5f; }
+        else              { b.Color = Theme.BorderColor; b.Alpha = (Theme.BorderAlpha + 0.08f) * alpha; }
+
+        const std::string& shown = focused ? s : res.Text;
+        if (focused) {
+            m_Caret = std::min(m_Caret, s.size());
+            m_Anchor = std::min(m_Anchor, s.size());
+        }
+        const std::string full = o.Password ? std::string(CountCp(shown), '*') : shown;
+        const float fullW = Measure(full, size, false);
+        float scroll = 0.0f;
+        float caretX = 0.0f;
+        if (focused) {                            // keep the caret in view
+            caretX = Measure(display(m_Caret), size, false);
+            if (caretX - m_ScrollX > inner.W - 2.0f) m_ScrollX = caretX - inner.W + 2.0f;
+            if (caretX - m_ScrollX < 0.0f) m_ScrollX = caretX;
+            m_ScrollX = std::clamp(m_ScrollX, 0.0f, std::max(0.0f, fullW - inner.W + 2.0f));
+            scroll = m_ScrollX;
+        }
+        const Rect clip = Clip();
+        const float x0 = std::max(clip.X, inner.X), y0 = std::max(clip.Y, inner.Y);
+        const float x1 = std::min(clip.X + clip.W, inner.X + inner.W), y1 = std::min(clip.Y + clip.H, inner.Y + inner.H);
+        const Rect in{ x0, y0, std::max(0.0f, x1 - x0), std::max(0.0f, y1 - y0) };
+        Emit(ScriptUIItem::Type::ClipPush, in.X, in.Y, in.W, in.H);
+        m_Clips.push_back(in);
+
+        const float lineH = size * 1.2f;
+        const float textY = r.Y + (h - size) * 0.5f;
+        if (focused && m_Caret != m_Anchor) {
+            const float a = Measure(display(std::min(m_Caret, m_Anchor)), size, false);
+            const float c = Measure(display(std::max(m_Caret, m_Anchor)), size, false);
+            ScriptUIItem& sel = Emit(ScriptUIItem::Type::Rect, inner.X - scroll + a, r.Y + (h - lineH) * 0.5f, c - a, lineH);
+            sel.Color = Theme.AccentColor;
+            sel.Alpha = 0.55f;
+        }
+        if (!full.empty())
+            EmitText(full, inner.X - scroll, textY, size, Theme.TextColor, o.Disabled ? 0.6f : 1.0f, false, false);
+        else if (!o.Hint.empty())
+            EmitText(o.Hint, inner.X, textY, size, Theme.MutedColor, 0.8f, false, false);
+        if (focused && std::fmod(m_Blink, 1.06f) < 0.53f) {
+            ScriptUIItem& caret = Emit(ScriptUIItem::Type::Rect, inner.X - scroll + caretX, r.Y + (h - lineH) * 0.5f, 1.5f, lineH);
+            caret.Color = Theme.TextColor;
+        }
+        Emit(ScriptUIItem::Type::ClipPop, 0, 0, 0, 0);
+        m_Clips.pop_back();
+
+        m_Last = r;
+        m_LastId = id;
+        if (!o.Tooltip.empty()) Tooltip(o.Tooltip);
+        return res;
     }
 
     // ------------------------------------------------------------------ queries

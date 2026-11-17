@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "preview": {
+    "hero_name": "Aria",
+    "named": false
+  },
+  "widgets": [
+    {
+      "type": "panel",
+      "name": "name_prompt",
+      "visible": "not named",
+      "x": 0.5,
+      "y": 0.45,
+      "w": 380,
+      "title": "Name your hero",
+      "children": [
+        { "type": "label", "muted": true, "size": 15, "text": "Letters, digits, _ and - (up to 16)." },
+        { "type": "input", "name": "hero_name", "bind": "hero_name", "hint": "Your name", "max": 16, "filter": "name",
+          "focus": "not named", "on_submit": "named = hero_name ~= ''", "event": "hero_named" },
+        { "type": "row", "spacing": 8, "children": [
+            { "type": "button", "name": "ok", "text": "OK", "w": 90, "disabled": "hero_name == ''", "on_click": "named = true",
+              "event": "hero_named" },
+            { "type": "label", "muted": true, "size": 14, "text": "{=#hero_name} / 16" }
+          ] }
+      ]
+    }
+  ]
+}

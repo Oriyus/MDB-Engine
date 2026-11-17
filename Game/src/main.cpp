@@ -171,7 +171,9 @@ public:
         const GamepadState& pad = Input::Gamepad();
         const bool start = PadEdge(pad.Connected && pad.Buttons[Pad::Start], m_StartDown);
         const bool back = PadEdge(pad.Connected && pad.Buttons[Pad::B], m_BDown) && m_Paused;
-        const bool escKey = Edge(Key::Escape, m_EscDown);
+        // A script text field with the keyboard (ui.input) owns Escape: it cancels the typing, not the game
+        const bool typing = m_Running && !m_Paused && m_Session->Scripts().WantsKeyboard();
+        const bool escKey = Edge(Key::Escape, m_EscDown) && !typing;
         if (escKey && !m_Running) { Close(); return; }   // nothing to pause: the scene did not load
         const bool esc = escKey || start || back;
         if (esc && m_Paused && m_MenuPage == MenuPage::Settings) LeaveSettings();   // Esc: back to the menu

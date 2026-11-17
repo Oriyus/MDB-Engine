@@ -13,7 +13,7 @@ using json = nlohmann::json;
 using namespace Engine;
 
 namespace {
-    const char* kAddTypes[] = { "label", "button", "image", "bar", "slot", "row", "column", "scroll", "space", "separator" };
+    const char* kAddTypes[] = { "label", "button", "input", "image", "bar", "slot", "row", "column", "scroll", "space", "separator" };
 
     struct Aspect { const char* Name; float Value; };
     const Aspect kAspects[] = { { "16:9", 16.0f / 9.0f }, { "16:10", 1.6f }, { "4:3", 4.0f / 3.0f }, { "21:9", 21.0f / 9.0f }, { "9:16 (phone)", 9.0f / 16.0f } };
@@ -23,12 +23,13 @@ namespace {
         if (t == "scroll") return "Scroll";  if (t == "label") return "Label";   if (t == "button") return "Button";
         if (t == "image") return "Image";    if (t == "bar") return "Bar";       if (t == "slot") return "Slot";
         if (t == "space") return "Space";    if (t == "separator") return "Separator";
+        if (t == "input") return "Text field";
         return "?";
     }
     ImVec4 TypeColor(const std::string& t) {
         if (t == "panel") return ImVec4(1.0f, 0.8f, 0.4f, 1.0f);
         if (t == "row" || t == "column" || t == "scroll") return ImVec4(0.55f, 0.75f, 1.0f, 1.0f);
-        if (t == "button") return ImVec4(0.6f, 0.95f, 0.6f, 1.0f);
+        if (t == "button" || t == "input") return ImVec4(0.6f, 0.95f, 0.6f, 1.0f);
         if (t == "space" || t == "separator") return ImVec4(0.6f, 0.6f, 0.65f, 1.0f);
         return ImVec4(0.92f, 0.92f, 0.95f, 1.0f);
     }
@@ -248,6 +249,7 @@ UINode UIEditor::MakeNode(const std::string& type) {
     else if (type == "image") n.Props = { { "path", "" }, { "w", 64 } };
     else if (type == "bar") n.Props = { { "value", 0.6 }, { "text", "" } };
     else if (type == "slot") n.Name = UniqueName("slot");
+    else if (type == "input") { n.Name = UniqueName("input"); n.Props = { { "bind", "" }, { "hint", "Type here" } }; }
     else if (type == "scroll") n.Props = { { "height", 200 } };
     else if (type == "space") n.Props = { { "h", 8 } };
     return n;
@@ -361,7 +363,8 @@ void UIEditor::Draw(bool* open) {
     m_Focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
     const ImGuiIO& io = ImGui::GetIO();
-    if (m_Focused) {
+    const bool previewTyping = m_Try && m_UI.WantsKeyboard();   // a text field in the preview has the keyboard
+    if (m_Focused && !previewTyping) {
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) { if (m_Path.empty()) m_AskSaveAs = true; else SaveTo(m_Path); }
         if (!io.WantTextInput) {
             if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z, false)) { if (io.KeyShift) Redo(); else Undo(); }
@@ -598,7 +601,7 @@ void UIEditor::DrawPreview() {
 
     // ---- view: wheel zooms around the pointer (Ctrl+wheel in Try it, where the wheel scrolls the UI), right / middle drag
     // pans, F frames the selection, Home fits
-    if (m_Focused && !io.WantTextInput) {
+    if (m_Focused && !io.WantTextInput && !(m_Try && m_UI.WantsKeyboard())) {   // not while a preview text field types
         if (ImGui::IsKeyPressed(ImGuiKey_F, false) && !io.KeyCtrl && m_Selected) m_FrameSelected = true;
         if (ImGui::IsKeyPressed(ImGuiKey_Home, false)) { m_Zoom = 1.0f; m_Pan = ImVec2(0, 0); }
     }
@@ -655,6 +658,8 @@ void UIEditor::DrawPreview() {
     m_Rects.clear();
     m_Preview.RunActions = m_Try;
     m_Preview.SetVars(m_Doc.Preview);
+    // Try it: typing reaches the preview's text fields while this window has the keyboard
+    if (m_Try && m_Focused && !io.WantTextInput) m_UI.SetTextEvents(Engine::Input::TextEvents());
     m_Preview.BeginFrame();
     m_UI.BeginFrame(m_Items, aspect, p, io.DeltaTime);
     m_PreviewError.clear();
@@ -1037,6 +1042,26 @@ void UIEditor::DrawWidget(UINode& n) {
         PropNumber(n, "Size", "size", 0.0f, 1.0f, 0.0f, 400.0f, "0: the theme's");
         PropColor(n, "Colour", "color", ImVec4(0.1f, 0.12f, 0.16f, 1.0f));
     }
+    else if (t == "input") {
+        PropExpr(n, "Bind", "bind", "a variable, e.g. player_name",
+            "The Lua variable (or table field) the field shows and writes what is typed into, e.g. player_name or game.save_name. "
+            "In the preview it is a key of the Preview data.");
+        PropText(n, "Hint", "hint", false, "Shown greyed while it is empty");
+        PropNumber(n, "Max length", "max", 0.0f, 1.0f, 0.0f, 1000.0f, "Characters; 0: no limit");
+        PropCombo(n, "Filter", "filter", { "any", "integer", "decimal", "name" });
+        PropBool(n, "Password", "password", false, "Shown as *");
+        PropBool(n, "Keep focus", "keep_focus", false, "Enter submits and keeps typing (a chat line)");
+        PropBool(n, "Disabled", "disabled", false);
+        PropBool(n, "Focus", "focus", false, "Takes the keyboard when this turns true (f: a condition, e.g. naming)");
+        PropExpr(n, "On submit", "on_submit", "Lua", "Lua statements run when Enter is pressed in it (ui.show also returns its name)");
+        PropExpr(n, "On change", "on_change", "Lua", "Lua statements run when the text changes (after Bind is written)");
+        PropText(n, "Event", "event", false, "Sent on Enter: events.emit(<this>, { ui, widget, index })");
+        PropText(n, "Tooltip", "tooltip", false);
+        ImGui::SeparatorText("Size");
+        PropNumber(n, "Width", "w", 0.0f, 1.0f, 0.0f, 2000.0f, "0: the width left");
+        PropNumber(n, "Height", "h", 0.0f, 1.0f, 0.0f, 400.0f, "0: the theme's button height");
+        PropNumber(n, "Text size", "size", 0.0f, 0.5f, 0.0f, 200.0f, "0: the theme's");
+    }
     else if (t == "space") PropNumber(n, "Size", "h", 8.0f, 0.5f, 0.0f, 400.0f, "Units of empty space (sideways in a row)");
     else if (t == "separator") ImGui::TextDisabled("A thin line across the container (a gap in a row).");
 
@@ -1045,7 +1070,7 @@ void UIEditor::DrawWidget(UINode& n) {
     PropExpr(n, "Repeat", "repeat", "once",
         "A count or a Lua list: the widget is drawn once per entry, with `index` (1, 2, ...) and `item` (the entry) set for its "
         "expressions. E.g. game.bag in a row of slots, with icon {=item.icon}. Clicks return the name and the index.");
-    if (t != "panel" && t != "button" && t != "slot" && t != "space" && t != "separator") PropText(n, "Tooltip", "tooltip", false, "Shown when the pointer rests on it");
+    if (t != "panel" && t != "button" && t != "slot" && t != "input" && t != "space" && t != "separator") PropText(n, "Tooltip", "tooltip", false, "Shown when the pointer rests on it");
     ImGui::PopItemWidth();
 
     ImGui::Spacing();

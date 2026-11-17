@@ -72,6 +72,7 @@ namespace Engine {
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
             Input::PollGamepads();         // one gamepad snapshot per frame for the app and its scripts
+            Input::BeginTextFrame();       // this frame's typing (text fields)
             { PROFILE_SCOPE("Update"); OnUpdate(dt); }
 
             {

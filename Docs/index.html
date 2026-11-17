@@ -1148,7 +1148,7 @@ MDBEditor.exe &gt; log.txt</code></pre>
 <h2>UI Editor</h2>
 <p><b>Window &gt; UI Editor</b> (or double-click a file in <code>Assets/UI</code>) designs game UI as <b>layouts</b>: files in <code>Assets/UI/&lt;name&gt;.json</code> that a script draws every frame with <a href="#script-ui-layouts"><code>ui.show</code></a>. A layout is a tree of the same widgets scripts place with <code>ui.begin_panel</code> and friends, drawn by the same layout code, so the preview is exactly what the game shows.</p>
 <ul>
-  <li><b>Left: the widget tree.</b> Panels sit at the top. Inside them go rows, columns and scroll regions, which hold labels, buttons, images, bars, slots, spaces and separators. Use <b>+ Add</b> or the Add menu: a new widget goes into the selected container, or after the selected widget. The right-click menu has Add inside, Add after, Duplicate, Move Up/Down and Delete. Drag a row onto a container to put it inside, or onto another row to put it before that row. The problems list underneath catches widgets outside a panel, empty containers, buttons nothing can detect, repeated names and missing images.</li>
+  <li><b>Left: the widget tree.</b> Panels sit at the top. Inside them go rows, columns and scroll regions, which hold labels, buttons, text fields, images, bars, slots, spaces and separators. Use <b>+ Add</b> or the Add menu: a new widget goes into the selected container, or after the selected widget. The right-click menu has Add inside, Add after, Duplicate, Move Up/Down and Delete. Drag a row onto a container to put it inside, or onto another row to put it before that row. The problems list underneath catches widgets outside a panel, empty containers, buttons nothing can detect, repeated names and missing images.</li>
   <li><b>Middle: the preview</b>, at 16:9, 16:10, 4:3, 21:9 or phone 9:16, with the game's fonts.
     <ul>
       <li>Click a widget to select it, and drag to move its panel. Panel positions are 0..1 of the view, so they hold at any resolution.</li>
@@ -1162,6 +1162,7 @@ MDBEditor.exe &gt; log.txt</code></pre>
       <li>Labels: text with markup, size, colour, alignment, bold, muted, wrap.</li>
       <li>Buttons: text, on click, event, disabled, selected, size, fill.</li>
       <li>Images, bars and slots: image, value, count, colours.</li>
+      <li>Text fields: <b>Bind</b> (the Lua variable it shows and writes as you type, e.g. <code>hero_name</code> or <code>game.save_name</code>), hint, max length, filter, password, keep focus, focus, on submit, on change, event. Enter in it makes <code>ui.show</code> return its name. In <b>Try it</b> you can type into it (while the UI Editor has focus); it writes into the Preview data's values. Example: <code>UI/name_prompt.json</code>.</li>
       <li>On every widget: <b>Name</b>, <b>Visible</b> (a condition), <b>Repeat</b> (a count or a list) and <b>Tooltip</b>.</li>
       <li>Number and on/off values have an <b>f</b> button that turns them into a Lua expression. For example, a bar's value becomes <code>hp / max_hp</code>, or a button's Disabled becomes <code>game.gold &lt; 10</code>.</li>
     </ul></li>
@@ -1680,6 +1681,18 @@ local clicked, dropped, right = ui.slot("bag" .. i, {
     accept = true })
 if dropped then move(dropped, { from = "bag", index = i }) end   -- the dragged slot's value
 if right then use(i) end</code></pre>
+<h3>Text fields</h3>
+<p><code>ui.input</code> is a one-line text field. Keep the text it returns and pass it back the next frame. A click, <b>Tab</b> / <b>Shift+Tab</b>, or <code>focus</code> turning true gives it the keyboard. It has a caret and selection (drag, Shift+arrows, Ctrl+A), Ctrl+arrows and Ctrl+Backspace by word, and Ctrl+C / X / V. <b>Enter</b> submits (and lets go, unless <code>keep_focus</code>); <b>Escape</b> puts back the text it had when it was focused. A click anywhere else, or not drawing the field, lets go too.</p>
+<pre><code class="lua">local submitted
+name, submitted = ui.input("name", name, { hint = "Your name", max = 16, filter = "name" })   -- filter: integer, decimal, name
+if submitted then start_game(name) end
+code = ui.input("pin", code, { password = true, filter = "integer", max = 4, w = 120 })
+-- a chat line: Enter sends and keeps typing; clearing the text you pass in is taken over by the field
+local send
+chat, send = ui.input("chat", chat, { keep_focus = true, hint = "Say something" })
+if send and chat ~= "" then say(chat); chat = "" end
+if ui.typing() then return end   -- a field has the keyboard (game keys and input actions read as up meanwhile)</code></pre>
+<p>While a field has the keyboard, the game sees no keys: input actions and <code>input.key_*</code> read as up (typing "c" doesn't start combat), keys still held when it lets go stay up until released, and the Game's Esc (pause) and the editor's Esc (stop) leave it alone. In the editor, typing reaches the game while the Viewport has focus and you look through the game camera. Tests: <code>ui.simulate_type("text")</code>, <code>ui.simulate_key("ctrl+a")</code> (backspace, delete, left, right, home, end, enter, escape, tab, a, c, v, x with ctrl+ / shift+ / alt+).</p>
 </section>
 
 <section class="doc" data-group="Scripting" id="script-ui-theme">

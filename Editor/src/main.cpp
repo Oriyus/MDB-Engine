@@ -431,7 +431,9 @@ public:
             if (m_PlayState != PlayState::Edit) m_Session->Scripts().Reload(m_Scene);
         }
 
-        const bool typing = ImGui::GetIO().WantTextInput;
+        // Typing: into an ImGui text box, or into a game text field (ui.input) while playing: shortcuts stay off
+        const bool gameTyping = m_PlayState == PlayState::Play && m_Session->Scripts().WantsKeyboard();
+        const bool typing = ImGui::GetIO().WantTextInput || gameTyping;
 
         bool kesc = EdgePressed(Key::Escape, m_EscDown);
         bool kp = EdgePressed(Key::P, m_PDown);
@@ -562,6 +564,8 @@ public:
                 m_Session->Scripts().SetPointer(px, py, over, ImGui::IsMouseDown(ImGuiMouseButton_Left),
                     over ? ImGui::GetIO().MouseWheel : 0.0f, ImGui::IsMouseDown(ImGuiMouseButton_Right));
                 m_Session->Scripts().SetViewAspect(aspect);   // for scene.screen_ray
+                // Typing reaches the game's text fields while the Viewport has the keyboard (not an ImGui text box)
+                m_Session->Scripts().SetKeyboard(m_ViewportFocused && m_ViewingGame && !ImGui::GetIO().WantTextInput);
             }
             { PROFILE_SCOPE("Session update"); m_Session->Update(dt, m_StepFrame); }   // scene.restart() is handled by the session
             if (m_Session->Scripts().ConsumeQuitRequest()) m_PlayCmd = PlayCmd::Stop;   // scene.quit(): the editor stops Play
@@ -3972,6 +3976,7 @@ private:
 
         const bool imageHovered = ImGui::IsItemHovered();
         m_ViewportHovered = imageHovered;
+        m_ViewportFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
         m_ViewportOrigin = ImGui::GetItemRectMin();
         const ImVec2 origin = ImGui::GetItemRectMin();
         const ImVec2 size = ImGui::GetItemRectSize();
@@ -5287,6 +5292,7 @@ private:
     ImVec2 m_ViewportSize{ 0.0f, 0.0f };
     ImVec2 m_ViewportOrigin{ 0.0f, 0.0f };            // the viewport image's top left on screen
     bool m_ViewportHovered = false;
+    bool m_ViewportFocused = false;      // the Viewport window has ImGui's focus (typing goes to the game's text fields)
     Engine::UITextureCache m_UITextures{ Projects::Current().AssetDir() };   // images for ui.image                  
     bool m_LayoutChecked = false;      
     bool m_GizmoLocal = false;

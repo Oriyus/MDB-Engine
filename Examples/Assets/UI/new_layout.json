@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "widgets": [
+    {
+      "children": [
+        {
+          "text": "Some text. {#ffcc66}Markup{/} and {b}{=\"expressions\"}{/b} work here.",
+          "type": "label"
+        },
+        {
+          "bind": "",
+          "hint": "Type here",
+          "name": "input",
+          "type": "input"
+        }
+      ],
+      "name": "panel",
+      "title": "New panel",
+      "type": "panel",
+      "w": 360
+    }
+  ]
+}
