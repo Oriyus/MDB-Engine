@@ -203,6 +203,14 @@ namespace Engine {
         bool EnsureNav();
         bool ScreenRay(float x, float y, glm::vec3& origin, glm::vec3& dir) const;
         void SampleInput();
+        UINavInput NavInput() const {         // the ui_* actions as UI navigation
+            auto down = [this](const char* name) { const InputAction* a = Actions.Find(name); return a && a->Down; };
+            UINavInput n;
+            n.Up = down("ui_up"); n.Down = down("ui_down"); n.Left = down("ui_left"); n.Right = down("ui_right");
+            n.Confirm = down("ui_confirm"); n.Back = down("ui_back"); n.Secondary = down("ui_secondary");
+            n.Gamepad = LastDevice == "gamepad";
+            return n;
+        }
         void StartInstance(entt::entity handle, const std::string& path);
         void DestroyInstance(entt::entity handle, bool callOnDestroy);
         void StartNewInstances(entt::registry& reg);
@@ -1077,6 +1085,7 @@ namespace Engine {
             o.Disabled = optB(opts, "disabled", false);
             o.Selected = optB(opts, "selected", false);
             o.Tooltip = optS(opts, "tooltip", "");
+            o.DefaultFocus = optB(opts, "default_focus", false);
             return UIC.Button(label, o);
         });
         ui.set_function("mouse", [this]() { return std::make_tuple(PtrX, PtrY, PtrInside); });
@@ -1138,6 +1147,7 @@ namespace Engine {
             o.Highlight = optB(opts, "highlight", false);
             o.HasColor = optV(opts, "color", o.Color);
             o.IconAlpha = optF(opts, "icon_alpha", 1.0f);
+            o.DefaultFocus = optB(opts, "default_focus", false);
             const UISlotResult r = UIC.Slot(id, o);
             if (r.DragStarted) DragPayload = drag;
             sol::object dropped = sol::make_object(*Lua, sol::lua_nil);
@@ -1172,9 +1182,31 @@ namespace Engine {
             o.SelectAll = optB(opts, "select_all", true);
             o.KeepFocus = optB(opts, "keep_focus", false);
             o.Tooltip = optS(opts, "tooltip", "");
+            o.DefaultFocus = optB(opts, "default_focus", false);
             const UIInputResult r = UIC.Input(id, text.value_or(std::string()), o);
             return std::make_tuple(r.Text, r.Submitted, r.Focused);
         });
+        // slider(id, value, { min = 0, max = 1, step, w, h, text, color, disabled, tooltip, default_focus }) -> value, changed
+        ui.set_function("slider", [this, optF, optB, optS, optV](const std::string& id, float value, sol::optional<sol::table> opts) {
+            UISliderOptions o;
+            o.Min = optF(opts, "min", 0.0f);
+            o.Max = optF(opts, "max", 1.0f);
+            o.Step = std::max(0.0f, optF(opts, "step", 0.0f));
+            o.W = optF(opts, "w", 0.0f);
+            o.H = optF(opts, "h", 0.0f);
+            o.Text = optS(opts, "text", "");
+            o.HasColor = optV(opts, "color", o.Color);
+            o.Disabled = optB(opts, "disabled", false);
+            o.Tooltip = optS(opts, "tooltip", "");
+            o.DefaultFocus = optB(opts, "default_focus", false);
+            const UISliderResult r = UIC.Slider(id, value, o);
+            return std::make_tuple(r.Value, r.Changed);
+        });
+        // Gamepad / keyboard navigation (the ui_* input actions)
+        ui.set_function("back", [this]() { return UIC.ConsumeBack(); });          // Back pressed and not used by the UI
+        ui.set_function("navigating", [this]() { return UIC.NavVisible(); });     // the focus ring is showing
+        ui.set_function("nav_focused", [this]() { return UIC.NavFocusedLast(); }); // the widget just placed has it
+        ui.set_function("focus_default", [this]() { UIC.FocusDefault(); });       // back to the topmost panel's default
         ui.set_function("typing", [this]() { return UIC.KeyboardFocused(); });
         ui.set_function("unfocus", [this]() { UIC.Unfocus(); });
         // Tests: type text / press keys ("backspace", "ctrl+a", "shift+left" ...) as if on the next frame
@@ -2836,6 +2868,7 @@ namespace Engine {
         std::string error;
         std::vector<std::string> warnings;
         if (!Actions.LoadFile(AssetDir + InputMap::kPath, error, warnings)) ReportError("[input] " + error);
+        Actions.AddMissing(nlohmann::json::parse(InputMap::UIDefaultJson()), warnings);   // ui_up ... ui_secondary unless the file has them
         for (const auto& w : warnings) ReportError("[input] " + w);
     }
 
@@ -2990,6 +3023,7 @@ namespace Engine {
     void ScriptEngine::SetUIFonts(ImFont* bold, ImFont* regular) { m_Impl->UIC.SetFonts(bold, regular); }
     void ScriptEngine::SetKeyboard(bool allowed) { m_Impl->KeyboardAllowed = allowed; }
     bool ScriptEngine::WantsKeyboard() const { return m_Impl->Lua && m_Impl->UIC.WantsKeyboard(); }
+    bool ScriptEngine::WantsBack() const { return m_Impl->Lua && m_Impl->UIC.WantsBack(); }
 
     bool ScriptEngine::ConsumeQuitRequest() {
         const bool q = m_Impl->QuitRequested;
@@ -3065,11 +3099,12 @@ namespace Engine {
             if (m.KeyboardAllowed) typed = Input::TextEvents();
             typed.insert(typed.end(), m.SimText.begin(), m.SimText.end());
             m.SimText.clear();
+            m.SampleInput();       // before the UI frame: its navigation comes from the ui_* actions
             m.UIC.SetTextEvents(typed);
+            m.UIC.SetNav(m.NavInput());
             m.UIC.BeginFrame(m.UI, m.ViewAspect, p, dt);
             if (m.UIC.DragEndedLastFrame()) m.DragPayload = sol::object();
         }
-        m.SampleInput();
         auto& reg = scene.Registry();
 
         // Drop instances whose entity was deleted from C++ (editor Delete, G) or lost its script

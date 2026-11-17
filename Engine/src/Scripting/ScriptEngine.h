@@ -246,6 +246,17 @@ namespace Engine {
     //       held when it lets go stay up until released); ui.unfocus() takes the keyboard back
     //   ui.simulate_type(text), ui.simulate_key("ctrl+a" | "shift+left" | "backspace" | "enter" ...)   test hooks:
     //       typing for the next frame
+    //   ui.slider(id, value [, { min = 0, max = 1, step, w, h = 24, text, color, disabled, tooltip }]) -> value, changed
+    //   Gamepad / keyboard navigation (input actions ui_up / ui_down / ui_left / ui_right / ui_confirm / ui_back /
+    //       ui_secondary; defaults: arrows, Enter, Escape and the pad's D-pad / left stick, A, B, X, unless input.json
+    //       binds them): buttons, slots, text fields and sliders can take the focus; directions move it to the nearest
+    //       one that way (its panel first), Tab / Shift+Tab in draw order, confirm presses it (a text field starts
+    //       typing, a slot with drag picks its icon up and the next confirmed slot gets it as dropped), secondary
+    //       right-clicks a slot, Left / Right change a slider. Back closes the focused (else the topmost) panel with
+    //       close = true, else ui.back() returns true once. The ring shows after a navigation input (or when the pad
+    //       was used last) and hides when the mouse moves; a panel that appears takes the focus (its widget with
+    //       default_focus = true, else its first). ui.navigating() -> the ring shows, ui.nav_focused() -> the widget
+    //       just placed has the focus, ui.focus_default(). Test with input.simulate_key / simulate_gamepad.
     //   ui.theme{ panel_color, panel_alpha, panel_image, panel_slice, border_color, border_alpha, title_color, title_size,
     //             text_color, text_size, muted_color, button_color, accent_color, button_text_size, button_height,
     //             padding, spacing, rounding, slot_color, slot_size, slot_image, slot_slice, tooltip_width }
@@ -391,6 +402,9 @@ namespace Engine {
         // began), so the app should leave Escape / Enter / shortcuts alone.
         void SetKeyboard(bool allowed);
         bool WantsKeyboard() const;
+        // A closable laid-out panel was up last frame (or a script asked ui.back()): Escape / pad B is the UI's Back,
+        // so the apps don't also pause / stop Play on it
+        bool WantsBack() const;
         bool ConsumeQuitRequest();                              // true once after scene.quit()
         bool ConsumeRestartRequest();                           // true once after scene.restart()
 

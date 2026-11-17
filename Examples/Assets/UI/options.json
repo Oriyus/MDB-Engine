@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "preview": {
+    "music_volume": 0.6,
+    "subtitles": true,
+    "options_open": true
+  },
+  "widgets": [
+    {
+      "type": "panel",
+      "name": "options",
+      "visible": "options_open",
+      "close": true,
+      "on_close": "options_open = false",
+      "x": 0.5,
+      "y": 0.5,
+      "w": 420,
+      "title": "Options",
+      "children": [
+        { "type": "row", "spacing": 12, "children": [
+            { "type": "label", "text": "Music", "width": 90, "align": "right", "bold": true },
+            { "type": "slider", "name": "music", "bind": "music_volume", "min": 0, "max": 1, "step": 0.1, "w": 280,
+              "text": "{=math.floor(music_volume * 100 + 0.5)}%", "default_focus": true }
+          ] },
+        { "type": "row", "spacing": 12, "children": [
+            { "type": "label", "text": "Subtitles", "width": 90, "align": "right", "bold": true },
+            { "type": "button", "name": "subtitles", "text": "{=subtitles and 'On' or 'Off'}", "w": 90, "selected": "subtitles",
+              "on_click": "subtitles = not subtitles" }
+          ] },
+        { "type": "button", "name": "done", "text": "Done", "fill": true, "on_click": "options_open = false" },
+        { "type": "label", "muted": true, "size": 14, "align": "center",
+          "text": "Arrows / D-pad move, Enter / A choose, Esc / B close" }
+      ]
+    }
+  ]
+}

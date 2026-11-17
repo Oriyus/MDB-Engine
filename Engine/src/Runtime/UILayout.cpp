@@ -1,4 +1,5 @@
 #include "Runtime/UILayout.h"
+#include "Core/Input.h"
 
 #include <imgui.h>
 #include <algorithm>
@@ -153,7 +154,7 @@ namespace Engine {
         namespace K {
             constexpr int A = 65, C = 67, V = 86, X = 88;
             constexpr int Escape = 256, Enter = 257, Tab = 258, Backspace = 259, Delete = 261;
-            constexpr int Right = 262, Left = 263, Home = 268, End = 269, KeypadEnter = 335;
+            constexpr int Right = 262, Left = 263, Down = 264, Up = 265, Home = 268, End = 269, KeypadEnter = 335;
         }
     }
 
@@ -175,6 +176,16 @@ namespace Engine {
         m_InputOrder.clear();
         m_FocusAsks.clear(); m_PrevFocusAsks.clear();
         m_TextEvents.clear();
+        m_NavIn = m_NavPrev = UINavInput{};
+        for (float& t : m_NavRepeat) t = 0.0f;
+        m_NavItems.clear(); m_PrevNavItems.clear();
+        m_NavId.clear(); m_NavActivate.clear(); m_NavSecondary.clear(); m_NavScrollTo.clear(); m_NavPreferPanel.clear();
+        m_NavAdjust = 0;
+        m_NavVisible = m_NavPickDefault = m_NavCarry = m_NavSeen = m_HotFromNav = m_PtrMoved = false;
+        m_BackPressed = m_BackUsed = m_WantsBack = m_BackAsked = false;
+        m_BackPanel.clear();
+        m_ClosablePanels.clear();
+        m_PrevPX = m_PrevPY = -1e6f;
         Theme = UITheme{};
     }
 
@@ -221,6 +232,8 @@ namespace Engine {
         m_PrevFocusAsks.swap(m_FocusAsks);
         m_FocusAsks.clear();
         if (!m_FocusId.empty()) m_Blink += dt;
+        m_HotFromNav = false;
+        NavBegin();
     }
 
     int UIContext::EndFrame() {
@@ -241,9 +254,13 @@ namespace Engine {
             const float natural = LayoutText(m_PendingTooltip, 0, 0, 0, o, false).x;
             const float textW = std::min(natural, Theme.TooltipWidth - 2 * pad);
             const glm::vec2 m = LayoutText(m_PendingTooltip, 0, 0, textW, o, false);
-            Rect r{ m_PX + 18.0f, m_PY + 22.0f, textW + 2 * pad, m.y + 2 * pad };
-            if (r.X + r.W > m_VW - 4) r.X = m_PX - r.W - 8;
-            if (r.Y + r.H > kUnitH - 4) r.Y = m_PY - r.H - 8;
+            // At the pointer, or below the widget with the navigation focus
+            const float ax = m_HotFromNav ? m_NavRect.X + m_NavRect.W * 0.5f - 18.0f : m_PX;
+            const float ay = m_HotFromNav ? m_NavRect.Y + m_NavRect.H - 14.0f : m_PY;
+            Rect r{ ax + 18.0f, ay + 22.0f, textW + 2 * pad, m.y + 2 * pad };
+            if (r.X + r.W > m_VW - 4) r.X = ax - r.W - 8;
+            if (r.Y + r.H > kUnitH - 4) r.Y = (m_HotFromNav ? m_NavRect.Y : ay) - r.H - 8;
+            r.X = std::max(4.0f, r.X);
             EmitFrame(r, Theme.PanelColor * 0.8f, 0.97f, std::string(), 0.0f, 6.0f);
             LayoutText(m_PendingTooltip, r.X + pad, r.Y + pad, textW, o, true);
         }
@@ -258,21 +275,25 @@ namespace Engine {
             i = ((i + m_TabMove) % n + n) % n;
             m_FocusRequest = m_InputOrder[(size_t)i];
             m_FocusId.clear();
+            m_NavId = m_FocusRequest;            // navigation goes on from there
         }
         m_TabMove = 0;
         m_TextEvents.clear();
 
-        // The dragged icon follows the pointer
-        if (m_Dragging && !m_DragIcon.empty() && m_Out)
-            EmitImage(m_DragIcon, m_PX - 28.0f, m_PY - 28.0f, 56.0f, 56.0f, glm::vec3(1.0f), 0.9f, 0.0f);
+        // The dragged icon follows the pointer (carried by navigation: it sits on the focused widget's corner)
+        if (m_Dragging && !m_DragIcon.empty() && m_Out) {
+            if (m_NavCarry) EmitImage(m_DragIcon, m_NavRect.X + m_NavRect.W * 0.45f, m_NavRect.Y - 16.0f, 48.0f, 48.0f, glm::vec3(1.0f), 0.95f, 0.0f);
+            else EmitImage(m_DragIcon, m_PX - 28.0f, m_PY - 28.0f, 56.0f, 56.0f, glm::vec3(1.0f), 0.9f, 0.0f);
+        }
 
         if (m_Released) {
             if (m_Dragging) m_DragEnded = true;
-            m_Dragging = false;
+            m_Dragging = m_NavCarry = false;
             m_DragId.clear();
             m_DragIcon.clear();
             m_ActiveId.clear();
         }
+        NavEnd();
         m_Out = nullptr;
         return open;
     }
@@ -525,6 +546,8 @@ namespace Engine {
         bool open = true;
         Box& top = m_Stack.back();
         if (o.Close) {
+            m_ClosablePanels.push_back(id);
+            if (m_BackPressed && !m_BackUsed && m_BackPanel == id) { open = false; m_BackUsed = true; }   // Back closes it
             const float s = 26.0f;
             const Rect cr{ r.X + r.W - pad - s + 4.0f, r.Y + pad - 4.0f, s, s };
             const std::string cid = MakeId("__close");
@@ -627,7 +650,15 @@ namespace Engine {
                 const auto [start, h] = row.Children[c];
                 const size_t end = c + 1 < row.Children.size() ? std::get<0>(row.Children[c + 1]) : m_Out->size();
                 const float dy = (row.LineH - h) * 0.5f / kUnitH;
-                if (dy > 0.0f) for (size_t i = start; i < end && i < m_Out->size(); i++) (*m_Out)[i].Y += dy;
+                if (dy > 0.0f) {
+                    for (size_t i = start; i < end && i < m_Out->size(); i++) (*m_Out)[i].Y += dy;
+                    for (NavItem& n : m_NavItems)    // the focusable widgets in it move down with it
+                        if (n.OutIndex >= start && n.OutIndex < end) {
+                            n.R.Y += dy * kUnitH;
+                            n.ContentY += dy * kUnitH;
+                            if (n.Id == m_NavId) m_NavRect = n.R;
+                        }
+                }
             }
         }
         const float used = std::max(0.0f, row.MaxRight - row.X);
@@ -650,6 +681,14 @@ namespace Engine {
         if (maxOff > 0.0f && Hover(track) && m_Pressed) { m_ActiveId = bar; m_PressY = m_PY; }
         if (m_ActiveId == bar && m_Down && maxOff > 0.0f)
             off = (m_PY - outer.Y - thumbH * 0.5f) / std::max(1.0f, height - thumbH) * maxOff;
+        // Navigation moved the focus to a widget in here: scroll it into view
+        if (!m_NavScrollTo.empty())
+            if (const NavItem* t = PrevNavItem(m_NavScrollTo); t && t->ScrollId == sid) {
+                const float margin = 6.0f;
+                if (t->ContentY - margin < off) off = t->ContentY - margin;
+                if (t->ContentY + t->R.H + margin > off + height) off = t->ContentY + t->R.H + margin - height;
+                m_NavScrollTo.clear();
+            }
         off = std::clamp(off, 0.0f, maxOff);
 
         const Rect clip = Clip();
@@ -718,17 +757,18 @@ namespace Engine {
         const Rect r = Place(w, h);
         const std::string id = MakeId(o.Id.empty() ? label : o.Id);
 
+        const bool nav = NavItemHere(id, r, NavKind::Button, o.DefaultFocus, o.Disabled);
         const bool hovered = !o.Disabled && !m_Dragging && Hover(r);
-        if (hovered) m_HotId = id;
+        if (hovered) SetHot(id);
         if (hovered && m_Pressed) m_ActiveId = id;
-        const bool clicked = hovered && m_Released && m_ActiveId == id;
-        const bool held = hovered && m_Down && m_ActiveId == id;
+        const bool clicked = (hovered && m_Released && m_ActiveId == id) || (nav && m_NavActivate == id);
+        const bool held = (hovered && m_Down && m_ActiveId == id) || (nav && !o.Disabled && m_NavIn.Confirm);
 
         glm::vec3 face = o.HasColor ? o.Color : (o.Selected ? Theme.AccentColor : Theme.ButtonColor);
         float alpha = 0.95f;
         if (o.Disabled) { face *= 0.7f; alpha = 0.5f; }
         else if (held) face *= 0.75f;
-        else if (hovered) face = glm::mix(face, glm::vec3(1.0f), 0.16f);
+        else if (hovered || nav) face = glm::mix(face, glm::vec3(1.0f), 0.16f);
         ScriptUIItem& f = Emit(ScriptUIItem::Type::Rect, r.X, r.Y, r.W, r.H);
         f.Color = face;
         f.Alpha = alpha;
@@ -747,6 +787,7 @@ namespace Engine {
         t.HasColor = true;
         t.Color = o.Disabled ? Theme.MutedColor : glm::vec3(1.0f);
         LayoutText(label, r.X, r.Y + (h - size * kLineSpacing) * 0.5f, r.W, t, true);
+        if (nav) NavRing(r);
 
         m_Last = r;
         m_LastId = id;
@@ -798,9 +839,29 @@ namespace Engine {
         const Rect r = Place(size, size);
         const std::string id = MakeId(slotId);
 
+        const bool nav = NavItemHere(id, r, NavKind::Slot, o.DefaultFocus);
         const bool hovered = Hover(r);
-        res.Hovered = hovered;
-        if (hovered) m_HotId = id;
+        res.Hovered = hovered || nav;
+        if (hovered) SetHot(id);
+        // Navigation: Confirm picks a draggable slot's icon up, and puts it down on the next slot it confirms
+        // (the same slot: put back); otherwise it clicks. Secondary right-clicks.
+        if (nav && m_NavActivate == id) {
+            if (m_NavCarry) {
+                if (m_DragId != id && o.Accept) res.Dropped = true;
+                m_Dragging = m_NavCarry = false;
+                m_DragEnded = true;
+                m_DragId.clear();
+                m_DragIcon.clear();
+            }
+            else if (o.Draggable && !o.Icon.empty()) {
+                m_Dragging = m_NavCarry = true;
+                m_DragId = id;
+                m_DragIcon = o.Icon;
+                res.DragStarted = true;
+            }
+            else res.Clicked = true;
+        }
+        if (nav && m_NavSecondary == id && !m_NavCarry) res.RightClicked = true;
         if (hovered && m_Pressed) { m_ActiveId = id; m_PressX = m_PX; m_PressY = m_PY; }
         if (hovered && m_RightPressed) res.RightClicked = true;
         if (o.Draggable && !o.Icon.empty() && m_ActiveId == id && m_Down && !m_Dragging &&
@@ -815,7 +876,7 @@ namespace Engine {
             else if (m_ActiveId == id) res.Clicked = true;
         }
 
-        const bool target = m_Dragging && hovered && o.Accept && m_DragId != id;
+        const bool target = m_Dragging && (m_NavCarry ? nav : hovered) && o.Accept && m_DragId != id;
         const glm::vec3 bg = o.HasColor ? o.Color : Theme.SlotColor;
         if (!Theme.SlotImage.empty()) EmitImage(Theme.SlotImage, r.X, r.Y, r.W, r.H, glm::vec3(1.0f), 1.0f, Theme.SlotSlice);
         else {
@@ -828,7 +889,7 @@ namespace Engine {
         b.Rounding = 6.0f;
         if (target)            { b.Color = Theme.AccentColor; b.Alpha = 1.0f; b.Thickness = 2.5f; }
         else if (o.Highlight)  { b.Color = Theme.TitleColor;  b.Alpha = 0.9f; b.Thickness = 2.0f; }
-        else if (hovered)      { b.Color = glm::vec3(1.0f);   b.Alpha = 0.45f; b.Thickness = 1.5f; }
+        else if (hovered || nav) { b.Color = glm::vec3(1.0f); b.Alpha = 0.45f; b.Thickness = 1.5f; }
         else                   { b.Color = Theme.BorderColor; b.Alpha = Theme.BorderAlpha + 0.06f; }
 
         if (!o.Icon.empty()) {
@@ -840,6 +901,7 @@ namespace Engine {
             const float ts = std::max(11.0f, size * 0.27f);
             EmitText(std::to_string(o.Count), r.X + size - 5.0f, r.Y + size - ts * 1.15f, ts, glm::vec3(1.0f), 1.0f, true, true, 2);
         }
+        if (nav) NavRing(r);
         m_Last = r;
         m_LastId = id;
         if (!o.Tooltip.empty()) Tooltip(o.Tooltip);
@@ -878,7 +940,7 @@ namespace Engine {
         if (text.empty() || m_Dragging) return;
         bool hovered;
         if (m_LastId.empty()) {
-            hovered = Hover(m_Last);
+            hovered = Hover(m_Last) && !m_HotFromNav;   // (the navigation focus's tooltip wins)
             if (hovered) m_HotId = CurrentPanel() + "/tip:" + text;
         }
         else hovered = m_LastId == m_HotId;
@@ -893,6 +955,7 @@ namespace Engine {
         m_Anchor = selectAll ? 0 : m_Caret;
         m_ScrollX = 0.0f;
         m_Blink = 0.0f;
+        m_NavId = id;                            // navigation goes on from the field being typed in
     }
 
     UIInputResult UIContext::Input(const std::string& fieldId, const std::string& text, const UIInputOptions& o) {
@@ -905,16 +968,20 @@ namespace Engine {
         const float padX = 8.0f;
         const Rect inner{ r.X + padX, r.Y, std::max(0.0f, r.W - 2.0f * padX), r.H };
 
+        const bool nav = !o.Disabled && NavItemHere(id, r, NavKind::Input, o.DefaultFocus);
         const bool hovered = !o.Disabled && !m_Dragging && Hover(r);
-        if (hovered) m_HotId = id;
+        if (hovered) SetHot(id);
         UIInputResult res;
 
-        // Taking the focus: Tab moved here, the script asked (Focus turned true), or a press on the field
+        // Taking the focus: Tab moved here, the script asked (Focus turned true), Confirm on it (navigation),
+        // or a press on the field
         const bool ask = o.Focus && !m_PrevFocusAsks.count(id);
         if (o.Focus) m_FocusAsks.insert(id);
         bool focused = m_FocusId == id;
+        bool byNav = false;
         if (o.Disabled && focused) { m_FocusId.clear(); focused = false; }
-        if (!o.Disabled && !focused && (m_FocusRequest == id || ask)) {
+        if (!o.Disabled && !focused && (m_FocusRequest == id || ask || (nav && m_NavActivate == id))) {
+            byNav = nav && m_NavActivate == id;   // (its Enter this frame was the Confirm: not a submit)
             TakeFocus(id, text, o.SelectAll);
             m_FocusRequest.clear();
             focused = true;
@@ -1025,6 +1092,7 @@ namespace Engine {
                     break;
                 case K::Enter:
                 case K::KeypadEnter:
+                    if (byNav) break;
                     res.Submitted = true;
                     if (!o.KeepFocus) m_FocusId.clear();
                     break;
@@ -1100,11 +1168,330 @@ namespace Engine {
         }
         Emit(ScriptUIItem::Type::ClipPop, 0, 0, 0, 0);
         m_Clips.pop_back();
+        if (nav && !focused) NavRing(r);
 
         m_Last = r;
         m_LastId = id;
         if (!o.Tooltip.empty()) Tooltip(o.Tooltip);
         return res;
+    }
+
+    // ------------------------------------------------------------------ slider
+    UISliderResult UIContext::Slider(const std::string& sliderId, float value, const UISliderOptions& o) {
+        const float w = o.W > 0.0f ? o.W : Avail();
+        const float h = o.H > 0.0f ? o.H : 24.0f;
+        const Rect r = Place(w, h);
+        const std::string id = MakeId(sliderId);
+        const bool nav = !o.Disabled && NavItemHere(id, r, NavKind::Slider, o.DefaultFocus);
+        const bool hovered = !o.Disabled && !m_Dragging && Hover(r);
+        if (hovered) SetHot(id);
+
+        const float lo = std::min(o.Min, o.Max), hi = std::max(o.Max, o.Min + 1e-6f);
+        const float knobW = std::min(12.0f, r.W * 0.2f);
+        float v = std::clamp(value, lo, hi);
+        if (hovered && m_Pressed) m_ActiveId = id;
+        if (!o.Disabled && m_ActiveId == id && m_Down)
+            v = lo + std::clamp((m_PX - r.X - knobW * 0.5f) / std::max(1.0f, r.W - knobW), 0.0f, 1.0f) * (hi - lo);
+        if (nav && m_NavAdjust != 0) v = std::clamp(v + (o.Step > 0.0f ? o.Step : (hi - lo) / 20.0f) * (float)m_NavAdjust, lo, hi);
+        if (o.Step > 0.0f) v = std::clamp(lo + std::round((v - lo) / o.Step) * o.Step, lo, hi);
+        UISliderResult res;
+        res.Value = v;
+        res.Changed = v != value;
+
+        const float t = (v - lo) / (hi - lo);
+        const float alpha = o.Disabled ? 0.5f : 0.95f;
+        const float round = std::min(h * 0.5f, Theme.Rounding);
+        const bool lit = hovered || nav || m_ActiveId == id;
+        ScriptUIItem& bg = Emit(ScriptUIItem::Type::Rect, r.X, r.Y, r.W, r.H);
+        bg.Color = Theme.SlotColor;
+        bg.Alpha = alpha;
+        bg.Rounding = round;
+        const glm::vec3 fillColor = o.HasColor ? o.Color : Theme.AccentColor;
+        const float fillW = knobW * 0.5f + (r.W - knobW) * t;
+        if (fillW > 0.5f) {
+            ScriptUIItem& fill = Emit(ScriptUIItem::Type::Rect, r.X, r.Y, fillW, r.H);
+            fill.Color = lit ? glm::mix(fillColor, glm::vec3(1.0f), 0.15f) : fillColor;
+            fill.Alpha = alpha;
+            fill.Rounding = round;
+        }
+        ScriptUIItem& b = Emit(ScriptUIItem::Type::Border, r.X, r.Y, r.W, r.H);
+        b.Color = lit ? glm::vec3(1.0f) : Theme.BorderColor;
+        b.Alpha = lit ? 0.45f : (Theme.BorderAlpha + 0.08f) * alpha;
+        b.Rounding = round;
+        ScriptUIItem& knob = Emit(ScriptUIItem::Type::Rect, r.X + (r.W - knobW) * t, r.Y - 2.0f, knobW, r.H + 4.0f);
+        knob.Color = o.Disabled ? Theme.MutedColor : glm::vec3(0.95f);
+        knob.Alpha = alpha;
+        knob.Rounding = std::min(4.0f, knobW * 0.5f);
+        if (!o.Text.empty()) {
+            UITextOptions to;
+            to.Size = std::max(10.0f, std::min(h * 0.72f, Theme.TextSize));
+            to.Bold = true;
+            to.Shadow = true;
+            to.Align = 1;
+            to.HasColor = true;
+            to.Color = o.Disabled ? Theme.MutedColor : glm::vec3(1.0f);
+            LayoutText(o.Text, r.X, r.Y + (h - to.Size * kLineSpacing) * 0.5f, r.W, to, true);
+        }
+        if (nav) NavRing(r);
+        m_Last = r;
+        m_LastId = id;
+        if (!o.Tooltip.empty()) Tooltip(o.Tooltip);
+        return res;
+    }
+
+    // ------------------------------------------------------------------ navigation
+    UINavInput UINavFromDevices(bool withBack) {
+        UINavInput n;
+        n.Up = Input::IsKeyDown(K::Up);
+        n.Down = Input::IsKeyDown(K::Down);
+        n.Left = Input::IsKeyDown(K::Left);
+        n.Right = Input::IsKeyDown(K::Right);
+        n.Confirm = Input::IsKeyDown(K::Enter) || Input::IsKeyDown(K::KeypadEnter);
+        n.Back = withBack && Input::IsKeyDown(K::Escape);
+        const GamepadState& p = Input::Gamepad();
+        if (p.Connected) {
+            n.Up = n.Up || p.Buttons[Pad::DPadUp] || p.Axes[Pad::LeftY] > 0.5f;
+            n.Down = n.Down || p.Buttons[Pad::DPadDown] || p.Axes[Pad::LeftY] < -0.5f;
+            n.Left = n.Left || p.Buttons[Pad::DPadLeft] || p.Axes[Pad::LeftX] < -0.5f;
+            n.Right = n.Right || p.Buttons[Pad::DPadRight] || p.Axes[Pad::LeftX] > 0.5f;
+            n.Confirm = n.Confirm || p.Buttons[Pad::A];
+            n.Back = n.Back || (withBack && p.Buttons[Pad::B]);
+            n.Secondary = p.Buttons[Pad::X];
+        }
+        return n;
+    }
+
+    bool UIContext::NavItemHere(const std::string& id, const Rect& r, NavKind kind, bool isDefault, bool disabled) {
+        NavItem it;
+        it.Id = id;
+        it.R = r;
+        it.Kind = kind;
+        it.Default = isDefault;
+        it.Disabled = disabled;
+        it.OutIndex = m_Out ? m_Out->size() : 0;
+        const std::string& panel = CurrentPanel();
+        for (int i = (int)m_Panels.size() - 1; i >= 0; i--) if (m_Panels[(size_t)i].first == panel) { it.Panel = i; break; }
+        for (auto b = m_Stack.rbegin(); b != m_Stack.rend(); ++b)
+            if (b->K == Box::Kind::Scroll) { it.ScrollId = b->ScrollId; it.ContentY = r.Y - b->StartY; break; }
+        m_NavItems.push_back(std::move(it));
+        if (m_NavId != id) return false;
+        m_NavRect = r;
+        if (!m_NavVisible) return false;
+        m_HotId = id;                            // its tooltip shows (by the widget)
+        m_HotFromNav = true;
+        return true;
+    }
+
+    void UIContext::NavRing(const Rect& r) {
+        const float g = 3.0f;
+        ScriptUIItem& ring = Emit(ScriptUIItem::Type::Border, r.X - g, r.Y - g, r.W + 2 * g, r.H + 2 * g);
+        ring.Color = glm::mix(Theme.AccentColor, glm::vec3(1.0f), 0.45f);
+        ring.Alpha = 1.0f;
+        ring.Thickness = 2.5f;
+        ring.Rounding = Theme.Rounding + g;
+    }
+
+    const UIContext::NavItem* UIContext::PrevNavItem(const std::string& id) const {
+        if (id.empty()) return nullptr;
+        for (const NavItem& n : m_PrevNavItems) if (n.Id == id) return &n;
+        return nullptr;
+    }
+
+    std::string UIContext::NavDefaultId() const {
+        // The panel that just appeared, else the topmost one (drawn last) with something enabled to focus
+        int panel = -1;
+        if (!m_NavPreferPanel.empty())
+            for (const NavItem& n : m_PrevNavItems)
+                if (!n.Disabled && n.Panel >= 0 && (size_t)n.Panel < m_PrevPanels.size() && m_PrevPanels[(size_t)n.Panel].first == m_NavPreferPanel)
+                    panel = n.Panel;
+        if (panel < 0) for (const NavItem& n : m_PrevNavItems) if (!n.Disabled) panel = std::max(panel, n.Panel);
+        const NavItem* first = nullptr;
+        for (const NavItem& n : m_PrevNavItems) {
+            if (n.Panel != panel || n.Disabled) continue;
+            if (n.Default) return n.Id;
+            if (!first) first = &n;
+        }
+        return first ? first->Id : std::string();
+    }
+
+    // The nearest widget in a direction: its centre must lie past the current one's edge that way; distance along the
+    // direction counts once, sideways distance (the gap between the two spans) three times plus a penalty, the
+    // offset between centres half, and the gap may not be
+    // more than the distance along (a cone of about 45 degrees). Its own panel first.
+    std::string UIContext::NavMove(int dx, int dy) const {
+        const NavItem* cur = PrevNavItem(m_NavId);
+        if (!cur) return std::string();
+        const float cx = cur->R.X + cur->R.W * 0.5f, cy = cur->R.Y + cur->R.H * 0.5f;
+        const NavItem* best[2] = { nullptr, nullptr };     // same panel, any panel
+        float bestScore[2] = { FLT_MAX, FLT_MAX };
+        for (const NavItem& n : m_PrevNavItems) {
+            if (&n == cur) continue;
+            const float nx = n.R.X + n.R.W * 0.5f, ny = n.R.Y + n.R.H * 0.5f;
+            float along, gap, off, beyond;
+            if (dy != 0) {
+                along = (ny - cy) * (float)dy;
+                beyond = (dy > 0 ? ny - (cur->R.Y + cur->R.H) : cur->R.Y - ny);   // its centre past my edge
+                gap = std::max(0.0f, std::max(n.R.X - (cur->R.X + cur->R.W), cur->R.X - (n.R.X + n.R.W)));
+                off = std::abs(nx - cx);
+            }
+            else {
+                along = (nx - cx) * (float)dx;
+                beyond = (dx > 0 ? nx - (cur->R.X + cur->R.W) : cur->R.X - nx);
+                gap = std::max(0.0f, std::max(n.R.Y - (cur->R.Y + cur->R.H), cur->R.Y - (n.R.Y + n.R.H)));
+                off = std::abs(ny - cy);
+            }
+            if (beyond < 0.0f || along < 1.0f || gap > along) continue;   // that way, within about 45 degrees
+            // Widgets level with it (spans overlapping) are strongly preferred to ones off to a side
+            const float score = along + gap * 3.0f + off * 0.5f + (gap > 0.0f ? 100.0f : 0.0f);
+            for (int k = 0; k < 2; k++) {
+                if (k == 0 && n.Panel != cur->Panel) continue;
+                if (score < bestScore[k]) { bestScore[k] = score; best[k] = &n; }
+            }
+        }
+        const NavItem* to = best[0] ? best[0] : best[1];
+        return to ? to->Id : std::string();
+    }
+
+    bool UIContext::ConsumeBack() {
+        m_BackAsked = true;
+        if (!m_BackPressed || m_BackUsed) return false;
+        m_BackUsed = true;
+        return true;
+    }
+
+    void UIContext::NavBegin() {
+        const UINavInput& n = m_NavIn;
+        m_NavActivate.clear();
+        m_NavSecondary.clear();
+        m_NavAdjust = 0;
+        m_BackUsed = false;
+        m_BackPanel.clear();
+        m_NavSeen = false;
+        m_NavRect = Rect{};
+        const std::vector<std::string> closable = std::move(m_ClosablePanels);   // last frame's
+        m_ClosablePanels.clear();
+        m_WantsBack = !closable.empty() || m_BackAsked;
+        m_BackAsked = false;
+
+        // Directions: a press, then repeats while held (0.4 s, then every 0.11 s)
+        const bool held[4] = { n.Up, n.Down, n.Left, n.Right };
+        const bool was[4] = { m_NavPrev.Up, m_NavPrev.Down, m_NavPrev.Left, m_NavPrev.Right };
+        bool press[4] = {};
+        for (int i = 0; i < 4; i++) {
+            if (held[i] && !was[i]) { press[i] = true; m_NavRepeat[i] = 0.4f; }
+            else if (held[i]) {
+                m_NavRepeat[i] -= m_Dt;
+                if (m_NavRepeat[i] <= 0.0f) { press[i] = true; m_NavRepeat[i] = 0.11f; }
+            }
+        }
+        bool confirm = n.Confirm && !m_NavPrev.Confirm;
+        bool back = n.Back && !m_NavPrev.Back;
+        bool secondary = n.Secondary && !m_NavPrev.Secondary;
+        int tab = 0;
+        if (m_FocusId.empty())
+            for (const TextEvent& e : m_TextEvents) if (e.Char == 0 && e.Key == K::Tab) tab = (e.Mods & Mod::Shift) ? -1 : 1;
+        if (n.Gamepad && !m_NavPrev.Gamepad) m_NavVisible = true;    // switched to the pad: show where the focus is
+        m_NavPrev = n;
+
+        // The pointer moved or pressed: the mouse is in charge again (the ring hides; the focus follows hover)
+        m_PtrMoved = m_Inside && m_PrevPX > -1e5f && (std::abs(m_PX - m_PrevPX) > 2.0f || std::abs(m_PY - m_PrevPY) > 2.0f);
+        if (m_Inside) { m_PrevPX = m_PX; m_PrevPY = m_PY; }
+        if (m_PtrMoved || m_Pressed || m_RightPressed) m_NavVisible = false;
+
+        // Typing in a field: the keyboard's keys are the field's (and masked from the actions), so these come
+        // from the pad: Back cancels the typing, Confirm submits it, a direction leaves the field and moves
+        if (!m_FocusId.empty()) {
+            if (back) { m_TextEvents.push_back(TextEvent{ 0, K::Escape, 0 }); back = false; }
+            if (confirm) { m_TextEvents.push_back(TextEvent{ 0, K::Enter, 0 }); confirm = false; }
+            if (press[0] || press[1] || press[2] || press[3]) m_FocusId.clear();
+            secondary = false;
+        }
+        m_BackPressed = back;
+
+        const bool any = press[0] || press[1] || press[2] || press[3] || confirm || secondary || tab != 0;
+        if (any) {
+            const NavItem* cur = PrevNavItem(m_NavId);
+            if (!m_NavVisible || !cur) {
+                // The first press only shows the focus (on what it was, or the default)
+                m_NavVisible = true;
+                if (!cur) { m_NavId = NavDefaultId(); m_NavScrollTo = m_NavId; }
+            }
+            else {
+                int dx = (press[3] ? 1 : 0) - (press[2] ? 1 : 0), dy = (press[1] ? 1 : 0) - (press[0] ? 1 : 0);
+                if (cur->Kind == NavKind::Slider && dx != 0) { m_NavAdjust = dx; dx = 0; }
+                if (dx != 0 && dy != 0) dx = 0;  // one axis at a time
+                if (dx != 0 || dy != 0) {
+                    const std::string to = NavMove(dx, dy);
+                    if (!to.empty()) { m_NavId = to; m_NavScrollTo = to; }
+                }
+                if (tab != 0 && !m_PrevNavItems.empty()) {
+                    const int count = (int)m_PrevNavItems.size();
+                    int i = (int)(cur - m_PrevNavItems.data());
+                    for (int k = 0; k < count; k++) {    // skip disabled ones
+                        i = ((i + tab) % count + count) % count;
+                        if (!m_PrevNavItems[(size_t)i].Disabled) break;
+                    }
+                    m_NavId = m_PrevNavItems[(size_t)i].Id;
+                    m_NavScrollTo = m_NavId;
+                }
+                if (confirm) m_NavActivate = m_NavId;
+                if (secondary) m_NavSecondary = m_NavId;
+            }
+        }
+        if (m_NavPickDefault) {
+            m_NavPickDefault = false;
+            const std::string d = NavDefaultId();
+            if (!d.empty()) { m_NavId = d; m_NavScrollTo = d; }
+        }
+        m_NavPreferPanel.clear();
+
+        // Back: puts a carried icon back; else closes the focused widget's panel if it can close, else the
+        // topmost panel that can; else ui.back() gets it
+        if (back) {
+            if (m_NavCarry) {
+                m_Dragging = m_NavCarry = false;
+                m_DragEnded = true;
+                m_DragId.clear();
+                m_DragIcon.clear();
+                m_BackUsed = true;
+            }
+            else {
+                auto canClose = [&](const std::string& p) { return std::find(closable.begin(), closable.end(), p) != closable.end(); };
+                const NavItem* cur = PrevNavItem(m_NavId);
+                if (cur && cur->Panel >= 0 && (size_t)cur->Panel < m_PrevPanels.size() && canClose(m_PrevPanels[(size_t)cur->Panel].first))
+                    m_BackPanel = m_PrevPanels[(size_t)cur->Panel].first;
+                else
+                    for (auto it = m_PrevPanels.rbegin(); it != m_PrevPanels.rend(); ++it)
+                        if (canClose(it->first)) { m_BackPanel = it->first; break; }
+            }
+        }
+    }
+
+    void UIContext::NavEnd() {
+        // The pointer moved onto a focusable widget: navigation goes on from there
+        if (m_PtrMoved && !m_HotFromNav && !m_HotId.empty())
+            for (const NavItem& n : m_NavItems) if (n.Id == m_HotId) { m_NavId = n.Id; break; }
+        // A panel that wasn't there last frame and has something to focus takes the focus
+        for (const auto& [id, r] : m_Panels) {
+            bool before = false;
+            for (const auto& p : m_PrevPanels) if (p.first == id) { before = true; break; }
+            if (before) continue;
+            for (const NavItem& n : m_NavItems)
+                if (!n.Disabled && n.Panel >= 0 && (size_t)n.Panel < m_Panels.size() && m_Panels[(size_t)n.Panel].first == id) {
+                    m_NavPreferPanel = id;
+                    m_NavPickDefault = true;
+                    break;
+                }
+        }
+        // The focused widget wasn't drawn: the default takes over (next frame, from this frame's widgets)
+        if (!m_NavId.empty()) {
+            bool seen = false;
+            for (const NavItem& n : m_NavItems) if (n.Id == m_NavId) { seen = true; break; }
+            if (!seen) { m_NavId.clear(); m_NavPickDefault = true; }
+        }
+        if (m_NavCarry && !m_Dragging) m_NavCarry = false;
+        m_PrevNavItems = std::move(m_NavItems);
+        m_NavItems.clear();
     }
 
     // ------------------------------------------------------------------ queries

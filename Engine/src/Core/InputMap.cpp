@@ -231,6 +231,31 @@ namespace Engine {
         return true;
     }
 
+
+    // Navigation for laid-out UI (UIContext): the project can bind these itself in input.json
+    const char* InputMap::UIDefaultJson() {
+        return R"JSON({
+  "ui_up":        ["key:Up", "pad:DPadUp", "pad:LeftUp"],
+  "ui_down":      ["key:Down", "pad:DPadDown", "pad:LeftDown"],
+  "ui_left":      ["key:Left", "pad:DPadLeft", "pad:LeftLeft"],
+  "ui_right":     ["key:Right", "pad:DPadRight", "pad:LeftRight"],
+  "ui_confirm":   ["key:Enter", "pad:A"],
+  "ui_back":      ["key:Escape", "pad:B"],
+  "ui_secondary": ["pad:X"]
+})JSON";
+    }
+
+    void InputMap::AddMissing(const nlohmann::json& actions, std::vector<std::string>& warnings) {
+        InputMap extra;
+        extra.Load(nlohmann::json{ { "actions", actions } }, warnings);
+        bool added = false;
+        for (InputAction& a : extra.m_Actions)
+            if (!m_Index.count(a.Name)) { m_Actions.push_back(std::move(a)); added = true; }
+        if (!added) return;
+        std::sort(m_Actions.begin(), m_Actions.end(), [](const InputAction& x, const InputAction& y) { return x.Name < y.Name; });
+        m_Index.clear();
+        for (size_t i = 0; i < m_Actions.size(); i++) m_Index[m_Actions[i].Name] = i;
+    }
     bool InputMap::LoadFile(const std::string& file, std::string& error, std::vector<std::string>& warnings) {
         Clear();
         std::error_code ec;

@@ -37,6 +37,17 @@ namespace Engine {
         float Wheel = 0.0f;                      // notches this frame, + = away from the user (scroll up)
     };
 
+    // Gamepad / keyboard navigation this frame: which UI controls are held (edges and repeats are worked out
+    // inside). ScriptEngine fills it from the input actions ui_up / ui_down / ui_left / ui_right / ui_confirm /
+    // ui_back / ui_secondary; the Game's pause menu from the devices directly (UINavFromDevices).
+    struct UINavInput {
+        bool Up = false, Down = false, Left = false, Right = false;
+        bool Confirm = false, Back = false, Secondary = false;
+        bool Gamepad = false;                    // the device used last is a gamepad (the focus shows at once)
+    };
+    // Arrows / Enter / Escape and the pad's D-pad, left stick, A / B / X, read straight from Core/Input
+    UINavInput UINavFromDevices(bool withBack = true);
+
     struct UITextOptions {
         float Size = 0.0f;                       // 0: the theme's text size
         bool HasColor = false; glm::vec3 Color{ 1.0f };
@@ -66,6 +77,7 @@ namespace Engine {
         bool HasColor = false; glm::vec3 Color{ 0.0f };
         bool Disabled = false, Selected = false;
         std::string Tooltip;
+        bool DefaultFocus = false;               // gamepad / keyboard navigation starts here in its panel
     };
 
     struct UISlotOptions {
@@ -78,6 +90,23 @@ namespace Engine {
         bool Highlight = false;
         bool HasColor = false; glm::vec3 Color{ 0.0f };
         float IconAlpha = 1.0f;
+        bool DefaultFocus = false;
+    };
+
+    // A horizontal slider (ui.slider): drag it, or Left / Right while it has the navigation focus
+    struct UISliderOptions {
+        float Min = 0.0f, Max = 1.0f;
+        float Step = 0.0f;                       // values snap to it; 0: free (Left / Right then move a 20th)
+        float W = 0.0f, H = 0.0f;                // 0: as wide as the container has left / 24
+        bool Disabled = false;
+        std::string Text;                        // drawn over the track (e.g. "75%")
+        bool HasColor = false; glm::vec3 Color{ 0.0f };
+        std::string Tooltip;
+        bool DefaultFocus = false;
+    };
+    struct UISliderResult {
+        float Value = 0.0f;
+        bool Changed = false;
     };
 
     // A one-line text field (ui.input)
@@ -95,6 +124,7 @@ namespace Engine {
         bool SelectAll = true;                   // focus by Tab or Focus selects the whole text
         bool KeepFocus = false;                  // Enter submits and keeps typing (a chat line)
         std::string Tooltip;
+        bool DefaultFocus = false;
     };
     struct UIInputResult {
         std::string Text;                        // the text now (edits included)
@@ -149,6 +179,20 @@ namespace Engine {
         void Separator();
         void Tooltip(const std::string& text);   // for the widget just placed, when it is hovered
         UIInputResult Input(const std::string& id, const std::string& text, const UIInputOptions& o);
+        UISliderResult Slider(const std::string& id, float value, const UISliderOptions& o);
+
+        // ---- gamepad / keyboard navigation. One widget (button, slot, text field, slider) has the navigation
+        // focus; directions move it to the nearest widget that way (in its panel first), Tab / Shift+Tab through
+        // the draw order, Confirm presses it (a text field starts typing, a draggable slot is picked up and put
+        // down on another), Secondary right-clicks a slot, Back closes the panel it is in (if it has close), or
+        // is left for ui.back(). The focus ring shows only after a navigation input (or when the pad was used
+        // last) and hides when the pointer moves. A panel that appears takes the focus (its default widget).
+        void SetNav(const UINavInput& n) { m_NavIn = n; }    // before BeginFrame
+        bool NavVisible() const { return m_NavVisible; }
+        bool NavFocusedLast() const { return m_NavVisible && !m_LastId.empty() && m_LastId == m_NavId; }  // the widget just placed
+        bool ConsumeBack();                      // ui.back(): Back was pressed this frame and nothing used it yet
+        bool WantsBack() const { return m_WantsBack; }   // last frame a closable panel was up or a script asked for Back
+        void FocusDefault() { m_NavId.clear(); m_NavPickDefault = true; }
 
         // ---- typing. This frame's key presses and characters, in order (before BeginFrame). While a text field
         // has the focus, games should ignore the keyboard (ScriptEngine masks its keys and actions).
@@ -157,6 +201,7 @@ namespace Engine {
         // A field has the focus now, or had it when this frame began (its Escape or Enter is the field's, not the game's)
         bool WantsKeyboard() const { return !m_FocusId.empty() || m_FocusAtBegin; }
         void Unfocus() { m_FocusId.clear(); }
+        void SetHot(const std::string& id) { if (!m_HotFromNav) m_HotId = id; }
 
         // ---- queries
         void LastRect(float& x, float& y, float& w, float& h) const;   // the widget just placed, 0..1 of the view
@@ -255,6 +300,46 @@ namespace Engine {
         std::vector<std::string> m_InputOrder;   // fields this frame, in order (Tab)
         std::unordered_set<std::string> m_FocusAsks, m_PrevFocusAsks;
         void TakeFocus(const std::string& id, const std::string& text, bool selectAll);
+
+        // navigation: last frame's focusable widgets (in draw order) decide where a move goes
+        enum class NavKind : uint8_t { Button, Slot, Input, Slider };
+        struct NavItem {
+            std::string Id;
+            Rect R;                              // on screen (rows' centring applied)
+            int Panel = -1;                      // index into that frame's m_Panels
+            NavKind Kind = NavKind::Button;
+            bool Default = false, Disabled = false;
+            std::string ScrollId;                // the innermost scroll region holding it
+            float ContentY = 0.0f;               // its top inside that region's content (unscrolled)
+            size_t OutIndex = 0;                 // the first item written for it (rows shift it)
+        };
+        // Registers the widget just placed; true if it has the navigation focus and the ring is showing
+        bool NavItemHere(const std::string& id, const Rect& r, NavKind kind, bool isDefault, bool disabled = false);
+        void NavRing(const Rect& r);             // the focus ring round a widget
+        void NavBegin();                         // BeginFrame: edges, repeats, moves
+        void NavEnd();                           // EndFrame: what the next frame starts from
+        const NavItem* PrevNavItem(const std::string& id) const;
+        std::string NavDefaultId() const;        // in the topmost panel of last frame with focusable widgets
+        std::string NavMove(int dx, int dy) const;
+
+        UINavInput m_NavIn, m_NavPrev;
+        float m_NavRepeat[4] = {};               // up, down, left, right: time to the next repeat
+        std::vector<NavItem> m_NavItems, m_PrevNavItems;
+        std::string m_NavId;                     // the focused widget
+        std::string m_NavActivate, m_NavSecondary;   // pressed this frame (that widget acts when drawn)
+        int m_NavAdjust = 0;                     // Left / Right on a slider: -1 / +1 this frame
+        std::string m_NavScrollTo;               // bring it into view (its scroll region, when drawn)
+        bool m_NavVisible = false, m_NavPickDefault = false;
+        bool m_BackPressed = false, m_BackUsed = false, m_WantsBack = false, m_BackAsked = false;
+        std::string m_BackPanel;                 // the panel Back closes this frame
+        std::vector<std::string> m_ClosablePanels;
+        bool m_NavCarry = false;                 // a slot's icon picked up by Confirm (put down by Confirm on another)
+        Rect m_NavRect;                          // the focused widget this frame (the carried icon goes there)
+        bool m_NavSeen = false;
+        float m_PrevPX = -1e6f, m_PrevPY = -1e6f;
+        bool m_HotFromNav = false;               // m_HotId is the navigation focus (tooltips go by the widget)
+        bool m_PtrMoved = false;
+        std::string m_NavPreferPanel;            // a panel that just appeared: the default focus goes in it
     };
 
 } // namespace Engine

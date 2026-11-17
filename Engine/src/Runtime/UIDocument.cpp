@@ -124,7 +124,7 @@ namespace Engine {
     const UINode* UIDocument::Find(uint32_t id) const { return const_cast<UIDocument*>(this)->Find(id); }
 
     std::vector<std::string> UIDocument::Issues(const std::string& assetDir) const {
-        static const char* kTypes[] = { "panel", "row", "column", "scroll", "label", "button", "image", "bar", "slot", "input", "space", "separator" };
+        static const char* kTypes[] = { "panel", "row", "column", "scroll", "label", "button", "image", "bar", "slot", "input", "slider", "space", "separator" };
         std::vector<std::string> out;
         std::map<std::string, int> names;
         auto label = [](const UINode& n) { return n.Type + (n.Name.empty() ? std::string() : " '" + n.Name + "'"); };
@@ -134,8 +134,8 @@ namespace Engine {
             if (std::find(std::begin(kTypes), std::end(kTypes), n.Type) == std::end(kTypes)) out.push_back("unknown widget type '" + n.Type + "'");
             if (!n.Name.empty()) names[n.Name]++;
             if (n.Type == "panel" && depth > 0) out.push_back(label(n) + " is inside another widget: panels only go at the top");
-            if (n.Type == "input" && (!n.Props.contains("bind") || !n.Props["bind"].is_string() || n.Props["bind"].get<std::string>().empty()))
-                out.push_back(label(n) + " has no bind: what is typed isn't kept anywhere");
+            if ((n.Type == "input" || n.Type == "slider") && (!n.Props.contains("bind") || !n.Props["bind"].is_string() || n.Props["bind"].get<std::string>().empty()))
+                out.push_back(label(n) + (n.Type == "input" ? " has no bind: what is typed isn't kept anywhere" : " has no bind: its value isn't kept anywhere"));
             if (n.IsContainer() && n.Children.empty()) out.push_back(label(n) + " is empty");
             if (!n.IsContainer() && !n.Children.empty()) out.push_back(label(n) + " has children, which aren't drawn");
             if (n.Type == "button" && n.Name.empty() && !n.Props.contains("on_click") && !n.Props.contains("event"))
@@ -343,6 +343,7 @@ namespace Engine {
                     o.HasColor = Color(n, "color", o.Color);
                     o.Disabled = Bool(n, "disabled", false);
                     o.Selected = Bool(n, "selected", false);
+                    o.DefaultFocus = Bool(n, "default_focus", false);
                     o.Tooltip = Text(n, "tooltip");
                     tooltip = false;                 // the button shows it itself
                     if (UI.Button(Text(n, "text"), o)) Clicked(n, index);
@@ -365,6 +366,7 @@ namespace Engine {
                     o.Size = Num(n, "size", 0.0f);
                     o.Tooltip = Text(n, "tooltip");
                     o.Highlight = Bool(n, "highlight", false);
+                    o.DefaultFocus = Bool(n, "default_focus", false);
                     o.HasColor = Color(n, "color", o.Color);
                     tooltip = false;
                     const std::string id = Key(n) + (index ? "#" + std::to_string(index) : std::string());
@@ -385,6 +387,7 @@ namespace Engine {
                     o.Disabled = Bool(n, "disabled", false);
                     o.Focus = Bool(n, "focus", false);
                     o.KeepFocus = Bool(n, "keep_focus", false);
+                    o.DefaultFocus = Bool(n, "default_focus", false);
                     o.Tooltip = Text(n, "tooltip");
                     tooltip = false;
                     const std::string bind = Raw(n, "bind");
@@ -400,6 +403,34 @@ namespace Engine {
                         Result.Clicked = Key(n);
                         Result.Index = index;
                         const std::string code = Raw(n, "on_submit");
+                        if (!code.empty()) Eval.Run(code);
+                        const std::string ev = Raw(n, "event");
+                        if (!ev.empty()) Eval.Event(ev, n, index);
+                    }
+                }
+                else if (t == "slider") {
+                    // bind: the Lua number shown and written back as it changes
+                    UISliderOptions o;
+                    o.Min = Num(n, "min", 0.0f);
+                    o.Max = Num(n, "max", 1.0f);
+                    o.Step = std::max(0.0f, Num(n, "step", 0.0f));
+                    o.W = Num(n, "w", 0.0f);
+                    o.H = Num(n, "h", 0.0f);
+                    o.Text = Text(n, "text");
+                    o.HasColor = Color(n, "color", o.Color);
+                    o.Disabled = Bool(n, "disabled", false);
+                    o.Tooltip = Text(n, "tooltip");
+                    o.DefaultFocus = Bool(n, "default_focus", false);
+                    tooltip = false;
+                    const std::string bind = Raw(n, "bind");
+                    const float value = bind.empty() ? o.Min : Eval.Number("(" + bind + ") or " + std::to_string(o.Min), o.Min);
+                    const std::string id = Key(n) + (index ? "#" + std::to_string(index) : std::string());
+                    const UISliderResult r = UI.Slider(id, value, o);
+                    if (r.Changed) {
+                        char num[32];
+                        std::snprintf(num, sizeof num, "%.9g", r.Value);
+                        if (!bind.empty()) Eval.Run(bind + " = " + num);
+                        const std::string code = Raw(n, "on_change");
                         if (!code.empty()) Eval.Run(code);
                         const std::string ev = Raw(n, "event");
                         if (!ev.empty()) Eval.Event(ev, n, index);

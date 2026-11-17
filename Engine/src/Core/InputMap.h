@@ -97,6 +97,11 @@ namespace Engine {
 
         // The starter file New Project writes (move, look, jump, sprint, interact, confirm, cancel, pause)
         static const char* DefaultJson();
+        // The UI navigation actions (an "actions" object: ui_up, ui_down, ui_left, ui_right, ui_confirm, ui_back,
+        // ui_secondary), added by ScriptEngine for any the project's file doesn't define
+        static const char* UIDefaultJson();
+        // Adds the actions of an "actions" object whose names aren't defined yet
+        void AddMissing(const nlohmann::json& actions, std::vector<std::string>& warnings);
 
     private:
         std::vector<InputAction> m_Actions;           // sorted by name

@@ -1162,6 +1162,8 @@ MDBEditor.exe &gt; log.txt</code></pre>
       <li>Labels: text with markup, size, colour, alignment, bold, muted, wrap.</li>
       <li>Buttons: text, on click, event, disabled, selected, size, fill.</li>
       <li>Images, bars and slots: image, value, count, colours.</li>
+      <li>Sliders: <b>Bind</b> (a Lua number), min, max, step, text, on change, event. Example: <code>UI/options.json</code>.</li>
+      <li>Focusable widgets (buttons, slots, text fields, sliders) have <b>Default focus</b>: gamepad / keyboard navigation starts there when the panel appears. In <b>Try it</b> the arrows, Enter, Esc and a pad work the preview.</li>
       <li>Text fields: <b>Bind</b> (the Lua variable it shows and writes as you type, e.g. <code>hero_name</code> or <code>game.save_name</code>), hint, max length, filter, password, keep focus, focus, on submit, on change, event. Enter in it makes <code>ui.show</code> return its name. In <b>Try it</b> you can type into it (while the UI Editor has focus); it writes into the Preview data's values. Example: <code>UI/name_prompt.json</code>.</li>
       <li>On every widget: <b>Name</b>, <b>Visible</b> (a condition), <b>Repeat</b> (a count or a list) and <b>Tooltip</b>.</li>
       <li>Number and on/off values have an <b>f</b> button that turns them into a Lua expression. For example, a bar's value becomes <code>hp / max_hp</code>, or a button's Disabled becomes <code>game.gold &lt; 10</code>.</li>
@@ -1693,6 +1695,29 @@ chat, send = ui.input("chat", chat, { keep_focus = true, hint = "Say something" 
 if send and chat ~= "" then say(chat); chat = "" end
 if ui.typing() then return end   -- a field has the keyboard (game keys and input actions read as up meanwhile)</code></pre>
 <p>While a field has the keyboard, the game sees no keys: input actions and <code>input.key_*</code> read as up (typing "c" doesn't start combat), keys still held when it lets go stay up until released, and the Game's Esc (pause) and the editor's Esc (stop) leave it alone. In the editor, typing reaches the game while the Viewport has focus and you look through the game camera. Tests: <code>ui.simulate_type("text")</code>, <code>ui.simulate_key("ctrl+a")</code> (backspace, delete, left, right, home, end, enter, escape, tab, a, c, v, x with ctrl+ / shift+ / alt+).</p>
+
+<h3>Sliders</h3>
+<pre><code class="lua">local changed
+volume, changed = ui.slider("volume", volume, { min = 0, max = 1, step = 0.05, w = 260, text = math.floor(volume * 100) .. "%" })</code></pre>
+<p>Drag it, or press Left / Right while it has the navigation focus (one <code>step</code>, or a 20th of the range without one).</p>
+
+<h3>Gamepad and keyboard navigation</h3>
+<p>Laid-out UI can be worked without a mouse. Buttons, slots, text fields and sliders take the <b>navigation focus</b>, drawn as a ring:</p>
+<ul>
+  <li>The <b>arrow keys</b>, the <b>D-pad</b> or the <b>left stick</b> move it to the nearest widget that way (in its own panel first; held, they repeat). <b>Tab</b> / <b>Shift+Tab</b> go in draw order.</li>
+  <li><b>Enter</b> or the pad's <b>A</b> presses it. On a text field it starts typing (the pad's A then submits and B cancels). On a slot with <code>drag</code> it picks the item up; the next slot you confirm gets it as <code>dropped</code> (Back puts it back).</li>
+  <li>The pad's <b>X</b> right-clicks a slot (use a potion). Left / Right change a slider.</li>
+  <li><b>Escape</b> or the pad's <b>B</b> is Back: it closes the focused panel if it has <code>close = true</code>, else the topmost one that has; with none, <code>ui.back()</code> returns true once. While a closable panel is up, Esc is the UI's (the Game doesn't pause, the editor doesn't stop Play; the pad's Start still pauses).</li>
+  <li>The first press only shows where the focus is. The ring hides when the mouse moves, and the focus follows the pointer, so you can switch at any time. When the pad was used last, the ring shows at once.</li>
+  <li>A panel that appears (a dialogue, the inventory) takes the focus: its widget with <code>default_focus = true</code>, else its first. When the focused widget goes away, the focus goes back to a default.</li>
+  <li>Disabled buttons can take the focus (to read their tooltip) but not be pressed. Tooltips show for the focused widget too, and a slot reports <code>hovered</code> while it has the focus.</li>
+</ul>
+<pre><code class="lua">if ui.button("New game", { default_focus = true }) then ... end
+if ui.nav_focused() then show_details(item) end   -- the widget just placed has the focus
+if ui.back() then menu_open = false end           -- Back, with no closable panel to close
+if ui.navigating() then ... end                   -- the ring is showing (Enter / A belong to the menu)
+ui.focus_default()                                 -- move the focus to the default again</code></pre>
+<p>The keys and buttons are the input actions <code>ui_up</code>, <code>ui_down</code>, <code>ui_left</code>, <code>ui_right</code>, <code>ui_confirm</code>, <code>ui_back</code> and <code>ui_secondary</code>. They exist by default (arrows, Enter, Escape; D-pad, left stick, A, B, X); define any of them in <code>input.json</code> to bind it yourself. They are input actions like any other, so a game's own action on the same button (jump on A) still fires: check <code>ui.navigating()</code> if that matters. In tests, drive it with <code>input.simulate_key(Key.Down, true)</code> or <code>input.simulate_gamepad{ DPadDown = true }</code>. The Game's pause menu and Settings page are built the same way, and work with the mouse, the arrows + Enter or a pad.</p>
 </section>
 
 <section class="doc" data-group="Scripting" id="script-ui-theme">

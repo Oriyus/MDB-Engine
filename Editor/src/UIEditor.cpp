@@ -13,7 +13,7 @@ using json = nlohmann::json;
 using namespace Engine;
 
 namespace {
-    const char* kAddTypes[] = { "label", "button", "input", "image", "bar", "slot", "row", "column", "scroll", "space", "separator" };
+    const char* kAddTypes[] = { "label", "button", "input", "slider", "image", "bar", "slot", "row", "column", "scroll", "space", "separator" };
 
     struct Aspect { const char* Name; float Value; };
     const Aspect kAspects[] = { { "16:9", 16.0f / 9.0f }, { "16:10", 1.6f }, { "4:3", 4.0f / 3.0f }, { "21:9", 21.0f / 9.0f }, { "9:16 (phone)", 9.0f / 16.0f } };
@@ -24,12 +24,13 @@ namespace {
         if (t == "image") return "Image";    if (t == "bar") return "Bar";       if (t == "slot") return "Slot";
         if (t == "space") return "Space";    if (t == "separator") return "Separator";
         if (t == "input") return "Text field";
+        if (t == "slider") return "Slider";
         return "?";
     }
     ImVec4 TypeColor(const std::string& t) {
         if (t == "panel") return ImVec4(1.0f, 0.8f, 0.4f, 1.0f);
         if (t == "row" || t == "column" || t == "scroll") return ImVec4(0.55f, 0.75f, 1.0f, 1.0f);
-        if (t == "button" || t == "input") return ImVec4(0.6f, 0.95f, 0.6f, 1.0f);
+        if (t == "button" || t == "input" || t == "slider") return ImVec4(0.6f, 0.95f, 0.6f, 1.0f);
         if (t == "space" || t == "separator") return ImVec4(0.6f, 0.6f, 0.65f, 1.0f);
         return ImVec4(0.92f, 0.92f, 0.95f, 1.0f);
     }
@@ -250,6 +251,7 @@ UINode UIEditor::MakeNode(const std::string& type) {
     else if (type == "bar") n.Props = { { "value", 0.6 }, { "text", "" } };
     else if (type == "slot") n.Name = UniqueName("slot");
     else if (type == "input") { n.Name = UniqueName("input"); n.Props = { { "bind", "" }, { "hint", "Type here" } }; }
+    else if (type == "slider") { n.Name = UniqueName("slider"); n.Props = { { "bind", "" }, { "min", 0 }, { "max", 1 } }; }
     else if (type == "scroll") n.Props = { { "height", 200 } };
     else if (type == "space") n.Props = { { "h", 8 } };
     return n;
@@ -660,6 +662,7 @@ void UIEditor::DrawPreview() {
     m_Preview.SetVars(m_Doc.Preview);
     // Try it: typing reaches the preview's text fields while this window has the keyboard
     if (m_Try && m_Focused && !io.WantTextInput) m_UI.SetTextEvents(Engine::Input::TextEvents());
+    m_UI.SetNav(m_Try && m_Focused && !io.WantTextInput ? Engine::UINavFromDevices() : Engine::UINavInput{});   // arrows / Enter / Esc, the pad
     m_Preview.BeginFrame();
     m_UI.BeginFrame(m_Items, aspect, p, io.DeltaTime);
     m_PreviewError.clear();
@@ -1062,15 +1065,34 @@ void UIEditor::DrawWidget(UINode& n) {
         PropNumber(n, "Height", "h", 0.0f, 1.0f, 0.0f, 400.0f, "0: the theme's button height");
         PropNumber(n, "Text size", "size", 0.0f, 0.5f, 0.0f, 200.0f, "0: the theme's");
     }
+    else if (t == "slider") {
+        PropExpr(n, "Bind", "bind", "a variable, e.g. volume",
+            "The Lua number (variable or table field) the slider shows and writes as it moves, e.g. game.volume. "
+            "In the preview it is a key of the Preview data.");
+        PropNumber(n, "Min", "min", 0.0f, 0.1f, -1e6f, 1e6f);
+        PropNumber(n, "Max", "max", 1.0f, 0.1f, -1e6f, 1e6f);
+        PropNumber(n, "Step", "step", 0.0f, 0.01f, 0.0f, 1e6f, "Values snap to it; 0: free (Left / Right then move a 20th of the range)");
+        PropText(n, "Text", "text", false, "Written over the track, e.g. {=math.floor(volume * 100)}%");
+        PropBool(n, "Disabled", "disabled", false);
+        PropExpr(n, "On change", "on_change", "Lua", "Lua statements run when the value changes (after Bind is written)");
+        PropText(n, "Event", "event", false, "Sent on every change: events.emit(<this>, { ui, widget, index })");
+        PropText(n, "Tooltip", "tooltip", false);
+        ImGui::SeparatorText("Size");
+        PropNumber(n, "Width", "w", 0.0f, 1.0f, 0.0f, 2000.0f, "0: the width left");
+        PropNumber(n, "Height", "h", 0.0f, 0.5f, 0.0f, 200.0f, "0: 24");
+        PropColor(n, "Colour", "color", ImVec4(0.25f, 0.45f, 0.85f, 1.0f));
+    }
     else if (t == "space") PropNumber(n, "Size", "h", 8.0f, 0.5f, 0.0f, 400.0f, "Units of empty space (sideways in a row)");
     else if (t == "separator") ImGui::TextDisabled("A thin line across the container (a gap in a row).");
 
     ImGui::SeparatorText("Shown");
+    if (t == "button" || t == "slot" || t == "input" || t == "slider")
+        PropBool(n, "Default focus", "default_focus", false, "Gamepad / keyboard navigation starts here when its panel appears (else on the first one)");
     PropExpr(n, "Visible", "visible", "always", "A Lua condition: the widget (and what is inside it) is drawn only while it holds, e.g. shared.quest ~= nil");
     PropExpr(n, "Repeat", "repeat", "once",
         "A count or a Lua list: the widget is drawn once per entry, with `index` (1, 2, ...) and `item` (the entry) set for its "
         "expressions. E.g. game.bag in a row of slots, with icon {=item.icon}. Clicks return the name and the index.");
-    if (t != "panel" && t != "button" && t != "slot" && t != "input" && t != "space" && t != "separator") PropText(n, "Tooltip", "tooltip", false, "Shown when the pointer rests on it");
+    if (t != "panel" && t != "button" && t != "slot" && t != "input" && t != "slider" && t != "space" && t != "separator") PropText(n, "Tooltip", "tooltip", false, "Shown when the pointer rests on it");
     ImGui::PopItemWidth();
 
     ImGui::Spacing();

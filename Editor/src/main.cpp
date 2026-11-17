@@ -440,7 +440,9 @@ public:
         const bool dialogueKeys = (m_ShowDialogue && m_Dialogue.IsFocused()) || (m_ShowAnimGraph && m_AnimGraph.IsFocused()) ||
                                   (m_ShowDatabase && m_Database.IsFocused()) || (m_ShowUIEditor && m_UIEditor.IsFocused()) ||
                                   (m_ShowMaterialEditor && m_MaterialEditor.IsFocused()) || (m_ShowShaderGraph && m_ShaderGraph.IsFocused());   // those editors have their own shortcuts
-        if (!typing && kesc && !dialogueKeys) {
+        // A closable game panel is up (inventory, a menu): Escape is its Back, not Stop
+        const bool gameBack = m_PlayState == PlayState::Play && m_ViewingGame && m_Session->Scripts().WantsBack();
+        if (!typing && kesc && !dialogueKeys && !gameBack) {
             if (m_PlayState != PlayState::Edit) m_PlayCmd = PlayCmd::Stop;
             else RequestQuit();
         }

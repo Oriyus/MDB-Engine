@@ -10,7 +10,8 @@
 // project.json, Assets and EngineAssets next to the exe. Otherwise (running from the build) the project is
 // --project or the source tree's Examples, and the engine files are the source tree's EngineAssets.
 //
-// Keys: Esc pauses (a menu with Resume / Settings / Restart / Quit buttons; Esc, R and Q work too; Settings has
+// Keys: Esc pauses (a menu with Resume / Settings / Restart / Quit buttons, worked by mouse, arrows + Enter or the
+// pad's D-pad / stick + A; Esc, R and Q work too; Settings has
 // a volume slider and mute per audio bus),
 // F11 or Alt+Enter toggles full screen.
 // Everything else belongs to the game's scripts.
@@ -29,6 +30,7 @@
 #include "Runtime/ResourceLibrary.h"
 #include "Runtime/GameSession.h"
 #include "Runtime/GameUI.h"
+#include "Runtime/UILayout.h"
 #include "Audio/AudioEngine.h"
 
 #include <glad/glad.h>
@@ -134,6 +136,7 @@ public:
         m_Renderer = std::make_unique<SceneRenderer>(m_Cfg.EngineDir, m_Cfg.AssetDir, GetWindow().GetWidth(), GetWindow().GetHeight());
         m_Session = std::make_unique<GameSession>(m_Scene, m_Cfg.AssetDir, m_Cfg.EngineDir, m_Resources->Registry());
         m_Session->Scripts().SetUIFonts(m_Fonts.Bold, m_Fonts.Regular);   // ui.label measures with them
+        m_Menu.SetFonts(m_Fonts.Bold, m_Fonts.Regular);
         if (LoadAudioMix(m_Cfg.SettingsFile, m_SavedMix)) m_Session->Audio().SetMix(m_SavedMix);   // the player's volumes
         else m_SavedMix = m_Session->Audio().GetMix();
 
@@ -169,11 +172,19 @@ public:
         const bool alt = Input::IsKeyDown(342) || Input::IsKeyDown(346);   // left / right Alt
         // The gamepad's Start works like Esc, and B backs out of the menu (only while paused: in play B is the game's)
         const GamepadState& pad = Input::Gamepad();
+        // Which device was used last decides whether the pause menu shows its focus ring at once
+        if (pad.Connected) {
+            for (bool b : pad.Buttons) m_PadLast = m_PadLast || b;
+            for (int a = 0; a < Pad::LT; a++) m_PadLast = m_PadLast || std::abs(pad.Axes[a]) > 0.5f;
+        }
+        if (ImGui::GetIO().MouseDelta.x != 0.0f || ImGui::GetIO().MouseDelta.y != 0.0f) m_PadLast = false;
         const bool start = PadEdge(pad.Connected && pad.Buttons[Pad::Start], m_StartDown);
         const bool back = PadEdge(pad.Connected && pad.Buttons[Pad::B], m_BDown) && m_Paused;
         // A script text field with the keyboard (ui.input) owns Escape: it cancels the typing, not the game
         const bool typing = m_Running && !m_Paused && m_Session->Scripts().WantsKeyboard();
-        const bool escKey = Edge(Key::Escape, m_EscDown) && !typing;
+        // ... and a closable script panel (inventory, a shop) takes it as Back (pad Start still pauses)
+        const bool uiBack = m_Running && !m_Paused && m_Session->Scripts().WantsBack();
+        const bool escKey = Edge(Key::Escape, m_EscDown) && !typing && !uiBack;
         if (escKey && !m_Running) { Close(); return; }   // nothing to pause: the scene did not load
         const bool esc = escKey || start || back;
         if (esc && m_Paused && m_MenuPage == MenuPage::Settings) LeaveSettings();   // Esc: back to the menu
@@ -251,105 +262,141 @@ public:
 
         if (m_Paused) {
             dl->AddRectFilled(ImVec2(0, 0), size, IM_COL32(0, 0, 0, 150));
-            if (m_MenuPage == MenuPage::Settings) DrawSettingsMenu(dl, size);
-            else DrawPauseMenu(dl, size);
+            DrawMenu(dl, size);
         }
-        else m_MenuPage = MenuPage::Main;
+        else { m_MenuPage = MenuPage::Main; m_MenuOpen = false; }
     }
 
     // The player's volumes outlive the run: written when they leave Settings and when the game closes
     void OnShutdown() override { SaveMix(); }
 
-    // Built from the same UI items scripts use; the clicks are handled right here
-    void DrawPauseMenu(ImDrawList* dl, const ImVec2& size) {
+    // The pause menu is laid-out UI (Runtime/UILayout) of its own, so a mouse, the arrow keys + Enter and a gamepad
+    // (D-pad / stick + A) all work it. Esc and the pad's B stay the shell's (resume / back), handled in OnUpdate.
+    void DrawMenu(ImDrawList* dl, const ImVec2& size) {
         using namespace Engine;
-        std::vector<ScriptUIItem> menu;
-        menu.push_back(MenuText("Paused", 0.5f, 0.22f, 72.0f, 1));
+        if (!m_MenuOpen) { m_Menu.Reset(); m_MenuOpen = true; }   // fresh focus: the first button takes it
+        const ImGuiIO& io = ImGui::GetIO();
+        UIPointerState p;
+        p.X = io.MousePos.x / std::max(size.x, 1.0f);
+        p.Y = io.MousePos.y / std::max(size.y, 1.0f);
+        p.Inside = p.X >= 0.0f && p.X <= 1.0f && p.Y >= 0.0f && p.Y <= 1.0f;
+        p.Down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+        UINavInput nav = UINavFromDevices(false);
+        nav.Gamepad = m_PadLast;
+        m_MenuItems.clear();
+        m_Menu.SetTextEvents(Input::TextEvents());               // Tab / Shift+Tab
+        m_Menu.SetNav(nav);
+        m_Menu.BeginFrame(m_MenuItems, size.x / std::max(size.y, 1.0f), p, io.DeltaTime);
+        if (m_MenuPage == MenuPage::Settings) DrawSettingsMenu();
+        else DrawPauseMenu();
+        m_Menu.EndFrame();
+        DrawScriptUI(dl, m_Fonts, m_MenuItems, ImVec2(0, 0), size, nullptr);
+    }
 
+    static Engine::UITextOptions MenuLabel(float size, bool muted = false) {
+        Engine::UITextOptions t;
+        t.Size = size;
+        t.Align = 1;
+        t.Bold = !muted;
+        t.Muted = muted;
+        t.Shadow = !muted;
+        return t;
+    }
+
+    void DrawPauseMenu() {
+        using namespace Engine;
+        UIPanelOptions po;
+        po.X = 0.5f; po.Y = 0.47f; po.W = 380.0f;
+        po.Padding = 22.0f;
+        m_Menu.BeginPanel("pause", po);
+        m_Menu.Label("Paused", MenuLabel(48.0f));
+        m_Menu.Space(6.0f);
         const char* labels[] = { "Resume", "Settings", "Restart", "Quit" };
         int clicked = -1;
-        for (int i = 0; i < 4; i++)
-            if (MenuButton(menu, labels[i], 0.4f, 0.36f + 0.095f * i, 0.2f, 0.072f, size, 30.0f)) clicked = i;
-        menu.push_back(MenuText("Esc  resume     R  restart     Q  quit     F11  full screen", 0.5f, 0.78f, 22.0f, 1, glm::vec3(0.75f)));
-        DrawScriptUI(dl, m_Fonts, menu, ImVec2(0, 0), size, nullptr);
+        for (int i = 0; i < 4; i++) {
+            UIButtonOptions b;
+            b.Fill = true;
+            b.H = 50.0f;
+            b.Size = 24.0f;
+            if (m_Menu.Button(labels[i], b)) clicked = i;
+        }
+        m_Menu.Space(4.0f);
+        m_Menu.Label("Esc resume  \xC2\xB7  R restart  \xC2\xB7  Q quit  \xC2\xB7  F11 full screen", MenuLabel(15.0f, true));   // UTF-8 middle dots
+        m_Menu.EndPanel();
 
         // Acted on next frame by OnUpdate (or right away for quitting)
         if (clicked == 0) m_Paused = false;
-        if (clicked == 1) { m_MenuPage = MenuPage::Settings; m_DragRow = -1; }
+        if (clicked == 1) m_MenuPage = MenuPage::Settings;
         if (clicked == 2) { m_RestartPending = true; m_Paused = false; }
         if (clicked == 3) Close();
     }
 
     // Settings: a slider and a mute button for the master volume and every audio bus
-    void DrawSettingsMenu(ImDrawList* dl, const ImVec2& size) {
+    void DrawSettingsMenu() {
         using namespace Engine;
         AudioEngine& audio = m_Session->Audio();
         AudioMix mix = audio.GetMix();
-        std::vector<ScriptUIItem> menu;
-        menu.push_back(MenuText("Settings", 0.5f, 0.12f, 64.0f, 1));
-        menu.push_back(MenuText("Volume", 0.5f, 0.24f, 30.0f, 1, glm::vec3(0.8f)));
+        UIPanelOptions po;
+        po.X = 0.5f; po.Y = 0.47f; po.W = 600.0f;
+        po.Padding = 22.0f;
+        m_Menu.BeginPanel("settings", po);
+        m_Menu.Label("Settings", MenuLabel(44.0f));
+        m_Menu.Label("Volume", MenuLabel(20.0f, true));
+        m_Menu.Space(4.0f);
 
-        const ImVec2 mouse = ImGui::GetIO().MousePos;
-        const float mx = mouse.x / std::max(size.x, 1.0f), my = mouse.y / std::max(size.y, 1.0f);
-        const bool down = ImGui::IsMouseDown(ImGuiMouseButton_Left), clickedNow = ImGui::IsMouseClicked(ImGuiMouseButton_Left);
-        if (!down) m_DragRow = -1;
-
-        constexpr int rows = 1 + kAudioBusCount;
-        constexpr float trackX = 0.42f, trackW = 0.26f, trackH = 0.016f;
         bool changed = false;
-        for (int r = 0; r < rows; r++) {
+        for (int r = 0; r < 1 + kAudioBusCount; r++) {
             const bool master = r == 0;
             const int bus = r - 1;
             float& volume = master ? mix.Master : mix.Volume[bus];
             bool& muted = master ? mix.MasterMuted : mix.Muted[bus];
-            const float y = 0.32f + 0.075f * r;      // the row's middle
-            const glm::vec3 dim(0.55f);
-
-            menu.push_back(MenuText(master ? "Master" : AudioBusLabel((AudioBus)bus), trackX - 0.025f, y - 0.022f, 28.0f, 2,
-                                    muted ? dim : glm::vec3(1.0f)));
-            // The track grabs a press anywhere on its row's height, then follows the pointer while held
-            const bool overTrack = mx >= trackX - 0.01f && mx <= trackX + trackW + 0.01f && std::abs(my - y) < 0.03f;
-            if (clickedNow && overTrack) m_DragRow = r;
-            if (m_DragRow == r) {
-                const float v = std::clamp((mx - trackX) / trackW, 0.0f, 1.0f);
-                if (v != volume) { volume = v; changed = true; }
-                if (muted && v > 0.0f) { muted = false; changed = true; }   // dragging up unmutes
-            }
-            ScriptUIItem track;
-            track.Kind = ScriptUIItem::Type::Rect;
-            track.X = trackX; track.Y = y - trackH * 0.5f; track.W = trackW; track.H = trackH;
-            track.Color = glm::vec3(0.1f, 0.12f, 0.17f); track.Alpha = 0.95f; track.Rounding = 6.0f;
-            menu.push_back(track);
-            ScriptUIItem fill = track;
-            fill.W = trackW * volume;
-            fill.Color = muted ? glm::vec3(0.3f) : (overTrack || m_DragRow == r ? glm::vec3(0.45f, 0.65f, 1.0f) : glm::vec3(0.32f, 0.5f, 0.85f));
-            if (fill.W > 0.001f) menu.push_back(fill);
-            ScriptUIItem knob = track;               // a small handle at the value
-            knob.W = 0.008f; knob.H = 0.034f;
-            knob.X = trackX + trackW * volume - knob.W * 0.5f; knob.Y = y - knob.H * 0.5f;
-            knob.Color = muted ? dim : glm::vec3(0.95f); knob.Rounding = 4.0f;
-            menu.push_back(knob);
-
+            const std::string name = master ? "Master" : AudioBusLabel((AudioBus)bus);
+            m_Menu.BeginRow(14.0f);
+            UITextOptions t;
+            t.Size = 20.0f;
+            t.Width = 110.0f;
+            t.Align = 2;
+            t.Bold = true;
+            t.Muted = muted;
+            m_Menu.Label(name, t);
+            UISliderOptions s;
+            s.W = 300.0f;
+            s.H = 26.0f;
             char pct[16];
             std::snprintf(pct, sizeof pct, "%d%%", (int)std::lround(volume * 100.0f));
-            menu.push_back(MenuText(pct, trackX + trackW + 0.045f, y - 0.02f, 26.0f, 2, muted ? dim : glm::vec3(0.9f)));
-            if (MenuButton(menu, muted ? "Muted" : "On", trackX + trackW + 0.06f, y - 0.022f, 0.075f, 0.044f, size, 22.0f,
-                           muted ? glm::vec3(0.35f, 0.16f, 0.16f) : glm::vec3(0.16f, 0.2f, 0.3f)) && m_DragRow < 0) {
-                muted = !muted;
+            s.Text = pct;
+            if (muted) { s.HasColor = true; s.Color = glm::vec3(0.3f); }
+            const UISliderResult v = m_Menu.Slider("vol:" + name, volume, s);
+            if (v.Changed) {
+                volume = v.Value;
+                if (muted && v.Value > 0.0f) muted = false;    // turning it up unmutes
                 changed = true;
             }
+            UIButtonOptions b;
+            b.Id = "mute:" + name;
+            b.W = 90.0f;
+            b.H = 32.0f;
+            b.Size = 18.0f;
+            b.HasColor = muted;
+            b.Color = glm::vec3(0.35f, 0.16f, 0.16f);
+            if (m_Menu.Button(muted ? "Muted" : "On", b)) { muted = !muted; changed = true; }
+            m_Menu.EndRow();
         }
         if (changed) audio.SetMix(mix);
 
-        const bool back = MenuButton(menu, "Back", 0.4f, 0.32f + 0.075f * rows + 0.03f, 0.2f, 0.072f, size, 30.0f);
-        menu.push_back(MenuText("Esc  back", 0.5f, 0.92f, 22.0f, 1, glm::vec3(0.75f)));
-        DrawScriptUI(dl, m_Fonts, menu, ImVec2(0, 0), size, nullptr);
-        if (back) LeaveSettings();
+        m_Menu.Space(6.0f);
+        UIButtonOptions back;
+        back.Fill = true;
+        back.H = 50.0f;
+        back.Size = 24.0f;
+        const bool leave = m_Menu.Button("Back", back);
+        m_Menu.Label("Esc back", MenuLabel(15.0f, true));
+        m_Menu.EndPanel();
+        if (leave) LeaveSettings();
     }
 
     void LeaveSettings() {
         m_MenuPage = MenuPage::Main;
-        m_DragRow = -1;
         SaveMix();
     }
 
@@ -365,23 +412,6 @@ public:
         t.Text = text;
         t.X = x; t.Y = y; t.Size = size; t.Align = align; t.Color = color;
         return t;
-    }
-
-    // Adds a button; true on the frame it is clicked
-    static bool MenuButton(std::vector<Engine::ScriptUIItem>& out, const char* label, float x, float y, float w, float h,
-                           const ImVec2& size, float textSize, const glm::vec3& color = glm::vec3(0.16f, 0.2f, 0.3f)) {
-        Engine::ScriptUIItem b;
-        b.Kind = Engine::ScriptUIItem::Type::Button;
-        b.Text = label;
-        b.X = x; b.Y = y; b.W = w; b.H = h;
-        b.Color = color;
-        b.Alpha = 0.95f;
-        b.Rounding = 10.0f;
-        b.Size = textSize;
-        b.Hovered = Engine::UIButtonHovered(b, ImVec2(0, 0), size, ImGui::GetIO().MousePos);
-        b.Pressed = b.Hovered && ImGui::IsMouseDown(ImGuiMouseButton_Left);
-        out.push_back(b);
-        return b.Hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
     }
 
 private:
@@ -411,7 +441,10 @@ private:
 
     Engine::AudioMix m_SavedMix;             // what the settings file holds
     MenuPage m_MenuPage = MenuPage::Main;
-    int m_DragRow = -1;                      // the volume slider being dragged (Settings page)
+    Engine::UIContext m_Menu;                // the pause menu (its own laid-out UI)
+    std::vector<Engine::ScriptUIItem> m_MenuItems;
+    bool m_MenuOpen = false;                 // drawn last frame (reopening starts the focus afresh)
+    bool m_PadLast = false;                  // the gamepad was used last (the menu shows its focus at once)
     bool m_Running = false, m_Paused = false, m_RestartPending = false;
     bool m_EscDown = false, m_F11Down = false, m_EnterDown = false, m_RDown = false, m_QDown = false;
     bool m_StartDown = false, m_BDown = false;
