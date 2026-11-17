@@ -508,6 +508,7 @@ self:add_mesh{ geometry = "plane", texture = "texture:Textures/fence.png", alpha
   <li><b>Contact shadows</b> (Scene Settings &gt; Shadows &gt; <b>Contact shadows</b>, the ray's length, default 0.25 m; each light can turn them off): a short ray through the screen's depth from each lit pixel towards the light darkens what shadow maps miss: small things, the gap under an object, and lights that cast no shadows of their own. Up to 2 lights a pixel, nearer than 40 m; about 0.35 ms with a floor lit by 260 lamps. The sun gets them too (<b>Sun contact shadows</b>, on by default; it takes one of the two rays).</li>
   <li>Casters are culled per shadow view; the stats overlay shows how many were skipped.</li>
   <li>Settings: shadow distance, cascade split, biases, extent (Scene Settings &gt; Shadows).</li>
+  <li><b>Cached far cascades</b> (Scene Settings &gt; Shadows, default 2 of 4): the far sun cascades keep their shadows from frame to frame and redraw the still things in them only when the camera has moved well away, the sun turns, or every few frames (<b>Refresh every</b>, default 4: swaying trees). Moving and animated things are drawn on top of a copy each frame, so they never lag. A sun with no light (intensity 0, a night scene) casts no shadows at all. On the village by day the cache saves about 0.35 ms a frame; at night, skipping the dark sun saves about 2 ms.</li>
 </ul>
 <pre><code class="lua">local lamp = scene.spawn("Lamp", vec3(0, 3, 0))
 lamp:add_light{ color = vec3(1, 0.7, 0.4), intensity = 2, shadows = true }
@@ -524,6 +525,7 @@ local lantern = scene.spawn("Lantern", vec3(2, 1, 0)):add_light{ cookie = "Textu
 lantern.profile = "Lights/downlight.ies"   -- an IES profile ("" removes it)
 scene.light_binning("cpu")   -- or "gpu" (the default): where lights are sorted into clusters</code></pre>
 <p><code>Scripts/shadow_atlas_test.lua</code> checks the atlas: 28 shadowed lights at once, square sizes, the atlas never over-full, squares given back (7 checks).</p>
+<p><code>Scripts/sun_cache_test.lua</code> checks the cached far cascades: kept with a still camera, redrawn after a big move, left cached while something moves in them (4 checks).</p>
 <p><code>Scripts/light_cluster_test.lua</code> checks ranges, clusters, GPU against CPU sorting, spot cones, cookies, profiles, light size, contact shadows and area light shapes (37 checks); <code>Scripts/light_field.lua</code> is a field of 256 drifting lamps (<code>Scenes/lights.json</code>, a night scene).</p>
 </section>
 
@@ -1001,7 +1003,7 @@ MDBEditor.exe &gt; log.txt</code></pre>
 <table>
 <tr><th>Section</th><th>Contents</th></tr>
 <tr><td>Environment</td><td>Sky map (.hdr), show sky, blur, rotation, ambient intensity</td></tr>
-<tr><td>Shadows</td><td>On/off, cascades, shadow distance, split, biases, sun extent</td></tr>
+<tr><td>Shadows</td><td>On/off, cascades, shadow distance, split, cached far cascades, biases, sun extent, atlas, contact shadows</td></tr>
 <tr><td>Post Processing</td><td>Exposure, tone map, gamma, TAA / FXAA, AO, bloom</td></tr>
 <tr><td>Physics</td><td>Gravity</td></tr>
 <tr><td>Audio</td><td>Master and bus volumes with mutes (the editor's own mix, kept across runs) and the sounds playing on each</td></tr>

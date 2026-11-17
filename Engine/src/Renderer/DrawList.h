@@ -4,6 +4,7 @@
 #include <glm/glm.hpp>
 #include <cstdint>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace Engine {
@@ -62,6 +63,10 @@ namespace Engine {
         uint32_t AtlasTile = 0;             // a square of the shadow atlas (texels; 0 = a sharp cube face or the sun)
         glm::uvec2 AtlasAt{ 0 };            // its corner
         float Reach = 0.0f;                 // lights: the far plane (casters further away are skipped)
+        bool Cached = false;                // a cached cascade's still-caster pass not due this frame: not drawn (its layer holds it)
+        // Cached sun cascades (ShadowSettings::SunCacheFrom) come as two views: 1 = the still casters into the static layer
+        // (DirectionalShadowMap::BindStatic), 2 = the moving ones over a copy of it in the live layer (RestoreStatic)
+        int SunPass = 0;
         float TexelWorld = 0.0f;            // sun: size of one shadow-map texel in world units
         float DepthRange = 1.0f;            // sun: world distance covered by depth 0..1
     };
@@ -97,6 +102,9 @@ namespace Engine {
         // Motion vectors: each drawn entity's world matrix (with LocalOffset) last frame and this frame, by entt handle.
         // Kept across Clear; BuildDrawList swaps them. A part not drawn last frame gets PrevModel = Model (no motion).
         std::unordered_map<uint32_t, glm::mat4> PrevWorld, CurWorld;
+        // Shadow-casting parts that moved (or animate) last frame and this frame: one starting or stopping refreshes the
+        // cached sun cascades' still casters
+        std::unordered_set<uint32_t> PrevMoving, CurMoving;
         std::vector<std::vector<DrawBatch>> ShadowViews;    // the casters in each of Views
         std::vector<ShadowView> Views;      // this frame's shadow views (each point-light face, then the sun cascades)
         glm::vec4 CascadeSplits{ 0.0f };    // view depth where each sun cascade ends

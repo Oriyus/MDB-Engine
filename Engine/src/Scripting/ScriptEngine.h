@@ -217,7 +217,8 @@ namespace Engine {
     //   scene.quit()                         the game closes (in the editor: Play stops)
     //   scene.render_stats() -> { draw_calls, triangles, instances, culled, shadow_skipped, particles, decals, static_batches, static_merged, foliage, lod_reduced, lod_culled,
     //       lights, lights_visible, lights_per_cluster,   (point lights: all, those the camera's view reaches, the most in one cluster)
-    //       shadowed_lights, atlas_lights, atlas_smallest, atlas_largest, atlas_used }   (lights with shadows; in the shadow atlas, their squares in texels, the share of it used 0..1)
+    //       shadowed_lights, atlas_lights, atlas_smallest, atlas_largest, atlas_used,   (lights with shadows; in the shadow atlas, their squares in texels, the share of it used 0..1)
+    //       sun_cascades, sun_cascades_drawn }   (sun cascades in use, and redrawn last frame: the rest were cached)
     //                                        (the last frame; a debug HUD)
     //   scene.light_binning(["gpu"|"cpu"]) -> where point lights are sorted into clusters (default gpu: a compute shader);
     //               sets it first if given, returns the one in use (cpu when compute shaders failed to build)

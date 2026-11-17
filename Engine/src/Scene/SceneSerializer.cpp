@@ -31,7 +31,7 @@ namespace Engine {
                 { "bloom", { { "enabled", p.BloomEnabled },{ "intensity", p.BloomIntensity },
                              { "threshold", s.BloomThreshold },{ "knee", s.BloomKnee },
                              { "radius", s.BloomRadius },{ "maxBrightness", s.BloomMaxBrightness } } },
-                { "shadows", { { "enabled", sh.Enabled },{ "pointBias", sh.PointBias },{ "pointFar", sh.PointFar },{ "pointInterval", sh.PointUpdateInterval },{ "atlasLights", sh.AtlasLights },{ "atlasSize", sh.AtlasSize },{ "contactLength", sh.ContactLength },{ "sunContact", sh.SunContact },
+                { "shadows", { { "enabled", sh.Enabled },{ "pointBias", sh.PointBias },{ "pointFar", sh.PointFar },{ "pointInterval", sh.PointUpdateInterval },{ "atlasLights", sh.AtlasLights },{ "atlasSize", sh.AtlasSize },{ "contactLength", sh.ContactLength },{ "sunContact", sh.SunContact },{ "sunCacheFrom", sh.SunCacheFrom },{ "sunCacheInterval", sh.SunCacheInterval },
                                { "sunBias", sh.SunBias },{ "sunExtent", sh.SunExtent },{ "sunDistance", sh.SunDistance },
                                { "sunCascades", sh.SunCascades },{ "cascadeCount", sh.CascadeCount },
                                { "shadowDistance", sh.ShadowDistance },{ "cascadeSplit", sh.CascadeSplit } } },
@@ -105,6 +105,8 @@ namespace Engine {
                 sh.AtlasSize = std::clamp(e->value("atlasSize", sh.AtlasSize), 1024, 8192);
                 sh.ContactLength = std::clamp(e->value("contactLength", sh.ContactLength), 0.0f, 2.0f);
                 sh.SunContact = e->value("sunContact", sh.SunContact);
+                sh.SunCacheFrom = std::clamp(e->value("sunCacheFrom", sh.SunCacheFrom), 0, 4);
+                sh.SunCacheInterval = std::clamp(e->value("sunCacheInterval", sh.SunCacheInterval), 1, 16);
                 sh.SunBias = e->value("sunBias", sh.SunBias);
                 sh.SunExtent = e->value("sunExtent", sh.SunExtent);
                 sh.SunDistance = e->value("sunDistance", sh.SunDistance);

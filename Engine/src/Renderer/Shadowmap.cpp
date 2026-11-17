@@ -161,6 +161,7 @@ namespace Engine {
     DirectionalShadowMap::~DirectionalShadowMap() {
         glDeleteFramebuffers(1, &m_FBO);
         glDeleteTextures(1, &m_Tex);
+        if (m_StaticTex) glDeleteTextures(1, &m_StaticTex);
     }
 
     void DirectionalShadowMap::Bind(uint32_t cascade) const {
@@ -169,6 +170,27 @@ namespace Engine {
         glViewport(0, 0, (GLsizei)m_Size, (GLsizei)m_Size);
         const float one = 1.0f;
         glClearNamedFramebufferfv(m_FBO, GL_DEPTH, 0, &one);
+    }
+
+    void DirectionalShadowMap::BindStatic(uint32_t cascade) const {
+        if (!m_StaticTex) {
+            glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &m_StaticTex);
+            glTextureStorage3D(m_StaticTex, 1, GL_DEPTH_COMPONENT32F, (GLsizei)m_Size, (GLsizei)m_Size, (GLsizei)MaxCascades);
+        }
+        glNamedFramebufferTextureLayer(m_FBO, GL_DEPTH_ATTACHMENT, m_StaticTex, 0, (GLint)cascade);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_FBO);
+        glViewport(0, 0, (GLsizei)m_Size, (GLsizei)m_Size);
+        const float one = 1.0f;
+        glClearNamedFramebufferfv(m_FBO, GL_DEPTH, 0, &one);
+    }
+
+    void DirectionalShadowMap::RestoreStatic(uint32_t cascade) const {
+        if (m_StaticTex)
+            glCopyImageSubData(m_StaticTex, GL_TEXTURE_2D_ARRAY, 0, 0, 0, (GLint)cascade, m_Tex, GL_TEXTURE_2D_ARRAY, 0, 0, 0, (GLint)cascade,
+                               (GLsizei)m_Size, (GLsizei)m_Size, 1);
+        glNamedFramebufferTextureLayer(m_FBO, GL_DEPTH_ATTACHMENT, m_Tex, 0, (GLint)cascade);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_FBO);
+        glViewport(0, 0, (GLsizei)m_Size, (GLsizei)m_Size);
     }
 
     void DirectionalShadowMap::BindTexture(uint32_t slot) const { glBindTextureUnit(slot, m_Tex); }

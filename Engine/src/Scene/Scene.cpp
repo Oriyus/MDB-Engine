@@ -1139,7 +1139,9 @@ namespace Engine {
             auto [t, d] = view.get<TransformComponent, DirectionalLightComponent>(entity);
             dir = glm::normalize(glm::vec3(scene.GetWorldMatrix(entity) * glm::vec4(0, 0, -1, 0)));
             color = d.Color * d.Intensity;
-            shadows = d.CastShadows;
+            // A sun that gives no light casts no shadows: its passes would cost the same for nothing (the village at
+            // night drew 4 invisible cascades: about 2 ms of GPU time)
+            shadows = d.CastShadows && glm::max(color.r, glm::max(color.g, color.b)) > 0.0f;
             return true;
         }
         return false;
@@ -1308,9 +1310,14 @@ namespace Engine {
 
         glm::vec3 sunDir, sunColor;
         bool sunShadows = false;
-        if (!FindSun(scene, sunDir, sunColor, sunShadows) || !sunShadows) return views;
+        ctx.SunCascadesDrawn = 0;
+        if (!FindSun(scene, sunDir, sunColor, sunShadows) || !sunShadows) {
+            for (auto& cc : ctx.SunCache) cc.Valid = false;     // the layers aren't kept up while off
+            return views;
+        }
 
         if (!s.SunCascades) {
+            for (auto& cc : ctx.SunCache) cc.Valid = false;
             // The old fixed area: a box of SunExtent around the origin, never fading out
             views.push_back(FitSunView(sunDir, glm::vec3(0.0f), s.SunExtent, s.SunDistance, sunSize, 0));
             list.CascadeSplits = glm::vec4(1e9f);
@@ -1342,7 +1349,47 @@ namespace Engine {
             radius = std::ceil(radius * 16.0f) / 16.0f;
             const glm::vec3 center = glm::vec3(toWorld * glm::vec4(0.0f, 0.0f, -zc, 1.0f));
 
-            views.push_back(FitSunView(sunDir, center, radius, s.SunDistance, sunSize, c));
+            if (c < std::clamp(s.SunCacheFrom, 0, 4)) {
+                ctx.SunCache[c].Valid = false;
+                views.push_back(FitSunView(sunDir, center, radius, s.SunDistance, sunSize, c));
+                ctx.SunCascadesDrawn++;
+            } else {
+                // A cached cascade: fitted 15% bigger and kept while the slice's sphere stays inside it
+                auto& cc = ctx.SunCache[c];
+                const float R = std::ceil(radius * 1.15f * 16.0f) / 16.0f;
+                const bool fits = cc.Valid && cc.Dir == sunDir && cc.Radius == R && cc.Back == s.SunDistance && cc.Size == sunSize &&
+                                  glm::length(center - cc.Center) + radius <= R;
+                bool draw = true;
+                if (fits) {
+                    const uint32_t every = (uint32_t)std::max(s.SunCacheInterval, 1);
+                    draw = cc.MovedNear || (frame % every) == ((uint32_t)c % every);
+                } else {
+                    const ShadowView fresh = FitSunView(sunDir, center, R, s.SunDistance, sunSize, c);
+                    cc.ViewProj = fresh.ViewProj;
+                    cc.TexelWorld = fresh.TexelWorld;
+                    cc.DepthRange = fresh.DepthRange;
+                    cc.Center = center;
+                    cc.Dir = sunDir;
+                    cc.Radius = R;
+                    cc.Back = s.SunDistance;
+                    cc.Size = sunSize;
+                    cc.Valid = true;
+                }
+                if (draw) { cc.MovedNear = false; ctx.SunCascadesDrawn++; }
+                // Two views: the still casters into the static layer (only when due), the moving ones over a copy of it
+                ShadowView v;
+                v.ViewProj = cc.ViewProj;
+                v.Light = -1;
+                v.Face = c;
+                v.TexelWorld = cc.TexelWorld;
+                v.DepthRange = cc.DepthRange;
+                v.SunPass = 1;
+                v.Cached = !draw;
+                views.push_back(v);
+                v.SunPass = 2;
+                v.Cached = false;
+                views.push_back(v);
+            }
             sliceNear = sliceFar;
         }
         list.CascadeCount = count;
@@ -1579,6 +1626,11 @@ namespace Engine {
         // Shadow views: a frustum each, plus the light's reach as a sphere for a quick first test
         { PROFILE_SCOPE("Shadow views"); list.Views = shadowSettings ? GatherShadowViews(*this, *shadows, lights, camera, sunSize, list) : std::vector<ShadowView>{}; }
         const auto& views = list.Views;
+        {   // stats: sun cascades in use and redrawn (the biggest view: not the previews)
+            uint32_t sun = 0, drawn = 0;
+            for (const ShadowView& v : views) if (v.Light < 0 && v.SunPass != 2) { sun++; if (!v.Cached) drawn++; }
+            if (sun >= RenderStats::SunCascades) { RenderStats::SunCascades = sun; RenderStats::SunCascadesDrawn = drawn; }
+        }
         std::vector<Frustum> viewFrusta;
         viewFrusta.reserve(views.size());
         for (const auto& v : views) viewFrusta.emplace_back(v.ViewProj);
@@ -1593,6 +1645,17 @@ namespace Engine {
 
         // Something that casts shadows moved (or animates, or changed level) at centre / radius: the shadow maps of the
         // lights it is in reach of are redrawn next frame (cubes: PointFar; spot maps: the spot's range)
+        std::vector<std::pair<int, Frustum>> sunCacheFrusta;       // the cached sun cascades' views (moved things redraw them)
+        if (shadows)
+            for (int c = 0; c < 4; c++)
+                if (shadows->SunCache[c].Valid) sunCacheFrusta.emplace_back(c, Frustum(shadows->SunCache[c].ViewProj));
+        // The still casters of a cached sun cascade changed there (something started or stopped moving, appeared, or the
+        // ground was sculpted): its static layer is drawn again next frame
+        auto markSunStill = [&](const glm::vec3& center, float radius) {
+            for (auto& [c, fr] : sunCacheFrusta)
+                if (!shadows->SunCache[c].MovedNear && fr.Visible(center, glm::vec3(radius))) shadows->SunCache[c].MovedNear = true;
+        };
+        bool casterMoving = false;                     // the caster classifyShadows is given (set before each call)
         auto markMovedNear = [&](const glm::vec3& center, float radius) {
             for (size_t j = 0; j < lights.size(); j++) {
                 const float gap = glm::length(center - lights[j].Pos) - radius;
@@ -1616,6 +1679,8 @@ namespace Engine {
                     lightReaches = lastLight < 0 ||
                         glm::length(center - lights[lastLight].Pos) - radius < views[v].Reach;
                 }
+                // Cached sun cascades: the still pass only when due and only still casters, the overlay only moving ones
+                if (views[v].Cached || (views[v].SunPass == 1 && casterMoving) || (views[v].SunPass == 2 && !casterMoving)) { inView[v] = false; continue; }
                 inView[v] = lightReaches && viewFrusta[v].Visible(center, extent);
                 if (!inView[v]) list.ShadowSkipped++;
                 any = any || inView[v];
@@ -1641,6 +1706,7 @@ namespace Engine {
             }
             const bool visible = frustum.Visible(identity, sb.Min, sb.Max);
             if (!visible) list.Culled++;
+            casterMoving = false;
             const bool anyShadow = !views.empty() && sb.CastShadows && classifyShadows(identity, sb.Min, sb.Max);
             if (!visible && !anyShadow) continue;
 
@@ -1721,18 +1787,27 @@ namespace Engine {
             // even while it is off screen. A shadow-casting part that moved (or is animated) near a point light makes
             // that light re-render its cube next frame, whatever its update interval (wind sway doesn't count).
             glm::mat4 prevWorld = world;
+            bool isNew = true, wasMoving = false;
+            const uint32_t moveKey = (uint32_t)entt::to_integral(entity);
             {
-                const uint32_t key = (uint32_t)entt::to_integral(entity);
-                const auto prev = list.PrevWorld.find(key);
-                if (prev != list.PrevWorld.end()) prevWorld = prev->second;
-                list.CurWorld[key] = world;
+                const auto prev = list.PrevWorld.find(moveKey);
+                if (prev != list.PrevWorld.end()) { prevWorld = prev->second; isNew = false; }
+                list.CurWorld[moveKey] = world;
+                wasMoving = list.PrevMoving.count(moveKey) != 0;
             }
             // (A new level of detail changes the shadow's shape too.)
-            if (shadowSettings && mr.CastShadows && (bones || prevWorld != world || lodChanged)) {
-                glm::vec3 center, extent;
-                Frustum::WorldBox(world, mn, mx, center, extent);
-                const float radius = glm::length(extent);
-                markMovedNear(center, radius);
+            const bool moving = bones || prevWorld != world || lodChanged;
+            casterMoving = moving;                           // cached sun cascades: moving casters go in the overlay pass
+            if (shadowSettings && mr.CastShadows) {
+                if (moving) list.CurMoving.insert(moveKey);
+                if (moving || moving != wasMoving || isNew) {
+                    glm::vec3 center, extent;
+                    Frustum::WorldBox(world, mn, mx, center, extent);
+                    const float radius = glm::length(extent);
+                    if (moving) markMovedNear(center, radius);
+                    // It started or stopped moving, or is new: the cached cascades' still casters changed
+                    if (moving != wasMoving || isNew) markSunStill(center, radius);
+                }
             }
 
             if (lodCulled) { list.LodCulled++; continue; }
@@ -1875,7 +1950,9 @@ namespace Engine {
                     Frustum::WorldBox(world, ch.Min, ch.Max, center, extent);
                     const float radius = glm::length(extent);
                     markMovedNear(center, radius);
+                    markSunStill(center, radius);
                 }
+                casterMoving = false;
                 const bool anyShadow = !views.empty() && tc.CastShadows && classifyShadows(world, ch.Min, ch.Max);
                 if (!visible && !anyShadow) continue;
                 if (instance == UINT32_MAX) instance = list.AddInstance(inst);
@@ -1897,6 +1974,8 @@ namespace Engine {
 
         list.PrevWorld.swap(list.CurWorld);               // this frame's matrices are next frame's "previous"
         list.CurWorld.clear();
+        list.PrevMoving.swap(list.CurMoving);
+        list.CurMoving.clear();
         { PROFILE_SCOPE("Sort into batches");
         list.AddBatches(opaque, list.Opaque, DrawList::Order::ByState);
         list.AddBatches(transparent, list.Transparent, DrawList::Order::BackToFront);
@@ -1978,8 +2057,10 @@ namespace Engine {
         };
 
         bool inAtlas = false;                    // the atlas's scissor is on
+        bool stillDrawn[4] = { false, false, false, false };   // a cached cascade's static layer was drawn this frame
         for (size_t v = 0; v < views.size(); v++) {
             const ShadowView& view = views[v];
+            if (view.Cached) continue;                  // a sun cascade kept from an earlier frame
             if (inAtlas && view.AtlasTile == 0) { ctx.Atlas->EndTiles(); inAtlas = false; }
             if (view.AtlasTile > 0) {
                 // A square of the shadow atlas (a spot's view, or a cube face): the cubes' distance shader, the
@@ -2000,7 +2081,17 @@ namespace Engine {
                 Shader& sh = *ctx.SunDepth;
                 sh.Bind();
                 SetWindUniforms(sh);
-                ctx.Sun->Bind((uint32_t)view.Face);              // this cascade's layer
+                const uint32_t face = (uint32_t)view.Face;
+                if (view.SunPass == 1) {                         // a cached cascade's still casters, into its static layer
+                    ctx.Sun->BindStatic(face);
+                    if (face < 4) stillDrawn[face] = true;
+                } else if (view.SunPass == 2) {                  // ... then the live layer: that copy plus the moving casters
+                    auto& cc = ctx.SunCache[face < 4 ? face : 0];
+                    const bool movers = !list.ShadowViews[v].empty();
+                    if (!movers && !(face < 4 && stillDrawn[face]) && !cc.LiveDirty) continue;   // the live layer is still right
+                    ctx.Sun->RestoreStatic(face);
+                    cc.LiveDirty = movers;
+                } else ctx.Sun->Bind(face);                      // this cascade's layer
                 sh.SetMat4("u_LightVP", view.ViewProj);
                 drawCasters(sh, list.ShadowViews[v]);
             }

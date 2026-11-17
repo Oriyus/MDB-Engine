@@ -2625,6 +2625,12 @@ private:
                 ImGui::SliderFloat("Shadow distance", &s.ShadowDistance, 10.0f, 300.0f, "%.0f m");
                 ImGui::SliderFloat("Cascade split", &s.CascadeSplit, 0.0f, 1.0f, "%.2f");
                 ImGui::SetItemTooltip("0 = even slices, 1 = logarithmic (sharper near the camera)");
+                int cached = 4 - std::clamp(s.SunCacheFrom, 0, 4);
+                if (ImGui::SliderInt("Cached far cascades", &cached, 0, 4)) s.SunCacheFrom = 4 - cached;
+                ImGui::SetItemTooltip("The farthest cascades keep their shadows from frame to frame (fitted a little bigger, so\n"
+                    "small camera moves don't re-centre them) and redraw only when re-centred, when the sun turns,\n"
+                    "when something moves in them, or every few frames below (swaying trees). 0 = redraw all every frame.");
+                if (cached > 0) ImGui::SliderInt("Refresh every", &s.SunCacheInterval, 1, 16, "%d frames");
             }
             else ImGui::SliderFloat("Area around origin", &s.SunExtent, 4.0f, 40.0f, "%.0f m");
             ImGui::EndDisabled();

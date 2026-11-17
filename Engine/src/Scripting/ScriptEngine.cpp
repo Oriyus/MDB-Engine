@@ -1022,7 +1022,8 @@ namespace Engine {
                 "lod_reduced", c.LodReduced, "lod_culled", c.LodCulled,
                 "lights", c.Lights, "lights_visible", c.LightsVisible, "lights_per_cluster", c.LightsPerCluster,
                 "shadowed_lights", c.ShadowedLights, "atlas_lights", c.AtlasLights, "atlas_smallest", c.AtlasSmallest,
-                "atlas_largest", c.AtlasLargest, "atlas_used", c.AtlasUsed / 1000.0);
+                "atlas_largest", c.AtlasLargest, "atlas_used", c.AtlasUsed / 1000.0,
+                "sun_cascades", c.SunCascades, "sun_cascades_drawn", c.SunCascadesDrawn);
         });
         // Where point lights are sorted into clusters (Scene::GpuLightBinning): "gpu" (a compute shader, the default)
         // or "cpu"; sets it first if given, returns the one in use

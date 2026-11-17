@@ -62,11 +62,17 @@ namespace Engine {
         DirectionalShadowMap& operator=(const DirectionalShadowMap&) = delete;
 
         void Bind(uint32_t cascade) const;                    // binds FBO to that layer, sets viewport, clears depth
+        // Cached far cascades (ShadowSettings::SunCacheFrom) keep their still casters in a second array: BindStatic draws
+        // into that layer (cleared); RestoreStatic copies it over the live layer and binds the live one without clearing,
+        // for the moving casters on top. The second array is made on first use
+        void BindStatic(uint32_t cascade) const;
+        void RestoreStatic(uint32_t cascade) const;
         void BindTexture(uint32_t slot) const;
         uint32_t GetSize() const { return m_Size; }
 
     private:
         uint32_t m_FBO = 0, m_Tex = 0, m_Size = 0;
+        mutable uint32_t m_StaticTex = 0;
     };
 
     struct ShadowSettings {
@@ -96,6 +102,12 @@ namespace Engine {
         int   CascadeCount = 4;         // 1..4
         float ShadowDistance = 60.0f;   // how far from the camera sun shadows reach
         float CascadeSplit = 0.75f;     // 0 = even slices, 1 = logarithmic (more detail near the camera)
+        // Far cascades are cached: from cascade SunCacheFrom on (0-based; 4 = none), a cascade keeps its view and its layer
+        // while the camera's slice stays inside it (fitted 15% bigger, so small moves and turns don't re-centre it), and
+        // is redrawn only when re-centred, when the sun turns, when something moves in it, or every SunCacheInterval
+        // frames (swaying trees; the cascades take turns). Saved as shadows.sunCacheFrom / sunCacheInterval.
+        int   SunCacheFrom = 2;
+        int   SunCacheInterval = 4;
         bool  CascadeDebug = false;     // tint each cascade (a debug view, not saved)
         // Without cascades: a fixed area around the origin
         float SunExtent = 12.0f;      // half-width of the area around the origin the sun shadows cover
@@ -132,6 +144,18 @@ namespace Engine {
         };
         mutable std::vector<AtlasEntry> AtlasEntries;
         mutable uint32_t AtlasLightsHeld = 0;       // stats: atlas lights with squares this frame
+        // The cached sun cascades (ShadowSettings::SunCacheFrom): the view each layer holds and whether it must be redrawn
+        struct SunCascadeCache {
+            glm::mat4 ViewProj{ 1.0f };
+            float TexelWorld = 0.0f, DepthRange = 0.0f;    // as ShadowView
+            glm::vec3 Center{ 0.0f }, Dir{ 0.0f };         // the sphere it was fitted to, and the sun's direction then
+            float Radius = 0.0f, Back = 0.0f;
+            uint32_t Size = 0;
+            bool Valid = false, MovedNear = false;      // MovedNear: the still casters changed (refresh the static layer)
+            bool LiveDirty = false;                     // the live layer holds moving casters (restore it from the static one)
+        };
+        mutable SunCascadeCache SunCache[4];
+        mutable uint32_t SunCascadesDrawn = 0;     // stats: cascades redrawn last frame
         // The scene depth after the depth pre-pass (SceneRenderer copies it for the opaque and grass passes; 0 = none:
         // no contact shadows)
         uint32_t ContactDepth = 0;
