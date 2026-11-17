@@ -342,7 +342,7 @@ vec4 sg_triplanar(sampler2D t, vec3 p, vec3 n, float scale, float sharp) {
             std::set<int> Visiting;
             std::map<std::string, std::string> ParamUniform;                   // param name -> uniform
             std::map<int, std::string> HiddenTex;                              // a sample node's own image -> its uniform
-            int NextUnit = 18;                                                  // 0..17 are lit.frag's
+            int NextUnit = 22;                                                  // 0..21 are lit.frag's (1 contact depth, 18 / 19 shadow atlas, 20 cookies, 21 ambient occlusion)
 
             explicit Compiler(const ShaderGraph& g) : G(g) {}
 
@@ -360,7 +360,7 @@ vec4 sg_triplanar(sampler2D t, vec3 p, vec3 n, float scale, float sharp) {
                 R.Uniforms.push_back(u);
                 int unit = -1;
                 if (p.Type == "texture") {
-                    if (NextUnit > 31) { Error(0, "too many textures (at most 14)"); unit = 31; }
+                    if (NextUnit > 31) { Error(0, "too many textures (at most 10)"); unit = 31; }
                     else unit = NextUnit++;
                 }
                 R.TextureUnits.push_back(unit);

@@ -122,7 +122,13 @@ namespace Engine {
     //               drawn last frame, 0 = geometry, #lods + 1 = beyond cull_distance),
     //               material ("Materials/x.mat", "" = none; setting it gives every part that file), materials (one path per part,
     //               "" = the model's own or the Default; a copy, assign a whole list); a missing file is an error }
-    //   e.light  -> nil or { color, intensity, shadows }
+    //   e.light  -> nil or { color, intensity, shadows, range (metres, 0 = automatic), reach (read only: the range in use), radius (its size, m: softer shadows, wider highlights), contact_shadows (bool), shape ("sphere" / "tube" / "rect": area lights;
+    //               a tube runs along local X, a rect is local X by Y shining along -Z), width, height (m, before scale),
+    //               spot_angle (the cone's full angle in degrees, along local -Z; 0 = a point light), spot_blend (0..1: the soft edge), cookie (an image under Assets the light shines
+    //               through, "Textures/x.png"; "" = none; spots project it along the cone, points wrap it round as a 2:1
+    //               panorama centred on local -Z; its top follows local +Y), cookie_columns / cookie_rows (a flipbook grid,
+    //               left to right, top row first), cookie_fps (0 = hold cookie_frame), cookie_frame, profile (an IES file,
+    //               "Lights/x.ies": brightness by direction, 0 degrees along local -Z; "" = none) }
     //   e.body   -> nil or { velocity, angular_velocity, type, trigger, lock_rotation, mass,
     //                         add_force(v) (newtons, lasts this frame: call each frame), add_impulse(v) }
     //   e.character -> nil or a character controller (CharacterControllerComponent: walks, steps, slopes, platforms) {
@@ -158,7 +164,8 @@ namespace Engine {
     //               lock_rotation=bool (dynamic: physics never turns it; characters) }
     //   e:add_collider{ shape="box"|"sphere"|"capsule"|"convex"|"mesh", size, center }   an extra shape for the
     //               rigid body above this entity (compound collider). Capsule size = vec3(diameter, height, 0)
-    //   e:add_light{ color=vec3, intensity, shadows }
+    //   e:add_light{ color=vec3, intensity, shadows, range, radius, contact_shadows, shape, width, height, spot_angle, spot_blend, cookie, cookie_columns, cookie_rows,
+    //                 cookie_fps, cookie_frame, profile }
     //   e:add_script("Scripts/x.lua")        starts on the next frame
     //   e.camera -> nil or { fov, primary, small_objects, grass_distance }
     //                e:add_camera{ fov=60, near, far, primary=true, small_objects=0, grass_distance=1 }
@@ -208,10 +215,14 @@ namespace Engine {
     //     in the game these are the player's settings (saved on quit), in the editor Stop puts back the mix Play began with
     //   audio.buses() -> { "sfx", "music", ... }, audio.voices([bus]) -> sounds alive (all, or on that bus)
     //   scene.quit()                         the game closes (in the editor: Play stops)
-    //   scene.render_stats() -> { draw_calls, triangles, instances, culled, shadow_skipped, particles, decals, static_batches, static_merged, foliage, lod_reduced, lod_culled }
+    //   scene.render_stats() -> { draw_calls, triangles, instances, culled, shadow_skipped, particles, decals, static_batches, static_merged, foliage, lod_reduced, lod_culled,
+    //       lights, lights_visible, lights_per_cluster,   (point lights: all, those the camera's view reaches, the most in one cluster)
+    //       shadowed_lights, atlas_lights, atlas_smallest, atlas_largest, atlas_used }   (lights with shadows; in the shadow atlas, their squares in texels, the share of it used 0..1)
+    //                                        (the last frame; a debug HUD)
+    //   scene.light_binning(["gpu"|"cpu"]) -> where point lights are sorted into clusters (default gpu: a compute shader);
+    //               sets it first if given, returns the one in use (cpu when compute shaders failed to build)
     //   scene.lod_scale([v])  -> the scene's level-of-detail distance scale (every switch and cull distance x v; 2 = detail
     //               twice as far): reads it, or sets it first
-    //                                        (the last frame; a debug HUD)
     //   scene.spawn_particles(pos, "Sparks" | { preset, count })   a one-shot burst entity that removes itself when done
     //   ---- ui: drawn this frame only, in call order. x, y, w, h are 0..1 of the view (top left origin).
     //   ui.text(text, x, y [, { size=24, color=vec3, alpha=1, align="left"|"center"|"right" }])

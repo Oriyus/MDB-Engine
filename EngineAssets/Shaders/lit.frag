@@ -15,12 +15,11 @@ layout(location = 2) out vec2 Velocity;    // motion vector (UV this frame - las
 in vec4 v_CurClip;
 in vec4 v_PrevClip;
 
-#define MAX_POINT_LIGHTS 4
+#include "lights.glsl"
 const float PI = 3.14159265359;
 const float kUnlitGlow = 4.0;   // unlit objects (light markers) are drawn as hot, glowing emitters
 
 uniform sampler2D        u_Texture;          // unit 0: albedo
-uniform samplerCubeArrayShadow u_PointShadowMaps;  // unit 1: hardware compare (PointShadowArray), stored = distance / u_PointFar
 uniform sampler2DArray   u_SunShadowMap;     // unit 2: one layer per cascade
 uniform sampler2D        u_NormalMap;        // unit 3
 uniform sampler2D        u_MetalRoughMap;    // unit 4
@@ -171,12 +170,6 @@ uniform float u_AlphaCutoff;
 uniform vec3  u_ViewPos;
 uniform float u_Ambient;        // strength of the procedural sky light
 
-uniform int   u_PointCount;
-uniform vec3  u_PointPos[MAX_POINT_LIGHTS];
-uniform vec3  u_PointColor[MAX_POINT_LIGHTS];
-uniform int   u_PointShadow[MAX_POINT_LIGHTS];
-uniform float u_PointFar;
-uniform float u_PointBias;
 
 uniform int   u_HasSun;
 uniform vec3  u_SunDir;
@@ -191,33 +184,6 @@ uniform mat4  u_SunVP[MAX_CASCADES];
 uniform float u_SunBias[MAX_CASCADES];      // depth units of that cascade
 uniform float u_SunTexel[MAX_CASCADES];     // world size of one texel, for the normal offset
 uniform int   u_CascadeDebug;
-
-const vec3 kOffsets[20] = vec3[](
-    vec3( 1,  1,  1), vec3( 1, -1,  1), vec3(-1, -1,  1), vec3(-1,  1,  1),
-    vec3( 1,  1, -1), vec3( 1, -1, -1), vec3(-1, -1, -1), vec3(-1,  1, -1),
-    vec3( 1,  1,  0), vec3( 1, -1,  0), vec3(-1, -1,  0), vec3(-1,  1,  0),
-    vec3( 1,  0,  1), vec3(-1,  0,  1), vec3( 1,  0, -1), vec3(-1,  0, -1),
-    vec3( 0,  1,  1), vec3( 0, -1,  1), vec3( 0, -1, -1), vec3( 0,  1, -1)
-);
-
-// ------------------------------------------------------------ shadows (unchanged)
-float PointShadow(int i, vec3 N, vec3 L) {
-    vec3  fragToLight = v_WorldPos - u_PointPos[i];
-    float current = length(fragToLight);
-    if (current > u_PointFar) return 0.0;
-
-    float bias = max(u_PointBias * 2.0 * (1.0 - dot(N, L)), u_PointBias * 0.5);
-    float viewDist = length(u_ViewPos - v_WorldPos);
-    float radius = (1.0 + viewDist / u_PointFar) * 0.03;
-
-    // 8 fetches at the cube's corners (kOffsets[0..7]), each a hardware 2x2 comparison with bilinear weights:
-    // as soft as the old 20 single comparisons. Measured on the village (4 shadowed lamps, 1080p): 15.2 -> 14.2 ms a frame
-    float ref = (current - bias) / u_PointFar;
-    float lit = 0.0;
-    for (int k = 0; k < 8; k++)
-        lit += texture(u_PointShadowMaps, vec4(fragToLight + kOffsets[k] * radius, float(i)), ref);
-    return 1.0 - lit / 8.0;
-}
 
 float ViewDepth() { return -dot(u_ViewRow, vec4(v_WorldPos, 1.0)); }
 
@@ -307,6 +273,32 @@ vec3 Shade(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float rough, vec
     return (1.0 - shadow) * (kD * albedo / PI + specular) * radiance * PI * NdotL;
 }
 
+// Shade for point, spot and area lights: diffuse towards L, the highlight towards Ls (the same for a plain light: then
+// it equals Shade). specScale: an area light's energy normalisation (Karis 2013: the highlight of a long or wide light
+// spreads its energy along it: alpha / alpha' per stretched direction)
+vec3 ShadeArea(vec3 N, vec3 V, vec3 L, vec3 Ls, vec3 albedo, float metallic, float rough, vec3 F0, vec3 F90,
+               vec3 radiance, float shadow, float specScale) {
+    float NdotL = max(dot(N, L), 0.0), NdotLs = max(dot(N, Ls), 0.0);
+    if (NdotL <= 0.0 && NdotLs <= 0.0) return vec3(0.0);
+    float NdotV = max(dot(N, V), 1e-4);
+    vec3  H = normalize(V + Ls);
+    float D = DistributionGGX(max(dot(N, H), 0.0), rough * rough);
+    float G = GeometrySmith(NdotV, NdotLs, rough);
+    vec3  F = FresnelSchlick(max(dot(H, V), 0.0), F0, F90);
+    vec3 specular = D * G * F / (4.0 * NdotV * NdotLs + 1e-4) * NdotLs * specScale;
+    vec3 Fd = FresnelSchlick(max(dot(normalize(V + L), V), 0.0), F0, F90);
+    vec3 kD = (1.0 - Fd) * (1.0 - metallic);
+    return (1.0 - shadow) * (kD * albedo / PI * NdotL + specular) * radiance * PI;
+}
+// specScale for a light (1 unless it is a tube or a rect): rough = the roughness used, sd = distance to the highlight point
+float AreaSpecScale(vec4 extra, vec4 area, float rough, float sd) {
+    if (extra.z < 0.5) return 1.0;
+    float a = max(rough * rough, 0.002), k = 0.5 / max(sd, 1e-3);
+    float s = a / min(a + length(area.xyz) * k, 1.0);
+    if (extra.z > 1.5) s *= a / min(a + area.w * k, 1.0);
+    return s;
+}
+
 // Normal mapping without a tangent attribute: the tangent frame is rebuilt per pixel
 // from screen-space derivatives of position and UV.
 vec3 PerturbNormal(vec3 N, vec3 p, vec2 uv, vec3 mapN) {
@@ -344,6 +336,32 @@ vec3 EnvBRDFApprox(vec3 F0, vec3 F90, float rough, float NdotV) {
 uniform samplerCube u_IrradianceMap;   // unit 6
 uniform samplerCube u_PrefilterMap;    // unit 7
 uniform int   u_UseIBL;
+
+// Ambient occlusion (SSAO, computed from the depth pre-pass before this pass): it dims only the light from the sky and
+// the environment, not the sun or the lamps. Half resolution (AO, view depth): the 4 nearest texels weighted by
+// distance and by how close their depth is to this pixel's (no bleeding across silhouettes)
+uniform sampler2D u_AOMap;        // unit 21
+uniform int   u_AOOn;             // 0: no AO here (applied afterwards, or off)
+uniform float u_AOStrength;
+uniform vec2  u_AOScreen;         // the full-resolution target's size
+uniform int   u_SunContact;       // contact shadows for the sun too (ShadowSettings::SunContact)
+float AmbientOcclusion() {
+    if (u_AOOn != 1) return 1.0;
+    vec2 size = vec2(textureSize(u_AOMap, 0));
+    vec2 f = gl_FragCoord.xy / u_AOScreen * size - 0.5;
+    vec2 base = floor(f), t = f - base;
+    float z0 = (u_ContactVP * vec4(v_WorldPos, 1.0)).w;   // view depth (the same jittered camera)
+    float tolerance = 0.02 * z0 + 0.01;
+    float sum = 0.0, weights = 0.0;
+    for (int k = 0; k < 4; k++) {
+        vec2 c = vec2(k & 1, k >> 1);
+        vec2 s = texelFetch(u_AOMap, clamp(ivec2(base + c), ivec2(0), ivec2(size) - 1), 0).rg;
+        float w = ((c.x > 0.5 ? t.x : 1.0 - t.x) * (c.y > 0.5 ? t.y : 1.0 - t.y) + 1e-3) / (1.0 + abs(s.y - z0) / tolerance);
+        sum += s.x * w;
+        weights += w;
+    }
+    return mix(1.0, sum / weights, u_AOStrength);
+}
 uniform float u_PrefilterMaxLod;
 uniform float u_EnvRot;
 
@@ -453,19 +471,106 @@ void main() {
 
     vec3 color = vec3(0.0);
 
+    // Point lights (lights.glsl). The shadowed ones (shadow slots, cube layer = index) directly:
+    uint lightsHere = 0u;
+    // Contact shadows: at most 2 rays a pixel (the sun takes one when it has them; then the direct lights first), none
+    // past 40 m (too small to see)
+    int contactRays = (u_ContactLength > 0.0 && length(u_ViewPos - v_WorldPos) < 40.0) ? (u_SunContact == 1 && u_HasSun == 1 ? 1 : 2) : 0;
     for (int i = 0; i < u_PointCount; i++) {
-        vec3 Lv = u_PointPos[i] - v_WorldPos;
+#ifdef MDB_AREA_LIGHTS
+        if (u_PointExtra[i].z > 0.5) continue;                 // an area light: shaded below (without the variant: as a point)
+#endif
+        vec3 Lv = u_PointPosRange[i].xyz - v_WorldPos;
         float dist = length(Lv);
-        vec3 L = Lv / dist;
-        float att = 1.0 / (1.0 + 0.02 * dist * dist);
-
-        float shadow = (u_PointShadow[i] == 1 && dot(Ng, L) > 0.0) ? PointShadow(i, Ng, L) : 0.0;
-        color += Shade(N, V, L, diffuse, metallic, roughness, F0, F90, u_PointColor[i] * att, shadow);
+        if (dist >= u_PointPosRange[i].w) continue;            // out of reach (or an unused slot: range 0)
+        lightsHere++;
+        vec3 L = Lv / max(dist, 1e-4);
+        float att = PointFalloff(dist, u_PointPosRange[i].w) * SpotCone(L, u_PointSpot[i], u_PointColor[i].w);
+        if (att <= 0.0) continue;
+        float NdotLs = dot(Ng, L), shadow = 0.0;
+        if (NdotLs > 0.0) {
+            if (u_PointShadow[i].x >= 0) shadow = 1.0 - AtlasSpotLit(u_PointShadow[i].x, v_WorldPos, NdotLs, dist, 4, u_PointExtra[i].x);
+            else if (u_PointShadow[i].y >= 0) shadow = 1.0 - AtlasCubeLit(u_PointShadow[i].y, u_PointPosRange[i].xyz, v_WorldPos, NdotLs, 4, u_PointExtra[i].x);
+        }
+        vec3 radiance = u_PointColor[i].rgb * att;
+        if (u_PointCookie[i].x >= 0.0 || u_PointCookie[i].z >= 0.0)
+            radiance *= LightCookie(u_PointSpot[i], u_PointCookie[i].xyz, u_PointFrames[i].xyz, L, 0.0015 * length(u_ViewPos - v_WorldPos) / max(dist, 0.05));
+        if (contactRays > 0 && u_PointExtra[i].y > 0.5 && NdotLs > 0.0 && shadow < 1.0 && dot(radiance, vec3(0.333)) * NdotLs > 0.02 && contactRays-- > 0)
+            shadow = max(shadow, 1.0 - ContactLit(v_WorldPos, Ng, L, dist));   // what the shadow maps miss
+        color += Shade(N, V, L, diffuse, metallic, SizedRoughness(roughness, u_PointExtra[i].x, dist), F0, F90, radiance, shadow);
     }
+    // ... the rest: only those whose reach covers this pixel's cluster
+    uvec2 cell = uvec2(0u);
+    if (u_ClusterLightCount > 0) {
+        cell = LightCluster(v_CurClip.xy / v_CurClip.w * 0.5 + 0.5, v_WorldPos);
+        lightsHere += cell.y;
+        for (uint k = 0u; k < cell.y; k++) {
+            PointLightGpu pl = u_Lights[u_ClusterIndices[cell.x + k]];
+#ifdef MDB_AREA_LIGHTS
+            if (pl.Extra.z > 0.5) continue;                    // an area light: shaded below
+#endif
+            vec3 Lv = pl.PosRange.xyz - v_WorldPos;
+            float dist = length(Lv);
+            if (dist >= pl.PosRange.w) continue;
+            vec3 L = Lv / max(dist, 1e-4);
+            float att = PointFalloff(dist, pl.PosRange.w) * SpotCone(L, pl.Spot, pl.Color.w);
+            if (att <= 0.0) continue;
+            float NdotL = dot(Ng, L);
+            float shadow = 0.0;
+            if (NdotL > 0.0) {
+                if (pl.Shadow.x >= 0.0) shadow = 1.0 - AtlasSpotLit(int(pl.Shadow.x), v_WorldPos, NdotL, dist, 4, pl.Extra.x);
+                else if (pl.Shadow.y >= 0.0) shadow = 1.0 - AtlasCubeLit(int(pl.Shadow.y), pl.PosRange.xyz, v_WorldPos, NdotL, 4, pl.Extra.x);
+            }
+            vec3 radiance = pl.Color.rgb * att;
+            if (pl.Shadow.z >= 0.0 || pl.Cookie.x >= 0.0) radiance *= LightCookie(pl, L, 0.0015 * length(u_ViewPos - v_WorldPos) / max(dist, 0.05));
+            if (contactRays > 0 && pl.Extra.y > 0.5 && NdotL > 0.0 && shadow < 1.0 && dot(radiance, vec3(0.333)) * NdotL > 0.02 && contactRays-- > 0)
+                shadow = max(shadow, 1.0 - ContactLit(v_WorldPos, Ng, L, dist));
+            color += Shade(N, V, L, diffuse, metallic, SizedRoughness(roughness, pl.Extra.x, dist), F0, F90, radiance, shadow);
+        }
+    }
+    // Area lights (tubes, rects): only in the variant compiled with MDB_AREA_LIGHTS (SceneRenderer uses it for frames that
+    // have one). In the plain shader their code cost about 0.3 ms on the village even when never run (a bigger shader)
+#ifdef MDB_AREA_LIGHTS
+    {
+        vec3 Rv = reflect(-V, N);
+        int count = u_PointCount + int(cell.y);
+        for (int j = 0; j < count; j++) {
+            vec3 c; vec4 spot, area, extra, col; int spotRec, cubeRec;
+            if (j < u_PointCount) {
+                extra = u_PointExtra[j];
+                if (extra.z < 0.5) continue;
+                c = u_PointPosRange[j].xyz; spot = u_PointSpot[j]; area = u_PointArea[j]; col = vec4(u_PointColor[j].rgb, u_PointPosRange[j].w);
+                spotRec = u_PointShadow[j].x; cubeRec = u_PointShadow[j].y;
+            } else {
+                PointLightGpu pl = u_Lights[u_ClusterIndices[cell.x + uint(j - u_PointCount)]];
+                extra = pl.Extra;
+                if (extra.z < 0.5) continue;
+                c = pl.PosRange.xyz; spot = pl.Spot; area = pl.Area; col = vec4(pl.Color.rgb, pl.PosRange.w);
+                spotRec = int(pl.Shadow.x); cubeRec = int(pl.Shadow.y);
+            }
+            vec3 Lv, Ls;
+            LightVectors(c, spot, area, extra, v_WorldPos, Rv, Lv, Ls);
+            float dist = length(Lv);
+            if (dist >= col.w) continue;
+            vec3 L = Lv / max(dist, 1e-4);
+            float att = PointFalloff(dist, col.w) * AreaEmission(spot, extra, L);
+            if (att <= 0.0) continue;
+            float NdotL = dot(Ng, L), shadow = 0.0;
+            if (NdotL > 0.0 && cubeRec >= 0) shadow = 1.0 - AtlasCubeLit(cubeRec, c, v_WorldPos, NdotL, 4, ShadowRadius(extra));
+            vec3 radiance = col.rgb * att;
+            if (contactRays > 0 && extra.y > 0.5 && NdotL > 0.0 && shadow < 1.0 && dot(radiance, vec3(0.333)) * NdotL > 0.02 && contactRays-- > 0)
+                shadow = max(shadow, 1.0 - ContactLit(v_WorldPos, Ng, L, dist));
+            float rough = SizedRoughness(roughness, extra.x, dist);
+            color += ShadeArea(N, V, L, Ls, diffuse, metallic, rough, F0, F90, radiance, shadow, AreaSpecScale(extra, area, rough, dist));
+        }
+    }
+#endif
 
     if (u_HasSun == 1) {
         vec3 L = normalize(-u_SunDir);
         float shadow = (u_SunShadow == 1 && dot(Ng, L) > 0.0) ? SunShadow(Ng, L) : 0.0;
+        if (u_SunContact == 1 && u_ContactLength > 0.0 && shadow < 1.0 && dot(Ng, L) > 0.0 && length(u_ViewPos - v_WorldPos) < 40.0)
+            shadow = max(shadow, 1.0 - ContactLit(v_WorldPos, Ng, L, 1e4));   // the small things the cascades miss
         color += Shade(N, V, L, diffuse, metallic, roughness, F0, F90, u_SunColor, shadow);
     }
 
@@ -482,7 +587,7 @@ void main() {
         diffuseLight  = Env(N);
         specularLight = Env(normalize(mix(R, N, roughness * roughness)));
     }
-    color += ((1.0 - metallic) * diffuse * (1.0 - specAmb) * diffuseLight + specAmb * specularLight) * u_Ambient;
+    color += ((1.0 - metallic) * diffuse * (1.0 - specAmb) * diffuseLight + specAmb * specularLight) * u_Ambient * AmbientOcclusion();
 
     vec3 emissive = v_Emissive;
     if (u_UseEmissive == 1) emissive *= texture(u_EmissiveMap, v_TexCoord).rgb;
@@ -499,6 +604,8 @@ void main() {
         int c = SunCascade(ViewDepth());
         if (c < u_CascadeCount) color *= tints[c];
     }
+    // Debug view: how many point lights this pixel's cluster holds, over a dim copy of the picture
+    if (u_ClusterDebug == 1) color = color * 0.15 + ClusterHeat(lightsHere) * 0.6;
 
     FragColor = vec4(color, alpha);
 }

@@ -69,6 +69,21 @@ namespace Engine {
         if (e.Has<PointLightComponent>()) {
             auto& l = e.Get<PointLightComponent>();
             j["pointLight"] = { { "color", l.Color },{ "intensity", l.Intensity },{ "castShadows", l.CastShadows } };
+            if (l.Range > 0.0f) j["pointLight"]["range"] = l.Range;
+            if (l.Radius > 0.0f) j["pointLight"]["radius"] = l.Radius;
+            if (!l.ContactShadows) j["pointLight"]["contactShadows"] = false;
+            if (l.Shape != LightShape::Sphere) {
+                j["pointLight"]["shape"] = l.Shape == LightShape::Tube ? "tube" : "rect";
+                j["pointLight"]["size"] = { l.Size.x, l.Size.y };
+            }
+            if (l.IsSpot()) { j["pointLight"]["spotAngle"] = l.SpotAngle; j["pointLight"]["spotBlend"] = l.SpotBlend; }
+            if (l.Cookie && res.TextureName) {
+                j["pointLight"]["cookie"] = res.TextureName(l.Cookie);
+                if (l.CookieColumns > 1 || l.CookieRows > 1) j["pointLight"]["cookieGrid"] = { l.CookieColumns, l.CookieRows };
+                if (l.CookieFps > 0.0f) j["pointLight"]["cookieFps"] = l.CookieFps;
+                if (l.CookieFrame != 0) j["pointLight"]["cookieFrame"] = l.CookieFrame;
+            }
+            if (l.Profile && res.TextureName) j["pointLight"]["profile"] = res.TextureName(l.Profile);
         }
         if (e.Has<DirectionalLightComponent>()) {
             auto& d = e.Get<DirectionalLightComponent>();
@@ -324,6 +339,28 @@ namespace Engine {
             l.Color = j["pointLight"].at("color").get<glm::vec3>();
             l.Intensity = j["pointLight"].at("intensity").get<float>();
             l.CastShadows = j["pointLight"].value("castShadows", true);
+            l.Range = std::max(j["pointLight"].value("range", 0.0f), 0.0f);
+            l.Radius = std::clamp(j["pointLight"].value("radius", 0.0f), 0.0f, 5.0f);
+            l.ContactShadows = j["pointLight"].value("contactShadows", true);
+            {
+                const std::string shape = j["pointLight"].value("shape", std::string("sphere"));
+                l.Shape = shape == "tube" ? LightShape::Tube : shape == "rect" ? LightShape::Rect : LightShape::Sphere;
+                if (j["pointLight"].contains("size")) {
+                    const auto& s = j["pointLight"]["size"];
+                    l.Size = glm::vec2(std::clamp(s.at(0).get<float>(), 0.0f, 100.0f), std::clamp(s.at(1).get<float>(), 0.0f, 100.0f));
+                }
+            }
+            l.SpotAngle = std::clamp(j["pointLight"].value("spotAngle", 0.0f), 0.0f, 179.0f);
+            l.SpotBlend = std::clamp(j["pointLight"].value("spotBlend", 0.15f), 0.0f, 1.0f);
+            if (res.FindTexture && j["pointLight"].contains("cookie")) l.Cookie = res.FindTexture(j["pointLight"].value("cookie", std::string()));
+            if (res.FindTexture && j["pointLight"].contains("profile")) l.Profile = res.FindTexture(j["pointLight"].value("profile", std::string()));
+            if (j["pointLight"].contains("cookieGrid")) {
+                const auto& g = j["pointLight"]["cookieGrid"];
+                l.CookieColumns = std::clamp(g.at(0).get<int>(), 1, 64);
+                l.CookieRows = std::clamp(g.at(1).get<int>(), 1, 64);
+            }
+            l.CookieFps = std::clamp(j["pointLight"].value("cookieFps", 0.0f), 0.0f, 240.0f);
+            l.CookieFrame = std::max(j["pointLight"].value("cookieFrame", 0), 0);
             e.Add<PointLightComponent>(l);
         }
         if (j.contains("directionalLight")) {

@@ -119,6 +119,8 @@ namespace Engine {
             float DistanceScale = 1.0f;
         } Lod;
         bool TintLodLevels = false;        // debug (Viewport > Debug > LOD Levels): colour parts by their level, not saved
+        bool ClusterDebug = false;         // debug (Viewport > Debug > Light Clusters): tint by how many point lights each pixel weighs, not saved
+        bool GpuLightBinning = true;       // sort point lights into clusters with a compute shader (LightClusters); false = on the CPU (tests, comparison), not saved
         // Entities the editor hides (the Hierarchy's eye; filled each frame in Edit mode, empty in the game): sorted
         // entt integrals of every hidden entity, descendants included. Their mesh parts, terrain chunks and grass
         // fields are not drawn (no shadows, no click picking either). Not saved.

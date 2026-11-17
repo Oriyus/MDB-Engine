@@ -1,7 +1,7 @@
 #version 450 core
 
 in vec2 v_UV;
-out float FragAO;
+out vec2 FragAO;            // AO (1 = open), view depth (for the depth-aware blur)
 
 uniform sampler2D u_Depth;
 uniform mat4  u_Proj;
@@ -25,7 +25,7 @@ vec2 Hammersley(int i, int n) {
 }
 
 void main() {
-    if (texture(u_Depth, v_UV).r >= 0.99999) { FragAO = 1.0; return; }   // sky
+    if (texture(u_Depth, v_UV).r >= 0.99999) { FragAO = vec2(1.0, 1e6); return; }   // sky
 
     vec2 texel = 1.0 / vec2(textureSize(u_Depth, 0));
     vec3 P  = ViewPos(v_UV);
@@ -70,5 +70,5 @@ void main() {
         float range = smoothstep(0.0, 1.0, u_Radius / max(abs(P.z - sceneZ), 1e-4));
         occlusion += (sceneZ >= samplePos.z + u_Bias ? 1.0 : 0.0) * range;
     }
-    FragAO = 1.0 - occlusion / float(u_Samples);
+    FragAO = vec2(1.0 - occlusion / float(u_Samples), -P.z);
 }

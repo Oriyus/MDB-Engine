@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <glm/glm.hpp>
@@ -38,6 +39,8 @@ namespace Engine {
         // Code replaces the line holding "// @GRAPH_CODE" (if the file has none, after the defines)
         struct Injection { std::string Defines, Code, VertexDefines, VertexCode; };   // Vertex*: the same into the vertex shader
         Shader(const std::string& vertexPath, const std::string& fragmentPath, Injection injection);
+        // A compute program from one file (glDispatchCompute after Bind); Reload works the same
+        static std::unique_ptr<Shader> CreateCompute(const std::string& computePath);
         bool Valid() const { return m_Program != 0; }
         const std::string& LastError() const { return m_Error; }   // the compile / link log of the last failure
 
@@ -55,6 +58,9 @@ namespace Engine {
         std::string m_Error;
         int GetUniformLocation(const std::string& name);
 
+        Shader() = default;
+        uint32_t CompileCompute(const std::string& path);
+        bool m_Compute = false;
         uint32_t m_Program = 0;
         std::string m_VertexPath, m_FragmentPath;
         std::unordered_map<std::string, int> m_UniformCache;

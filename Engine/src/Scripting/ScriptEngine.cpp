@@ -10,6 +10,7 @@
 #include "Scene/Prefab.h"
 #include "Renderer/Model.h"
 #include "Renderer/RenderStats.h"
+#include "Renderer/LightClusters.h"
 #include "Scene/Particles.h"
 #include "Navigation/NavGrid.h"
 #include "Navigation/FogOfWar.h"
@@ -407,7 +408,77 @@ namespace Engine {
                 [](const LightRef& l, float v) { l.E.Get<PointLightComponent>().Intensity = v; }),
             "shadows", sol::property(
                 [](const LightRef& l) { return l.E.Get<PointLightComponent>().CastShadows; },
-                [](const LightRef& l, bool v) { l.E.Get<PointLightComponent>().CastShadows = v; }));
+                [](const LightRef& l, bool v) { l.E.Get<PointLightComponent>().CastShadows = v; }),
+            "range", sol::property(              // metres; 0 = automatic (from the brightness)
+                [](const LightRef& l) { return l.E.Get<PointLightComponent>().Range; },
+                [](const LightRef& l, float v) { l.E.Get<PointLightComponent>().Range = std::max(v, 0.0f); }),
+            "radius", sol::property(             // the light's size in metres (0 = a point): wider highlights, softer shadows
+                [](const LightRef& l) { return l.E.Get<PointLightComponent>().Radius; },
+                [](const LightRef& l, float v) { l.E.Get<PointLightComponent>().Radius = std::clamp(v, 0.0f, 5.0f); }),
+            "shape", sol::property(              // "sphere" (a point or ball), "tube" (along local X), "rect" (local X by Y, shining along -Z)
+                [](const LightRef& l) {
+                    const LightShape s = l.E.Get<PointLightComponent>().Shape;
+                    return std::string(s == LightShape::Tube ? "tube" : s == LightShape::Rect ? "rect" : "sphere");
+                },
+                [](const LightRef& l, const std::string& v) {
+                    if (v != "sphere" && v != "tube" && v != "rect") throw std::runtime_error("light.shape: \"sphere\", \"tube\" or \"rect\"");
+                    l.E.Get<PointLightComponent>().Shape = v == "tube" ? LightShape::Tube : v == "rect" ? LightShape::Rect : LightShape::Sphere;
+                }),
+            "width", sol::property(              // an area light's width (a tube's length), metres before the entity's scale
+                [](const LightRef& l) { return l.E.Get<PointLightComponent>().Size.x; },
+                [](const LightRef& l, float v) { l.E.Get<PointLightComponent>().Size.x = std::clamp(v, 0.0f, 100.0f); }),
+            "height", sol::property(             // a rect light's height
+                [](const LightRef& l) { return l.E.Get<PointLightComponent>().Size.y; },
+                [](const LightRef& l, float v) { l.E.Get<PointLightComponent>().Size.y = std::clamp(v, 0.0f, 100.0f); }),
+            "contact_shadows", sol::property(    // a short screen-space ray darkens what shadow maps miss
+                [](const LightRef& l) { return l.E.Get<PointLightComponent>().ContactShadows; },
+                [](const LightRef& l, bool v) { l.E.Get<PointLightComponent>().ContactShadows = v; }),
+            "spot_angle", sol::property(         // the cone's full angle in degrees along local -Z; 0 = a point light
+                [](const LightRef& l) { return l.E.Get<PointLightComponent>().SpotAngle; },
+                [](const LightRef& l, float v) { l.E.Get<PointLightComponent>().SpotAngle = std::clamp(v, 0.0f, 179.0f); }),
+            "spot_blend", sol::property(         // the share of the cone's edge that fades (0..1)
+                [](const LightRef& l) { return l.E.Get<PointLightComponent>().SpotBlend; },
+                [](const LightRef& l, float v) { l.E.Get<PointLightComponent>().SpotBlend = std::clamp(v, 0.0f, 1.0f); }),
+            "cookie", sol::property(             // an image under Assets the light shines through ("" = none): spots project it, points wrap it round as a panorama
+                [this](const LightRef& l) {
+                    const auto& c = l.E.Get<PointLightComponent>().Cookie;
+                    std::string n = c && Resources.TextureName ? Resources.TextureName(c) : std::string();
+                    return n.rfind("texture:", 0) == 0 ? n.substr(8) : n;
+                },
+                [this](const LightRef& l, const std::string& path) {
+                    auto& p = l.E.Get<PointLightComponent>();
+                    if (path.empty()) { p.Cookie = nullptr; return; }
+                    auto t = Resources.FindTexture ? Resources.FindTexture("texture:" + path) : nullptr;
+                    if (!t || !t->GetID()) throw std::runtime_error("light.cookie: no image '" + path + "'");
+                    p.Cookie = t;
+                }),
+            "profile", sol::property(            // an IES profile under Assets (".ies"; "" = none): brightness by direction, 0 degrees along local -Z
+                [this](const LightRef& l) {
+                    const auto& c = l.E.Get<PointLightComponent>().Profile;
+                    std::string n = c && Resources.TextureName ? Resources.TextureName(c) : std::string();
+                    return n.rfind("texture:", 0) == 0 ? n.substr(8) : n;
+                },
+                [this](const LightRef& l, const std::string& path) {
+                    auto& p = l.E.Get<PointLightComponent>();
+                    if (path.empty()) { p.Profile = nullptr; return; }
+                    auto t = Resources.FindTexture ? Resources.FindTexture("texture:" + path) : nullptr;
+                    if (!t || !t->GetID()) throw std::runtime_error("light.profile: no profile '" + path + "'");
+                    p.Profile = t;
+                }),
+            "cookie_columns", sol::property(     // a flipbook cookie: frames across (1..64)
+                [](const LightRef& l) { return l.E.Get<PointLightComponent>().CookieColumns; },
+                [](const LightRef& l, int v) { l.E.Get<PointLightComponent>().CookieColumns = std::clamp(v, 1, 64); }),
+            "cookie_rows", sol::property(        // frames down (1..64)
+                [](const LightRef& l) { return l.E.Get<PointLightComponent>().CookieRows; },
+                [](const LightRef& l, int v) { l.E.Get<PointLightComponent>().CookieRows = std::clamp(v, 1, 64); }),
+            "cookie_fps", sol::property(         // frames a second (0 = hold cookie_frame)
+                [](const LightRef& l) { return l.E.Get<PointLightComponent>().CookieFps; },
+                [](const LightRef& l, float v) { l.E.Get<PointLightComponent>().CookieFps = std::clamp(v, 0.0f, 240.0f); }),
+            "cookie_frame", sol::property(       // the frame shown (0 = the first; with a rate, where it starts)
+                [](const LightRef& l) { return l.E.Get<PointLightComponent>().CookieFrame; },
+                [](const LightRef& l, int v) { l.E.Get<PointLightComponent>().CookieFrame = std::max(v, 0); }),
+            "reach", sol::readonly_property(     // the range in use: Range, or the automatic one
+                [](const LightRef& l) { const auto& p = l.E.Get<PointLightComponent>(); return p.Range > 0.0f ? p.Range : AutoPointLightRange(p.Color * p.Intensity); }));
 
         // A character controller (CharacterControllerComponent, PhysicsWorld): walking, jumping, ground state
         auto charPhys = [this](const CharRef& c) -> PhysicsWorld& {
@@ -838,13 +909,36 @@ namespace Engine {
                 for (entt::entity p = e.Owner->GetParent(e.Handle); p != entt::null && guard++ < 256; p = e.Owner->GetParent(p))
                     if (e.Owner->Registry().all_of<RigidBodyComponent>(p)) { if (Physics) Physics->Invalidate(p); break; }
             },
-            "add_light", [](const ScriptEntity& e, sol::optional<sol::table> opts) {
+            "add_light", [this](const ScriptEntity& e, sol::optional<sol::table> opts) {
                 if (!e.Valid()) throw std::runtime_error("entity no longer exists");
                 PointLightComponent l;
                 if (opts) {
                     l.Color = opts->get_or<glm::vec3>("color", l.Color);
                     l.Intensity = opts->get_or<float>("intensity", l.Intensity);
                     l.CastShadows = opts->get_or<bool>("shadows", l.CastShadows);
+                    l.Range = std::max(opts->get<sol::optional<float>>("range").value_or(0.0f), 0.0f);
+                    l.Radius = std::clamp(opts->get<sol::optional<float>>("radius").value_or(0.0f), 0.0f, 5.0f);
+                    l.ContactShadows = opts->get<sol::optional<bool>>("contact_shadows").value_or(true);
+                    if (auto shape = opts->get<sol::optional<std::string>>("shape")) {
+                        if (*shape != "sphere" && *shape != "tube" && *shape != "rect") throw std::runtime_error("add_light: shape is \"sphere\", \"tube\" or \"rect\"");
+                        l.Shape = *shape == "tube" ? LightShape::Tube : *shape == "rect" ? LightShape::Rect : LightShape::Sphere;
+                    }
+                    l.Size.x = std::clamp(opts->get<sol::optional<float>>("width").value_or(l.Size.x), 0.0f, 100.0f);
+                    l.Size.y = std::clamp(opts->get<sol::optional<float>>("height").value_or(l.Size.y), 0.0f, 100.0f);
+                    l.SpotAngle = std::clamp(opts->get<sol::optional<float>>("spot_angle").value_or(0.0f), 0.0f, 179.0f);
+                    l.SpotBlend = std::clamp(opts->get<sol::optional<float>>("spot_blend").value_or(l.SpotBlend), 0.0f, 1.0f);
+                    if (auto cookie = opts->get<sol::optional<std::string>>("cookie"); cookie && !cookie->empty()) {
+                        l.Cookie = Resources.FindTexture ? Resources.FindTexture("texture:" + *cookie) : nullptr;
+                        if (!l.Cookie || !l.Cookie->GetID()) throw std::runtime_error("add_light: no image '" + *cookie + "'");
+                    }
+                    if (auto prof = opts->get<sol::optional<std::string>>("profile"); prof && !prof->empty()) {
+                        l.Profile = Resources.FindTexture ? Resources.FindTexture("texture:" + *prof) : nullptr;
+                        if (!l.Profile || !l.Profile->GetID()) throw std::runtime_error("add_light: no profile '" + *prof + "'");
+                    }
+                    l.CookieColumns = std::clamp(opts->get<sol::optional<int>>("cookie_columns").value_or(1), 1, 64);
+                    l.CookieRows = std::clamp(opts->get<sol::optional<int>>("cookie_rows").value_or(1), 1, 64);
+                    l.CookieFps = std::clamp(opts->get<sol::optional<float>>("cookie_fps").value_or(0.0f), 0.0f, 240.0f);
+                    l.CookieFrame = std::max(opts->get<sol::optional<int>>("cookie_frame").value_or(0), 0);
                 }
                 e.Owner->Registry().emplace_or_replace<PointLightComponent>(e.Handle, l);
                 return LightRef{ e };
@@ -925,7 +1019,19 @@ namespace Engine {
             return Lua->create_table_with("draw_calls", c.DrawCalls, "triangles", c.Triangles,
                 "instances", c.Instances, "culled", c.Culled, "shadow_skipped", c.ShadowSkipped, "particles", c.Particles,
                 "static_batches", c.StaticBatches, "static_merged", c.StaticMerged, "decals", c.Decals, "foliage", c.Foliage,
-                "lod_reduced", c.LodReduced, "lod_culled", c.LodCulled);
+                "lod_reduced", c.LodReduced, "lod_culled", c.LodCulled,
+                "lights", c.Lights, "lights_visible", c.LightsVisible, "lights_per_cluster", c.LightsPerCluster,
+                "shadowed_lights", c.ShadowedLights, "atlas_lights", c.AtlasLights, "atlas_smallest", c.AtlasSmallest,
+                "atlas_largest", c.AtlasLargest, "atlas_used", c.AtlasUsed / 1000.0);
+        });
+        // Where point lights are sorted into clusters (Scene::GpuLightBinning): "gpu" (a compute shader, the default)
+        // or "cpu"; sets it first if given, returns the one in use
+        scene.set_function("light_binning", [this](sol::optional<std::string> mode) {
+            if (mode) {
+                if (*mode != "gpu" && *mode != "cpu") throw std::runtime_error("scene.light_binning: \"gpu\" or \"cpu\"");
+                ActiveScene->GpuLightBinning = *mode == "gpu";
+            }
+            return std::string(ActiveScene->GpuLightBinning && LightClusters::GpuAvailable() ? "gpu" : "cpu");
         });
         // Level-of-detail distance scale (Scene::Lod.DistanceScale): reads it, or sets it first
         scene.set_function("lod_scale", [this](sol::optional<float> v) {

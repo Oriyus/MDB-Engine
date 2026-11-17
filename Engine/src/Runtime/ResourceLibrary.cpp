@@ -4,6 +4,7 @@
 #include "Renderer/Mesh.h"
 #include "Renderer/Model.h"
 #include "Renderer/Texture.h"
+#include "Renderer/IesProfile.h"
 #include "Scene/Terrain.h"
 #include "Animation/AnimGraph.h"
 #include "Runtime/GameDatabase.h"
@@ -68,6 +69,18 @@ namespace Engine {
 
     std::shared_ptr<Texture2D> ResourceLibrary::LoadTexture(const std::string& path) {
         if (auto it = m_Textures.find(path); it != m_Textures.end()) return it->second;
+        // An IES light profile (.ies): baked into an image of brightness over angles (IesProfile::Bake), used like a cookie
+        if (path.size() > 4 && (path.compare(path.size() - 4, 4, ".ies") == 0 || path.compare(path.size() - 4, 4, ".IES") == 0)) {
+            IesProfile profile;
+            std::string error;
+            std::shared_ptr<Texture2D> tex;
+            if (LoadIesProfile(m_AssetDir + path, profile, &error)) {
+                const std::vector<uint8_t> px = profile.Bake(256, 128);
+                tex = std::make_shared<Texture2D>(256u, 128u, px.data(), true);
+                if (tex->GetID() == 0) tex = nullptr;
+            } else ENGINE_WARN("Light profile {}: {}", path, error);
+            return m_Textures[path] = tex;
+        }
         auto tex = std::make_shared<Texture2D>(m_AssetDir + path);
         if (tex->GetID() == 0) tex = nullptr;            // remembered too: don't retry every frame
         return m_Textures[path] = tex;

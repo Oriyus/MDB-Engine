@@ -19,6 +19,30 @@ namespace Engine {
         return ss.str();
     }
 
+    // Replaces each line `#include "name"` with that file (next to the including one), once per file. Line numbers in
+    // compile errors after an include are off by its length.
+    static std::string ResolveIncludes(const std::string& path, const std::string& src, int depth = 0) {
+        if (depth > 8 || src.find("#include") == std::string::npos) return src;
+        const size_t slash = path.find_last_of("/\\");
+        const std::string dir = slash == std::string::npos ? std::string() : path.substr(0, slash + 1);
+        std::string out;
+        size_t pos = 0;
+        while (pos < src.size()) {
+            size_t eol = src.find('\n', pos);
+            if (eol == std::string::npos) eol = src.size();
+            const std::string line = src.substr(pos, eol - pos);
+            const size_t inc = line.find("#include");
+            const size_t q0 = line.find('"'), q1 = q0 == std::string::npos ? q0 : line.find('"', q0 + 1);
+            if (inc != std::string::npos && line.find_first_not_of(" \t") == inc && q1 != std::string::npos) {
+                const std::string file = dir + line.substr(q0 + 1, q1 - q0 - 1);
+                out += ResolveIncludes(file, ReadFile(file), depth + 1) + "\n";
+            }
+            else out += line + "\n";
+            pos = eol + 1;
+        }
+        return out;
+    }
+
     static uint32_t CompileStage(GLenum type, const std::string& source, const std::string& path, std::string* error = nullptr) {
         uint32_t shader = glCreateShader(type);
         const char* src = source.c_str();
@@ -48,6 +72,38 @@ namespace Engine {
         m_Program = Compile(vertexPath, fragmentPath);
     }
 
+    std::unique_ptr<Shader> Shader::CreateCompute(const std::string& path) {
+        std::unique_ptr<Shader> s(new Shader());
+        s->m_Compute = true;
+        s->m_VertexPath = path;
+        s->m_Program = s->CompileCompute(path);
+        return s;
+    }
+
+    uint32_t Shader::CompileCompute(const std::string& path) {
+        std::string src = ReadFile(path);
+        if (src.empty()) return 0;
+        src = ResolveIncludes(path, src);
+        m_Error.clear();
+        uint32_t cs = CompileStage(GL_COMPUTE_SHADER, src, path, &m_Error);
+        if (!cs) return 0;
+        uint32_t program = glCreateProgram();
+        glAttachShader(program, cs);
+        glLinkProgram(program);
+        glDeleteShader(cs);
+        int ok = 0;
+        glGetProgramiv(program, GL_LINK_STATUS, &ok);
+        if (!ok) {
+            char log[1024];
+            glGetProgramInfoLog(program, sizeof(log), nullptr, log);
+            ENGINE_ERROR("Shader link error in {}:\n{}", path, log);
+            m_Error = log;
+            glDeleteProgram(program);
+            return 0;
+        }
+        return program;
+    }
+
     void Shader::ReplayInto(Shader& o) const {
         for (const auto& [name, v] : m_Values) {
             switch (v.Kind) {
@@ -71,6 +127,8 @@ namespace Engine {
         std::string vsSource = ReadFile(vertexPath);
         std::string fsSource = ReadFile(fragmentPath);
         if (vsSource.empty() || fsSource.empty()) return 0;
+        vsSource = ResolveIncludes(vertexPath, vsSource);
+        fsSource = ResolveIncludes(fragmentPath, fsSource);
 
         // A shader graph's code: defines after the #version line, the code at "// @GRAPH_CODE" (else after the defines)
         auto inject = [](std::string& src, const std::string& defines, const std::string& code) {
@@ -116,7 +174,7 @@ namespace Engine {
     }
 
     bool Shader::Reload() {
-        uint32_t newProgram = Compile(m_VertexPath, m_FragmentPath);
+        uint32_t newProgram = m_Compute ? CompileCompute(m_VertexPath) : Compile(m_VertexPath, m_FragmentPath);
         if (!newProgram) {
             ENGINE_WARN("Shader reload failed, keeping previous version");
             return false;

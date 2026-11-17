@@ -9,7 +9,7 @@ layout(location = 0) out vec4 NearFog;   // rgb light scattered towards the came
 layout(location = 1) out vec4 FarFog;    // the same to its farthest depth
 layout(location = 2) out vec2 Range;     // those two distances (metres)
 
-#define MAX_POINT_LIGHTS 4
+#include "lights.glsl"
 const int MAX_CASCADES = 4;
 const float PI = 3.14159265359;
 
@@ -20,6 +20,7 @@ uniform vec3  u_ViewPos;
 uniform float u_Density, u_HeightFalloff, u_BaseHeight;
 uniform vec3  u_FogColor;                  // linear
 uniform float u_Anisotropy, u_SunScale, u_AmbientScale, u_PointScale;
+uniform int   u_FogPointShadows;      // 1: shadowed point lights cut shafts too (VolumetricFogSettings::PointShadows; spots always)
 uniform float u_NoiseScale, u_NoiseAmount;
 uniform vec3  u_Wind;                      // how far the wisps have drifted (metres)
 uniform float u_MaxDistance;
@@ -36,9 +37,6 @@ uniform mat4  u_SunVP[MAX_CASCADES];
 uniform float u_SunBias[MAX_CASCADES];
 uniform sampler2DArray u_SunShadowMap;     // unit 2
 
-uniform int   u_PointCount;
-uniform vec3  u_PointPos[MAX_POINT_LIGHTS];
-uniform vec3  u_PointColor[MAX_POINT_LIGHTS];
 
 uniform samplerCube u_IrradianceMap;       // unit 6
 uniform int   u_UseIBL;
@@ -109,6 +107,8 @@ float FogDistance(ivec2 px, ivec2 full) {
 }
 
 vec3 g_SunL, g_Sky;
+int g_Tile = 0, g_Slice = -1;     // this ray's light tile, and the slice whose cell g_Cell holds (it changes a few times a ray)
+uvec2 g_Cell = uvec2(0);
 
 // Marches [from, to] in n steps, adding to light and trans
 void March(vec3 dir, float from, float to, int n, float jitter, inout vec3 light, inout float trans) {
@@ -121,9 +121,41 @@ void March(vec3 dir, float from, float to, int n, float jitter, inout vec3 light
         if (d > 1e-5) {
             vec3 L = g_Sky;
             if (u_HasSun == 1) L += g_SunL * SunLight(p);
-            for (int k = 0; k < u_PointCount; k++) {
-                vec3 toLight = u_PointPos[k] - p;
-                L += u_PointColor[k] * u_PointScale / (1.0 + dot(toLight, toLight) * 1.5);
+            for (int k = 0; k < u_PointCount; k++) {      // the shadowed lights, directly (lights.glsl)
+                vec3 toLight = u_PointPosRange[k].xyz - p;
+                if (u_PointExtra[k].z > 0.5) toLight = AreaClosest(u_PointPosRange[k].xyz, u_PointSpot[k].xyz, u_PointArea[k], u_PointExtra[k].z, p) - p;   // an area light
+                float d2 = dot(toLight, toLight);
+                float r = u_PointPosRange[k].w;
+                if (d2 >= r * r) continue;
+                float dl = sqrt(d2);
+                vec3 Lk = toLight / max(dl, 1e-4);
+                float w = u_PointScale * LightWindow(dl, r) * SpotCone(Lk, u_PointSpot[k], u_PointColor[k].w) * AreaEmission(u_PointSpot[k], u_PointExtra[k], Lk) / (1.0 + d2 * 1.5);
+                vec3 lc = u_PointColor[k].rgb * w;
+                if (dot(lc, vec3(0.333)) < 1e-3) continue;          // too faint here for its shadow or cookie to matter
+                if (u_PointCookie[k].x >= 0.0 || u_PointCookie[k].z >= 0.0) lc *= LightCookie(u_PointSpot[k], u_PointCookie[k].xyz, u_PointFrames[k].xyz, Lk, 0.05);
+                if (u_PointShadow[k].x >= 0) lc *= AtlasSpotLit(u_PointShadow[k].x, p, 1.0, dl, 1, 0.0);   // shafts
+                else if (u_PointShadow[k].y >= 0 && u_FogPointShadows == 1) lc *= AtlasCubeLit(u_PointShadow[k].y, u_PointPosRange[k].xyz, p, 1.0, 1, 0.0);
+                L += lc;
+            }
+            if (u_ClusterLightCount > 0) {          // the others: those of this sample's cluster
+                int z = LightSlice(p);
+                if (z != g_Slice) { g_Slice = z; g_Cell = LightCell(g_Tile, z); }
+                uvec2 cell = g_Cell;
+                for (uint k = 0u; k < cell.y; k++) {
+                    PointLightGpu pl = u_Lights[u_ClusterIndices[cell.x + k]];
+                    vec3 toLight = pl.PosRange.xyz - p;
+                    if (pl.Extra.z > 0.5) toLight = AreaClosest(pl.PosRange.xyz, pl.Spot.xyz, pl.Area, pl.Extra.z, p) - p;
+                    float d2 = dot(toLight, toLight);
+                    if (d2 >= pl.PosRange.w * pl.PosRange.w) continue;
+                    float dl = sqrt(d2);
+                    float lw = LightWindow(dl, pl.PosRange.w) * SpotCone(toLight / max(dl, 1e-4), pl.Spot, pl.Color.w) * AreaEmission(pl.Spot, pl.Extra, toLight / max(dl, 1e-4));
+                    if (lw <= 0.0 || dot(pl.Color.rgb, vec3(0.333)) * u_PointScale * lw / (1.0 + d2 * 1.5) < 1e-3) continue;   // too faint here
+                    if (pl.Shadow.x >= 0.0) lw *= AtlasSpotLit(int(pl.Shadow.x), p, 1.0, dl, 1, 0.0);   // shafts
+                    else if (pl.Shadow.y >= 0.0 && u_FogPointShadows == 1) lw *= AtlasCubeLit(int(pl.Shadow.y), pl.PosRange.xyz, p, 1.0, 1, 0.0);
+                    vec3 lc = pl.Color.rgb;
+                    if (pl.Shadow.z >= 0.0 || pl.Cookie.x >= 0.0) lc *= LightCookie(pl, toLight / max(dl, 1e-4), 0.05);   // coloured / patterned shafts
+                    L += lc * u_PointScale * lw / (1.0 + d2 * 1.5);
+                }
             }
             float stepTrans = exp(-d * stepLen);
             light += trans * L * u_FogColor * (1.0 - stepTrans);    // what this slice scatters, dimmed by what is in front
@@ -151,6 +183,7 @@ void main() {
     vec4 w = u_InvViewProjection * vec4(uv * 2.0 - 1.0, 0.0, 1.0);
     vec3 dir = normalize(w.xyz / w.w - u_ViewPos);
 
+    g_Tile = LightTile(v_UV);
     g_SunL = vec3(0.0);
     if (u_HasSun == 1) g_SunL = u_SunColor * u_SunScale * Phase(dot(dir, normalize(-u_SunDir)), u_Anisotropy) * 0.25;
     g_Sky = SkyLight() * u_AmbientScale;

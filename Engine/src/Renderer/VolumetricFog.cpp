@@ -73,6 +73,7 @@ namespace Engine {
         march.SetVec3("u_FogColor", glm::pow(glm::clamp(s.Color, glm::vec3(0.0f), glm::vec3(1.0f)), glm::vec3(2.2f)));
         march.SetFloat("u_Anisotropy", std::clamp(s.Anisotropy, -0.95f, 0.95f));
         march.SetFloat("u_SunScale", s.SunIntensity);
+        march.SetInt("u_FogPointShadows", s.PointShadows ? 1 : 0);
         march.SetFloat("u_AmbientScale", s.AmbientIntensity);
         march.SetFloat("u_PointScale", s.PointLightIntensity);
         march.SetFloat("u_NoiseScale", std::max(s.NoiseScale, 0.001f));

@@ -1,5 +1,6 @@
 #pragma once
 #include "Renderer/Material.h"
+#include "Renderer/LightClusters.h"
 #include <glm/glm.hpp>
 #include <cstdint>
 #include <unordered_map>
@@ -56,8 +57,11 @@ namespace Engine {
     // One shadow view of the frame: a point-light cube face, or a sun cascade (Light = -1, Face = cascade)
     struct ShadowView {
         glm::mat4 ViewProj{ 1.0f };
-        int Light = -1;                     // index into the point lights, -1 = the sun
+        int Light = -1;                     // index into the point / spot lights, -1 = the sun
         int Face = 0;                       // cube face, or the sun cascade
+        uint32_t AtlasTile = 0;             // a square of the shadow atlas (texels; 0 = a sharp cube face or the sun)
+        glm::uvec2 AtlasAt{ 0 };            // its corner
+        float Reach = 0.0f;                 // lights: the far plane (casters further away are skipped)
         float TexelWorld = 0.0f;            // sun: size of one shadow-map texel in world units
         float DepthRange = 1.0f;            // sun: world distance covered by depth 0..1
     };
@@ -98,9 +102,14 @@ namespace Engine {
         glm::vec4 CascadeSplits{ 0.0f };    // view depth where each sun cascade ends
         int CascadeCount = 0;               // 0: no sun shadows this frame
         uint32_t Culled = 0;                // objects outside the camera view
+        bool AreaLights = false;            // a tube or rect light this frame: SceneRenderer draws with the lit variant that has them
         uint32_t ShadowSkipped = 0;         // (caster, shadow view) pairs skipped: outside that light's view
         uint32_t LodReduced = 0;            // objects drawn at a coarser level of detail (MeshRendererComponent::Lods)
         uint32_t LodCulled = 0;             // objects beyond their CullDistance
+        // Point lights: every one this frame (shadow slots first, see PointLightData) and their clusters for the
+        // camera (uploaded by Upload; Scene::SetLightingUniforms binds them)
+        std::vector<PointLightData> Lights;
+        mutable LightClusters Clusters;   // mutable: binding it runs a pending GPU binning
 
     private:
         uint32_t m_Buffers[2] = { 0, 0 };   // instances, indices

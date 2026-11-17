@@ -756,24 +756,311 @@ namespace Engine {
     }
 
     // ---------------------------------------------------------------- light gathering
-    struct PointLightData {
-        glm::vec3 Pos;
-        glm::vec3 Color;     // already multiplied by intensity
-        bool Shadows;
-    };
+    // The cube faces a light's shadows need (+X, -X, +Y, -Y, +Z, -Z as bits): all six for a point light, for a spot
+    // only those its cone can reach (a face sees up to 54.74 degrees off its axis)
+    static uint8_t CubeFaceMask(const PointLightData& l) {
+        if (!l.IsSpot()) return 0x3F;
+        static const glm::vec3 dirs[6] = { { 1, 0, 0 },{ -1, 0, 0 },{ 0, 1, 0 },{ 0, -1, 0 },{ 0, 0, 1 },{ 0, 0, -1 } };
+        const float half = std::acos(std::clamp(l.CosOuter, -1.0f, 1.0f));
+        const float faceCos = half + 0.9553166f >= glm::pi<float>() ? -2.0f : std::cos(half + 0.9553166f);
+        uint8_t mask = 0;
+        for (int f = 0; f < 6; f++) if (glm::dot(l.Dir, dirs[f]) >= faceCos) mask |= (uint8_t)(1u << f);
+        return mask;
+    }
 
-    // Up to MaxLights point lights. The index in this list = the light's shadow layer,
-    // so RenderShadows and Render must use this same function.
-    static std::vector<PointLightData> GatherPointLights(Scene& scene) {
-        auto& reg = scene.Registry();
-        std::vector<PointLightData> out;
-        auto view = reg.view<TransformComponent, PointLightComponent>();
-        for (auto entity : view) {
-            if (out.size() >= PointShadowArray::MaxLights) break;
-            auto [t, l] = view.get<TransformComponent, PointLightComponent>(entity);
-            out.push_back({ glm::vec3(scene.GetWorldMatrix(entity)[3]), l.Color * l.Intensity, l.CastShadows });
+    // The shadow atlas's share-out (GatherPointLights): the AtlasLights most useful candidates (score, index into
+    // `all`, best = lowest) get squares sized by how much of the view their reach covers: a spot up to a quarter of the
+    // atlas across, a cube face up to an eighth; with room to spare all of them double while they fill at most three
+    // quarters of it. A light keeps its squares (and their cached shadows) until its wanted
+    // size doubles or drops to a quarter. When the wanted squares would fill more than 90% of the atlas, the least
+    // useful lights are halved first. Placing goes most useful first; when no square is free, a less useful light's
+    // squares are taken (it is placed again after), and failing that the light tries a smaller size. Sets AtlasEntry.
+    static void AssignAtlas(const ShadowContext& ctx, std::vector<std::pair<float, uint32_t>>& candidates,
+                            const std::vector<float>& coverage, std::vector<PointLightData>& all) {
+        ShadowAtlas& atlas = *ctx.Atlas;
+        auto& entries = ctx.AtlasEntries;
+        const ShadowSettings& s = ctx.Settings;
+        uint32_t size = 1024;
+        while (size < (uint32_t)s.AtlasSize && size < 8192) size <<= 1;
+        if (atlas.Size() != size) { atlas.Resize(size); entries.clear(); }
+
+        std::sort(candidates.begin(), candidates.end());
+        candidates.resize(std::min(candidates.size(), (size_t)(LightClusters::MaxDirect + std::clamp(s.AtlasLights, 0, ShadowSettings::MaxAtlasLights))));
+
+        auto findEntry = [&](uint32_t entity) {
+            for (size_t k = 0; k < entries.size(); k++) if (entries[k].Entity == entity) return (int)k;
+            return -1;
+        };
+        auto pow2Floor = [](float v) { uint32_t p = ShadowAtlas::MinTile; while ((float)(p * 2) <= v) p *= 2; return p; };
+        struct Request { uint32_t Light; bool Cube; bool Direct; uint8_t Mask; int Faces; uint32_t Tile; float Far; };
+        // The largest square: a spot a quarter of the atlas across, a cube face an eighth; half that for lights not shaded directly
+        auto maxTileOf = [&](const Request& r) { return std::max(size / (r.Cube ? 8u : 4u) / (r.Direct ? 1u : 2u), ShadowAtlas::MinTile); };
+        std::vector<Request> reqs;
+        reqs.reserve(candidates.size());
+        for (const auto& [score, i] : candidates) {
+            const PointLightData& d = all[i];
+            Request r;
+            r.Light = i;
+            r.Cube = !d.UsesSpotMap();
+            r.Direct = d.Shadows;
+            r.Mask = r.Cube ? CubeFaceMask(d) : (uint8_t)1;
+            r.Faces = 0;
+            for (int f = 0; f < 6; f++) if (r.Mask & (1u << f)) r.Faces++;
+            r.Far = r.Cube ? std::min(d.Range, s.PointFar) : d.Range;
+            const uint32_t maxTile = maxTileOf(r);
+            r.Tile = std::min(pow2Floor(coverage[i] * 2.0f * (float)maxTile), maxTile);
+            if (r.Faces > 0) reqs.push_back(r);
         }
-        return out;
+        // Room to spare: double every square (up to its kind's largest) while they fill at most three quarters
+        for (;;) {
+            uint64_t grown = 0;
+            bool any = false;
+            for (const Request& r : reqs) {
+                const uint32_t t = std::min(r.Tile * 2, maxTileOf(r));
+                any = any || t != r.Tile;
+                grown += (uint64_t)r.Faces * t * t;
+            }
+            if (!any || grown > (uint64_t)size * size * 3 / 4) break;
+            for (Request& r : reqs) r.Tile = std::min(r.Tile * 2, maxTileOf(r));
+        }
+        // ... then one light at a time, most useful first, with what room is left
+        {
+            const uint64_t room = (uint64_t)size * size * 3 / 4;
+            uint64_t used = 0;
+            for (const Request& r : reqs) used += (uint64_t)r.Faces * r.Tile * r.Tile;
+            for (Request& r : reqs) {
+                const uint64_t more = (uint64_t)r.Faces * r.Tile * r.Tile * 3;
+                if (r.Tile * 2 <= maxTileOf(r) && used + more <= room) { r.Tile *= 2; used += more; }
+            }
+        }
+        // A light keeps the size it has unless the wanted one doubled or dropped to a quarter
+        for (Request& r : reqs) {
+            const int k = findEntry(all[r.Light].Entity);
+            if (k < 0) continue;
+            const auto& e = entries[(size_t)k];
+            if (e.Tile > 0 && e.Cube == r.Cube && e.FaceMask == r.Mask && r.Tile <= e.Tile && r.Tile * 4 > e.Tile) r.Tile = e.Tile;
+        }
+
+        // Fit: halve the least useful while the squares would fill more than 90% of the atlas; drop them if that isn't enough
+        const uint64_t budget = (uint64_t)size * size * 9 / 10;
+        uint64_t total = 0;
+        for (const Request& r : reqs) total += (uint64_t)r.Faces * r.Tile * r.Tile;
+        while (total > budget && !reqs.empty()) {
+            bool shrunk = false;
+            for (size_t k = reqs.size(); k-- > 0 && total > budget;) {
+                Request& r = reqs[k];
+                if (r.Tile <= ShadowAtlas::MinTile) continue;
+                total -= (uint64_t)r.Faces * ((uint64_t)r.Tile * r.Tile - (uint64_t)r.Tile * r.Tile / 4);
+                r.Tile /= 2;
+                shrunk = true;
+            }
+            if (!shrunk) { total -= (uint64_t)reqs.back().Faces * reqs.back().Tile * reqs.back().Tile; reqs.pop_back(); }
+        }
+
+        // Give up the squares of lights no longer wanted, or whose shape or size changed
+        auto freeEntry = [&](ShadowContext::AtlasEntry& e) {
+            if (e.Tile == 0) return;
+            for (int f = 0; f < 6; f++) if (e.FaceMask & (1u << f)) atlas.Free(e.At[f], e.Tile);
+            e.Tile = 0;
+            e.Cache.Valid = false;
+        };
+        for (auto& e : entries) e.Kept = false;
+        for (const Request& r : reqs) {
+            const int k = findEntry(all[r.Light].Entity);
+            if (k < 0) continue;
+            auto& e = entries[(size_t)k];
+            e.Kept = true;
+            if (e.Tile != r.Tile || e.Cube != r.Cube || e.FaceMask != r.Mask) freeEntry(e);
+        }
+        for (auto& e : entries) if (!e.Kept) freeEntry(e);
+        entries.erase(std::remove_if(entries.begin(), entries.end(), [](const ShadowContext::AtlasEntry& e) { return !e.Kept; }), entries.end());
+
+        // Place, most useful first
+        auto place = [&](ShadowContext::AtlasEntry& e, uint32_t tile, uint8_t mask) {
+            for (int f = 0; f < 6; f++) {
+                if (!(mask & (1u << f))) continue;
+                if (!atlas.Alloc(tile, e.At[f])) {
+                    for (int g = 0; g < f; g++) if (mask & (1u << g)) atlas.Free(e.At[g], tile);
+                    return false;
+                }
+            }
+            e.Tile = tile;
+            e.FaceMask = mask;
+            e.Cache.Valid = false;
+            return true;
+        };
+        std::vector<int> entryOf(reqs.size(), -1);
+        for (size_t q = 0; q < reqs.size(); q++) {
+            const Request& r = reqs[q];
+            int k = findEntry(all[r.Light].Entity);
+            if (k < 0) {
+                entries.emplace_back();
+                k = (int)entries.size() - 1;
+                entries[(size_t)k].Entity = all[r.Light].Entity;
+            }
+            entryOf[q] = k;
+            auto& e = entries[(size_t)k];
+            e.Cube = r.Cube;
+            e.Far = r.Far;
+            e.Kept = true;
+            if (e.Tile == r.Tile && e.FaceMask == r.Mask) continue;           // kept its squares
+            uint32_t tile = r.Tile;
+            while (!place(entries[(size_t)k], tile, r.Mask)) {
+                // Full: take a less useful light's squares (it is placed again when its turn comes), else go smaller
+                bool took = false;
+                for (size_t w = reqs.size(); w-- > q + 1;) {
+                    const int kw = findEntry(all[reqs[w].Light].Entity);
+                    if (kw >= 0 && entries[(size_t)kw].Tile > 0) { freeEntry(entries[(size_t)kw]); took = true; break; }
+                }
+                if (!took) { tile /= 2; if (tile < ShadowAtlas::MinTile) break; }
+            }
+        }
+        uint32_t held = 0;
+        for (size_t q = 0; q < reqs.size(); q++)
+            if (entries[(size_t)entryOf[q]].Tile > 0) { all[reqs[q].Light].AtlasEntry = entryOf[q]; held++; }
+        ctx.AtlasLightsHeld = held;
+    }
+
+    // Every point and spot light of the frame into `out` (DrawList::Lights), direct slots first: index i <
+    // LightClusters::MaxDirect is a direct light (Shadows set: shaded from uniforms) or a placeholder. Shadow-casting
+    // lights are ranked by usefulness: those whose reach the camera can see, nearest (to the edge of their reach) first;
+    // a light holding shadows wins ties by a quarter, so cached maps aren't thrown away as the camera moves. The best
+    // MaxDirect take the direct slots; they and the next AtlasLights get shadows in the shadow atlas (AssignAtlas). ctx null: no shadows. tiles: the atlas squares for the shaders. RenderShadows and
+    // SetLightingUniforms read this same list.
+    template <typename VisibleFn>   // VisibleFn(centre, half extent): inside the camera view (Frustum, defined below)
+    static void GatherPointLights(Scene& scene, const Camera& camera, const VisibleFn& visible, const ShadowContext* ctx,
+                                  std::vector<PointLightData>& out, std::vector<ShadowTileGpu>* tiles) {
+        constexpr int kCubes = LightClusters::MaxDirect;
+        out.clear();
+        std::vector<PointLightData> all;
+        std::vector<float> coverage;           // per light: how much of the view its reach covers (0..1; sizes atlas squares)
+        std::vector<std::pair<float, uint32_t>> cubeCandidates, spotCandidates;     // (score, index into all)
+        std::unordered_set<uint32_t> holders;  // lights holding shadows now (sharp cubes, atlas squares)
+        if (ctx) {
+            for (uint32_t o : ctx->SlotOwner) if (o != ~0u) holders.insert(o);
+            for (const auto& e : ctx->AtlasEntries) if (e.Tile > 0) holders.insert(e.Entity);
+        }
+        auto view = scene.Registry().view<TransformComponent, PointLightComponent>();
+        for (auto entity : view) {
+            const auto& l = view.get<PointLightComponent>(entity);
+            PointLightData d;
+            const glm::mat4 world = scene.GetWorldMatrix(entity);
+            d.Pos = glm::vec3(world[3]);
+            d.Color = l.Color * l.Intensity;
+            d.Range = l.Range > 0.0f ? l.Range : AutoPointLightRange(d.Color);
+            d.Radius = std::max(l.Radius, 0.0f);
+            d.Contact = l.ContactShadows;
+            const bool cookie = l.Cookie && l.Cookie->GetID(), profile = l.Profile && l.Profile->GetID();
+            if (l.IsSpot() || cookie || profile) {     // shines along local -Z, like the sun (points: the cookie's aim; area lights below)
+                const glm::vec3 fwd = -glm::vec3(world[2]);
+                const float len = glm::length(fwd);
+                if (len > 1e-6f) d.Dir = fwd / len;
+            }
+            if (l.IsSpot()) d.SetCone(l.SpotAngle, l.SpotBlend);
+            if (l.Shape != LightShape::Sphere) {
+                // An area light: its axes from the entity (so it scales with it); a rect shines along its -Z
+                const glm::vec3 fwd = -glm::vec3(world[2]);
+                if (glm::length(fwd) > 1e-6f) d.Dir = glm::normalize(fwd);
+                const glm::vec3 x = glm::vec3(world[0]);
+                const float sx = glm::length(x), sy = glm::length(glm::vec3(world[1]));
+                d.Shape = (int)l.Shape;
+                d.AreaX = (sx > 1e-6f ? x / sx : glm::vec3(1, 0, 0)) * std::max(l.Size.x, 0.0f) * sx * 0.5f;
+                d.AreaHalfY = l.Shape == LightShape::Rect ? std::max(l.Size.y, 0.0f) * sy * 0.5f : 0.0f;
+                d.Extent = std::sqrt(glm::dot(d.AreaX, d.AreaX) + d.AreaHalfY * d.AreaHalfY);
+            }
+            if (cookie || profile) {
+                // The cookie's top follows the entity's +Y: its turn from the basis the shaders build
+                glm::vec3 right, up;
+                CookieBasis(d.Dir, right, up);
+                const glm::vec3 y = glm::vec3(world[1]);
+                d.CookieRoll = std::atan2(-glm::dot(y, right), glm::dot(y, up));
+                if (cookie) {
+                    d.Cookie = l.Cookie.get();
+                    d.CookieGrid = glm::ivec2(std::max(l.CookieColumns, 1), std::max(l.CookieRows, 1));
+                    d.CookieFrame = l.CookieFrame;
+                    if (l.CookieFps > 0.0f) d.CookieFrame += (int)std::floor(scene.WindTime * l.CookieFps);   // WindTime runs in Edit mode too
+                }
+                if (profile) d.Profile = l.Profile.get();
+            }
+            d.Entity = (uint32_t)entity;
+            float cov = 0.0f;
+            if (ctx && l.CastShadows && d.Range > 0.0f) {
+                const glm::vec4 b = PointLightBounds(d);       // a spot light: the sphere round its cone
+                const float dist = glm::length(glm::vec3(b) - camera.Position);
+                const float edge = std::max(dist - b.w, 0.0f);
+                const bool seen = visible(glm::vec3(b), glm::vec3(b.w));
+                float score = seen ? edge : 1e6f + edge;
+                if (holders.count(d.Entity)) score *= 0.75f;   // a light keeps its shadows while it is about as useful
+                cov = seen ? b.w / std::max(dist, b.w) : 0.0f;
+                (d.UsesSpotMap() ? spotCandidates : cubeCandidates).emplace_back(score, (uint32_t)all.size());
+            }
+            all.push_back(d);
+            coverage.push_back(cov);
+        }
+
+        // The best `slots` candidates get a slot: those that held one keep it, the rest take the free ones
+        auto assign = [&](std::vector<std::pair<float, uint32_t>>& candidates, uint32_t* owners, int slots, std::vector<int>& slotOf) {
+            const size_t keep = std::min(candidates.size(), (size_t)slots);
+            std::partial_sort(candidates.begin(), candidates.begin() + keep, candidates.end());
+            candidates.resize(keep);
+            std::vector<bool> used((size_t)slots, false);
+            for (auto& [score, i] : candidates)
+                for (int s = 0; s < slots; s++)
+                    if (owners[s] == all[i].Entity) { slotOf[i] = s; used[s] = true; break; }
+            for (auto& [score, i] : candidates) {
+                if (slotOf[i] >= 0) continue;
+                for (int s = 0; s < slots; s++) if (!used[s]) { slotOf[i] = s; used[s] = true; break; }
+            }
+            for (int s = 0; s < slots; s++) owners[s] = ~0u;
+            for (size_t i = 0; i < all.size(); i++) if (slotOf[i] >= 0) owners[slotOf[i]] = all[i].Entity;
+        };
+        std::vector<int> slotOf(all.size(), -1);
+        if (ctx) {
+            // Every shadowed light by rank: the best MaxDirect are shaded directly from uniforms (and get the biggest
+            // atlas squares); they and the next AtlasLights get shadows in the atlas
+            std::vector<std::pair<float, uint32_t>> ranked = cubeCandidates;
+            ranked.insert(ranked.end(), spotCandidates.begin(), spotCandidates.end());
+            std::sort(ranked.begin(), ranked.end());
+            std::vector<std::pair<float, uint32_t>> direct(ranked.begin(), ranked.begin() + (ptrdiff_t)std::min(ranked.size(), (size_t)kCubes));
+            assign(direct, ctx->SlotOwner, kCubes, slotOf);
+            for (size_t i = 0; i < all.size(); i++) if (slotOf[i] >= 0) all[i].Shadows = true;
+            if (ctx->Atlas) AssignAtlas(*ctx, ranked, coverage, all);
+            else ctx->AtlasEntries.clear();
+        }
+
+        // Cube slots first (placeholders up to the last slot used), then everything else in registry order
+        int lastSlot = -1;
+        for (int s : slotOf) lastSlot = std::max(lastSlot, s);
+        out.resize((size_t)(lastSlot + 1));
+        for (size_t i = 0; i < all.size(); i++)
+            if (slotOf[i] >= 0) { out[slotOf[i]] = all[i]; out[slotOf[i]].Shadows = true; }
+        for (size_t i = 0; i < all.size(); i++)
+            if (slotOf[i] < 0) out.push_back(all[i]);
+
+        // The atlas squares the shaders read (LightClusters::SetShadowTiles): a spot's one, a cube's six (faces it
+        // holds no square for stay empty), each with the view-projection GatherShadowViews draws it with
+        if (tiles) {
+            tiles->clear();
+            if (ctx && ctx->Atlas) {
+                const float inv = 1.0f / (float)ctx->Atlas->Size();
+                for (PointLightData& d : out) {
+                    if (d.AtlasEntry < 0) continue;
+                    const ShadowContext::AtlasEntry& e = ctx->AtlasEntries[(size_t)d.AtlasEntry];
+                    auto rect = [&](int k) { return glm::vec4(glm::vec2(e.At[k]) * inv, (float)e.Tile * inv, e.Far); };
+                    if (e.Cube) {
+                        d.AtlasCube = (int)tiles->size();
+                        for (int f = 0; f < 6; f++) {
+                            ShadowTileGpu t;
+                            if (e.FaceMask & (1u << f)) { t.ViewProj = AtlasFaceMatrix(d.Pos, f, e.Tile, e.Far); t.Rect = rect(f); }
+                            tiles->push_back(t);
+                        }
+                    } else {
+                        d.AtlasSpot = (int)tiles->size();
+                        tiles->push_back({ SpotShadowMatrix(d), rect(0) });
+                    }
+                }
+            }
+        }
     }
 
     // How one part of a Mesh Renderer uses alpha: the component's settings combined with the
@@ -973,45 +1260,51 @@ namespace Engine {
     }
 
     // The shadow views of this frame, in the order BuildDrawList fills DrawList::ShadowViews and
-    // RenderShadows draws them: the 6 cube faces of each shadowed point light, then the sun cascades.
+    // RenderShadows draws them: the atlas squares of each shadowed light (a spot's one, a cube's faces), then the sun cascades.
     // Also sets list.CascadeSplits / CascadeCount.
     static std::vector<ShadowView> GatherShadowViews(Scene& scene, const ShadowContext& ctx,
         const std::vector<PointLightData>& lights, const Camera& camera, uint32_t sunSize, DrawList& list) {
         const ShadowSettings& s = ctx.Settings;
         std::vector<ShadowView> views;
         if (!s.Enabled) return views;
-        static const glm::vec3 dirs[6] = {
-            { 1, 0, 0 },{ -1, 0, 0 },{ 0, 1, 0 },{ 0, -1, 0 },{ 0, 0, 1 },{ 0, 0, -1 } };
-        static const glm::vec3 ups[6] = {
-            { 0, -1, 0 },{ 0, -1, 0 },{ 0, 0, 1 },{ 0, 0, -1 },{ 0, -1, 0 },{ 0, -1, 0 } };
-        const glm::mat4 proj = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, s.PointFar);
-
-        // Which point lights get their cube re-rendered this frame (the rest keep last time's: the layers persist).
-        // Forced: never drawn, moved, a different light in that slot, the reach changed, or something moved near it
-        // last frame. Otherwise every PointUpdateInterval frames, staggered so the lights take turns.
+        // Which lights get their squares re-rendered this frame (the rest keep last time's: the atlas persists).
+        // Forced: new squares, moved, turned, re-coned, a different far plane, or something moved near it last frame.
+        // Otherwise every PointUpdateInterval frames, staggered so the lights take turns.
         const uint32_t interval = (uint32_t)std::max(s.PointUpdateInterval, 1);
         const uint32_t frame = ctx.Frame++;
-        if (ctx.CachedFar != s.PointFar) { for (auto& c : ctx.Cache) c.Valid = false; ctx.CachedFar = s.PointFar; }
         ctx.PointLightsDrawn = 0;
-        for (int i = 0; i < (int)lights.size(); i++) {
-            if (!lights[i].Shadows) continue;
-            if (i < (int)PointShadowArray::MaxLights) {
-                auto& c = ctx.Cache[i];
-                const bool forced = !c.Valid || c.Pos != lights[i].Pos || c.MovedNear;
-                if (!forced && (frame % interval) != ((uint32_t)i % interval)) continue;
+        // The atlas lights: a spot's one square, a cube's squares (faces it needs), cached the same way (new squares,
+        // the light moving, turning, changing its cone or far plane, or something moving near it redraws at once).
+        // Still cubes not shaded directly redraw at half the rate (there are more of them, and they are further away)
+        if (ctx.Atlas)
+            for (int i = 0; i < (int)lights.size(); i++) {
+                const int k = lights[i].AtlasEntry;
+                if (k < 0 || k >= (int)ctx.AtlasEntries.size()) continue;
+                ShadowContext::AtlasEntry& e = ctx.AtlasEntries[(size_t)k];
+                if (e.Tile == 0) continue;
+                auto& c = e.Cache;
+                const glm::vec4 cone = lights[i].IsSpot() ? glm::vec4(lights[i].Dir, lights[i].CosOuter) : glm::vec4(0.0f, 0.0f, 0.0f, -2.0f);
+                const bool forced = !c.Valid || c.Pos != lights[i].Pos || c.Cone != cone || c.Range != e.Far || c.MovedNear;
+                const uint32_t every = (e.Cube && !lights[i].Shadows) ? interval * 2 : interval;
+                if (!forced && (frame % every) != ((uint32_t)(k + 1) % every)) continue;
                 c.Valid = true;
                 c.Pos = lights[i].Pos;
+                c.Cone = cone;
+                c.Range = e.Far;
                 c.MovedNear = false;
                 ctx.PointLightsDrawn++;
+                for (int f = 0; f < (e.Cube ? 6 : 1); f++) {
+                    if (e.Cube && !(e.FaceMask & (1u << f))) continue;
+                    ShadowView v;
+                    v.ViewProj = e.Cube ? AtlasFaceMatrix(lights[i].Pos, f, e.Tile, e.Far) : SpotShadowMatrix(lights[i]);
+                    v.Light = i;
+                    v.Face = f;
+                    v.AtlasTile = e.Tile;
+                    v.AtlasAt = e.At[f];
+                    v.Reach = e.Far;
+                    views.push_back(v);
+                }
             }
-            for (int f = 0; f < 6; f++) {
-                ShadowView v;
-                v.ViewProj = proj * glm::lookAt(lights[i].Pos, lights[i].Pos + dirs[f], ups[f]);
-                v.Light = i;
-                v.Face = f;
-                views.push_back(v);
-            }
-        }
 
         glm::vec3 sunDir, sunColor;
         bool sunShadows = false;
@@ -1277,8 +1570,13 @@ namespace Engine {
         list.Clear();
         const Frustum frustum(camera.GetViewProjection());
 
+        std::vector<ShadowTileGpu> atlasTiles;
+        GatherPointLights(*this, camera, [&](const glm::vec3& c, const glm::vec3& e) { return frustum.Visible(c, e); },
+            shadowSettings ? shadows : nullptr, list.Lights, &atlasTiles);
+        list.Clusters.SetShadowTiles(std::move(atlasTiles));
+        for (const PointLightData& l : list.Lights) if (l.Shape != 0) { list.AreaLights = true; break; }
+        const auto& lights = list.Lights;
         // Shadow views: a frustum each, plus the light's reach as a sphere for a quick first test
-        const auto lights = GatherPointLights(*this);
         { PROFILE_SCOPE("Shadow views"); list.Views = shadowSettings ? GatherShadowViews(*this, *shadows, lights, camera, sunSize, list) : std::vector<ShadowView>{}; }
         const auto& views = list.Views;
         std::vector<Frustum> viewFrusta;
@@ -1293,6 +1591,17 @@ namespace Engine {
         for (auto& v : shadow) v.clear();
         std::vector<uint8_t> inView(views.size());
 
+        // Something that casts shadows moved (or animates, or changed level) at centre / radius: the shadow maps of the
+        // lights it is in reach of are redrawn next frame (cubes: PointFar; spot maps: the spot's range)
+        auto markMovedNear = [&](const glm::vec3& center, float radius) {
+            for (size_t j = 0; j < lights.size(); j++) {
+                const float gap = glm::length(center - lights[j].Pos) - radius;
+                const int k = lights[j].AtlasEntry;
+                if (k >= 0 && k < (int)shadows->AtlasEntries.size() && gap < shadows->AtlasEntries[(size_t)k].Far)
+                    shadows->AtlasEntries[(size_t)k].Cache.MovedNear = true;
+            }
+        };
+
         // Which shadow views a caster (a box under a transform) can show up in: fills inView
         auto classifyShadows = [&](const glm::mat4& world, const glm::vec3& mn, const glm::vec3& mx) {
             bool any = false;
@@ -1302,10 +1611,10 @@ namespace Engine {
             int lastLight = -2;
             bool lightReaches = true;
             for (size_t v = 0; v < views.size(); v++) {
-                if (views[v].Light != lastLight) {   // new light: is the caster within its range at all?
+                if (views[v].Light != lastLight) {   // new light: is the caster within its reach at all (a spot: its range)?
                     lastLight = views[v].Light;
                     lightReaches = lastLight < 0 ||
-                        glm::length(center - lights[lastLight].Pos) - radius < shadowSettings->PointFar;
+                        glm::length(center - lights[lastLight].Pos) - radius < views[v].Reach;
                 }
                 inView[v] = lightReaches && viewFrusta[v].Visible(center, extent);
                 if (!inView[v]) list.ShadowSkipped++;
@@ -1423,9 +1732,7 @@ namespace Engine {
                 glm::vec3 center, extent;
                 Frustum::WorldBox(world, mn, mx, center, extent);
                 const float radius = glm::length(extent);
-                for (size_t j = 0; j < lights.size() && j < PointShadowArray::MaxLights; j++)
-                    if (lights[j].Shadows && glm::length(center - lights[j].Pos) - radius < shadowSettings->PointFar)
-                        shadows->Cache[j].MovedNear = true;
+                markMovedNear(center, radius);
             }
 
             if (lodCulled) { list.LodCulled++; continue; }
@@ -1567,9 +1874,7 @@ namespace Engine {
                     glm::vec3 center, extent;
                     Frustum::WorldBox(world, ch.Min, ch.Max, center, extent);
                     const float radius = glm::length(extent);
-                    for (size_t j = 0; j < lights.size() && j < PointShadowArray::MaxLights; j++)
-                        if (lights[j].Shadows && glm::length(center - lights[j].Pos) - radius < shadowSettings->PointFar)
-                            shadows->Cache[j].MovedNear = true;
+                    markMovedNear(center, radius);
                 }
                 const bool anyShadow = !views.empty() && tc.CastShadows && classifyShadows(world, ch.Min, ch.Max);
                 if (!visible && !anyShadow) continue;
@@ -1598,6 +1903,31 @@ namespace Engine {
         if (!selected.empty()) list.AddBatches(selected, list.Selected, DrawList::Order::ByState);
         for (size_t v = 0; v < views.size(); v++) list.AddBatches(shadow[v], list.ShadowViews[v], DrawList::Order::ByState);
         }
+        {   // Point lights without a shadow slot into the camera's clusters
+            PROFILE_SCOPE("Light clusters");
+            list.Clusters.Build(list.Lights, camera, GpuLightBinning);
+            uint32_t direct = 0;                       // shadow-slot lights: shaded from uniforms, counted as seen
+            for (const PointLightData& l : list.Lights) if (l.Shadows) direct++;
+            RenderStats::Lights = std::max(RenderStats::Lights, list.Clusters.LightCount() + direct);   // the biggest view (not the previews)
+            RenderStats::LightsVisible = std::max(RenderStats::LightsVisible, list.Clusters.VisibleLights() + direct);
+            RenderStats::LightsPerCluster = std::max(RenderStats::LightsPerCluster, list.Clusters.MaxPerCluster());
+            uint32_t atlas = 0, smallest = 0, largest = 0;
+            for (const PointLightData& l : list.Lights) {
+                if (l.AtlasEntry < 0 || !shadows) continue;
+                const uint32_t t = shadows->AtlasEntries[(size_t)l.AtlasEntry].Tile;
+                atlas++;
+                smallest = smallest ? std::min(smallest, t) : t;
+                largest = std::max(largest, t);
+            }
+            if (atlas >= RenderStats::ShadowedLights) {              // the biggest view again (every shadow is in the atlas)
+                RenderStats::ShadowedLights = atlas;
+                RenderStats::AtlasLights = atlas;
+                RenderStats::AtlasSmallest = smallest;
+                RenderStats::AtlasLargest = largest;
+                if (shadows && shadows->Atlas)
+                    RenderStats::AtlasUsed = (uint32_t)(shadows->Atlas->UsedArea() * 1000 / ((uint64_t)shadows->Atlas->Size() * shadows->Atlas->Size()));
+            }
+        }
         { PROFILE_SCOPE("Upload"); list.Upload(); }
         RenderStats::Culled += list.Culled;
         RenderStats::ShadowSkipped += list.ShadowSkipped;
@@ -1611,7 +1941,7 @@ namespace Engine {
     void Scene::RenderShadows(ShadowContext& ctx, const DrawList& list) {
         const ShadowSettings& s = ctx.Settings;
         if (!s.Enabled) return;
-        const auto lights = GatherPointLights(*this);
+        const auto& lights = list.Lights;
         const auto& views = list.Views;                         // fitted by BuildDrawList
         if (views.size() != list.ShadowViews.size()) return;   // the list was built without shadows
         list.Bind();
@@ -1647,21 +1977,25 @@ namespace Engine {
             }
         };
 
+        bool inAtlas = false;                    // the atlas's scissor is on
         for (size_t v = 0; v < views.size(); v++) {
             const ShadowView& view = views[v];
-            if (view.Light >= 0) {
-                // A point light cube face. Every face is bound and cleared, even with no casters in it.
-                if (!ctx.Points || !ctx.PointDepth) continue;
+            if (inAtlas && view.AtlasTile == 0) { ctx.Atlas->EndTiles(); inAtlas = false; }
+            if (view.AtlasTile > 0) {
+                // A square of the shadow atlas (a spot's view, or a cube face): the cubes' distance shader, the
+                // light's far plane; the scissor keeps the clear and the drawing inside the square
+                if (!ctx.Atlas || !ctx.PointDepth) continue;
                 Shader& sh = *ctx.PointDepth;
                 sh.Bind();
                 SetWindUniforms(sh);
-                sh.SetFloat("u_FarPlane", s.PointFar);
+                sh.SetFloat("u_FarPlane", view.Reach);
                 sh.SetVec3("u_LightPos", lights[view.Light].Pos);
-                ctx.Points->BindFace((uint32_t)view.Light, (uint32_t)view.Face);
+                ctx.Atlas->BindTile(view.AtlasAt, view.AtlasTile);
+                inAtlas = true;
                 sh.SetMat4("u_LightVP", view.ViewProj);
                 drawCasters(sh, list.ShadowViews[v]);
             }
-            else {
+            else if (view.Light < 0) {
                 if (!ctx.Sun || !ctx.SunDepth) continue;
                 Shader& sh = *ctx.SunDepth;
                 sh.Bind();
@@ -1671,6 +2005,7 @@ namespace Engine {
                 drawCasters(sh, list.ShadowViews[v]);
             }
         }
+        if (inAtlas) ctx.Atlas->EndTiles();
     }
 
     // ---------------------------------------------------------------- render system
@@ -1690,7 +2025,6 @@ namespace Engine {
 
     void Scene::SetLightingUniforms(const Camera& camera, Shader& shader, const DrawList& list, const ShadowContext* ctx,
         const Environment* env) {
-        const auto lights = GatherPointLights(*this);
 
         glm::vec3 sunDir(0.0f, -1.0f, 0.0f), sunColor(0.0f);
         bool sunShadows = false;
@@ -1705,7 +2039,6 @@ namespace Engine {
 
         // Every sampler gets its own unit, even when unused (two sampler types on one unit is an error)
         shader.SetInt("u_Texture", 0);
-        shader.SetInt("u_PointShadowMaps", 1);
         shader.SetInt("u_SunShadowMap", 2);
         shader.SetInt("u_NormalMap", 3);
         shader.SetInt("u_MetalRoughMap", 4);
@@ -1725,19 +2058,60 @@ namespace Engine {
             shader.SetFloat("u_EnvRot", glm::radians(env->RotationDegrees));
         }
 
-        // Point lights
-        const bool pointShadows = shadowsOn && ctx->Points;
-        shader.SetInt("u_PointCount", (int)lights.size());
-        for (size_t i = 0; i < lights.size(); i++) {
+        // Point lights, built with the draw list. The direct slots (at most MaxDirect, the first entries of the list:
+        // the most useful shadowed lights) are shaded from uniforms; every other light through the clusters (lights.glsl).
+        // Shadows of both come from the atlas: u_PointShadow = (spot record, first cube record) as PointLightGpu.Shadow.xy
+        int direct = 0;
+        while (direct < (int)list.Lights.size() && direct < LightClusters::MaxDirect &&
+               (list.Lights[direct].Shadows || list.Lights[direct].Entity == ~0u)) direct++;   // slots and placeholders
+        shader.SetInt("u_PointCount", direct);
+        for (int i = 0; i < direct; i++) {
             const std::string idx = "[" + std::to_string(i) + "]";
-            shader.SetVec3("u_PointPos" + idx, lights[i].Pos);
-            shader.SetVec3("u_PointColor" + idx, lights[i].Color);
-            shader.SetInt("u_PointShadow" + idx, (pointShadows && lights[i].Shadows) ? 1 : 0);
+            const PointLightData& l = list.Lights[i];
+            shader.SetVec4("u_PointPosRange" + idx, glm::vec4(l.Pos, l.Range));
+            shader.SetVec4("u_PointColor" + idx, glm::vec4(l.Color, l.CosInner));
+            shader.SetVec4("u_PointSpot" + idx, glm::vec4(l.Dir, l.CosOuter));
+            shader.SetIVec4("u_PointShadow" + idx, glm::ivec4(l.AtlasSpot, l.AtlasCube, 0, 0));
+            shader.SetVec4("u_PointExtra" + idx, glm::vec4(l.Radius, l.Contact ? 1.0f : 0.0f, (float)l.Shape, l.Extent));
+            shader.SetVec4("u_PointArea" + idx, glm::vec4(l.AreaX, l.AreaHalfY));
+            shader.SetVec4("u_PointCookie" + idx, list.Clusters.DirectCookie(i));
+            shader.SetVec4("u_PointFrames" + idx, list.Clusters.DirectFrames(i));
         }
-        if (pointShadows) {
-            ctx->Points->BindTexture(1);
-            shader.SetFloat("u_PointFar", ctx->Settings.PointFar);
-            shader.SetFloat("u_PointBias", ctx->Settings.PointBias);
+        list.Clusters.Bind();
+        shader.SetInt("u_ClusterLightCount", (int)list.Clusters.LightCount());
+        shader.SetVec2("u_ClusterZ", glm::vec2(list.Clusters.ZScale(), list.Clusters.ZBias()));
+        shader.SetVec4("u_ClusterViewRow", list.Clusters.ViewRow());
+        shader.SetInt("u_ClusterDebug", ClusterDebug ? 1 : 0);
+        // The shadow atlas (unit 18; clustered lights carry the records of their squares, binding 9)
+        shader.SetInt("u_LightCookies", 20);           // cookies and profiles, bound by list.Clusters.Bind
+        shader.SetInt("u_ShadowAtlas", 18);
+        shader.SetInt("u_ShadowAtlasRaw", 19);
+        // Contact shadows: the pre-pass depth on unit 1 and the (jittered) camera it was drawn with
+        shader.SetInt("u_ContactDepth", 1);
+        const bool contact = shadowsOn && ctx->ContactDepth != 0 && ctx->Settings.ContactLength > 0.0f;
+        shader.SetFloat("u_ContactLength", contact ? ctx->Settings.ContactLength : 0.0f);
+        shader.SetInt("u_SunContact", contact && ctx->Settings.SunContact ? 1 : 0);
+        shader.SetMat4("u_ContactVP", camera.GetViewProjection());      // also AO's view depth
+        if (contact) {
+            glBindTextureUnit(1, ctx->ContactDepth);
+            shader.SetVec2("u_ContactNearFar", glm::vec2(camera.GetNear(), camera.GetFar()));
+        }
+        // Ambient occlusion on the ambient light only (unit 21), when SceneRenderer computed it before this pass
+        shader.SetInt("u_AOMap", 21);
+        const bool ao = ctx && ctx->AOMap != 0;
+        shader.SetInt("u_AOOn", ao ? 1 : 0);
+        if (ao) {
+            glBindTextureUnit(21, ctx->AOMap);
+            shader.SetFloat("u_AOStrength", ctx->AOStrength);
+            shader.SetVec2("u_AOScreen", ctx->ScreenSize);
+        }
+        shader.SetFloat("u_ShadowFrame", ctx ? (float)(ctx->Frame % 64u) : 0.0f);
+        const bool atlasShadows = shadowsOn && ctx->Atlas && ctx->Atlas->Allocated();
+        shader.SetInt("u_AtlasOn", atlasShadows ? 1 : 0);
+        if (atlasShadows) {
+            ctx->Atlas->BindTexture(18, 19);
+            shader.SetFloat("u_AtlasBias", ctx->Settings.PointBias);
+            shader.SetFloat("u_AtlasTexel", 1.0f / (float)ctx->Atlas->Size());
         }
 
         // Sun

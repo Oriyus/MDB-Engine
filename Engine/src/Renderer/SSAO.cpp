@@ -7,9 +7,9 @@
 
 namespace Engine {
 
-    static void MakeTarget(uint32_t w, uint32_t h, uint32_t& tex, uint32_t& fbo) {
+    static void MakeTarget(uint32_t w, uint32_t h, uint32_t& tex, uint32_t& fbo, GLenum format = GL_R8) {
         glCreateTextures(GL_TEXTURE_2D, 1, &tex);
-        glTextureStorage2D(tex, 1, GL_R8, (GLsizei)w, (GLsizei)h);
+        glTextureStorage2D(tex, 1, format, (GLsizei)w, (GLsizei)h);
         glTextureParameteri(tex, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTextureParameteri(tex, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTextureParameteri(tex, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -42,8 +42,8 @@ namespace Engine {
 
     void SSAO::Invalidate() {
         Destroy();
-        MakeTarget(m_Width, m_Height, m_RawTex, m_RawFBO);
-        MakeTarget(m_Width, m_Height, m_BlurTex, m_BlurFBO);
+        MakeTarget(m_Width, m_Height, m_RawTex, m_RawFBO, GL_RG16F);   // AO and the view depth (for the depth-aware blur)
+        MakeTarget(m_Width, m_Height, m_BlurTex, m_BlurFBO, GL_RG16F);  // blurred AO and the view depth (the upsample weighs by it)
     }
 
     void SSAO::Resize(uint32_t width, uint32_t height) {
@@ -77,7 +77,7 @@ namespace Engine {
         glBindFramebuffer(GL_FRAMEBUFFER, m_BlurFBO);
         blurShader.Bind();
         blurShader.SetInt("u_AO", 0);
-        glBindTextureUnit(0, m_RawTex);
+        glBindTextureUnit(0, m_RawTex);              // AO + view depth: the blur weighs neighbours by depth
         glDrawArrays(GL_TRIANGLES, 0, 3);
 
         glBindVertexArray(0);

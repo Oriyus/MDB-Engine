@@ -36,8 +36,10 @@ namespace Engine {
         CascadeCount = 0;
         Culled = 0;
         ShadowSkipped = 0;
+        AreaLights = false;
         LodReduced = 0;
         LodCulled = 0;
+        Lights.clear();
     }
 
     void DrawList::AddBatches(std::vector<Item>& items, std::vector<DrawBatch>& out, Order order) {
@@ -73,6 +75,7 @@ namespace Engine {
         };
         upload(0, Instances.data(), Instances.size() * sizeof(InstanceData));
         upload(1, Indices.data(), Indices.size() * sizeof(uint32_t));
+        Clusters.Upload();
     }
 
     void DrawList::Bind() const {

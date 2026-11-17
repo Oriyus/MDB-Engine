@@ -28,16 +28,17 @@ namespace Engine {
     struct SceneRenderer::Impl {
         std::string AssetDir;                    // the project's Assets (Environments)
         std::string EngineDir;                   // the engine's files (Shaders)
-        std::unique_ptr<Shader> Lit, PointDepth, SunDepth, Post, SSAOShader, SSAOBlur, BloomDown, BloomUp, FXAA, ParticleShader, DecalShader;
+        std::unique_ptr<Shader> Lit, LitArea, PointDepth, SunDepth, Post, SSAOShader, SSAOBlur, BloomDown, BloomUp, FXAA, ParticleShader, DecalShader;
         std::unique_ptr<Shader> AOApply;                  // ao_apply.frag: AO multiplied into the opaque scene
         std::unique_ptr<DecalRenderer> Decals;
-        std::unique_ptr<Shader> FoliageShader;           // foliage.vert + lit.frag: grass lit like everything else
+        std::unique_ptr<Shader> FoliageShader, FoliageArea;   // foliage.vert + lit.frag: grass lit like everything else (and with area lights)
         std::unique_ptr<FoliageRenderer> Foliage;
         std::unique_ptr<Shader> VolFogMarch, VolFogComposite;   // volfog.frag (half resolution), volfog_composite.frag
         std::unique_ptr<VolumetricFog> FogPass;
         std::chrono::steady_clock::time_point WindClock = std::chrono::steady_clock::now();   // advances Scene::WindTime
         uint32_t DepthCopy = 0, DepthCopyW = 0, DepthCopyH = 0;   // the scene depth, for decals to sample
         uint32_t SelDepth = 0, SelDepthW = 0, SelDepthH = 0;      // the depth of the solid scene, for the selection outline
+        uint32_t ContactDepth = 0, ContactDepthW = 0, ContactDepthH = 0;   // the pre-pass depth, for contact shadows
 
         // Fog of war: the map as an RG8 texture (re-uploaded when its revision changes) and a fullscreen pass
         std::unique_ptr<Shader> FogShader;
@@ -64,6 +65,7 @@ namespace Engine {
         ~Impl() {
             if (DepthCopy) glDeleteTextures(1, &DepthCopy);
             if (SelDepth) glDeleteTextures(1, &SelDepth);
+            if (ContactDepth) glDeleteTextures(1, &ContactDepth);
             if (FogTex) glDeleteTextures(1, &FogTex);
             if (FogVAO) glDeleteVertexArrays(1, &FogVAO);
             if (MaskFBO) glDeleteFramebuffers(1, &MaskFBO);
@@ -333,7 +335,7 @@ namespace Engine {
         std::vector<ParticleDraw> ParticleDraws;           // reused each frame
         std::unique_ptr<DrawList> Draws = std::make_unique<DrawList>();   // this frame's batches and instances
         std::unique_ptr<Environment> Env;
-        std::unique_ptr<PointShadowArray> PointShadows;
+        std::unique_ptr<ShadowAtlas> Atlas;
         std::unique_ptr<DirectionalShadowMap> SunShadow;
         ShadowContext Shadows;
         std::unique_ptr<Framebuffer> HDR;
@@ -365,6 +367,9 @@ namespace Engine {
         I.AssetDir = assetDir;
         I.EngineDir = engineDir;
         I.Lit = std::make_unique<Shader>(I.ShaderPath("lit.vert"), I.ShaderPath("lit.frag"));
+        // The variants with area lights (tubes, rects: MDB_AREA_LIGHTS), used only for frames that have one: their code made
+        // the plain shader about 0.3 ms slower on the village even when it never ran
+        I.LitArea = std::make_unique<Shader>(I.ShaderPath("lit.vert"), I.ShaderPath("lit.frag"), Shader::Injection{ "#define MDB_AREA_LIGHTS 1\n", "", "", "" });
         I.PointDepth = std::make_unique<Shader>(I.ShaderPath("shadow.vert"), I.ShaderPath("shadow.frag"));
         I.SunDepth = std::make_unique<Shader>(I.ShaderPath("shadow.vert"), I.ShaderPath("sun_shadow.frag"));
         I.ParticleShader = std::make_unique<Shader>(I.ShaderPath("particle.vert"), I.ShaderPath("particle.frag"));
@@ -372,6 +377,7 @@ namespace Engine {
         I.DecalShader = std::make_unique<Shader>(I.ShaderPath("decal.vert"), I.ShaderPath("decal.frag"));
         I.Decals = std::make_unique<DecalRenderer>();
         I.FoliageShader = std::make_unique<Shader>(I.ShaderPath("foliage.vert"), I.ShaderPath("lit.frag"));
+        I.FoliageArea = std::make_unique<Shader>(I.ShaderPath("foliage.vert"), I.ShaderPath("lit.frag"), Shader::Injection{ "#define MDB_AREA_LIGHTS 1\n", "", "", "" });
         I.Foliage = std::make_unique<FoliageRenderer>();
         I.VolFogMarch = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("volfog.frag"));
         I.VolFogComposite = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("volfog_composite.frag"));
@@ -395,7 +401,10 @@ namespace Engine {
         // Shader graph materials draw with copies of these four that carry the graph (Renderer/ShaderGraph.h): they
         // record what they are given, which is replayed onto the copy when a batch switches to it
         { int v = 0; for (Shader* s : { I.Lit.get(), I.Prepass.get(), I.PointDepth.get(), I.SunDepth.get() }) { s->Record = true; s->GraphVariant = v++; } }
+        I.LitArea->Record = true;             // shader graphs replay its uniforms too (their programs have no area lights)
+        I.LitArea->GraphVariant = 0;
         SGProgram::SetShaderDir(I.ShaderPath(""));
+        LightClusters::SetShaderDir(I.EngineDir + "Shaders");   // light_clusters.comp: point lights binned on the GPU
         I.FoliagePrepass->QuietMissing = true;
         I.Wire->QuietMissing = true;          // given the lit.frag lighting uniforms (Scene::Render)
         I.SelectMask->QuietMissing = true;
@@ -404,9 +413,9 @@ namespace Engine {
         I.EnvPending = true;      // the procedural sky, baked by the first Render, unless a scene asks for another first
                                   // (baking it here was thrown away by every scene with a sky map: about 35 ms at start)
 
-        I.PointShadows = std::make_unique<PointShadowArray>(1024);
+        I.Atlas = std::make_unique<ShadowAtlas>(8192);           // the texture is made on first use (ShadowSettings::AtlasSize)
         I.SunShadow = std::make_unique<DirectionalShadowMap>(2048);
-        I.Shadows.Points = I.PointShadows.get();
+        I.Shadows.Atlas = I.Atlas.get();
         I.Shadows.Sun = I.SunShadow.get();
         I.Shadows.PointDepth = I.PointDepth.get();
         I.Shadows.SunDepth = I.SunDepth.get();
@@ -453,11 +462,11 @@ namespace Engine {
         const bool aoOn = Post.AOEnabled && !wireframe && !(taa && ShowMotionVectors);
         const bool aoDebug = aoOn && Post.AODebug && rendered;   // Debug > Ambient Occlusion Only: the tone map shows the buffer
         if (!I.HasPrevViewProj) { I.PrevViewProj = curViewProj; I.HasPrevViewProj = true; }
-        for (Shader* s : { I.Lit.get(), I.FoliageShader.get(), I.Wire.get(), I.SelectMask.get() }) {
+        for (Shader* s : { I.Lit.get(), I.LitArea.get(), I.FoliageShader.get(), I.FoliageArea.get(), I.Wire.get(), I.SelectMask.get() }) {
             s->SetMat4("u_CurViewProjection", curViewProj);
             s->SetMat4("u_PrevViewProjection", I.PrevViewProj);
         }
-        for (Shader* s : { I.Lit.get(), I.Wire.get(), I.SelectMask.get() }) s->SetFloat("u_SceneWindTimePrev", scene.WindTimePrev);
+        for (Shader* s : { I.Lit.get(), I.LitArea.get(), I.Wire.get(), I.SelectMask.get() }) s->SetFloat("u_SceneWindTimePrev", scene.WindTimePrev);
 
         // The selection to outline (sorted for BuildDrawList's lookups)
         I.HighlightSorted = Highlight;
@@ -466,6 +475,7 @@ namespace Engine {
 
         // 1) Depth passes (all point lights + sun)
         { PROFILE_SCOPE("Build draw list"); scene.BuildDrawList(*I.Draws, view, shadows); }
+        I.Gpu.Mark("uploads");
         if (shadows) { PROFILE_SCOPE("Shadow passes"); scene.RenderShadows(I.Shadows, *I.Draws); }
         I.Gpu.Mark("shadows");
 
@@ -476,8 +486,7 @@ namespace Engine {
         else if (wireframe) I.HDR->Clear(0.018f, 0.019f, 0.022f, 1.0f);
         else I.HDR->Clear(0.045f, 0.047f, 0.052f, 1.0f);
         const int viewMode = Mode == ViewMode::Solid ? 1 : Mode == ViewMode::Textured ? 2 : 0;
-        I.Lit->SetInt("u_ViewMode", viewMode);
-        I.FoliageShader->SetInt("u_ViewMode", viewMode);
+        for (Shader* s : { I.Lit.get(), I.LitArea.get(), I.FoliageShader.get(), I.FoliageArea.get() }) s->SetInt("u_ViewMode", viewMode);
 
         uint32_t depthCopy = 0;
         auto depth = [&]() { if (!depthCopy) depthCopy = I.CopyDepth(I.HDR->GetWidth(), I.HDR->GetHeight()); return depthCopy; };
@@ -493,6 +502,7 @@ namespace Engine {
             // Depth pre-pass: the opaque scene and the grass, depth only, so the lit passes below shade each pixel
             // once instead of once per overlapping leaf card or blade (they test LEQUAL against it, writing nothing)
             const bool prepass = DepthPrepass;
+            bool contactCopied = false;                // the depth copy for contact shadows (and AO's upsample) is made
             if (prepass) {
                 PROFILE_SCOPE("Depth pre-pass");
                 glColorMaski(0, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
@@ -501,19 +511,46 @@ namespace Engine {
                 // The selection outline tests against the depth of solid objects only: grass, decals and glass do not hide it
                 if (!I.Draws->Selected.empty()) selDepth = I.CopyDepthInto(I.SelDepth, I.SelDepthW, I.SelDepthH, I.HDR->GetWidth(), I.HDR->GetHeight());
                 I.Foliage->Render(scene, view, *I.FoliagePrepass, *I.Draws, nullptr, nullptr, true);   // advances wind, trampling
+                // Contact shadows march through this depth (the opaque scene and the grass) in the lit passes below
+                if (rendered && shadows && I.Shadows.Settings.Enabled && I.Shadows.Settings.ContactLength > 0.0f)
+                {
+                    I.Shadows.ContactDepth = I.CopyDepthInto(I.ContactDepth, I.ContactDepthW, I.ContactDepthH, I.HDR->GetWidth(), I.HDR->GetHeight());
+                    contactCopied = true;
+                }
                 glColorMaski(0, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
                 glColorMaski(1, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
                 glDepthFunc(GL_LEQUAL);
                 glDepthMask(GL_FALSE);
                 I.Gpu.Mark("depth pre-pass");
             }
+            // Ambient occlusion from the pre-pass depth, before any lighting: lit.frag applies it to the ambient light
+            // only (sky and environment), so the sun and lamps aren't darkened in creases. Without a pre-pass (or in the
+            // editor's Solid / Textured views) it is computed after the opaque scene and multiplied in, as before (below)
+            const bool aoInLighting = aoOn && prepass && shadows;
+            if (aoInLighting) {
+                PROFILE_SCOPE("SSAO");
+                Framebuffer::Unbind();
+                I.AO->Resize(std::max(width / 2, 1u), std::max(height / 2, 1u));
+                I.SSAOShader->SetFloat("u_NoiseOffset", taa ? std::fmod(I.FrameIndex * 0.618034f, 1.0f) : 0.0f);
+                I.AO->Compute(I.HDR->GetDepthAttachment(), view.GetProjection(), *I.SSAOShader, *I.SSAOBlur);
+                I.HDR->Bind();
+                glDepthFunc(GL_LEQUAL);
+                glDepthMask(GL_FALSE);
+                I.Shadows.AOMap = I.AO->GetOutput();
+                I.Shadows.AOStrength = Post.AOStrength;
+                I.Shadows.ScreenSize = glm::vec2((float)I.HDR->GetWidth(), (float)I.HDR->GetHeight());
+                I.Gpu.Mark("SSAO");
+            }
             if (taa) I.HDR->SetVelocityWrites(true);
-            { PROFILE_SCOPE("Opaque pass"); scene.Render(view, *I.Lit, *I.Draws, shadows, env); }
+            { PROFILE_SCOPE("Opaque pass"); scene.Render(view, I.Draws->AreaLights ? *I.LitArea : *I.Lit, *I.Draws, shadows, env); }
             I.Gpu.Mark("opaque scene");
+            I.Shadows.ContactDepth = 0;                    // no contact shadows on grass (thin blades: not worth the rays)
             if (!prepass && !I.Draws->Selected.empty())
                 selDepth = I.CopyDepthInto(I.SelDepth, I.SelDepthW, I.SelDepthH, I.HDR->GetWidth(), I.HDR->GetHeight());
-            { PROFILE_SCOPE("Foliage"); I.Foliage->Render(scene, view, *I.FoliageShader, *I.Draws, shadows, env, !prepass); }   // grass: opaque, before the sky
+            { PROFILE_SCOPE("Foliage"); I.Foliage->Render(scene, view, I.Draws->AreaLights ? *I.FoliageArea : *I.FoliageShader, *I.Draws, shadows, env, !prepass); }   // grass: opaque, before the sky
             I.Gpu.Mark("grass");
+            I.Shadows.ContactDepth = 0;                    // not for glass, decals or fog
+            I.Shadows.AOMap = 0;
             if (taa) I.HDR->SetVelocityWrites(false);
             if (prepass) {
                 glDepthFunc(GL_LESS);
@@ -523,13 +560,17 @@ namespace Engine {
             // now, before the sky, glass, volumetric fog and particles (which it must not darken: fog in front of a
             // crevice hides it) and before the TAA resolve (which averages AO's noise away). It used to multiply the
             // finished picture in the tone map, so it darkened the fog and flickered with the TAA jitter.
-            if (aoOn) {
+            if (aoOn && !aoInLighting) {
                 PROFILE_SCOPE("SSAO");
                 Framebuffer::Unbind();
                 // Half resolution: a quarter of the cost (1.0 -> 0.3 ms at 1080p on an RTX 2060); AO is soft
                 I.AO->Resize(std::max(width / 2, 1u), std::max(height / 2, 1u));
                 I.SSAOShader->SetFloat("u_NoiseOffset", taa ? std::fmod(I.FrameIndex * 0.618034f, 1.0f) : 0.0f);
                 I.AO->Compute(I.HDR->GetDepthAttachment(), view.GetProjection(), *I.SSAOShader, *I.SSAOBlur);
+                // The depth-aware upsample reads the depth: a copy (sampling the attached one would be a feedback
+                // loop); the contact-shadow copy already holds it (the lit passes don't write depth)
+                const uint32_t aoDepth = contactCopied ? I.ContactDepth
+                    : I.CopyDepthInto(I.ContactDepth, I.ContactDepthW, I.ContactDepthH, I.HDR->GetWidth(), I.HDR->GetHeight());
                 I.HDR->Bind();
                 if (!aoDebug) {
                     glDisable(GL_DEPTH_TEST);
@@ -540,6 +581,9 @@ namespace Engine {
                     I.AOApply->Bind();
                     I.AOApply->SetInt("u_AO", 0);
                     I.AOApply->SetFloat("u_AOStrength", Post.AOStrength);
+                    I.AOApply->SetInt("u_Depth", 1);
+                    I.AOApply->SetMat4("u_InvProj", glm::inverse(view.GetProjection()));
+                    glBindTextureUnit(1, aoDepth);
                     glBindTextureUnit(0, I.AO->GetOutput());
                     if (!I.FogVAO) glCreateVertexArrays(1, &I.FogVAO);   // the empty VAO the fullscreen passes share
                     glBindVertexArray(I.FogVAO);
@@ -558,7 +602,7 @@ namespace Engine {
             if (!scene.Decals.empty() && Mode != ViewMode::Solid)      // projected onto the opaque scene, under glass
                 I.Decals->Render(scene.Decals, view, depth(), I.HDR->GetWidth(), I.HDR->GetHeight(), *I.DecalShader);
             I.Gpu.Mark("decals");
-            { PROFILE_SCOPE("Transparent pass"); scene.Render(view, *I.Lit, *I.Draws, shadows, env, Scene::RenderPass::Transparent); }   // glass etc. over the sky
+            { PROFILE_SCOPE("Transparent pass"); scene.Render(view, I.Draws->AreaLights ? *I.LitArea : *I.Lit, *I.Draws, shadows, env, Scene::RenderPass::Transparent); }   // glass etc. over the sky
             I.Gpu.Mark("see-through");
             if (VolFog.Enabled && rendered)                          // fog over the scene and the sky, under particles
                 I.FogPass->Render(scene, view, *I.VolFogMarch, *I.VolFogComposite, *I.Draws, &I.Shadows, I.Env.get(), depth(),
@@ -641,18 +685,21 @@ namespace Engine {
     uint32_t SceneRenderer::GetHeight() const { return m_Impl->HDR->GetHeight(); }
     Framebuffer& SceneRenderer::GetFramebuffer() { return *m_Impl->HDR; }
     ShadowSettings& SceneRenderer::Shadows() { return m_Impl->Shadows.Settings; }
+    const ShadowContext& SceneRenderer::ShadowState() const { return m_Impl->Shadows; }
+    uint32_t SceneRenderer::ShadowAtlasView() const { return m_Impl->Atlas ? m_Impl->Atlas->DebugView() : 0; }
     SSAO& SceneRenderer::GetSSAO() { return *m_Impl->AO; }
     Bloom& SceneRenderer::GetBloom() { return *m_Impl->Glow; }
     Environment& SceneRenderer::GetEnvironment() { return *m_Impl->Env; }
 
     void SceneRenderer::ReloadShaders() {
         Impl& I = *m_Impl;
-        for (auto* s : { I.Lit.get(), I.PointDepth.get(), I.SunDepth.get(), I.Post.get(), I.SSAOShader.get(),
+        for (auto* s : { I.Lit.get(), I.LitArea.get(), I.FoliageArea.get(), I.PointDepth.get(), I.SunDepth.get(), I.Post.get(), I.SSAOShader.get(),
                          I.SSAOBlur.get(), I.AOApply.get(), I.BloomDown.get(), I.BloomUp.get(), I.FXAA.get(), I.ParticleShader.get(), I.DecalShader.get(), I.FogShader.get(), I.FoliageShader.get(), I.VolFogMarch.get(), I.VolFogComposite.get(),
                          I.Wire.get(), I.SelectMask.get(), I.Outline.get(), I.Grid.get(), I.TAAResolve.get(), I.Prepass.get(), I.FoliagePrepass.get() })
             s->Reload();
         I.Env->ReloadSkyShader();
         SGProgram::ReloadAll();                // shader graph programs are made again from the new files on first use
+        LightClusters::ReloadShader();
     }
 
     void SceneRenderer::RequestEnvironment(const std::string& hdrFile) {

@@ -85,6 +85,10 @@ namespace Engine {
         bool ShowFog = true;                 // draw fog of war when a script turned it on (the editor can hide it)
         VolumetricFogSettings VolFog;          // volumetric fog (part of the level settings)
         ShadowSettings& Shadows();
+        // The shadow atlas as it stands (Viewport > Debug > Shadow Atlas): its lights' squares, its size, and a texture
+        // to look at (0 until the atlas is first used)
+        const ShadowContext& ShadowState() const;
+        uint32_t ShadowAtlasView() const;
         SSAO& GetSSAO();
         Bloom& GetBloom();
 

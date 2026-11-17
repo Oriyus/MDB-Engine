@@ -206,10 +206,37 @@ namespace Engine {
         float Softness = 0.0f;
     };
 
+    // An area light's shape (PointLightComponent::Shape; stored in scene files by name: "tube", "rect")
+    enum class LightShape : int { Sphere = 0, Tube = 1, Rect = 2 };
     struct PointLightComponent {
         glm::vec3 Color{ 1.0f };
         float Intensity = 1.0f;
         bool  CastShadows = true;
+        float Range = 0.0f;          // metres: it fades to nothing there (0 = automatic, from the brightness: AutoPointLightRange)
+        // The light's size: a glowing ball this many metres across from its middle (0 = a point). Wider highlights,
+        // and shadows that soften with the gap between caster and receiver (PCSS). Points and spots.
+        float Radius = 0.0f;
+        bool  ContactShadows = true;   // a short screen-space ray towards the light darkens what shadow maps miss (ShadowSettings::ContactLength)
+        // A spot light: SpotAngle = the cone's full angle in degrees (1..179) along local -Z, like the sun; 0 = a point
+        // light (every way). SpotBlend = the share of the cone's edge (0..1) over which it fades out.
+        float SpotAngle = 0.0f;
+        float SpotBlend = 0.15f;
+        // A cookie: an image the light shines through (multiplies it: gobos, window frames, stained glass, a pierced
+        // lantern). A spot projects it along the cone; a point light wraps it round itself as a panorama (2:1, its middle
+        // along local -Z). Its top follows the entity's local +Y. A flipbook: CookieColumns x CookieRows frames (left to
+        // right, top row first), played at CookieFps (0 = hold CookieFrame; with a rate, CookieFrame is the first frame).
+        std::shared_ptr<Texture2D> Cookie;
+        int CookieColumns = 1, CookieRows = 1;
+        float CookieFps = 0.0f;
+        int CookieFrame = 0;
+        // An IES light profile (a ".ies" file, loaded as a texture: ResourceLibrary::LoadTexture bakes it): how bright
+        // the light is in each direction, 0 degrees along local -Z (aim a ceiling light down). Points and spots.
+        std::shared_ptr<Texture2D> Profile;
+        // Area lights: a Tube (Size.x long along local X, Radius thick) or a Rect (Size.x by Size.y in local X / Y, shining
+        // one way, along local -Z, brightest straight ahead). Both scale with the entity. A shaped light has no cone.
+        LightShape Shape = LightShape::Sphere;
+        glm::vec2 Size{ 1.0f, 0.5f };
+        bool IsSpot() const { return SpotAngle > 0.0f && Shape == LightShape::Sphere; }
     };
 
     // Direction comes from the entity's rotation: the light travels along local -Z.

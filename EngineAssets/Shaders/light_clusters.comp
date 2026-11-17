@@ -1,0 +1,127 @@
+#version 450 core
+// Light binning on the GPU (Renderer/LightClusters::DispatchGpu): one work group per screen tile (16 x 9, as lights.glsl)
+// handles that tile's 24 depth slices. 256 threads take the lights in rounds of 256: each light's bounds (its sphere, or
+// the sphere round a spot light's cone) are tested once against the tile's four side planes, then against the box of
+// each slice its depth range spans. Each slice's hits are compacted with a bit mask, so a cluster's list keeps the
+// lights in index order (the same order as the CPU binning: sums don't change from frame to frame). Then one thread
+// per slice takes room in the shared index list (an atomic counter) and writes the cell.
+
+layout(local_size_x = 256) in;
+const uint GROUP = 256u, WORDS = GROUP / 32u;   // threads, and mask words per slice
+
+const int CLUSTER_X = 16, CLUSTER_Y = 9, CLUSTER_Z = 24;
+const uint MAX_PER = 256u;              // LightClusters::GpuMaxPerCluster
+const float MARGIN = 0.004;             // in NDC: for the sub-pixel jitter (TAA) and rounding, as the CPU binning
+
+struct PointLightGpu { vec4 PosRange; vec4 Color; vec4 Spot; vec4 Shadow; vec4 Cookie; vec4 Extra; vec4 Area; };   // as lights.glsl
+layout(std430, binding = 5) readonly buffer PointLights { PointLightGpu u_Lights[]; };
+layout(std430, binding = 6) writeonly buffer LightClusterCells { uvec2 u_Cells[]; };
+layout(std430, binding = 7) writeonly buffer LightClusterIndices { uint u_Indices[]; };
+// Copied back for the stats: indices used (also the allocator), most lights in one cluster, lights in any cluster
+layout(std430, binding = 8) buffer LightClusterStats { uint s_Next; uint s_MaxPer; uint s_Visible; uint s_Spare; uint s_Seen[]; };
+
+uniform mat4 u_View;
+uniform vec4 u_Lens;            // tan of the half angles (x, y), near, far (the slices' range)
+uniform vec2 u_ClusterZ;        // slice = log(depth) * x + y (as lights.glsl)
+uniform int  u_LightCount;
+uniform int  u_Capacity;        // room in the index list
+
+shared uint sh_List[CLUSTER_Z * MAX_PER];
+shared uint sh_Mask[CLUSTER_Z * 8];      // per slice: one bit per thread (WORDS words)
+shared uint sh_Count[CLUSTER_Z];
+shared uint sh_First[CLUSTER_Z], sh_Keep[CLUSTER_Z];
+shared float sh_Z[CLUSTER_Z + 1];
+
+// The sphere holding everything a light reaches (PointLightBounds in LightClusters.cpp)
+vec4 Bounds(PointLightGpu l) {
+    float r = l.PosRange.w, c = l.Spot.w;
+    if (l.Extra.z > 0.5) return vec4(l.PosRange.xyz, r + l.Extra.w);    // an area light: its range round any point of it
+    if (c < -1.5 || c <= 0.0) return l.PosRange;
+    float s = sqrt(max(1.0 - c * c, 0.0));
+    if (c < 0.70710678) return vec4(l.PosRange.xyz + l.Spot.xyz * (r * c), r * s);
+    float R = r / (2.0 * c);
+    return vec4(l.PosRange.xyz + l.Spot.xyz * R, R);
+}
+
+int SliceOf(float depth) {
+    return clamp(int(floor(log(max(depth, u_Lens.z)) * u_ClusterZ.x + u_ClusterZ.y)), 0, CLUSTER_Z - 1);
+}
+
+void main() {
+    uvec2 tile = gl_WorkGroupID.xy;
+    uint local = gl_LocalInvocationIndex;
+    float n = u_Lens.z, f = u_Lens.w;
+    if (local <= uint(CLUSTER_Z)) {
+        float z = n * pow(f / n, float(local) / float(CLUSTER_Z));
+        sh_Z[local] = local == uint(CLUSTER_Z) ? f * 4.0 : (local == 0u ? n : z);
+    }
+    if (local < uint(CLUSTER_Z)) sh_Count[local] = 0u;
+
+    // The tile in NDC, and its side planes in view space (through the eye; inside = dot >= 0; the camera looks along -z)
+    vec2 ndc0 = vec2(tile) / vec2(CLUSTER_X, CLUSTER_Y) * 2.0 - 1.0 - MARGIN;
+    vec2 ndc1 = vec2(tile + 1u) / vec2(CLUSTER_X, CLUSTER_Y) * 2.0 - 1.0 + MARGIN;
+    vec2 t0 = ndc0 * u_Lens.xy, t1 = ndc1 * u_Lens.xy;
+    vec3 pl = normalize(vec3(1.0, 0.0, t0.x)), pr = normalize(vec3(-1.0, 0.0, -t1.x));
+    vec3 pb = normalize(vec3(0.0, 1.0, t0.y)), pt = normalize(vec3(0.0, -1.0, -t1.y));
+
+    for (int base = 0; base < u_LightCount; base += int(GROUP)) {
+        barrier();             // last round's ranks are written and its counts added
+        if (local < uint(CLUSTER_Z) * WORDS) sh_Mask[local] = 0u;
+        barrier();
+        uint i = uint(base) + local;
+        uint hits = 0u;        // bit s: this light reaches slice s of the tile
+        vec3 c = vec3(0.0);
+        if (i < uint(u_LightCount)) {
+            vec4 b = Bounds(u_Lights[i]);
+            c = (u_View * vec4(b.xyz, 1.0)).xyz;
+            float r = b.w, depth = -c.z;
+            if (depth + r > n && depth - r < f * 4.0 &&
+                dot(pl, c) >= -r && dot(pr, c) >= -r && dot(pb, c) >= -r && dot(pt, c) >= -r) {
+                int s0 = SliceOf(depth - r), s1 = SliceOf(depth + r);
+                for (int s = s0; s <= s1; s++) {
+                    // The slice's box: the tile at the slice's near and far depths
+                    float z0 = sh_Z[s], z1 = sh_Z[s + 1];
+                    vec3 lo = vec3(min(t0 * z0, t0 * z1), -z1), hi = vec3(max(t1 * z0, t1 * z1), -z0);
+                    vec3 d = c - clamp(c, lo, hi);
+                    if (dot(d, d) <= r * r) hits |= 1u << uint(s);
+                }
+            }
+        }
+        if (hits != 0u) {
+            for (uint m = hits; m != 0u; m &= m - 1u) atomicOr(sh_Mask[uint(findLSB(m)) * WORDS + (local >> 5u)], 1u << (local & 31u));
+            uint word = i >> 5u, bit = 1u << (i & 31u);
+            if ((atomicOr(s_Seen[word], bit) & bit) == 0u) atomicAdd(s_Visible, 1u);
+        }
+        barrier();
+        // Each hit's place in its slice's list: the hits of lower threads this round, after the earlier rounds'
+        for (uint m = hits; m != 0u; m &= m - 1u) {
+            uint s = uint(findLSB(m));
+            uint w = local >> 5u, below = uint(bitCount(sh_Mask[s * WORDS + w] & ((1u << (local & 31u)) - 1u)));
+            for (uint k = 0u; k < w; k++) below += uint(bitCount(sh_Mask[s * WORDS + k]));
+            uint at = sh_Count[s] + below;
+            if (at < MAX_PER) sh_List[s * MAX_PER + at] = i;
+        }
+        barrier();
+        if (local < uint(CLUSTER_Z)) {
+            uint add = 0u;
+            for (uint k = 0u; k < WORDS; k++) add += uint(bitCount(sh_Mask[local * WORDS + k]));
+            sh_Count[local] += add;
+        }
+    }
+    barrier();
+
+    if (local < uint(CLUSTER_Z)) {
+        uint count = sh_Count[local];
+        uint keep = min(count, MAX_PER);
+        atomicMax(s_MaxPer, count);
+        uint first = keep > 0u ? atomicAdd(s_Next, keep) : 0u;
+        uint cap = uint(u_Capacity);
+        keep = first >= cap ? 0u : min(keep, cap - first);     // out of room: the list grows next frames
+        u_Cells[(local * uint(CLUSTER_Y) + tile.y) * uint(CLUSTER_X) + tile.x] = uvec2(first, keep);
+        sh_First[local] = first;
+        sh_Keep[local] = keep;
+    }
+    barrier();
+    for (int s = 0; s < CLUSTER_Z; s++)
+        for (uint k = local; k < sh_Keep[s]; k += GROUP) u_Indices[sh_First[s] + k] = sh_List[uint(s) * MAX_PER + k];
+}

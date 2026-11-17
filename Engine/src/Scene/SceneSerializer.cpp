@@ -31,13 +31,13 @@ namespace Engine {
                 { "bloom", { { "enabled", p.BloomEnabled },{ "intensity", p.BloomIntensity },
                              { "threshold", s.BloomThreshold },{ "knee", s.BloomKnee },
                              { "radius", s.BloomRadius },{ "maxBrightness", s.BloomMaxBrightness } } },
-                { "shadows", { { "enabled", sh.Enabled },{ "pointBias", sh.PointBias },{ "pointFar", sh.PointFar },{ "pointInterval", sh.PointUpdateInterval },
+                { "shadows", { { "enabled", sh.Enabled },{ "pointBias", sh.PointBias },{ "pointFar", sh.PointFar },{ "pointInterval", sh.PointUpdateInterval },{ "atlasLights", sh.AtlasLights },{ "atlasSize", sh.AtlasSize },{ "contactLength", sh.ContactLength },{ "sunContact", sh.SunContact },
                                { "sunBias", sh.SunBias },{ "sunExtent", sh.SunExtent },{ "sunDistance", sh.SunDistance },
                                { "sunCascades", sh.SunCascades },{ "cascadeCount", sh.CascadeCount },
                                { "shadowDistance", sh.ShadowDistance },{ "cascadeSplit", sh.CascadeSplit } } },
                 { "volumetricFog", { { "enabled", s.VolumetricFog.Enabled },{ "density", s.VolumetricFog.Density },
                                      { "heightFalloff", s.VolumetricFog.HeightFalloff },{ "baseHeight", s.VolumetricFog.BaseHeight },
-                                     { "color", s.VolumetricFog.Color },{ "anisotropy", s.VolumetricFog.Anisotropy },
+                                     { "color", s.VolumetricFog.Color },{ "anisotropy", s.VolumetricFog.Anisotropy },{ "pointShadows", s.VolumetricFog.PointShadows },
                                      { "sunIntensity", s.VolumetricFog.SunIntensity },{ "ambientIntensity", s.VolumetricFog.AmbientIntensity },
                                      { "pointLightIntensity", s.VolumetricFog.PointLightIntensity },
                                      { "noiseScale", s.VolumetricFog.NoiseScale },{ "noiseAmount", s.VolumetricFog.NoiseAmount },
@@ -99,6 +99,12 @@ namespace Engine {
                 sh.PointBias = e->value("pointBias", sh.PointBias);
                 sh.PointFar = e->value("pointFar", sh.PointFar);
                 sh.PointUpdateInterval = std::clamp(e->value("pointInterval", sh.PointUpdateInterval), 1, 8);
+                // (older files: extraPointShadows, the far tier's count; the atlas holds spot lights too, hence + 8)
+                if (e->contains("extraPointShadows") && !e->contains("atlasLights")) sh.AtlasLights = e->value("extraPointShadows", 8) + 8;
+                sh.AtlasLights = std::clamp(e->value("atlasLights", sh.AtlasLights), 0, ShadowSettings::MaxAtlasLights);
+                sh.AtlasSize = std::clamp(e->value("atlasSize", sh.AtlasSize), 1024, 8192);
+                sh.ContactLength = std::clamp(e->value("contactLength", sh.ContactLength), 0.0f, 2.0f);
+                sh.SunContact = e->value("sunContact", sh.SunContact);
                 sh.SunBias = e->value("sunBias", sh.SunBias);
                 sh.SunExtent = e->value("sunExtent", sh.SunExtent);
                 sh.SunDistance = e->value("sunDistance", sh.SunDistance);
@@ -117,6 +123,7 @@ namespace Engine {
                 v.BaseHeight = e->value("baseHeight", v.BaseHeight);
                 if (e->contains("color")) v.Color = e->at("color").get<glm::vec3>();
                 v.Anisotropy = e->value("anisotropy", v.Anisotropy);
+                v.PointShadows = e->value("pointShadows", v.PointShadows);
                 v.SunIntensity = e->value("sunIntensity", v.SunIntensity);
                 v.AmbientIntensity = e->value("ambientIntensity", v.AmbientIntensity);
                 v.PointLightIntensity = e->value("pointLightIntensity", v.PointLightIntensity);

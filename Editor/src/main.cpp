@@ -6,6 +6,7 @@
 #include "Renderer/Shader.h"
 #include "Renderer/Texture.h"
 #include "Renderer/Camera.h"
+#include "Renderer/LightClusters.h"
 #include "Renderer/Mesh.h"
 #include "Renderer/Model.h"
 #include "Renderer/RenderStats.h"
@@ -65,6 +66,7 @@
 #include <random>
 #include <vector>
 #include <algorithm>
+#include <bit>
 #include <functional>
 #include <unordered_map>
 #include <unordered_set>
@@ -360,6 +362,8 @@ public:
             if (tool == "paint" && tt.size() > 6) m_TerrainEditor.SetPaintLayer(std::atoi(tt.c_str() + 6) - 1);
         }
         if (EnvVar("MDB_MOTION_VECTORS") == "1") m_Renderer->ShowMotionVectors = true;   // Viewport > Debug > Motion Vectors
+        if (EnvVar("MDB_LIGHT_CLUSTERS") == "1") m_Scene.ClusterDebug = true;                // Viewport > Debug > Light Clusters
+        if (EnvVar("MDB_SHADOW_ATLAS") == "1") m_ShowShadowAtlas = true;                    // Viewport > Debug > Shadow Atlas
         if (auto p = EnvVar("MDB_PREVIEW_ASSET"); !p.empty()) m_Preview.SetAsset(p);   // the Inspector's model preview
         // (with MDB_SCATTER_FILL, Play starts after the fill)
         if (EnvVar("MDB_AUTOPLAY") == "1" && EnvVar("MDB_SCATTER_FILL") != "1") m_PlayCmd = PlayCmd::Play;
@@ -1639,9 +1643,192 @@ public:
     // Point lights are only light too: the editor draws a lightbulb icon in the light's colour at each one (the same
     // size at any distance), never rendered.
     static constexpr float kBulbRadius = 13.0f;     // pixels
+    // A light's reach, in its colour: a selected point light's range sphere (its outline as seen from the camera,
+    // plus the level ring), a spot light's cone out to its range (the soft edge's inner cone fainter; unselected spots
+    // show a short cone, so their aim shows), and the range written beside the bulb
+    void DrawLightRanges(const ImVec2& origin, const ImVec2& size) {
+        using namespace Engine;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const glm::vec3 eye = ViewCamera().Position;
+        for (auto [e, light] : m_Scene.Registry().view<PointLightComponent>().each()) {
+            if (m_Scene.IsEditorHidden(e)) continue;
+            const bool selected = IsSelected(e);
+            if (!selected && !light.IsSpot() && light.Shape == LightShape::Sphere) continue;
+            const glm::mat4 M = m_Scene.GetWorldMatrix(e);
+            const glm::vec3 pos(M[3]);
+            const float reach = light.Range > 0.0f ? light.Range : AutoPointLightRange(light.Color * light.Intensity);
+            if (reach <= 0.0f) continue;
+            const glm::vec3 lc = glm::clamp(light.Color, 0.0f, 1.0f);
+            auto colour = [&](int alpha) {
+                return IM_COL32((int)(110 + 145 * lc.r), (int)(110 + 145 * lc.g), (int)(110 + 145 * lc.b), alpha);
+            };
+            const ImU32 col = colour(selected ? 220 : 110), faint = colour(selected ? 90 : 50);
+            const float thick = selected ? 1.6f : 1.2f;
+            auto line = [&](const glm::vec3& a, const glm::vec3& b, ImU32 c, float t) {
+                ImVec2 pa, pb;
+                if (ProjectToViewport(a, origin, size, pa) && ProjectToViewport(b, origin, size, pb)) dl->AddLine(pa, pb, c, t);
+            };
+            auto circle = [&](const glm::vec3& centre, const glm::vec3& u, const glm::vec3& v, float r, ImU32 c, float t) {
+                constexpr int n = 64;
+                for (int i = 0; i < n; i++) {
+                    const float a0 = 6.2831853f * i / n, a1 = 6.2831853f * (i + 1) / n;
+                    line(centre + (u * std::cos(a0) + v * std::sin(a0)) * r, centre + (u * std::cos(a1) + v * std::sin(a1)) * r, c, t);
+                }
+            };
+            auto basis = [](const glm::vec3& w, glm::vec3& u, glm::vec3& v) {
+                u = glm::normalize(glm::cross(w, std::abs(w.y) < 0.99f ? glm::vec3(0, 1, 0) : glm::vec3(1, 0, 0)));
+                v = glm::cross(w, u);
+            };
+            if (light.Shape != LightShape::Sphere) {
+                // An area light: the bar, or the panel with a short tick the way it shines (local -Z); scaled with the entity
+                const glm::vec3 x = glm::vec3(M[0]) * light.Size.x * 0.5f;
+                if (light.Shape == LightShape::Tube) line(pos - x, pos + x, col, thick + 1.5f);
+                else {
+                    const glm::vec3 y = glm::vec3(M[1]) * light.Size.y * 0.5f;
+                    line(pos - x - y, pos + x - y, col, thick); line(pos + x - y, pos + x + y, col, thick);
+                    line(pos + x + y, pos - x + y, col, thick); line(pos - x + y, pos - x - y, col, thick);
+                    const glm::vec3 fwd = -glm::vec3(M[2]);
+                    if (glm::length(fwd) > 1e-6f) line(pos, pos + glm::normalize(fwd) * 0.3f, faint, thick);
+                }
+                if (!selected) continue;
+            }
+            if (light.IsSpot()) {
+                glm::vec3 dir = -glm::vec3(M[2]);
+                if (glm::length(dir) < 1e-6f) continue;
+                dir = glm::normalize(dir);
+                glm::vec3 u, v;
+                basis(dir, u, v);
+                const float len = selected ? reach : std::min(reach, 1.5f);
+                auto cone = [&](float half, ImU32 c, float t, bool spokes) {
+                    const float h = len * std::cos(half), r = len * std::sin(half);
+                    if (half < 1.5697963f) circle(pos + dir * h, u, v, r, c, t);   // the rim (none for a flat 180 degree cone)
+                    if (spokes)
+                        for (int k = 0; k < 4; k++) {
+                            const float a = 1.5707963f * k;
+                            line(pos, pos + dir * h + (u * std::cos(a) + v * std::sin(a)) * r, c, t);
+                        }
+                };
+                const float half = glm::radians(light.SpotAngle * 0.5f);
+                cone(half, col, thick, true);
+                if (selected) {
+                    if (light.SpotBlend > 0.0f && light.SpotBlend < 1.0f) cone(half * (1.0f - light.SpotBlend), faint, 1.0f, false);
+                    // the cap: where the range ends, an arc across the cone in two planes
+                    for (const glm::vec3& side : { u, v }) {
+                        constexpr int n = 16;
+                        for (int i = 0; i < n; i++) {
+                            const float a0 = -half + 2.0f * half * i / n, a1 = -half + 2.0f * half * (i + 1) / n;
+                            line(pos + (dir * std::cos(a0) + side * std::sin(a0)) * len, pos + (dir * std::cos(a1) + side * std::sin(a1)) * len, faint, 1.0f);
+                        }
+                    }
+                }
+            }
+            else {
+                // The sphere's outline from the camera: a circle nearer by r^2 / d, of radius r sqrt(1 - r^2 / d^2)
+                const glm::vec3 toEye = eye - pos;
+                const float d = glm::length(toEye);
+                if (d > reach * 1.001f) {
+                    const glm::vec3 w = toEye / d;
+                    glm::vec3 u, v;
+                    basis(w, u, v);
+                    circle(pos + w * (reach * reach / d), u, v, reach * std::sqrt(1.0f - reach * reach / (d * d)), col, thick);
+                }
+                circle(pos, glm::vec3(1, 0, 0), glm::vec3(0, 0, 1), reach, faint, 1.0f);   // level ring
+            }
+            if (selected) {
+                ImVec2 c;
+                if (ProjectToViewport(pos, origin, size, c)) {
+                    char text[48];
+                    std::snprintf(text, sizeof text, light.Range > 0.0f ? "%.1f m" : "auto %.0f m", reach);
+                    dl->AddText(ImVec2(c.x + kBulbRadius + 4.0f, c.y - kBulbRadius), col, text);
+                }
+            }
+        }
+    }
+
+    // Drag handles on the active light (one selected, Edit or Play, light gizmos shown): a dot on its reach (a point
+    // light: on the sphere, to the right as seen; a spot: the cone's tip) sets Range, and a spot's dot on its rim sets
+    // the cone angle. Returns true while the pointer is over a handle or one is held (the click is the handle's, not a
+    // selection). Undo sees the change on release like any other edit.
+    enum class LightDrag { None, Range, Cone };
+    LightDrag m_LightDrag = LightDrag::None;
+    bool LightHandles(const ImVec2& origin, const ImVec2& size, bool hovered) {
+        using namespace Engine;
+        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) m_LightDrag = LightDrag::None;
+        if (m_Selected == entt::null || !m_Scene.Registry().valid(m_Selected) || m_Selection.size() != 1 ||
+            !m_Scene.Registry().all_of<PointLightComponent>(m_Selected) || m_Scene.IsEditorHidden(m_Selected)) {
+            m_LightDrag = LightDrag::None;
+            return false;
+        }
+        PointLightComponent& light = m_Scene.Registry().get<PointLightComponent>(m_Selected);
+        const glm::mat4 M = m_Scene.GetWorldMatrix(m_Selected);
+        const glm::vec3 pos(M[3]);
+        const Camera& cam = ViewCamera();
+        const glm::mat4 invView = glm::inverse(cam.GetView());
+        const glm::vec3 camRight = glm::normalize(glm::vec3(invView[0]));
+        const float reach = light.Range > 0.0f ? light.Range : AutoPointLightRange(light.Color * light.Intensity);
+        glm::vec3 dir = -glm::vec3(M[2]);
+        dir = glm::length(dir) > 1e-6f ? glm::normalize(dir) : glm::vec3(0, 0, -1);
+        // The range handle moves along `axis` from the light; the cone handle lies in the plane of dir and `side`
+        const glm::vec3 axis = light.IsSpot() ? dir : camRight;
+        glm::vec3 side = camRight - dir * glm::dot(camRight, dir);
+        side = glm::length(side) > 1e-4f ? glm::normalize(side) : glm::normalize(glm::cross(dir, glm::vec3(0, 1, 0)));
+        const float half = glm::radians(light.SpotAngle * 0.5f);
+        const glm::vec3 rangePoint = pos + axis * reach;
+        const glm::vec3 conePoint = pos + (dir * std::cos(half) + side * std::sin(half)) * reach;
+
+        // The pointer's ray through the view
+        const ImVec2 mouse = ImGui::GetMousePos();
+        const glm::vec2 ndc((mouse.x - origin.x) / size.x * 2.0f - 1.0f, 1.0f - (mouse.y - origin.y) / size.y * 2.0f);
+        const glm::mat4 invVP = glm::inverse(cam.GetViewProjection());
+        glm::vec4 a = invVP * glm::vec4(ndc, -1.0f, 1.0f), b = invVP * glm::vec4(ndc, 1.0f, 1.0f);
+        const glm::vec3 rayO = glm::vec3(a) / a.w, rayD = glm::normalize(glm::vec3(b) / b.w - rayO);
+
+        if (m_LightDrag == LightDrag::Range) {
+            // The ray's closest point to the axis line, measured along the axis
+            const glm::vec3 w = rayO - pos;
+            const float dd = glm::dot(axis, rayD), den = 1.0f - dd * dd;
+            if (den > 1e-5f) {
+                const float t = (glm::dot(axis, w) - dd * glm::dot(rayD, w)) / den;
+                light.Range = std::clamp(t, 0.1f, 200.0f);
+            }
+            m_MaybeChanged = true;
+        }
+        else if (m_LightDrag == LightDrag::Cone) {
+            // Where the ray meets the plane of dir and side: its angle from dir
+            const glm::vec3 n = glm::normalize(glm::cross(dir, side));
+            const float dn = glm::dot(rayD, n);
+            if (std::abs(dn) > 1e-4f) {
+                const glm::vec3 q = rayO + rayD * (glm::dot(pos - rayO, n) / dn) - pos;
+                const float ang = std::atan2(std::abs(glm::dot(q, side)), glm::dot(q, dir));
+                light.SpotAngle = std::clamp(glm::degrees(ang) * 2.0f, 1.0f, 179.0f);
+            }
+            m_MaybeChanged = true;
+        }
+
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        auto handle = [&](const glm::vec3& p, LightDrag kind, const char* tip) {
+            ImVec2 s;
+            if (!ProjectToViewport(p, origin, size, s)) return false;
+            const float d = std::hypot(mouse.x - s.x, mouse.y - s.y);
+            const bool over = hovered && d < 9.0f && m_LightDrag == LightDrag::None;
+            const bool active = m_LightDrag == kind;
+            dl->AddCircleFilled(s, active || over ? 7.0f : 5.5f, active || over ? IM_COL32(255, 220, 90, 255) : IM_COL32(255, 255, 255, 230));
+            dl->AddCircle(s, active || over ? 7.0f : 5.5f, IM_COL32(20, 20, 25, 230), 0, 1.5f);
+            if (over) {
+                ImGui::SetTooltip("%s", tip);
+                if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) m_LightDrag = kind;
+            }
+            return over;
+        };
+        bool over = handle(rangePoint, LightDrag::Range, light.IsSpot() ? "Drag: range" : "Drag: range (sets it; 0 in the Inspector = automatic)");
+        if (light.IsSpot()) over = handle(conePoint, LightDrag::Cone, "Drag: cone angle") || over;
+        return over || m_LightDrag != LightDrag::None;
+    }
+
     void DrawPointLightGizmos(const ImVec2& origin, const ImVec2& size) {
         using namespace Engine;
         ImDrawList* dl = ImGui::GetWindowDrawList();
+        DrawLightRanges(origin, size);
         for (auto [e, light] : m_Scene.Registry().view<PointLightComponent>().each()) {
             if (m_Scene.IsEditorHidden(e)) continue;
             ImVec2 c;
@@ -2164,6 +2351,34 @@ private:
             e.Add<PointLightComponent>();                     // shown in the editor as a lightbulb, never rendered
             place(e);
         }
+        if (ImGui::MenuItem("Spot Light")) {
+            Entity e = m_Scene.CreateEntity("Spot Light");
+            e.Get<TransformComponent>().Rotation = glm::vec3(-1.0f, 0.0f, 0.0f);   // tilted down
+            auto& l = e.Add<PointLightComponent>();           // a point light with a cone (shines along local -Z)
+            l.SpotAngle = 45.0f;
+            l.Range = 12.0f;
+            l.Intensity = 2.0f;
+            place(e);
+        }
+        if (ImGui::MenuItem("Tube Light")) {
+            Entity e = m_Scene.CreateEntity("Tube Light");
+            auto& l = e.Add<PointLightComponent>();           // a glowing bar along local X
+            l.Shape = LightShape::Tube;
+            l.Size = glm::vec2(1.2f, 0.0f);
+            l.Radius = 0.03f;
+            l.Range = 10.0f;
+            place(e);
+        }
+        if (ImGui::MenuItem("Rect Light")) {
+            Entity e = m_Scene.CreateEntity("Rect Light");
+            e.Get<TransformComponent>().Rotation = glm::vec3(-1.5707964f, 0.0f, 0.0f);   // facing down, like a ceiling panel
+            auto& l = e.Add<PointLightComponent>();           // a panel, local X by Y, shining along local -Z
+            l.Shape = LightShape::Rect;
+            l.Size = glm::vec2(1.0f, 0.6f);
+            l.Range = 10.0f;
+            l.Intensity = 2.0f;
+            place(e);
+        }
         if (ImGui::MenuItem("Directional Light (Sun)")) {
             Entity e = m_Scene.CreateEntity("Sun");
             auto& t = e.Get<TransformComponent>();
@@ -2384,6 +2599,24 @@ private:
                 "A light that moves, or has something moving or animated in reach, updates at once;\n"
                 "swaying trees don't count, so their lamp shadows update at this rate.\n"
                 "Each shadowed point light costs about 0.5 ms a frame on an RTX 2060 when it updates.");
+            ImGui::SliderInt("Atlas lights", &s.AtlasLights, 0, Engine::ShadowSettings::MaxAtlasLights);
+            ImGui::SetItemTooltip("Beyond the 4 most useful shadowed lights (shaded directly, the biggest squares), this many more\n"
+                "shadowed lights (points and spots) get shadows in the shadow atlas, sized by how much of\n"
+                "the view their light covers: near ones sharp, far ones coarse.");
+            {
+                static const int sizes[] = { 1024, 2048, 4096, 8192 };
+                static const char* names[] = { "1024 (2 MB)", "2048 (8 MB)", "4096 (32 MB)", "8192 (128 MB)" };
+                int cur = 2;
+                for (int i = 0; i < 4; i++) if (s.AtlasSize == sizes[i]) cur = i;
+                if (ImGui::Combo("Atlas size", &cur, names, 4)) s.AtlasSize = sizes[cur];
+                ImGui::SetItemTooltip("The shadow atlas's size in texels (16-bit depth). Bigger: sharper shadows for more lights.");
+            }
+            ImGui::SliderFloat("Contact shadows", &s.ContactLength, 0.0f, 1.0f, s.ContactLength > 0.0f ? "%.2f m" : "off");
+            ImGui::SetItemTooltip("Point and spot lights trace this far towards the light through the screen's depth:\n"
+                "small things and the gaps under objects get shadows the shadow maps miss (0 = off).\n"
+                "Each light can turn them off (Inspector > Contact shadows).");
+            ImGui::Checkbox("Sun contact shadows", &s.SunContact);
+            ImGui::SetItemTooltip("The sun traces the same short ray: small things and gaps the cascades are too coarse for.");
             ImGui::SeparatorText("Sun");
             ImGui::SliderFloat("Bias##sun", &s.SunBias, 0.0002f, 0.01f, "%.4f");
             ImGui::Checkbox("Cascades (follow the camera)", &s.SunCascades);
@@ -2491,6 +2724,9 @@ private:
             ImGui::SetItemTooltip("Towards 1 the fog glows when you look towards the sun");
             ImGui::SliderFloat("Sky light", &v.AmbientIntensity, 0.0f, 5.0f);
             ImGui::SliderFloat("Lamp glow", &v.PointLightIntensity, 0.0f, 5.0f);
+            ImGui::Checkbox("Lamp shafts", &v.PointShadows);
+            ImGui::SetItemTooltip("Shadowed point lights cut shafts in the fog too (spot lights always do).\n"
+                "A shadow lookup per light per step: about 0.7 ms with 4 lamps on an RTX 2060.");
             ImGui::SeparatorText("Quality");
             ImGui::SliderFloat("Distance", &v.MaxDistance, 5.0f, 500.0f, "%.0f m");
             ImGui::SliderInt("Steps", &v.Steps, 8, 96);
@@ -3321,10 +3557,53 @@ private:
         m_Selected = m_Selection.empty() ? entt::null : m_Selection.back();
     }
 
+    // Viewport > Debug > Shadow Atlas: the atlas texture in the lower-right corner (depth as grey, dark = near the light),
+    // each light's squares outlined (orange: cube faces, blue: a spot's view) and named where they are big enough
+    void DrawShadowAtlas(const ImVec2& origin, const ImVec2& size) {
+        using namespace Engine;
+        const ShadowContext& ctx = m_Renderer->ShadowState();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float side = std::floor(std::min(size.x, size.y) * 0.45f);
+        const ImVec2 p0(origin.x + size.x - side - 10.0f, origin.y + size.y - side - 10.0f), p1(p0.x + side, p0.y + side);
+        dl->AddRectFilled(ImVec2(p0.x - 4, p0.y - 22), ImVec2(p1.x + 4, p1.y + 4), IM_COL32(15, 16, 20, 220), 4.0f);
+        const uint32_t view = m_Renderer->ShadowAtlasView();
+        const uint32_t atlasSize = ctx.Atlas ? ctx.Atlas->Size() : 0;
+        char title[96];
+        std::snprintf(title, sizeof title, "Shadow atlas %u x %u, %u lights, %.0f%% used", atlasSize, atlasSize, ctx.AtlasLightsHeld,
+            atlasSize ? 100.0 * (double)ctx.Atlas->UsedArea() / ((double)atlasSize * atlasSize) : 0.0);
+        dl->AddText(ImVec2(p0.x, p0.y - 19), IM_COL32(220, 220, 225, 255), title);
+        if (!view) {
+            dl->AddText(ImVec2(p0.x + 8, p0.y + 8), IM_COL32(160, 160, 170, 255), "Not in use (no shadowed point or spot lights yet)");
+            return;
+        }
+        // GL's origin is the bottom left: flip
+        dl->AddImage((ImTextureID)(intptr_t)view, p0, p1, ImVec2(0, 1), ImVec2(1, 0));
+        const float scale = side / (float)atlasSize;
+        for (const auto& e : ctx.AtlasEntries) {
+            if (e.Tile == 0) continue;
+            const ImU32 col = e.Cube ? IM_COL32(255, 160, 60, 255) : IM_COL32(90, 170, 255, 255);
+            std::string name;
+            const entt::entity ent = (entt::entity)e.Entity;
+            if (m_Scene.Registry().valid(ent))
+                if (auto* tag = m_Scene.Registry().try_get<TagComponent>(ent)) name = tag->Tag;
+            for (int f = 0; f < (e.Cube ? 6 : 1); f++) {
+                if (e.Cube && !(e.FaceMask & (1u << f))) continue;
+                const ImVec2 a(p0.x + (float)e.At[f].x * scale, p1.y - (float)(e.At[f].y + e.Tile) * scale);
+                const ImVec2 b(a.x + (float)e.Tile * scale, a.y + (float)e.Tile * scale);
+                dl->AddRect(a, b, col, 0.0f, 0, 1.0f);
+                if (f == (e.Cube ? std::countr_zero((unsigned)e.FaceMask) : 0) && b.x - a.x > 46.0f && !name.empty()) {
+                    dl->PushClipRect(a, b, true);
+                    dl->AddText(ImVec2(a.x + 3, a.y + 2), col, name.c_str());
+                    dl->PopClipRect();
+                }
+            }
+        }
+    }
+
     // Stats drawn over the top-right corner of the viewport image
     void DrawStatsOverlay(const ImVec2& origin, const ImVec2& size) {
         using namespace Engine;
-        char lines[13][96];
+        char lines[16][96];
         int n = 0;
         std::snprintf(lines[n++], 96, "%.0f FPS  (%.2f ms)", ImGui::GetIO().Framerate, 1000.0f / std::max(ImGui::GetIO().Framerate, 1.0f));
         std::snprintf(lines[n++], 96, "Draw calls  %u", RenderStats::DrawCalls);
@@ -3338,6 +3617,12 @@ private:
         if (RenderStats::Foliage > 0) std::snprintf(lines[n++], 96, "Foliage     %u clumps", RenderStats::Foliage);
         if (RenderStats::LodReduced + RenderStats::LodCulled > 0)
             std::snprintf(lines[n++], 96, "LOD         %u lower / %u culled", RenderStats::LodReduced, RenderStats::LodCulled);
+        if (RenderStats::Lights > 0)
+            std::snprintf(lines[n++], 96, "Lights      %u / %u seen, %u max (%s)", RenderStats::LightsVisible, RenderStats::Lights, RenderStats::LightsPerCluster,
+                m_Scene.GpuLightBinning && Engine::LightClusters::GpuAvailable() ? "GPU" : "CPU");
+        if (RenderStats::AtlasLights > 0)
+            std::snprintf(lines[n++], 96, "Shadow atlas %u lights, %u-%u px, %u%% used", RenderStats::AtlasLights, RenderStats::AtlasSmallest,
+                RenderStats::AtlasLargest, RenderStats::AtlasUsed / 10);
         std::snprintf(lines[n++], 96, "Entities    %zu", m_Scene.Registry().view<TagComponent>().size());
         std::snprintf(lines[n++], 96, "Camera      %.1f, %.1f, %.1f", m_Camera->Position.x, m_Camera->Position.y, m_Camera->Position.z);
 
@@ -3930,6 +4215,14 @@ private:
                 ImGui::MenuItem("LOD Levels", nullptr, &m_Scene.TintLodLevels);
                 ImGui::SetItemTooltip("Tint Mesh Renderers by their level of detail: green = the main geometry,\n"
                     "then yellow, orange, red, purple for levels 1, 2, 3, 4+");
+                ImGui::MenuItem("Light Clusters", nullptr, &m_Scene.ClusterDebug);
+                ImGui::SetItemTooltip("Tint the picture by how many point lights each pixel weighs:\n"
+                    "blue 1, green 2, yellow 4, orange 8, red 16 or more");
+                ImGui::MenuItem("GPU Light Binning", nullptr, &m_Scene.GpuLightBinning);
+                ImGui::SetItemTooltip("Sort point lights into clusters with a compute shader (off: on the CPU, to compare)");
+                ImGui::MenuItem("Shadow Atlas", nullptr, &m_ShowShadowAtlas);
+                ImGui::SetItemTooltip("Show the shadow atlas in a corner: every shadowed light's squares (dark = near the light),\n"
+                    "outlined and named (orange: point lights and wide spots, one square per cube face; blue: spots)");
                 ImGui::MenuItem("Motion Vectors", nullptr, &m_Renderer->ShowMotionVectors);
                 ImGui::SetItemTooltip("How far each pixel moved since the last frame (red = sideways, green = up/down;\n"
                     "black = still). Needs TAA on and the Rendered view.");
@@ -4027,6 +4320,7 @@ private:
         if (m_PlayState != PlayState::Edit)   // kept while paused: the scripts did not run again
             DrawScriptUI(ImGui::GetWindowDrawList(), m_GameFonts, m_Session->Scripts().UIItems(), origin, size, &m_UITextures);
         if (m_ShowStatsOverlay && !m_ViewingGame) DrawStatsOverlay(origin, size);
+        if (m_ShowShadowAtlas) DrawShadowAtlas(origin, size);
         if (m_ViewingGame) {
             ImGui::GetWindowDrawList()->AddText(ImVec2(origin.x + 8.0f, origin.y + size.y - 22.0f),
                 IM_COL32(255, 255, 255, 110), "Game camera (Play > Play Through Game Camera)");
@@ -4037,6 +4331,10 @@ private:
         if (!m_ViewingGame && m_PlayState == PlayState::Edit && !m_MouseLook && m_Selected != entt::null &&
             m_Scene.Registry().valid(m_Selected) && m_Scene.Registry().all_of<Engine::TerrainComponent>(m_Selected))
             terrainTool = m_TerrainEditor.Viewport(m_Scene, m_Selected, ViewCamera(), origin, size, imageHovered, navigating, io.DeltaTime);
+
+        // ---- Drag handles on a selected light's range and cone (before the gizmo, which they win over)
+        const bool lightHandle = !m_ViewingGame && m_ShowLightGizmos && !terrainTool && !m_MouseLook &&
+            LightHandles(origin, size, imageHovered && !navigating && !ImGuizmo::IsUsing());
 
         // ---- Gizmo for the selected entity (not while looking through the game camera)
         bool gizmoBusy = false;
@@ -4056,7 +4354,7 @@ private:
             float snap = m_GizmoOp == ImGuizmo::ROTATE ? 15.0f : (m_GizmoOp == ImGuizmo::SCALE ? 0.1f : 0.5f);
             float snapValues[3] = { snap, snap, snap };
 
-            ImGuizmo::Enable(!navigating);
+            ImGuizmo::Enable(!navigating && !lightHandle);
             ImGuizmo::Manipulate(glm::value_ptr(view), glm::value_ptr(proj), m_GizmoOp,
                 m_GizmoLocal ? ImGuizmo::LOCAL : ImGuizmo::WORLD,
                 glm::value_ptr(model), nullptr, m_Snap ? snapValues : nullptr);
@@ -4074,6 +4372,7 @@ private:
         }
 
         // ---- The axis gizmo in the lower left corner (clicking an axis looks along it)
+        if (lightHandle) gizmoBusy = true;
         const bool overAxisGizmo = !m_ViewingGame && m_ShowAxisGizmo && DrawAxisGizmo(origin, size, imageHovered && !navigating && !gizmoBusy && !m_MouseLook);
 
         // ---- Click to select, drag on the scene for a selection box (not while using the gizmo)
@@ -4311,11 +4610,115 @@ private:
         }
 
         if (e.Has<PointLightComponent>() &&
-            ImGui::CollapsingHeader("Point Light", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::CollapsingHeader(e.Get<PointLightComponent>().IsSpot() ? "Spot Light###PointLight" : "Point Light###PointLight", ImGuiTreeNodeFlags_DefaultOpen)) {
             auto& l = e.Get<PointLightComponent>();
             ImGui::Checkbox("Casts shadows", &l.CastShadows);
             ImGui::ColorEdit3("Light color", &l.Color.x);
             ImGui::SliderFloat("Intensity", &l.Intensity, 0.0f, 5.0f);
+            // Range: where the light fades to nothing. 0 = automatic (from the brightness); smaller is cheaper
+            char rangeFmt[48];
+            if (l.Range <= 0.0f) std::snprintf(rangeFmt, sizeof rangeFmt, "auto (%.0f m)", Engine::AutoPointLightRange(l.Color * l.Intensity));
+            else std::snprintf(rangeFmt, sizeof rangeFmt, "%%.1f m");
+            ImGui::DragFloat("Range", &l.Range, 0.1f, 0.0f, 200.0f, rangeFmt, ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Where the light fades to nothing (0 = automatic, from its brightness).\n"
+                                  "Many lights: give them small ranges, so each pixel weighs only a few.");
+            ImGui::DragFloat("Size", &l.Radius, 0.005f, 0.0f, 5.0f, l.Radius > 0.0f ? "%.2f m" : "0 (a point)", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The light's radius: a glowing ball instead of a point. Highlights get wider, and shadows\n"
+                                  "soften the further they fall from what casts them (sharp at contact).");
+            ImGui::Checkbox("Contact shadows", &l.ContactShadows);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("A short ray through the screen's depth towards the light darkens what shadow maps miss:\n"
+                                  "small things, the gap under an object, and lights without shadows of their own.\n"
+                                  "Length: Scene Settings > Shadows > Contact shadows.");
+            // Area lights: a tube along local X, or a rect (local X by Y) shining along -Z
+            {
+                static const char* shapes[] = { "Sphere (point)", "Tube", "Rectangle" };
+                int shape = (int)l.Shape;
+                if (ImGui::Combo("Shape", &shape, shapes, 3)) l.Shape = (Engine::LightShape)shape;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Sphere: a point, or a ball of the Size above. Tube: a glowing bar along local X (Size = its\n"
+                                      "thickness). Rectangle: a panel, local X by Y, shining one way along local -Z (a window, a\n"
+                                      "screen, a ceiling panel). Highlights take the shape; shadows soften with its size.");
+                if (l.Shape == Engine::LightShape::Tube)
+                    ImGui::DragFloat("Length", &l.Size.x, 0.01f, 0.0f, 100.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+                else if (l.Shape == Engine::LightShape::Rect) {
+                    ImGui::DragFloat("Width", &l.Size.x, 0.01f, 0.0f, 100.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+                    ImGui::DragFloat("Height", &l.Size.y, 0.01f, 0.0f, 100.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+                }
+            }
+            // Spot: a cone along local -Z (aim it with Rotate, like the sun); not for shaped lights
+            bool spot = l.IsSpot();
+            if (l.Shape == Engine::LightShape::Sphere) {
+                if (ImGui::Checkbox("Spot light", &spot)) l.SpotAngle = spot ? 45.0f : 0.0f;
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("A cone instead of every way: it shines along local -Z (aim it with Rotate, E).");
+            }
+            if (spot) {
+                ImGui::SliderFloat("Cone angle", &l.SpotAngle, 1.0f, 179.0f, "%.0f deg", ImGuiSliderFlags_AlwaysClamp);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("The cone's full angle, edge to edge");
+                ImGui::SliderFloat("Soft edge", &l.SpotBlend, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("How much of the cone fades out towards its edge (0 = a hard edge, 1 = from the middle)");
+            }
+            // Cookie: an image the light shines through (spots: along the cone; points: a panorama round the light)
+            const auto registry = m_Resources->Registry();
+            auto shortName = [&](const std::shared_ptr<Engine::Texture2D>& t) {
+                std::string n = t ? registry.TextureName(t) : "(none)";
+                return n.rfind("texture:", 0) == 0 ? n.substr(8) : n;
+            };
+            const std::filesystem::path assets = std::filesystem::u8path(Projects::Current().AssetDir());
+            std::string current = shortName(l.Cookie);
+            if (ImGui::BeginCombo("Cookie", current.c_str())) {
+                if (ImGui::Selectable("(none)", !l.Cookie)) l.Cookie = nullptr;
+                std::error_code ec;
+                for (const auto& file : std::filesystem::recursive_directory_iterator(assets / "Textures", ec)) {
+                    const std::string rel = "Textures/" + std::filesystem::relative(file.path(), assets / "Textures", ec).generic_string();
+                    if (AssetBrowser::KindOf(rel) != AssetBrowser::Kind::Texture) continue;
+                    if (ImGui::Selectable(rel.c_str(), current == rel))
+                        if (auto t = m_Resources->LoadTexture(rel)) l.Cookie = t;
+                }
+                ImGui::EndCombo();
+            }
+            if (auto drop = AssetBrowser::AcceptDrop({ AssetBrowser::Kind::Texture }); !drop.empty())
+                if (auto t = m_Resources->LoadTexture(drop)) l.Cookie = t;
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(spot
+                ? "An image the light shines through (a window frame, leaves, stained glass):\n"
+                  "projected along the cone, its top along the entity's local +Y. Drop a texture here."
+                : "An image the light shines through (a pierced lantern, a cage): a 2:1 panorama\n"
+                  "wrapped round the light, its middle along local -Z, its top along local +Y. Drop a texture here.");
+            if (l.Cookie) {
+                int grid[2] = { l.CookieColumns, l.CookieRows };
+                if (ImGui::DragInt2("Flipbook frames", grid, 0.05f, 1, 64, "%d", ImGuiSliderFlags_AlwaysClamp)) {
+                    l.CookieColumns = grid[0];
+                    l.CookieRows = grid[1];
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("An animated cookie: the image is a grid of frames, columns x rows\n(left to right, top row first). 1 x 1 = a still image.");
+                if (l.CookieColumns * l.CookieRows > 1) {
+                    ImGui::DragFloat("Frames a second", &l.CookieFps, 0.1f, 0.0f, 240.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("0 holds the frame below");
+                    ImGui::SliderInt(l.CookieFps > 0.0f ? "First frame" : "Frame", &l.CookieFrame, 0, l.CookieColumns * l.CookieRows - 1);
+                }
+            }
+            // Profile: an IES file (how bright the light is in each direction)
+            current = shortName(l.Profile);
+            if (ImGui::BeginCombo("Light profile", current.c_str())) {
+                if (ImGui::Selectable("(none)", !l.Profile)) l.Profile = nullptr;
+                std::error_code ec;
+                int listed = 0;
+                for (const auto& file : std::filesystem::recursive_directory_iterator(assets, ec)) {
+                    std::string ext = file.path().extension().string();
+                    for (char& c : ext) c = (char)std::tolower((unsigned char)c);
+                    if (ext != ".ies") continue;
+                    const std::string rel = std::filesystem::relative(file.path(), assets, ec).generic_string();
+                    if (ImGui::Selectable(rel.c_str(), current == rel))
+                        if (auto t = m_Resources->LoadTexture(rel)) l.Profile = t;
+                    if (++listed >= 500) break;
+                }
+                if (listed == 0) ImGui::TextDisabled("No .ies files under Assets");
+                ImGui::EndCombo();
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("An IES light profile (.ies, as lamp makers publish them): the light's brightness in\n"
+                "each direction. 0 degrees is along local -Z: aim a ceiling light down (Rotate X -90).");
         }
 
         if (e.Has<DirectionalLightComponent>() &&
@@ -4992,6 +5395,7 @@ private:
             if (!e.Has<SpinComponent>() && ImGui::MenuItem("Spin"))        e.Add<SpinComponent>().Speed = glm::vec3(0.0f, 1.0f, 0.0f);
             if (!e.Has<OrbitComponent>() && ImGui::MenuItem("Orbit"))       e.Add<OrbitComponent>();
             if (!e.Has<PointLightComponent>() && ImGui::MenuItem("Point Light")) e.Add<PointLightComponent>();
+            if (!e.Has<PointLightComponent>() && ImGui::MenuItem("Spot Light")) e.Add<PointLightComponent>().SpotAngle = 45.0f;
             if (!e.Has<MeshRendererComponent>() && ImGui::MenuItem("Mesh Renderer (cube)"))
                 e.Add<MeshRendererComponent>().Geometry = m_Cube;
             if (!e.Has<DirectionalLightComponent>() && ImGui::MenuItem("Directional Light")) e.Add<DirectionalLightComponent>();
@@ -5233,6 +5637,7 @@ private:
     // Editor shell (menu bar, toolbar, panels)
     bool  m_ShowHierarchy = true, m_ShowInspector = true, m_ShowSceneSettings = true, m_ShowConsole = true;
     bool  m_ShowStatsOverlay = true, m_ShowFrustums = true, m_ShowControls = false;
+    bool  m_ShowShadowAtlas = false;          // Viewport > Debug > Shadow Atlas
     bool  m_ShowGrid = true;              // Viewport > View > Grid: the ground grid (SceneRenderer::ShowGrid)
     bool  m_ShowAxisGizmo = true;         // Viewport > View > Axis Gizmo: the world axes in the lower left corner
     bool  m_ShowLightGizmos = true;       // Viewport > View > Light Gizmos: sun arrows and point-light bulbs

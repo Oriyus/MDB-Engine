@@ -1,5 +1,5 @@
 # Draws the example images into Examples/Assets/Textures (PNG with transparency): the UI coin icon, and a
-# fence (Cutout) and a stained-glass window (Blend) for see-through surfaces.
+# fence (Cutout) and a stained-glass window (Blend) for see-through surfaces, light cookies, item icons and UI frames.
 #   powershell -ExecutionPolicy Bypass -File Tools/generate_ui_images.ps1
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
@@ -62,6 +62,52 @@ foreach ($p in 0, 82, 167, 248) { $g.FillRectangle($lead, $p, 0, 8, 256); $g.Fil
 $bmp.Save((Join-Path $out 'window.png'), [System.Drawing.Imaging.ImageFormat]::Png)
 $g.Dispose(); $bmp.Dispose()
 Write-Host "window.png"
+
+# ---- Light cookies (the light shines through the colour; black = no light, alpha unused)
+# lantern_cookie.png: a pierced tin lantern for a point light, a 2:1 panorama (middle = the light's -Z, top = +Y):
+# staggered rows of round holes and little crosses, the top and bottom bands closed
+$bmp, $g = New-Canvas 512 256
+$g.Clear([System.Drawing.Color]::Black)
+$hole = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 255, 236, 200))
+$cross = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(255, 255, 236, 200)), 3
+for ($row = 0; $row -lt 5; $row++) {
+    $y = 64 + $row * 32
+    $count = 16
+    for ($i = 0; $i -lt $count; $i++) {
+        $x0 = (($i + 0.5 * ($row % 2)) * (512 / $count) + 16) % 512
+        foreach ($x in $x0, ($x0 - 512), ($x0 + 512)) {      # wrapped: the left and right edges meet behind the light
+            if ($row % 2 -eq 0) { $g.FillEllipse($hole, $x - 7, $y - 7, 14, 14) }
+            else { $g.DrawLine($cross, $x - 7, $y, $x + 7, $y); $g.DrawLine($cross, $x, $y - 7, $x, $y + 7) }
+        }
+    }
+}
+$bmp.Save((Join-Path $out 'lantern_cookie.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+$g.Dispose(); $bmp.Dispose()
+Write-Host "lantern_cookie.png"
+
+# fan_cookie.png: a flipbook of 4 x 2 frames (128 px each, left to right, top row first) of a three-bladed fan turning
+# in front of a round light: 15 degrees a frame, so the 8 frames make a third of a turn (one blade to the next)
+$bmp, $g = New-Canvas 512 256
+$g.Clear([System.Drawing.Color]::Black)
+$light = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 255, 255, 255))
+$blade = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::Black)
+for ($f = 0; $f -lt 8; $f++) {
+    $cx = ($f % 4) * 128 + 64; $cy = [math]::Floor($f / 4) * 128 + 64
+    $g.FillEllipse($light, $cx - 58, $cy - 58, 116, 116)
+    for ($b = 0; $b -lt 3; $b++) {
+        $a = ($f * 15 + $b * 120) * [math]::PI / 180
+        $pts = @()
+        foreach ($s in @(@(0, -0.18), @(0.62, -0.42), @(0.66, 0.05), @(0, 0.18))) {
+            $r = $s[0] * 64; $t = $a + $s[1]
+            $pts += New-Object System.Drawing.PointF ([float]($cx + [math]::Cos($t) * ($r + 6))), ([float]($cy + [math]::Sin($t) * ($r + 6)))
+        }
+        $g.FillPolygon($blade, [System.Drawing.PointF[]]$pts)
+    }
+    $g.FillEllipse($blade, $cx - 10, $cy - 10, 20, 20)
+}
+$bmp.Save((Join-Path $out 'fan_cookie.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+$g.Dispose(); $bmp.Dispose()
+Write-Host "fan_cookie.png"
 
 # ---- UI: item icons (128 x 128, in Textures/Icons) and two 9-slice frames
 $icons = Join-Path $out 'Icons'
