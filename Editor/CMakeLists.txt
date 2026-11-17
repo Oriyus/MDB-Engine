@@ -4,6 +4,12 @@ add_executable(MDBEditor src/main.cpp src/DemoLevels.cpp src/DemoLevels.h src/Ed
     src/Projects.cpp src/Projects.h src/GameBuilder.cpp src/GameBuilder.h src/TerrainEditor.cpp src/TerrainEditor.h src/AnimGraphEditor.cpp src/AnimGraphEditor.h src/DatabaseEditor.cpp src/DatabaseEditor.h src/UIEditor.cpp src/UIEditor.h src/ModelPreview.cpp src/ModelPreview.h src/MaterialEditor.cpp src/MaterialEditor.h src/ShaderGraphEditor.cpp src/ShaderGraphEditor.h
     resources/editor.rc)                                    # the icon
 target_link_libraries(MDBEditor PRIVATE Engine)
+
+if(MSVC)
+    # Release: no console window (the editor has its own Console panel); Debug keeps it for logs before the window opens.
+    # The log still goes to stdout, so redirecting it (Start-Process -RedirectStandardOutput) captures it
+    target_link_options(MDBEditor PRIVATE $<$<CONFIG:Release>:/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup>)
+endif()
 target_compile_definitions(MDBEditor PRIVATE
     ENGINE_ASSET_DIR="${CMAKE_SOURCE_DIR}/EngineAssets/"    # shaders, Scripts/Lib, the sample model
     EXAMPLES_DIR="${CMAKE_SOURCE_DIR}/Examples/"            # the project opened when there is no other
