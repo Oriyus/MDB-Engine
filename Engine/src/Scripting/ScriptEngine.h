@@ -17,6 +17,7 @@ namespace Engine {
     class PrefabLibrary;
     class NavGrid;
     class FogOfWar;
+    class InputMap;
     struct ResourceRegistry;
 
     // What saves.* and level.* reach (GameSession implements it)
@@ -353,6 +354,11 @@ namespace Engine {
     //   input.actions() -> { names }, input.action_type(name), input.bindings(name) -> { "key:Space", "pad:A" } (button)
     //       or { positive, negative } (axis) or { up, down, left, right } (vector)
     //   input.device() -> "keyboard" | "gamepad"   the one used last (for button prompts)
+    //   input.label(name) -> "Jump" (input.json "label", else from the name), input.rebindable(name) (input.json "rebind")
+    //   input.set_bindings(name, { "key:F", "pad:Y" } | { up = {...}, left = {...} })   the player's bindings: replaces
+    //       those slots (only the slots given), on top of input.json; kept for the rest of the run, and the Game
+    //       saves them with its settings. input.default_bindings(name) -> as input.json has them (same shape as bindings)
+    //   input.reset_bindings([name])   back to input.json (one action, or all)
     //   input.gamepad() -> connected, name; input.pad_down(b), pad_pressed(b), pad_released(b)   "A", "Start", "DPadUp"...
     //   input.pad_axis(a) -> value   "LeftX", "LeftY", "RightX", "RightY" (-1..1, Y up), "LT", "RT" (0..1); dead zones applied
     //   input.simulate_key(k, down), input.simulate_gamepad({ A = true, LeftX = 0.7 } | nil)   tests (from the next frame)
@@ -405,7 +411,17 @@ namespace Engine {
         // A closable laid-out panel was up last frame (or a script asked ui.back()): Escape / pad B is the UI's Back,
         // so the apps don't also pause / stop Play on it
         bool WantsBack() const;
-        bool ConsumeQuitRequest();                              // true once after scene.quit()
+
+        // The player's bindings: overrides on top of Assets/Data/input.json (format in Core/InputMap.h). Kept across
+        // Start / Stop (levels, restarts); applied at once while running, else at the next Start. InputOverrides is
+        // what applied (scripts change it too, with input.set_bindings), for the app to save. InputActions is the
+        // live map, DefaultInputActions the project's (both read at Start).
+        void SetInputOverrides(const nlohmann::json& overrides);
+        const nlohmann::json& InputOverrides() const;
+        const InputMap& InputActions() const;
+        const InputMap& DefaultInputActions() const;
+
+        bool ConsumeQuitRequest();                             // true once after scene.quit()
         bool ConsumeRestartRequest();                           // true once after scene.restart()
 
         struct Impl;                           // keeps sol2 out of everything else (named here so helpers in the .cpp can use it)

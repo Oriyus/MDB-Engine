@@ -11,14 +11,15 @@
 // --project or the source tree's Examples, and the engine files are the source tree's EngineAssets.
 //
 // Keys: Esc pauses (a menu with Resume / Settings / Restart / Quit buttons, worked by mouse, arrows + Enter or the
-// pad's D-pad / stick + A; Esc, R and Q work too; Settings has
-// a volume slider and mute per audio bus),
+// pad's D-pad / stick + A; Esc, R and Q work too; Settings has an Audio tab, a volume slider and mute per bus,
+// and a Controls tab that rebinds the input actions for keyboard / mouse and gamepad; both saved in settings.json),
 // F11 or Alt+Enter toggles full screen.
 // Everything else belongs to the game's scripts.
 
 #include "Core/Application.h"
 #include "Core/EntryPoint.h"
 #include "Core/Input.h"
+#include "Core/InputMap.h"
 #include "Core/Log.h"
 #include "Core/Project.h"
 #include "Renderer/Camera.h"
@@ -37,6 +38,7 @@
 #include <imgui.h>
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -139,6 +141,8 @@ public:
         m_Menu.SetFonts(m_Fonts.Bold, m_Fonts.Regular);
         if (LoadAudioMix(m_Cfg.SettingsFile, m_SavedMix)) m_Session->Audio().SetMix(m_SavedMix);   // the player's volumes
         else m_SavedMix = m_Session->Audio().GetMix();
+        nlohmann::json bindings;                 // ... and controls (applied when the scripts start)
+        if (LoadInputBindings(m_Cfg.SettingsFile, bindings)) m_Session->Scripts().SetInputOverrides(bindings);
 
         SceneSettings settings;
         m_Renderer->GatherSettings(settings);    // defaults for anything the file leaves out
@@ -158,7 +162,14 @@ public:
         m_Session->SetSaveDirectory(m_Cfg.SaveDir);
         m_Session->NewGame(m_Cfg.Scene);       // a restart goes back to this level as it loaded
         m_Session->Start();
+        m_SavedInput = m_Session->Scripts().InputOverrides();   // what applied of the file (stale entries dropped)
         m_Running = true;
+        // Test hook: start paused on a page of the menu (screen captures of it): pause, audio or controls
+        if (const char* page = std::getenv("MDB_PAUSE_MENU")) {
+            const std::string p = page;
+            m_Paused = true;
+            if (p == "audio" || p == "controls") { m_MenuPage = MenuPage::Settings; m_SettingsTab = p == "controls" ? 1 : 0; }
+        }
         LOG_INFO("Playing {} (saves in {})", m_Cfg.Scene, m_Cfg.SaveDir);
     }
 
@@ -167,6 +178,8 @@ public:
         dt = std::min(dt, 0.1f);     // a long hitch (window drag, environment bake) shouldn't fling the game
         m_Time += dt;
         if (m_Cfg.QuitAfter > 0.0f && m_Time >= m_Cfg.QuitAfter) Close();
+        // Settings > Controls waiting for a key / button: every key goes to it, not to the shell
+        const bool binding = UpdateCapture();
 
         // ---- the few keys the game shell keeps for itself
         const bool alt = Input::IsKeyDown(342) || Input::IsKeyDown(346);   // left / right Alt
@@ -186,13 +199,13 @@ public:
         const bool uiBack = m_Running && !m_Paused && m_Session->Scripts().WantsBack();
         const bool escKey = Edge(Key::Escape, m_EscDown) && !typing && !uiBack;
         if (escKey && !m_Running) { Close(); return; }   // nothing to pause: the scene did not load
-        const bool esc = escKey || start || back;
+        const bool esc = (escKey || start || back) && !binding;
         if (esc && m_Paused && m_MenuPage == MenuPage::Settings) LeaveSettings();   // Esc: back to the menu
         else if (esc) { m_Paused = !m_Paused; m_MenuPage = MenuPage::Main; }
         if (Edge(Key::F11, m_F11Down) || (alt && Edge(257, m_EnterDown)))  // F11, Alt+Enter
             GetWindow().SetFullscreen(!GetWindow().IsFullscreen());
         bool r = Edge(Key::R, m_RDown), q = Edge(Key::Q, m_QDown);
-        if (m_MenuPage != MenuPage::Main) r = q = false;
+        if (m_MenuPage != MenuPage::Main || binding) r = q = false;
         if (m_Paused && q) Close();
         if (!m_Running) return;
         if (m_Paused && r) { m_RestartPending = true; m_Paused = false; }
@@ -268,7 +281,7 @@ public:
     }
 
     // The player's volumes outlive the run: written when they leave Settings and when the game closes
-    void OnShutdown() override { SaveMix(); }
+    void OnShutdown() override { SaveMix(); SaveInput(); }
 
     // The pause menu is laid-out UI (Runtime/UILayout) of its own, so a mouse, the arrow keys + Enter and a gamepad
     // (D-pad / stick + A) all work it. Esc and the pad's B stay the shell's (resume / back), handled in OnUpdate.
@@ -283,8 +296,12 @@ public:
         p.Down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
         UINavInput nav = UINavFromDevices(false);
         nav.Gamepad = m_PadLast;
+        // While a binding is being captured (and until everything is let go) the menu gets no input: the key or
+        // button pressed is the binding, not a move or a click
+        const bool binding = m_Capture.Active() || m_InputWait;
+        if (binding) { nav = UINavInput{}; nav.Gamepad = m_PadLast; p.Down = false; }
         m_MenuItems.clear();
-        m_Menu.SetTextEvents(Input::TextEvents());               // Tab / Shift+Tab
+        m_Menu.SetTextEvents(binding ? std::vector<TextEvent>{} : Input::TextEvents());   // Tab / Shift+Tab
         m_Menu.SetNav(nav);
         m_Menu.BeginFrame(m_MenuItems, size.x / std::max(size.y, 1.0f), p, io.DeltaTime);
         if (m_MenuPage == MenuPage::Settings) DrawSettingsMenu();
@@ -331,16 +348,35 @@ public:
         if (clicked == 3) Close();
     }
 
-    // Settings: a slider and a mute button for the master volume and every audio bus
+    // Settings: Audio (a slider and a mute button for the master volume and every bus) and Controls (bindings)
     void DrawSettingsMenu() {
         using namespace Engine;
-        AudioEngine& audio = m_Session->Audio();
-        AudioMix mix = audio.GetMix();
         UIPanelOptions po;
-        po.X = 0.5f; po.Y = 0.47f; po.W = 600.0f;
+        po.X = 0.5f; po.Y = 0.47f; po.W = 760.0f;
         po.Padding = 22.0f;
         m_Menu.BeginPanel("settings", po);
         m_Menu.Label("Settings", MenuLabel(44.0f));
+        m_SettingsTab = m_Menu.Tabs("settings_tab", { "Audio", "Controls" }, m_SettingsTab);
+        m_Menu.Space(6.0f);
+        if (m_SettingsTab == 1) DrawControlsTab();
+        else DrawAudioTab();
+
+        m_Menu.Space(6.0f);
+        UIButtonOptions back;
+        back.Fill = true;
+        back.H = 50.0f;
+        back.Size = 24.0f;
+        back.Disabled = m_Capture.Active();
+        const bool leave = m_Menu.Button("Back", back);
+        m_Menu.Label("Esc back", MenuLabel(15.0f, true));
+        m_Menu.EndPanel();
+        if (leave) LeaveSettings();
+    }
+
+    void DrawAudioTab() {
+        using namespace Engine;
+        AudioEngine& audio = m_Session->Audio();
+        AudioMix mix = audio.GetMix();
         m_Menu.Label("Volume", MenuLabel(20.0f, true));
         m_Menu.Space(4.0f);
 
@@ -383,21 +419,145 @@ public:
             m_Menu.EndRow();
         }
         if (changed) audio.SetMix(mix);
+    }
 
-        m_Menu.Space(6.0f);
-        UIButtonOptions back;
-        back.Fill = true;
-        back.H = 50.0f;
-        back.Size = 24.0f;
-        const bool leave = m_Menu.Button("Back", back);
-        m_Menu.Label("Esc back", MenuLabel(15.0f, true));
-        m_Menu.EndPanel();
-        if (leave) LeaveSettings();
+    // Controls: one row per rebindable action slot ("Jump", "Move up"), a keyboard / mouse cell and a gamepad cell.
+    // Choosing a cell waits for the next key or button (InputCapture, run by UpdateCapture), which replaces that
+    // device's bindings in that slot. The bindings are overrides on top of the project's input.json, kept in the
+    // settings file's "input" key.
+    void DrawControlsTab() {
+        using namespace Engine;
+        const InputMap& map = m_Session->Scripts().InputActions();
+        constexpr float kLabelW = 210.0f, kCellW = 240.0f, kRowGap = 12.0f;
+
+        auto header = [&](const std::string& text, float w) {
+            UITextOptions t;
+            t.Size = 17.0f; t.Width = w; t.Align = 1; t.Muted = true;
+            m_Menu.Label(text, t);
+        };
+        m_Menu.BeginRow(kRowGap);
+        header("", kLabelW);
+        header("Keyboard / mouse", kCellW);
+        header("Gamepad", kCellW);
+        m_Menu.EndRow();
+
+        int rows = 0;
+        m_Menu.BeginScroll("controls", 250.0f);
+        for (const InputAction* ap : map.InFileOrder()) {
+            const InputAction& a = *ap;
+            if (!a.Rebind) continue;
+            const int slots = InputSlotCount(a.Type);
+            for (int s = 0; s < slots; s++) {
+                rows++;
+                m_Menu.BeginRow(kRowGap);
+                UITextOptions t;
+                t.Size = 19.0f; t.Width = kLabelW; t.Align = 2; t.Bold = true;
+                m_Menu.Label(slots == 1 ? a.DisplayLabel() : a.DisplayLabel() + " " + InputSlotKey(a.Type, s), t);
+                for (int dev = 0; dev < 2; dev++) {
+                    const bool gamepad = dev == 1;
+                    const bool capturing = m_Capture.Active() && m_Capture.Gamepad() == gamepad &&
+                                           m_CaptureAction == a.Name && m_CaptureSlot == s;
+                    std::string text;
+                    for (const InputSource& src : a.Slots[s]) {
+                        if (src.IsGamepad() != gamepad) continue;
+                        if (!text.empty()) text += " / ";
+                        text += InputSourceLabel(src);
+                    }
+                    UIButtonOptions b;
+                    b.Id = "bind:" + a.Name + ":" + std::to_string(s) + (gamepad ? ":pad" : ":key");
+                    b.W = kCellW; b.H = 34.0f; b.Size = 17.0f;
+                    b.Selected = capturing;
+                    if (capturing) text = "...";
+                    else if (text.empty()) { text = "(none)"; b.HasColor = true; b.Color = glm::vec3(0.16f, 0.17f, 0.2f); }
+                    if (m_Menu.Button(text, b) && !m_Capture.Active() && !m_InputWait) {
+                        m_Capture.Begin(gamepad);
+                        m_CaptureAction = a.Name;
+                        m_CaptureSlot = s;
+                        m_ControlsNote.clear();
+                    }
+                }
+                m_Menu.EndRow();
+            }
+        }
+        if (rows == 0) m_Menu.Label("This game has no controls to change.", MenuLabel(19.0f, true));
+        m_Menu.EndScroll();
+
+        // What is going on: the capture's keys, or what the last change did
+        std::string note = m_ControlsNote;
+        if (m_Capture.Active())
+            note = m_Capture.Gamepad() ? "Press a button or push a stick  \xC2\xB7  Start cancels  \xC2\xB7  Back clears"
+                                       : "Press a key or mouse button  \xC2\xB7  Esc cancels  \xC2\xB7  Delete clears";
+        m_Menu.Space(4.0f);
+        UITextOptions nt = MenuLabel(17.0f, !m_Capture.Active());
+        nt.Shadow = false;
+        m_Menu.Label(note.empty() ? " " : note, nt);
+        m_Menu.Space(2.0f);
+        UIButtonOptions reset;
+        reset.Fill = true;
+        reset.H = 40.0f;
+        reset.Size = 20.0f;
+        reset.Disabled = m_Capture.Active() || m_Session->Scripts().InputOverrides().empty();
+        if (m_Menu.Button("Reset to defaults", reset)) {
+            m_Session->Scripts().SetInputOverrides(nlohmann::json::object());
+            m_ControlsNote = "Controls are back to the game's defaults.";
+        }
+    }
+
+    // The raw devices for capturing a binding (the gamepad with the game's dead zones)
+    Engine::InputFrame RawInputFrame() {
+        using namespace Engine;
+        for (int k = 32; k < kRawKeys; k++) m_RawKeys[k] = Input::IsKeyDown(k);
+        for (int b = 0; b < 3; b++) m_RawMouse[b] = Input::IsMouseButtonDown(b);
+        m_RawPad = Input::Gamepad();
+        const InputMap& map = m_Session->Scripts().InputActions();
+        ApplyGamepadDeadZones(m_RawPad, map.StickDeadZone, map.TriggerDeadZone);
+        InputFrame f;
+        f.Keys = m_RawKeys.data(); f.KeyCount = kRawKeys;
+        f.Mouse = m_RawMouse.data(); f.MouseCount = 3;
+        f.Pad = &m_RawPad;
+        return f;
+    }
+
+    // Runs a binding capture; true while one runs or the keys that ended it are still held (the shell ignores keys)
+    bool UpdateCapture() {
+        using namespace Engine;
+        if (!m_Session || (!m_Capture.Active() && !m_InputWait)) return false;
+        const InputFrame f = RawInputFrame();
+        if (!m_Capture.Active()) { m_InputWait = InputCapture::AnyHeld(f); return true; }
+        InputSource src;
+        const InputCapture::Result r = m_Capture.Update(f, src);
+        if (r == InputCapture::Result::Waiting) return true;
+        m_InputWait = true;
+        if (r == InputCapture::Result::Cancelled) { m_ControlsNote.clear(); return true; }
+
+        ScriptEngine& scripts = m_Session->Scripts();
+        InputMap map = scripts.InputActions();
+        const bool captured = r == InputCapture::Result::Captured;
+        map.Rebind(m_CaptureAction, m_CaptureSlot, m_Capture.Gamepad(), captured ? &src : nullptr);
+        scripts.SetInputOverrides(map.OverridesFrom(scripts.DefaultInputActions()));
+        m_ControlsNote.clear();
+        if (captured) {
+            const std::vector<std::string> users = map.UsersOf(src, m_CaptureAction, m_CaptureSlot);
+            if (!users.empty()) {
+                m_ControlsNote = InputSourceLabel(src) + " is also used for ";
+                for (size_t i = 0; i < users.size(); i++) m_ControlsNote += (i ? ", " : "") + users[i];
+            }
+        }
+        return true;
     }
 
     void LeaveSettings() {
         m_MenuPage = MenuPage::Main;
+        m_Capture.Cancel();
+        m_ControlsNote.clear();
         SaveMix();
+        SaveInput();
+    }
+
+    void SaveInput() {
+        if (!m_Session) return;
+        const nlohmann::json& now = m_Session->Scripts().InputOverrides();
+        if (now != m_SavedInput && Engine::SaveInputBindings(m_Cfg.SettingsFile, now)) m_SavedInput = now;
     }
 
     void SaveMix() {
@@ -440,6 +600,17 @@ private:
     std::string m_Error;
 
     Engine::AudioMix m_SavedMix;             // what the settings file holds
+    nlohmann::json m_SavedInput = nlohmann::json::object();   // the same for the binding overrides
+    int m_SettingsTab = 0;                   // Audio, Controls
+    Engine::InputCapture m_Capture;          // Controls: waiting for the key / button to bind
+    std::string m_CaptureAction;
+    int m_CaptureSlot = 0;
+    bool m_InputWait = false;                // a capture ended: keys stay away from the menu and shell until let go
+    std::string m_ControlsNote;              // under the list: a clash, or "reset"
+    static constexpr int kRawKeys = 349;     // GLFW_KEY_LAST + 1
+    std::array<bool, kRawKeys> m_RawKeys{};
+    std::array<bool, 3> m_RawMouse{};
+    Engine::GamepadState m_RawPad;
     MenuPage m_MenuPage = MenuPage::Main;
     Engine::UIContext m_Menu;                // the pause menu (its own laid-out UI)
     std::vector<Engine::ScriptUIItem> m_MenuItems;

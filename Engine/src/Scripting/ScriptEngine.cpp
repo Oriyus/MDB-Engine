@@ -184,7 +184,10 @@ namespace Engine {
         std::array<bool, kKeyCount> KeyNow{}, KeyPrev{};
         std::array<bool, kMouseCount> MouseNow{}, MousePrev{};
         // Input actions (Assets/Data/input.json, read at Start) and the gamepad with its dead zones applied
-        InputMap Actions;
+        InputMap Actions;                                 // BaseActions + the player's overrides
+        InputMap BaseActions;                             // as the project defines them (input.json + ui_* defaults)
+        nlohmann::json InputOverrides = nlohmann::json::object();   // SetInputOverrides / input.set_bindings
+        void ApplyInputOverrides();                       // Actions = BaseActions + InputOverrides, keeping action states
         GamepadState PadNow, PadPrev;
         bool SimPad = false;                              // input.simulate_gamepad is on
         GamepadState SimPadState;
@@ -1719,9 +1722,8 @@ namespace Engine {
             return t;
         });
         input.set_function("action_type", [action](const std::string& n) { return std::string(InputActionTypeName(action(n).Type)); });
-        input.set_function("bindings", [action](const std::string& n, sol::this_state ts) {
+        auto bindingsTable = [](const InputAction& a, sol::this_state ts) {
             sol::state_view lv(ts);
-            const auto& a = action(n);
             auto list = [&](int slot) {
                 sol::table t = lv.create_table();
                 int i = 1;
@@ -1733,8 +1735,58 @@ namespace Engine {
             if (a.Type == InputActionType::Axis) { t["positive"] = list(0); t["negative"] = list(1); }
             else { t["up"] = list(0); t["down"] = list(1); t["left"] = list(2); t["right"] = list(3); }
             return t;
-        });
+        };
+        input.set_function("bindings", [action, bindingsTable](const std::string& n, sol::this_state ts) { return bindingsTable(action(n), ts); });
         input.set_function("device", [this]() { return LastDevice; });
+
+        // The player's bindings (overrides on top of input.json; the Game saves them in its settings file)
+        input.set_function("label", [action](const std::string& n) { return action(n).DisplayLabel(); });
+        input.set_function("rebindable", [action](const std::string& n) { return action(n).Rebind; });
+        input.set_function("default_bindings", [this, action, bindingsTable](const std::string& n, sol::this_state ts) {
+            action(n);
+            const InputAction* a = BaseActions.Find(n);
+            return bindingsTable(a ? *a : action(n), ts);
+        });
+        input.set_function("set_bindings", [this, action](const std::string& n, sol::table t) {
+            const InputAction& a = action(n);
+            auto toList = [&](const sol::table& list, const std::string& slot) {
+                nlohmann::json out = nlohmann::json::array();
+                for (size_t i = 1; i <= list.size(); i++) {
+                    sol::optional<std::string> s = list[i];
+                    InputSource src;
+                    if (!s || !ParseInputSource(*s, src))
+                        throw std::runtime_error("set_bindings('" + n + "'): " + slot + "[" + std::to_string(i) + "] is not a binding like \"key:Space\" or \"pad:A\"");
+                    out.push_back(*s);
+                }
+                return out;
+            };
+            // Everything is checked before anything changes
+            nlohmann::json slots = nlohmann::json::object();
+            if (a.Type == InputActionType::Button) slots["bindings"] = toList(t, "bindings");
+            else {
+                for (auto& [k, v] : t) {
+                    if (!k.is<std::string>() || InputSlotFromKey(a.Type, k.as<std::string>()) < 0)
+                        throw std::runtime_error("set_bindings('" + n + "'): a " + InputActionTypeName(a.Type) + " action has no slot " +
+                            (k.is<std::string>() ? "'" + k.as<std::string>() + "'" : std::string("of that key")));
+                    if (!v.is<sol::table>())
+                        throw std::runtime_error("set_bindings('" + n + "'): " + k.as<std::string>() + " must be a list");
+                }
+                for (int s = 0; s < InputSlotCount(a.Type); s++) {
+                    const char* key = InputSlotKey(a.Type, s);
+                    sol::optional<sol::table> list = t[key];
+                    if (list) slots[key] = toList(*list, key);
+                }
+            }
+            nlohmann::json& entry = InputOverrides[n];
+            if (!entry.is_object()) entry = nlohmann::json::object();
+            for (auto& [k, v] : slots.items()) entry[k] = v;
+            ApplyInputOverrides();
+        });
+        input.set_function("reset_bindings", [this, action](sol::optional<std::string> n) {
+            if (n) { action(*n); InputOverrides.erase(*n); }
+            else InputOverrides = nlohmann::json::object();
+            ApplyInputOverrides();
+        });
 
         // The gamepad itself (the active one; dead zones applied). Buttons and axes by name: A B X Y LB RB Back
         // Start Guide LS RS DPadUp DPadRight DPadDown DPadLeft; LeftX LeftY RightX RightY (Y up) LT RT (0..1)
@@ -2867,9 +2919,22 @@ namespace Engine {
     void ScriptEngine::Impl::LoadInputMap() {
         std::string error;
         std::vector<std::string> warnings;
-        if (!Actions.LoadFile(AssetDir + InputMap::kPath, error, warnings)) ReportError("[input] " + error);
-        Actions.AddMissing(nlohmann::json::parse(InputMap::UIDefaultJson()), warnings);   // ui_up ... ui_secondary unless the file has them
+        if (!BaseActions.LoadFile(AssetDir + InputMap::kPath, error, warnings)) ReportError("[input] " + error);
+        BaseActions.AddMissing(nlohmann::json::parse(InputMap::UIDefaultJson()), warnings);   // ui_up ... ui_secondary unless the file has them
         for (const auto& w : warnings) ReportError("[input] " + w);
+        Actions = BaseActions;
+        ApplyInputOverrides();
+    }
+
+    void ScriptEngine::Impl::ApplyInputOverrides() {
+        InputMap next = BaseActions;
+        std::vector<std::string> warnings;
+        next.ApplyOverrides(InputOverrides, warnings);
+        for (const auto& w : warnings) LOG_WARN("[input] player bindings: {}", w);   // a stale settings file: not a script error
+        next.CopyStateFrom(Actions);
+        Actions = std::move(next);
+        // What actually applied (drops entries for actions the project no longer has)
+        InputOverrides = Actions.OverridesFrom(BaseActions);
     }
 
     void ScriptEngine::Impl::StartInstance(entt::entity handle, const std::string& path) {
@@ -3022,6 +3087,15 @@ namespace Engine {
 
     void ScriptEngine::SetUIFonts(ImFont* bold, ImFont* regular) { m_Impl->UIC.SetFonts(bold, regular); }
     void ScriptEngine::SetKeyboard(bool allowed) { m_Impl->KeyboardAllowed = allowed; }
+
+    void ScriptEngine::SetInputOverrides(const nlohmann::json& overrides) {
+        Impl& m = *m_Impl;
+        m.InputOverrides = overrides.is_object() ? overrides : nlohmann::json::object();
+        if (m.Lua) m.ApplyInputOverrides();          // running: at once (else at Start, when input.json is read)
+    }
+    const nlohmann::json& ScriptEngine::InputOverrides() const { return m_Impl->InputOverrides; }
+    const InputMap& ScriptEngine::InputActions() const { return m_Impl->Actions; }
+    const InputMap& ScriptEngine::DefaultInputActions() const { return m_Impl->BaseActions; }
     bool ScriptEngine::WantsKeyboard() const { return m_Impl->Lua && m_Impl->UIC.WantsKeyboard(); }
     bool ScriptEngine::WantsBack() const { return m_Impl->Lua && m_Impl->UIC.WantsBack(); }
 

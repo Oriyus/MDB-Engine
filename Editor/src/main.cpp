@@ -1199,6 +1199,7 @@ public:
         m_Snapshot = m_Scene.Capture(m_Selected, m_SnapshotSelected);
         m_PlaySettings = GatherSettings();   // put back on Stop if a level change replaced them
         m_PlayMix = m_Session->Audio().GetMix();   // scripts' audio.set_volume lasts until Stop
+        m_Session->Scripts().SetInputOverrides(nlohmann::json::object());   // every Play starts from input.json (input.set_bindings lasts one Play)
         m_PlayState = PlayState::Play;
     }
 

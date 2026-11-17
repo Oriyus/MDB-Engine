@@ -8,7 +8,7 @@
     "jump":     ["key:Space", "pad:A"],
     "sprint":   ["key:LeftShift", "key:RightShift", "pad:LS", "pad:LT"],
     "crouch":   ["key:LeftCtrl", "key:C", "pad:RS"],
-    "interact": ["key:T", "pad:X"],
+    "interact": { "label": "Talk / use", "bindings": ["key:T", "pad:X"] },
     "confirm":  ["key:Enter", "key:Space", "pad:A"],
     "cancel":   ["key:Backspace", "pad:B"],
     "retry":    ["key:R", "pad:Y"],

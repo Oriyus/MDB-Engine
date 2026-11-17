@@ -1,4 +1,5 @@
 #include "Core/InputMap.h"
+#include "Core/SettingsFile.h"
 
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -136,6 +137,83 @@ namespace Engine {
         return "?";
     }
 
+    std::string InputSourceLabel(const InputSource& s) {
+        // "LeftShift" -> "Left Shift"
+        auto words = [](const std::string& n) {
+            std::string out;
+            for (size_t i = 0; i < n.size(); i++) {
+                if (i > 0 && std::isupper((unsigned char)n[i]) && std::islower((unsigned char)n[i - 1])) out += ' ';
+                out += n[i];
+            }
+            return out;
+        };
+        switch (s.K) {
+            case InputSource::Kind::Key: {
+                const char* n = KeyName(s.Code);
+                if (!n) return "?";
+                const std::string name = n;
+                if (name.rfind("KP", 0) == 0 && name.size() == 3) return "Keypad " + name.substr(2);
+                if (name == "Grave") return "`";
+                if (name == "LeftBracket") return "[";
+                if (name == "RightBracket") return "]";
+                if (name == "Backslash") return "\\";
+                if (name == "Semicolon") return ";";
+                if (name == "Apostrophe") return "'";
+                if (name == "Comma") return ",";
+                if (name == "Period") return ".";
+                if (name == "Slash") return "/";
+                if (name == "Minus") return "-";
+                if (name == "Equal") return "=";
+                if (name == "PageUp") return "Page Up";
+                if (name == "PageDown") return "Page Down";
+                return words(name);
+            }
+            case InputSource::Kind::Mouse: return s.Code == 0 ? "Left Mouse" : s.Code == 1 ? "Right Mouse" : "Middle Mouse";
+            case InputSource::Kind::PadButton: {
+                const std::string n = PadButtonName(s.Code);
+                if (n.rfind("DPad", 0) == 0) return "D-Pad " + n.substr(4);
+                if (n == "LS") return "Left Stick Press";
+                if (n == "RS") return "Right Stick Press";
+                return n;
+            }
+            case InputSource::Kind::PadAxis:
+                for (const auto& h : kHalves) {
+                    if (h.Axis != s.Code || h.Sign != s.Sign) continue;
+                    const std::string n = h.Name;
+                    if (n == "LT" || n == "RT") return n;
+                    const bool left = n.rfind("Left", 0) == 0;
+                    return std::string(left ? "Left Stick " : "Right Stick ") + n.substr(left ? 4 : 5);
+                }
+                return "?";
+        }
+        return "?";
+    }
+
+    int InputSlotCount(InputActionType t) {
+        return t == InputActionType::Vector ? 4 : t == InputActionType::Axis ? 2 : 1;
+    }
+
+    const char* InputSlotKey(InputActionType t, int slot) {
+        static const char* kVector[4] = { "up", "down", "left", "right" };
+        if (slot < 0 || slot >= InputSlotCount(t)) return "";
+        if (t == InputActionType::Axis) return slot == 0 ? "positive" : "negative";
+        if (t == InputActionType::Vector) return kVector[slot];
+        return "bindings";
+    }
+
+    int InputSlotFromKey(InputActionType t, const std::string& key) {
+        for (int s = 0; s < InputSlotCount(t); s++) if (key == InputSlotKey(t, s)) return s;
+        return -1;
+    }
+
+    std::string InputAction::DisplayLabel() const {
+        if (!Label.empty()) return Label;
+        std::string out = Name;
+        for (char& c : out) if (c == '_') c = ' ';
+        if (!out.empty()) out[0] = (char)std::toupper((unsigned char)out[0]);
+        return out;
+    }
+
     // ---- loading
 
     void InputMap::Clear() {
@@ -172,7 +250,12 @@ namespace Engine {
             const std::string& name = it.key();
             InputAction a;
             a.Name = name;
+            a.Rebind = name.rfind("ui_", 0) != 0;                           // UI navigation stays put unless asked
             const nlohmann::json& def = it.value();
+            if (def.is_object()) {
+                if (auto f = def.find("label"); f != def.end() && f->is_string()) a.Label = f->get<std::string>();
+                if (auto f = def.find("rebind"); f != def.end() && f->is_boolean()) a.Rebind = f->get<bool>();
+            }
             // slot -1: a vector's "bindings", which take groups only
             auto addList = [&](const nlohmann::json* list, int slot, const char* what) {
                 if (!list) return;
@@ -250,7 +333,7 @@ namespace Engine {
         extra.Load(nlohmann::json{ { "actions", actions } }, warnings);
         bool added = false;
         for (InputAction& a : extra.m_Actions)
-            if (!m_Index.count(a.Name)) { m_Actions.push_back(std::move(a)); added = true; }
+            if (!m_Index.count(a.Name)) { a.Order = 1 << 20; m_Actions.push_back(std::move(a)); added = true; }   // after the file's
         if (!added) return;
         std::sort(m_Actions.begin(), m_Actions.end(), [](const InputAction& x, const InputAction& y) { return x.Name < y.Name; });
         m_Index.clear();
@@ -262,11 +345,17 @@ namespace Engine {
         const auto path = std::filesystem::u8path(file);
         if (!std::filesystem::is_regular_file(path, ec)) return true;
         std::ifstream in(path);
+        nlohmann::ordered_json oj;                    // keeps the file's order of actions (json sorts keys)
         nlohmann::json j;
-        try { in >> j; }
+        try { in >> oj; j = nlohmann::json::parse(oj.dump()); }
         catch (const std::exception& ex) { error = file + ": " + ex.what(); return false; }
         const size_t first = warnings.size();
         Load(j, warnings);
+        if (auto acts = oj.find("actions"); acts != oj.end() && acts->is_object()) {
+            int n = 0;
+            for (auto it = acts->begin(); it != acts->end(); ++it)
+                if (InputAction* a = FindMutable(it.key())) a->Order = n++;
+        }
         for (size_t i = first; i < warnings.size(); i++) warnings[i] = file + ": " + warnings[i];
         m_HasFile = true;
         return true;
@@ -319,6 +408,164 @@ namespace Engine {
     const InputAction* InputMap::Find(const std::string& name) const {
         auto it = m_Index.find(name);
         return it == m_Index.end() ? nullptr : &m_Actions[it->second];
+    }
+
+    // ---- the player's bindings
+
+    InputAction* InputMap::FindMutable(const std::string& name) {
+        auto it = m_Index.find(name);
+        return it == m_Index.end() ? nullptr : &m_Actions[it->second];
+    }
+
+    void InputMap::ApplyOverrides(const nlohmann::json& overrides, std::vector<std::string>& warnings) {
+        if (overrides.is_null()) return;
+        if (!overrides.is_object()) { warnings.push_back("binding overrides must be an object"); return; }
+        for (auto it = overrides.begin(); it != overrides.end(); ++it) {
+            InputAction* a = FindMutable(it.key());
+            if (!a) { warnings.push_back("bindings for unknown action '" + it.key() + "' skipped"); continue; }
+            if (!it->is_object()) { warnings.push_back("bindings for '" + it.key() + "' must be an object"); continue; }
+            for (auto s = it->begin(); s != it->end(); ++s) {
+                const int slot = InputSlotFromKey(a->Type, s.key());
+                if (slot < 0) { warnings.push_back("action '" + a->Name + "' has no slot \"" + s.key() + "\""); continue; }
+                if (!s->is_array()) { warnings.push_back("action '" + a->Name + "': \"" + s.key() + "\" must be a list"); continue; }
+                std::vector<InputSource> list;
+                for (const auto& v : *s) {
+                    InputSource src;
+                    if (v.is_string() && ParseInputSource(v.get<std::string>(), src)) {
+                        if (std::find(list.begin(), list.end(), src) == list.end()) list.push_back(src);
+                    }
+                    else warnings.push_back("action '" + a->Name + "': unknown binding " + v.dump());
+                }
+                a->Slots[slot] = std::move(list);
+            }
+        }
+    }
+
+    nlohmann::json InputMap::OverridesFrom(const InputMap& base) const {
+        nlohmann::json out = nlohmann::json::object();
+        for (const InputAction& a : m_Actions) {
+            const InputAction* b = base.Find(a.Name);
+            if (!b || b->Type != a.Type) continue;               // only actions the base defines the same way
+            for (int s = 0; s < InputSlotCount(a.Type); s++) {
+                if (a.Slots[s] == b->Slots[s]) continue;
+                nlohmann::json list = nlohmann::json::array();
+                for (const auto& src : a.Slots[s]) list.push_back(InputSourceName(src));
+                out[a.Name][InputSlotKey(a.Type, s)] = std::move(list);
+            }
+        }
+        return out;
+    }
+
+    bool InputMap::Rebind(const std::string& action, int slot, bool gamepad, const InputSource* source) {
+        InputAction* a = FindMutable(action);
+        if (!a || slot < 0 || slot >= InputSlotCount(a->Type)) return false;
+        auto& list = a->Slots[slot];
+        // The new source goes where the device's first one was, so the order of the rest is kept
+        size_t at = list.size();
+        for (size_t i = 0; i < list.size(); i++) if (list[i].IsGamepad() == gamepad) { at = i; break; }
+        std::vector<InputSource> next;
+        for (size_t i = 0; i < list.size(); i++) {
+            if (i == at && source) next.push_back(*source);
+            if (list[i].IsGamepad() != gamepad) next.push_back(list[i]);
+        }
+        if (at == list.size() && source) next.push_back(*source);
+        list = std::move(next);
+        return true;
+    }
+
+    std::vector<std::string> InputMap::UsersOf(const InputSource& source, const std::string& action, int slot) const {
+        std::vector<std::string> out;
+        for (const InputAction& a : m_Actions) {
+            if (!a.Rebind) continue;
+            const int n = InputSlotCount(a.Type);
+            for (int s = 0; s < n; s++) {
+                if (a.Name == action && s == slot) continue;
+                if (std::find(a.Slots[s].begin(), a.Slots[s].end(), source) == a.Slots[s].end()) continue;
+                out.push_back(n == 1 ? a.DisplayLabel() : a.DisplayLabel() + " " + InputSlotKey(a.Type, s));
+            }
+        }
+        return out;
+    }
+
+    void InputMap::CopyStateFrom(const InputMap& other) {
+        for (InputAction& a : m_Actions)
+            if (const InputAction* o = other.Find(a.Name)) {
+                a.X = o->X; a.Y = o->Y; a.Strength = o->Strength;
+                a.Down = o->Down; a.WasDown = o->WasDown;
+            }
+    }
+
+    // ---- capturing a binding
+
+    static constexpr float kCaptureAxis = 0.6f;
+
+    bool InputCapture::AnyHeld(const InputFrame& f) {
+        for (int k = 0; k < f.KeyCount; k++) if (f.Keys[k]) return true;
+        for (int b = 0; b < f.MouseCount; b++) if (f.Mouse[b]) return true;
+        if (f.Pad && f.Pad->Connected) {
+            for (bool b : f.Pad->Buttons) if (b) return true;
+            for (float v : f.Pad->Axes) if (std::abs(v) > 0.3f) return true;
+        }
+        return false;
+    }
+
+    InputCapture::Result InputCapture::Update(const InputFrame& f, InputSource& out) {
+        if (!m_Active) return Result::Cancelled;
+        if (!m_Armed) {                                     // first let go of whatever opened it
+            m_Armed = !AnyHeld(f);
+            return Result::Waiting;
+        }
+        auto key = [&](int k) { return k >= 0 && k < f.KeyCount && f.Keys[k]; };
+        const bool padOn = f.Pad && f.Pad->Connected;
+        auto finish = [&](Result r) { m_Active = false; return r; };
+        if (key(256) || (padOn && f.Pad->Buttons[Pad::Start])) return finish(Result::Cancelled);   // Escape, Start
+        if (key(261) || (m_Gamepad && padOn && f.Pad->Buttons[Pad::Back])) return finish(Result::Cleared);   // Delete
+
+        if (!m_Gamepad) {
+            for (int k = 0; k < f.KeyCount; k++) {
+                if (!f.Keys[k] || k == 300 || !KeyName(k)) continue;     // F11 is the shell's; unnamed keys can't be saved
+                out = { InputSource::Kind::Key, k, 1.0f };
+                return finish(Result::Captured);
+            }
+            for (int b = 0; b < std::min(f.MouseCount, 3); b++)
+                if (f.Mouse[b]) { out = { InputSource::Kind::Mouse, b, 1.0f }; return finish(Result::Captured); }
+            return Result::Waiting;
+        }
+        if (!padOn) return Result::Waiting;
+        for (int b = 0; b < Pad::ButtonCount; b++) {
+            if (!f.Pad->Buttons[b] || b == Pad::Guide) continue;
+            out = { InputSource::Kind::PadButton, b, 1.0f };
+            return finish(Result::Captured);
+        }
+        // The axis pushed furthest past the threshold, as the half it was pushed to
+        int best = -1;
+        float bestV = kCaptureAxis;
+        for (int a = 0; a < Pad::AxisCount; a++)
+            if (std::abs(f.Pad->Axes[a]) > bestV) { best = a; bestV = std::abs(f.Pad->Axes[a]); }
+        if (best < 0) return Result::Waiting;
+        const float sign = f.Pad->Axes[best] < 0.0f ? -1.0f : 1.0f;
+        if ((best == Pad::LT || best == Pad::RT) && sign < 0.0f) return Result::Waiting;
+        out = { InputSource::Kind::PadAxis, best, sign };
+        return finish(Result::Captured);
+    }
+
+    bool LoadInputBindings(const std::string& file, nlohmann::json& overrides) {
+        nlohmann::json j;
+        if (!ReadSettingsSection(file, "input", j) || !j.is_object()) return false;
+        overrides = std::move(j);
+        return true;
+    }
+
+    bool SaveInputBindings(const std::string& file, const nlohmann::json& overrides) {
+        // An empty override list leaves no "input" key behind
+        return WriteSettingsSection(file, "input", overrides.empty() ? nlohmann::json() : overrides);
+    }
+
+    std::vector<const InputAction*> InputMap::InFileOrder() const {
+        std::vector<const InputAction*> out;
+        for (const auto& a : m_Actions) out.push_back(&a);
+        std::stable_sort(out.begin(), out.end(), [](const InputAction* x, const InputAction* y) { return x->Order < y->Order; });
+        return out;
     }
 
     std::string InputMap::Names() const {
