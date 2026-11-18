@@ -193,7 +193,8 @@ namespace Engine {
         if (settings) {
             root["settings"] = WriteSettings(*settings, m_Scene.AmbientIntensity);
             root["settings"]["wind"] = { { "direction", m_Scene.Wind.Direction },{ "speed", m_Scene.Wind.Speed },{ "strength", m_Scene.Wind.Strength } };
-            if (m_Scene.Lod.DistanceScale != 1.0f) root["settings"]["lod"] = { { "distanceScale", m_Scene.Lod.DistanceScale } };
+            if (m_Scene.Lod.DistanceScale != 1.0f) root["settings"]["lod"]["distanceScale"] = m_Scene.Lod.DistanceScale;
+            if (m_Scene.Lod.TerrainError != 1.0f) root["settings"]["lod"]["terrainError"] = m_Scene.Lod.TerrainError;
         }
 
         std::ofstream file(path);
@@ -275,6 +276,7 @@ namespace Engine {
                 }
                 if (auto it = root["settings"].find("lod"); it != root["settings"].end() && it->is_object()) {
                     lod.DistanceScale = std::max(it->value("distanceScale", lod.DistanceScale), 0.01f);
+                    lod.TerrainError = std::max(it->value("terrainError", lod.TerrainError), 0.0f);
                 }
             }
         }

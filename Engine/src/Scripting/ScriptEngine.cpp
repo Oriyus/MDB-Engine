@@ -1019,7 +1019,7 @@ namespace Engine {
             return Lua->create_table_with("draw_calls", c.DrawCalls, "triangles", c.Triangles,
                 "instances", c.Instances, "culled", c.Culled, "shadow_skipped", c.ShadowSkipped, "particles", c.Particles,
                 "static_batches", c.StaticBatches, "static_merged", c.StaticMerged, "decals", c.Decals, "foliage", c.Foliage,
-                "lod_reduced", c.LodReduced, "lod_culled", c.LodCulled,
+                "lod_reduced", c.LodReduced, "lod_culled", c.LodCulled, "terrain_lod_reduced", c.TerrainLodReduced,
                 "lights", c.Lights, "lights_visible", c.LightsVisible, "lights_per_cluster", c.LightsPerCluster,
                 "shadowed_lights", c.ShadowedLights, "atlas_lights", c.AtlasLights, "atlas_smallest", c.AtlasSmallest,
                 "atlas_largest", c.AtlasLargest, "atlas_used", c.AtlasUsed / 1000.0,
@@ -1038,6 +1038,11 @@ namespace Engine {
         scene.set_function("lod_scale", [this](sol::optional<float> v) {
             if (v) ActiveScene->Lod.DistanceScale = std::max(*v, 0.01f);
             return ActiveScene->Lod.DistanceScale;
+        });
+        // Terrain level-of-detail error in pixels (Scene::Lod.TerrainError; 0 = full detail): reads it, or sets it first
+        scene.set_function("terrain_lod_error", [this](sol::optional<float> v) {
+            if (v) ActiveScene->Lod.TerrainError = std::max(*v, 0.0f);
+            return ActiveScene->Lod.TerrainError;
         });
         scene.set_function("raycast", [this](const glm::vec3& origin, const glm::vec3& dir, float maxDist,
             sol::optional<ScriptEntity> ignore) -> sol::object {

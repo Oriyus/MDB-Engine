@@ -215,7 +215,7 @@ namespace Engine {
     //     in the game these are the player's settings (saved on quit), in the editor Stop puts back the mix Play began with
     //   audio.buses() -> { "sfx", "music", ... }, audio.voices([bus]) -> sounds alive (all, or on that bus)
     //   scene.quit()                         the game closes (in the editor: Play stops)
-    //   scene.render_stats() -> { draw_calls, triangles, instances, culled, shadow_skipped, particles, decals, static_batches, static_merged, foliage, lod_reduced, lod_culled,
+    //   scene.render_stats() -> { draw_calls, triangles, instances, culled, shadow_skipped, particles, decals, static_batches, static_merged, foliage, lod_reduced, lod_culled, terrain_lod_reduced (terrain chunks drawn coarser),
     //       lights, lights_visible, lights_per_cluster,   (point lights: all, those the camera's view reaches, the most in one cluster)
     //       shadowed_lights, atlas_lights, atlas_smallest, atlas_largest, atlas_used,   (lights with shadows; in the shadow atlas, their squares in texels, the share of it used 0..1)
     //       sun_cascades, sun_cascades_drawn }   (sun cascades in use, and redrawn last frame: the rest were cached)
@@ -224,6 +224,8 @@ namespace Engine {
     //               sets it first if given, returns the one in use (cpu when compute shaders failed to build)
     //   scene.lod_scale([v])  -> the scene's level-of-detail distance scale (every switch and cull distance x v; 2 = detail
     //               twice as far): reads it, or sets it first
+    //   scene.terrain_lod_error([px]) -> how far (pixels of a 1080-pixel-high view) a terrain chunk's coarser level may
+    //               be off the full surface (default 1; 0 = full detail everywhere): reads it, or sets it first
     //   scene.spawn_particles(pos, "Sparks" | { preset, count })   a one-shot burst entity that removes itself when done
     //   ---- ui: drawn this frame only, in call order. x, y, w, h are 0..1 of the view (top left origin).
     //   ui.text(text, x, y [, { size=24, color=vec3, alpha=1, align="left"|"center"|"right" }])

@@ -137,6 +137,7 @@ namespace Engine {
             // Only when not the default, so existing fields keep their JSON (no prefab overrides appear)
             if (!f.FollowTerrain) j["foliage"]["followTerrain"] = false;
             if (f.TerrainLayer >= 0) j["foliage"]["terrainLayer"] = f.TerrainLayer;
+            if (f.GroundShade != 0.6f) j["foliage"]["groundShade"] = f.GroundShade;
         }
         if (e.Has<GrassBlockerComponent>()) {
             auto& b = e.Get<GrassBlockerComponent>();
@@ -468,6 +469,7 @@ namespace Engine {
             f.Recovery = jf.value("recovery", f.Recovery);
             f.DrawDistance = jf.value("drawDistance", f.DrawDistance);
             f.AvoidStatic = jf.value("avoidStatic", f.AvoidStatic);
+            f.GroundShade = std::clamp(jf.value("groundShade", 0.6f), 0.0f, 1.0f);
             f.FollowTerrain = jf.value("followTerrain", f.FollowTerrain);
             f.TerrainLayer = jf.value("terrainLayer", f.TerrainLayer);
             e.Add<FoliageComponent>(f);

@@ -117,6 +117,9 @@ namespace Engine {
         // every switch and cull distance (2 = detail kept twice as far: a quality setting; Lua scene.lod_scale).
         struct LodSettings {
             float DistanceScale = 1.0f;
+            // Terrain chunks: the most their coarser levels may be off the full surface, in pixels of a 1080-pixel-high
+            // view (TerrainData::SelectLods; 0 = always full detail; Lua scene.terrain_lod_error). Saved when not 1.
+            float TerrainError = 1.0f;
         } Lod;
         bool TintLodLevels = false;        // debug (Viewport > Debug > LOD Levels): colour parts by their level, not saved
         bool ClusterDebug = false;         // debug (Viewport > Debug > Light Clusters): tint by how many point lights each pixel weighs, not saved

@@ -2,6 +2,9 @@
 #include "Scene/Scene.h"
 #include "Scene/Components.h"
 #include "Renderer/Mesh.h"
+#include "Renderer/RenderStats.h"
+#include "Renderer/VertexArray.h"
+#include "Renderer/Buffer.h"
 #include "Core/Log.h"
 
 #include <glad/glad.h>
@@ -11,6 +14,8 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <utility>
 
 namespace Engine {
 
@@ -93,7 +98,7 @@ namespace Engine {
         : Material(o.Material), m_Res(o.m_Res), m_SplatRes(o.m_SplatRes), m_Heights(o.m_Heights), m_Splat(o.m_Splat),
           m_Revision(o.m_Revision), m_HashRevision(o.m_HashRevision), m_Hash(o.m_Hash),
           m_RangeRevision(o.m_RangeRevision), m_Min(o.m_Min), m_Max(o.m_Max),
-          m_Chunks(o.m_Chunks), m_ChunkDirty(o.m_ChunkDirty), m_BuiltSize(o.m_BuiltSize),
+          m_Chunks(o.m_Chunks), m_ChunksPerSide(o.m_ChunksPerSide), m_ChunkDirty(o.m_ChunkDirty), m_BuiltSize(o.m_BuiltSize),
           m_SplatTex(o.m_SplatTex), m_SplatOwned(false), m_SplatDirty(o.m_SplatDirty), m_SplatRect(o.m_SplatRect) {}
 
     TerrainData::~TerrainData() = default;
@@ -467,8 +472,173 @@ namespace Engine {
     }
 
     // ---------------------------------------------------------------- GPU
+    // ---------------------------------------------------------------- chunk levels of detail
+    namespace {
+        // The index lists of every level and stitch variant for one chunk shape (qx by qz grid squares), shared by all
+        // chunks of that shape. Indices are into the chunk's (qx + 1) x (qz + 1) vertices, row by row.
+        struct ChunkIndexSet {
+            std::shared_ptr<IndexBuffer> Buffer;
+            int Levels = 1;
+            std::vector<uint32_t> First, Count;       // per variant: level * 16 + mask
+        };
+
+        int LevelsFor(int qx, int qz) {
+            int levels = 1;
+            while (levels < TerrainData::MaxLodLevels) {
+                const int s = 1 << levels;
+                if (qx % s || qz % s) break;
+                levels++;
+            }
+            return levels;
+        }
+
+        std::shared_ptr<ChunkIndexSet> IndexSetFor(int qx, int qz) {
+            static std::map<std::pair<int, int>, std::weak_ptr<ChunkIndexSet>> cache;   // GL thread only
+            auto& slot = cache[{ qx, qz }];
+            if (auto set = slot.lock()) return set;
+            auto set = std::make_shared<ChunkIndexSet>();
+            set->Levels = LevelsFor(qx, qz);
+            std::vector<uint32_t> idx;
+            const uint32_t row = (uint32_t)qx + 1;
+            for (int k = 0; k < set->Levels; k++) {
+                const int s = 1 << k, s2 = s * 2;
+                // A stitch needs the coarser neighbour's samples along that edge (its length a multiple of 2s)
+                const int valid = (qz % s2 == 0 ? 3 : 0) | (qx % s2 == 0 ? 12 : 0);
+                for (int variant = 0; variant < 16; variant++) {
+                    const int mask = variant & valid;
+                    set->First.push_back((uint32_t)idx.size());
+                    double area = 0.0;
+                    bool flipped = false;
+                    auto vert = [&](int x, int z) {
+                        // Fold an odd vertex of a stitched edge onto the even one before it (a boundary edge collapse)
+                        if (((mask & 1) && x == 0) || ((mask & 2) && x == qx)) z -= z % s2;
+                        if (((mask & 4) && z == 0) || ((mask & 8) && z == qz)) x -= x % s2;
+                        return glm::ivec2(x, z);
+                    };
+                    auto tri = [&](glm::ivec2 a, glm::ivec2 b, glm::ivec2 c) {
+                        if (a == b || b == c || a == c) return;           // collapsed
+                        const double cross = double(b.x - a.x) * (c.y - a.y) - double(b.y - a.y) * (c.x - a.x);
+                        area += cross * 0.5;
+                        if (cross >= 0.0) flipped = true;                 // every triangle winds the same way (negative here)
+                        for (glm::ivec2 p : { a, b, c }) idx.push_back((uint32_t)p.y * row + (uint32_t)p.x);
+                    };
+                    for (int z = 0; z < qz; z += s)
+                        for (int x = 0; x < qx; x += s) {
+                            const glm::ivec2 a = vert(x, z), b = vert(x + s, z), c = vert(x, z + s), d = vert(x + s, z + s);
+                            tri(a, c, d);                                 // split a-d like Jolt (and the full level)
+                            tri(a, d, b);
+                        }
+                    set->Count.push_back((uint32_t)idx.size() - set->First.back());
+                    if (flipped || std::abs(area + double(qx) * qz) > 1e-6)
+                        ENGINE_ERROR("Terrain LOD: chunk {}x{} level {} stitch {} doesn't tile its square", qx, qz, k, mask);
+                }
+            }
+            set->Buffer = std::make_shared<IndexBuffer>(idx.data(), (uint32_t)idx.size());
+            slot = set;
+            return set;
+        }
+
+        // One terrain chunk: its full-resolution vertices with the shared index lists (a part per level and stitch).
+        // No CPU copies are kept (physics and grass read the heights).
+        class TerrainChunkMesh : public Renderable {
+        public:
+            TerrainChunkMesh(const std::vector<Vertex>& vertices, std::shared_ptr<ChunkIndexSet> set,
+                const glm::vec3& mn, const glm::vec3& mx) : m_Set(std::move(set)), m_Min(mn), m_Max(mx) {
+                auto vb = std::make_shared<VertexBuffer>(reinterpret_cast<const float*>(vertices.data()),
+                    (uint32_t)(vertices.size() * sizeof(Vertex)));
+                vb->SetLayout({
+                    { ShaderDataType::Float3 }, { ShaderDataType::Float3 }, { ShaderDataType::Float2 },
+                    { ShaderDataType::UByte4Norm, 5 }, { ShaderDataType::UByte4Norm, 6 } });
+                m_VAO = std::make_unique<VertexArray>();
+                m_VAO->AddVertexBuffer(vb);
+                m_VAO->SetIndexBuffer(m_Set->Buffer);
+            }
+            void Draw() const override { DrawPart(0, 0); }
+            void DrawInstanced(uint32_t count) const override { DrawPart(0, count); }
+            uint32_t SubmeshCount() const override { return (uint32_t)m_Set->First.size(); }
+            void DrawSubmesh(uint32_t part) const override { DrawPart(part, 0); }
+            void DrawSubmeshInstanced(uint32_t part, uint32_t count) const override { if (count) DrawPart(part, count); }
+            void GetLocalBounds(glm::vec3& mn, glm::vec3& mx) const override { mn = m_Min; mx = m_Max; }
+            uint32_t TriangleCount() const override { return m_Set->Count[0] / 3; }
+        private:
+            void DrawPart(uint32_t part, uint32_t instances) const {
+                if (part >= m_Set->First.size()) part = 0;
+                const uint32_t count = m_Set->Count[part];
+                const void* offset = (const void*)(uintptr_t(m_Set->First[part]) * sizeof(uint32_t));
+                RenderStats::DrawCalls++;
+                m_VAO->Bind();
+                if (instances == 0) {
+                    RenderStats::Triangles += count / 3;
+                    glDrawElements(GL_TRIANGLES, (GLsizei)count, GL_UNSIGNED_INT, offset);
+                }
+                else {
+                    RenderStats::Triangles += count / 3 * instances;
+                    RenderStats::Instances += instances;
+                    glDrawElementsInstanced(GL_TRIANGLES, (GLsizei)count, GL_UNSIGNED_INT, offset, (GLsizei)instances);
+                }
+            }
+            std::shared_ptr<ChunkIndexSet> m_Set;
+            std::unique_ptr<VertexArray> m_VAO;
+            glm::vec3 m_Min, m_Max;
+        };
+    }
+
+    uint32_t TerrainData::SelectLods(const glm::vec3& eye, const glm::vec3& axisScale, float pixelsPerMetre, float maxPixels) {
+        const int n = (int)m_ChunksPerSide;
+        if (n == 0 || m_Chunks.size() != size_t(n) * n) return 0;
+        std::vector<uint8_t> want(m_Chunks.size());
+        for (size_t i = 0; i < m_Chunks.size(); i++) {
+            Chunk& c = m_Chunks[i];
+            if (maxPixels <= 0.0f || !c.Geometry) { want[i] = 0; continue; }
+            // Nearest point of the chunk's box, measured in metres of the world (the entity's scale per axis)
+            const glm::vec3 nearest = glm::clamp(eye, c.Min, c.Max);
+            const float distance = std::max(glm::length((nearest - eye) * axisScale), 1e-3f);
+            const float toPixels = axisScale.y * pixelsPerMetre / distance;
+            auto coarsest = [&](float limit) {
+                int k = 0;
+                while (k + 1 < c.Levels && c.Error[k + 1] * toPixels <= limit) k++;
+                return k;
+            };
+            int level = std::min<int>(c.Level, c.Levels - 1);
+            if (c.Error[level] * toPixels > maxPixels) level = coarsest(maxPixels);   // too coarse now: refine
+            else level = std::max(level, coarsest(maxPixels * 0.8f));                 // coarser only with a margin
+            want[i] = (uint8_t)level;
+        }
+        // Neighbours within one level: lower any chunk more than one above a neighbour, until nothing changes
+        for (bool changed = true; changed;) {
+            changed = false;
+            for (int z = 0; z < n; z++)
+                for (int x = 0; x < n; x++) {
+                    uint8_t& w = want[size_t(z) * n + x];
+                    auto clampTo = [&](int nx, int nz) {
+                        if (nx < 0 || nz < 0 || nx >= n || nz >= n) return;
+                        const uint8_t limit = (uint8_t)(want[size_t(nz) * n + nx] + 1);
+                        if (w > limit) { w = limit; changed = true; }
+                    };
+                    clampTo(x - 1, z); clampTo(x + 1, z); clampTo(x, z - 1); clampTo(x, z + 1);
+                }
+        }
+        uint32_t reduced = 0;
+        for (int z = 0; z < n; z++)
+            for (int x = 0; x < n; x++) {
+                Chunk& c = m_Chunks[size_t(z) * n + x];
+                const uint8_t level = want[size_t(z) * n + x];
+                auto coarser = [&](int nx, int nz) {
+                    return nx >= 0 && nz >= 0 && nx < n && nz < n && want[size_t(nz) * n + nx] > level;
+                };
+                const uint8_t mask = (uint8_t)((coarser(x - 1, z) ? 1 : 0) | (coarser(x + 1, z) ? 2 : 0) |
+                                               (coarser(x, z - 1) ? 4 : 0) | (coarser(x, z + 1) ? 8 : 0));
+                c.LevelChanged = c.Level != level || c.Mask != mask;
+                c.Level = level;
+                c.Mask = mask;
+                if (level > 0) reduced++;
+            }
+        return reduced;
+    }
+
     void TerrainData::UpdateGPU(const glm::vec2& size) {
         const int n = (int)((m_Res - 1 + ChunkQuads - 1) / ChunkQuads);
+        m_ChunksPerSide = (uint32_t)n;
         if (m_Chunks.size() != size_t(n) * n) { m_Chunks.assign(size_t(n) * n, Chunk{}); m_ChunkDirty.assign(size_t(n) * n, 1); }
         if (m_ChunkDirty.size() != m_Chunks.size()) m_ChunkDirty.assign(m_Chunks.size(), 1);
         if (size != m_BuiltSize) { std::fill(m_ChunkDirty.begin(), m_ChunkDirty.end(), 1); m_BuiltSize = size; }
@@ -476,7 +646,6 @@ namespace Engine {
         const float g = (float)(m_Res - 1);
         const float dx = size.x / g, dz = size.y / g;
         std::vector<Vertex> verts;
-        std::vector<uint32_t> idx;
         for (int cz = 0; cz < n; cz++) {
             for (int cx = 0; cx < n; cx++) {
                 const size_t ci = size_t(cz) * n + cx;
@@ -484,7 +653,7 @@ namespace Engine {
                 m_ChunkDirty[ci] = 0;
                 const int sx = cx * (int)ChunkQuads, sz = cz * (int)ChunkQuads;
                 const int qx = std::min((int)ChunkQuads, (int)m_Res - 1 - sx), qz = std::min((int)ChunkQuads, (int)m_Res - 1 - sz);
-                verts.clear(); idx.clear();
+                verts.clear();
                 verts.reserve(size_t(qx + 1) * (qz + 1));
                 glm::vec3 mn(1e30f), mx(-1e30f);
                 for (int z = sz; z <= sz + qz; z++) {
@@ -498,16 +667,35 @@ namespace Engine {
                         verts.push_back(v);
                     }
                 }
-                const uint32_t row = (uint32_t)qx + 1;
-                for (int z = 0; z < qz; z++) {
-                    for (int x = 0; x < qx; x++) {
-                        const uint32_t a = z * row + x, b = a + 1, c = a + row, d = c + 1;   // a (x,z) b (x+1,z) c (x,z+1) d (x+1,z+1)
-                        idx.insert(idx.end(), { a, c, d, a, d, b });   // counter-clockwise from above, split a-d like Jolt
-                    }
+                // Triangles a (x,z) c (x,z+1) d (x+1,z+1) and a d b (x+1,z): counter-clockwise from above, split a-d like
+                // Jolt; the index lists of every level are shared by the chunks of this shape (IndexSetFor)
+                auto set = IndexSetFor(qx, qz);
+                Chunk& ch = m_Chunks[ci];
+                ch.Geometry = std::make_shared<TerrainChunkMesh>(verts, set, mn, mx);   // a new one: copies keep the old
+                ch.Min = mn;
+                ch.Max = mx;
+                ch.Levels = (uint8_t)set->Levels;
+                ch.Level = std::min<uint8_t>(ch.Level, ch.Levels - 1);
+                ch.Mask = 0;
+                ch.LevelChanged = true;
+                // Each level's error: the most a full-resolution sample is off that level's surface (made monotonic,
+                // so a coarser level never looks better than a finer one)
+                for (int k = 0; k < MaxLodLevels; k++) ch.Error[k] = 0.0f;
+                for (int k = 1; k < ch.Levels; k++) {
+                    const int s = 1 << k;
+                    float err = ch.Error[k - 1];
+                    for (int z = 0; z <= qz; z++)
+                        for (int x = 0; x <= qx; x++) {
+                            const int x0 = std::min(x / s * s, qx - s), z0 = std::min(z / s * s, qz - s);
+                            const float fx = float(x - x0) / s, fz = float(z - z0) / s;
+                            const float ha = At(sx + x0, sz + z0), hb = At(sx + x0 + s, sz + z0);
+                            const float hc = At(sx + x0, sz + z0 + s), hd = At(sx + x0 + s, sz + z0 + s);
+                            const float h = fz >= fx ? ha + fz * (hc - ha) + fx * (hd - hc)     // triangle a c d
+                                                     : ha + fx * (hb - ha) + fz * (hd - hb);    // triangle a d b
+                            err = std::max(err, std::abs(At(sx + x, sz + z) - h));
+                        }
+                    ch.Error[k] = err;
                 }
-                m_Chunks[ci].Geometry = std::make_shared<Mesh>(verts, idx);   // a new mesh: copies keep the old one
-                m_Chunks[ci].Min = mn;
-                m_Chunks[ci].Max = mx;
             }
         }
 

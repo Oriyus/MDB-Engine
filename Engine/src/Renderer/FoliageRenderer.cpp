@@ -244,6 +244,15 @@ namespace Engine {
             std::vector<glm::vec2> Push;          // world X/Z push per texel
             bool Active = false, Dirty = false;
             bool Seen = false;
+            // Ground shade (lit.frag GroundGrassShade): per cell coverage (8 bits) | ground height (24 bits over
+            // ShadeMinY..ShadeMaxY, the field's space), made by Scatter; the rest is this frame's (Render)
+            std::vector<uint32_t> ShadeCells;
+            int SX = 0, SZ = 0;
+            float ShadeMinY = 0.0f, ShadeMaxY = 0.0f, ShadeBand = 0.3f;
+            glm::mat4 World{ 1.0f };
+            glm::vec2 Size{ 1.0f };
+            float Strength = 0.0f, DrawDistance = 0.0f;
+            bool Shown = false;                   // drawn this frame (not hidden in the editor)
             ~Field() {
                 if (Buffer) glDeleteBuffers(1, &Buffer);
                 if (Trample) glDeleteTextures(1, &Trample);
@@ -317,6 +326,78 @@ namespace Engine {
         std::vector<Presser> Pressers;
         std::chrono::steady_clock::time_point Last = std::chrono::steady_clock::now();
         float Time = 0.0f;
+
+        // Ground shade (BindGroundShade): one storage buffer with a header (field count), up to kShadeFields field
+        // records and every field's cells after them; the cells are uploaded again only when a field scattered
+        static constexpr int kShadeFields = 8;
+        struct ShadeFieldGpu { glm::mat4 InvWorld; glm::vec4 Area, Params, Range; };
+        static constexpr size_t kShadeHeader = 16 + kShadeFields * sizeof(ShadeFieldGpu);
+        uint32_t ShadeBuffer = 0;
+        size_t ShadeBufferSize = 0;
+        bool ShadeDirty = true;
+        std::unordered_map<uint64_t, uint32_t> ShadeOffset;    // by field id: its first cell in the buffer
+        ~Impl() { if (ShadeBuffer) glDeleteBuffers(1, &ShadeBuffer); }
+
+        // The ground shade map of a field from its clumps: each clump adds its footprint (about 0.2 m across x its
+        // width, more for taller grass) to the cells round it, bilinearly; one 3 x 3 blur; coverage = 1 - exp(-sum).
+        // The ground height of a cell is the weighted mean height of the roots there (the field's space).
+        void BuildGroundShade(Field& field, const FoliageComponent& f, const glm::mat4& world, glm::vec2 size,
+            const std::vector<Clump>& clumps) {
+            const float cell = std::max(0.25f, std::max(size.x, size.y) / 512.0f);
+            const int sx = std::clamp((int)std::ceil(size.x / cell), 1, 512), sz = std::clamp((int)std::ceil(size.y / cell), 1, 512);
+            const glm::mat4 inv = glm::inverse(world);
+            std::vector<float> w(size_t(sx) * sz, 0.0f), hsum(size_t(sx) * sz, 0.0f);
+            const float cellArea = (size.x / sx) * (size.y / sz);
+            for (const Clump& c : clumps) {
+                const glm::vec3 p = glm::vec3(inv * glm::vec4(glm::vec3(c.PosRot), 1.0f));
+                const float r = 0.1f * c.Params.y;                                    // footprint radius (metres)
+                const float weight = 3.14159f * r * r / cellArea * std::clamp(c.Params.x / 0.45f, 0.3f, 2.0f);
+                const float u = (p.x / size.x + 0.5f) * sx - 0.5f, v = (p.z / size.y + 0.5f) * sz - 0.5f;
+                const int x0 = (int)std::floor(u), z0 = (int)std::floor(v);
+                const float tx = u - x0, tz = v - z0;
+                for (int k = 0; k < 4; k++) {
+                    const int x = x0 + (k & 1), z = z0 + (k >> 1);
+                    if (x < 0 || z < 0 || x >= sx || z >= sz) continue;
+                    const float b = ((k & 1) ? tx : 1.0f - tx) * ((k >> 1) ? tz : 1.0f - tz) * weight;
+                    w[size_t(z) * sx + x] += b;
+                    hsum[size_t(z) * sx + x] += b * p.y;
+                }
+            }
+            // 3 x 3 tent blur of both (soft edges, gaps between clumps filled)
+            std::vector<float> bw(w.size(), 0.0f), bh(w.size(), 0.0f);
+            for (int z = 0; z < sz; z++)
+                for (int x = 0; x < sx; x++) {
+                    float sw = 0.0f, sh = 0.0f, norm = 0.0f;
+                    for (int dz = -1; dz <= 1; dz++)
+                        for (int dx = -1; dx <= 1; dx++) {
+                            const int xx = x + dx, zz = z + dz;
+                            const float k = (dx ? 1.0f : 2.0f) * (dz ? 1.0f : 2.0f);
+                            norm += k;
+                            if (xx < 0 || zz < 0 || xx >= sx || zz >= sz) continue;
+                            sw += k * w[size_t(zz) * sx + xx];
+                            sh += k * hsum[size_t(zz) * sx + xx];
+                        }
+                    bw[size_t(z) * sx + x] = sw / norm;
+                    bh[size_t(z) * sx + x] = sh / norm;
+                }
+            float mn = 1e30f, mx = -1e30f;
+            for (size_t i = 0; i < bw.size(); i++)
+                if (bw[i] > 1e-6f) { const float h = bh[i] / bw[i]; mn = std::min(mn, h); mx = std::max(mx, h); }
+            if (mn > mx) { mn = mx = 0.0f; }
+            if (mx - mn < 1e-3f) mx = mn + 1e-3f;
+            field.ShadeCells.assign(bw.size(), 0u);
+            for (size_t i = 0; i < bw.size(); i++) {
+                if (bw[i] <= 1e-6f) continue;
+                const float coverage = 1.0f - std::exp(-3.0f * bw[i]);
+                const float h = (bh[i] / bw[i] - mn) / (mx - mn);
+                field.ShadeCells[i] = (uint32_t)std::lround(std::clamp(coverage, 0.0f, 1.0f) * 255.0f) |
+                                      ((uint32_t)std::lround(std::clamp(h, 0.0f, 1.0f) * 16777215.0f) << 8);
+            }
+            field.SX = sx; field.SZ = sz;
+            field.ShadeMinY = mn; field.ShadeMaxY = mx;
+            field.ShadeBand = std::max(0.3f, f.Height * 0.8f);
+            ShadeDirty = true;
+        }
 
         // Static meshes resting on something (their world bounding boxes), and a hash to notice when they change.
         // The hash is of the raw inputs (transform, parent, offset, geometry), cheap enough for every frame; the
@@ -704,6 +785,7 @@ namespace Engine {
             if (!field.Buffer) glCreateBuffers(1, &field.Buffer);
             glNamedBufferData(field.Buffer, std::max<size_t>(all.size(), 1) * sizeof(Clump), all.empty() ? nullptr : all.data(), GL_STATIC_DRAW);
             field.MaxHeight = maxHeight;
+            BuildGroundShade(field, f, world, size, all);
 
             // The trample map over the area (kept when the size is unchanged, so a re-scatter keeps the trails)
             const int tw = std::clamp((int)std::ceil(size.x / kTexel), 4, kMaxTrample), th = std::clamp((int)std::ceil(size.y / kTexel), 4, kMaxTrample);
@@ -787,13 +869,14 @@ namespace Engine {
         auto view = scene.Registry().view<FoliageComponent, IDComponent>();
         if (view.begin() == view.end()) {
             I.Fields.clear();
+            I.ShadeDirty = true;
             scene.FoliagePushes.clear();
             return;
         }
         if (update) { PROFILE_SCOPE("Gather obstacles"); I.GatherObstacles(scene); }
         if (update) { PROFILE_SCOPE("Gather pressers"); I.GatherPressers(scene); }
         if (update) I.TerrainHash = TerrainsHash(scene);
-        for (auto& [id, field] : I.Fields) field->Seen = false;
+        for (auto& [id, field] : I.Fields) { field->Seen = false; field->Shown = false; }
 
         shader.Bind();
         shader.QuietMissing = true;                  // foliage.vert has no u_SceneWind* (grass has its own wind)
@@ -806,6 +889,7 @@ namespace Engine {
         shader.SetFloat("u_AlphaCutoff", 0.5f);
         shader.SetInt("u_Trample", 8);
         shader.SetFloat("u_Time", I.Time);
+        shader.SetInt("u_NoGroundShade", 1);         // the blades don't shade themselves
 
         const GLboolean culling = glIsEnabled(GL_CULL_FACE);
         glDisable(GL_CULL_FACE);                                       // blades are seen from both sides
@@ -834,6 +918,11 @@ namespace Engine {
             }
             if (update) { PROFILE_SCOPE("Trample"); I.UpdateTrample(field, f, world, dt); }
             if (field.Chunks.empty() || scene.IsEditorHidden(e)) continue;   // hidden with the Hierarchy's eye
+            field.Shown = true;                      // for the ground shade (BindGroundShade)
+            field.World = world;
+            field.Size = glm::max(f.Size, glm::vec2(0.1f));
+            field.Strength = std::clamp(f.GroundShade, 0.0f, 1.0f);
+            field.DrawDistance = f.DrawDistance;
 
             const float a = glm::radians(f.WindDirection);
             // The camera's GrassDistanceScale stretches or shortens the field's draw distance (0: no grass in this view)
@@ -871,8 +960,61 @@ namespace Engine {
 
         glColorMaski(1, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         if (culling) glEnable(GL_CULL_FACE);
-        for (auto it = I.Fields.begin(); it != I.Fields.end();)     // fields whose entity is gone
-            it = it->second->Seen ? std::next(it) : I.Fields.erase(it);
+        for (auto it = I.Fields.begin(); it != I.Fields.end();) {   // fields whose entity is gone
+            if (it->second->Seen) { ++it; continue; }
+            it = I.Fields.erase(it);
+            I.ShadeDirty = true;
+        }
+    }
+
+    void FoliageRenderer::BindGroundShade(const Camera& camera) {
+        Impl& I = *m_Impl;
+        if (!I.ShadeBuffer) glCreateBuffers(1, &I.ShadeBuffer);
+        // The cells of every field, after the header (again only when a field scattered or went away)
+        if (I.ShadeDirty || I.ShadeBufferSize == 0) {
+            I.ShadeDirty = false;
+            I.ShadeOffset.clear();
+            size_t cells = 0;
+            for (auto& [id, field] : I.Fields) { I.ShadeOffset[id] = (uint32_t)cells; cells += field->ShadeCells.size(); }
+            I.ShadeBufferSize = Impl::kShadeHeader + std::max<size_t>(cells, 1) * 4;
+            glNamedBufferData(I.ShadeBuffer, (GLsizeiptr)I.ShadeBufferSize, nullptr, GL_DYNAMIC_DRAW);
+            for (auto& [id, field] : I.Fields)
+                if (!field->ShadeCells.empty())
+                    glNamedBufferSubData(I.ShadeBuffer, (GLintptr)(Impl::kShadeHeader + size_t(I.ShadeOffset[id]) * 4),
+                        (GLsizeiptr)(field->ShadeCells.size() * 4), field->ShadeCells.data());
+        }
+        // This frame's fields: shown, shading, within this camera's grass distance (the nearest first if more than fit)
+        struct Pick { float Distance; uint64_t Id; Impl::Field* F; };
+        std::vector<Pick> picks;
+        const float grassScale = std::max(camera.GrassDistanceScale, 0.0f);
+        for (auto& [id, field] : I.Fields) {
+            Impl::Field& f = *field;
+            if (!f.Shown || f.Strength <= 0.0f || f.ShadeCells.empty() || grassScale <= 0.0f) continue;
+            const glm::vec3 local = glm::vec3(glm::inverse(f.World) * glm::vec4(camera.Position, 1.0f));
+            const glm::vec2 outside = glm::max(glm::abs(glm::vec2(local.x, local.z)) - f.Size * 0.5f, glm::vec2(0.0f));
+            const float fadeEnd = std::max(f.DrawDistance * grassScale, 1.0f);
+            const float distance = glm::length(outside);              // to the field's area (roughly, in its space)
+            if (distance > fadeEnd) continue;
+            picks.push_back({ distance, id, &f });
+        }
+        std::sort(picks.begin(), picks.end(), [](const Pick& a, const Pick& b) { return a.Distance < b.Distance; });
+        if (picks.size() > (size_t)Impl::kShadeFields) picks.resize(Impl::kShadeFields);
+
+        std::vector<uint8_t> header(Impl::kShadeHeader, 0);
+        const uint32_t count = (uint32_t)picks.size();
+        std::memcpy(header.data(), &count, 4);
+        for (size_t i = 0; i < picks.size(); i++) {
+            const Impl::Field& f = *picks[i].F;
+            const float fadeEnd = std::max(f.DrawDistance * grassScale, 1.0f);
+            Impl::ShadeFieldGpu g;
+            g.InvWorld = glm::inverse(f.World);
+            g.Area = glm::vec4(f.Size, (float)f.SX, (float)f.SZ);
+            g.Params = glm::vec4(f.Strength, fadeEnd * 0.5f, fadeEnd, f.ShadeBand);
+            g.Range = glm::vec4(f.ShadeMinY, f.ShadeMaxY, (float)I.ShadeOffset[picks[i].Id], 0.0f);
+            std::memcpy(header.data() + 16 + i * sizeof(Impl::ShadeFieldGpu), &g, sizeof(g));
+        }
+        glNamedBufferSubData(I.ShadeBuffer, 0, (GLsizeiptr)header.size(), header.data());
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 10, I.ShadeBuffer);
     }
 
 } // namespace Engine

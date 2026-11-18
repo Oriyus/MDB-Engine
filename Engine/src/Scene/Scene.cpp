@@ -1940,12 +1940,26 @@ namespace Engine {
             inst.Surface = glm::vec4(0.0f, 0.9f, 0.0f, 1.0f);
             inst.Info = glm::ivec4((int)entt::to_integral(entity), 0, 0, 0);
             uint32_t instance = UINT32_MAX;
+            uint32_t tinted[TerrainData::MaxLodLevels];       // Debug > LOD Levels: an instance per level, coloured
+            std::fill(std::begin(tinted), std::end(tinted), UINT32_MAX);
+
+            // Levels of detail, chosen from the camera in the terrain's own space (TerrainData::SelectLods). The error
+            // is measured in pixels of a 1080-pixel-high view through this lens, x the scene's distance scale.
+            {
+                const glm::vec3 eye = glm::vec3(glm::inverse(world) * glm::vec4(camera.Position, 1.0f));
+                const glm::vec3 axisScale(glm::length(glm::vec3(world[0])), glm::length(glm::vec3(world[1])),
+                    glm::length(glm::vec3(world[2])));
+                const float pixelsPerMetre = 540.0f / std::tan(glm::radians(std::clamp(camera.GetFov(), 1.0f, 170.0f)) * 0.5f) *
+                    std::max(Lod.DistanceScale, 0.01f);
+                RenderStats::TerrainLodReduced += data.SelectLods(eye, axisScale, pixelsPerMetre, Lod.TerrainError);
+            }
 
             for (const TerrainData::Chunk& ch : data.Chunks()) {
                 if (!ch.Geometry) continue;
                 const bool visible = frustum.Visible(world, ch.Min, ch.Max);
                 if (!visible) list.Culled++;
-                if (changed && shadowSettings && tc.CastShadows) {
+                // Sculpted, moved or a new level of detail: the shadows that see it are drawn again
+                if ((changed || ch.LevelChanged) && shadowSettings && tc.CastShadows) {
                     glm::vec3 center, extent;
                     Frustum::WorldBox(world, ch.Min, ch.Max, center, extent);
                     const float radius = glm::length(extent);
@@ -1956,11 +1970,21 @@ namespace Engine {
                 const bool anyShadow = !views.empty() && tc.CastShadows && classifyShadows(world, ch.Min, ch.Max);
                 if (!visible && !anyShadow) continue;
                 if (instance == UINT32_MAX) instance = list.AddInstance(inst);
+                uint32_t use = instance;
+                if (TintLodLevels) {
+                    uint32_t& t = tinted[std::min<int>(ch.Level, TerrainData::MaxLodLevels - 1)];
+                    if (t == UINT32_MAX) {
+                        InstanceData c = inst;
+                        c.Color = glm::vec4(kLodTint[std::min<size_t>(ch.Level, std::size(kLodTint) - 1)], 1.0f);
+                        t = list.AddInstance(c);
+                    }
+                    use = t;
+                }
 
                 DrawList::Item item;
-                item.Instance = instance;
+                item.Instance = use;
                 item.State.Geometry = ch.Geometry.get();
-                item.State.Part = -1;
+                item.State.Part = ch.Part();               // the level and stitch variant (TerrainChunkMesh)
                 if (anyShadow) {
                     DrawList::Item sh = item;                // plain opaque casters
                     for (size_t v = 0; v < views.size(); v++) if (inView[v]) shadow[v].push_back(sh);

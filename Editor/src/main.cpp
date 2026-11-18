@@ -398,6 +398,8 @@ public:
         if (EnvVar("MDB_MOTION_VECTORS") == "1") m_Renderer->ShowMotionVectors = true;   // Viewport > Debug > Motion Vectors
         if (EnvVar("MDB_LIGHT_CLUSTERS") == "1") m_Scene.ClusterDebug = true;                // Viewport > Debug > Light Clusters
         if (EnvVar("MDB_AO_DEBUG") == "1") m_Renderer->Post.AODebug = true;                  // Viewport > Debug > Ambient Occlusion Only
+        if (EnvVar("MDB_LOD_LEVELS") == "1") m_Scene.TintLodLevels = true;                     // Viewport > Debug > LOD Levels
+        if (auto te = EnvVar("MDB_TERRAIN_LOD_ERROR"); !te.empty()) m_Scene.Lod.TerrainError = std::max(0.0f, std::strtof(te.c_str(), nullptr));
         if (EnvVar("MDB_SHADOW_ATLAS") == "1") m_ShowShadowAtlas = true;                    // Viewport > Debug > Shadow Atlas
         if (auto p = EnvVar("MDB_PREVIEW_ASSET"); !p.empty()) m_Preview.SetAsset(p);   // the Inspector's model preview
         // (with MDB_SCATTER_FILL, Play starts after the fill)
@@ -2739,7 +2741,11 @@ private:
             m_Scene.Lod.DistanceScale = std::max(m_Scene.Lod.DistanceScale, 0.01f);
             ImGui::SetItemTooltip("Multiplies every Mesh Renderer's level-of-detail and cull distances:\n"
                 "2 keeps detail twice as far out, 0.5 switches to coarser levels at half the distance");
-            ImGui::TextDisabled("Levels are set per Mesh Renderer (Inspector).\nViewport > Debug > LOD Levels colours them.");
+            ImGui::SliderFloat("Terrain error##lod", &m_Scene.Lod.TerrainError, 0.0f, 8.0f, "%.1f px");
+            m_Scene.Lod.TerrainError = std::max(m_Scene.Lod.TerrainError, 0.0f);
+            ImGui::SetItemTooltip("Terrain chunks use coarser triangles where the ground is off the full surface by at most\n"
+                "this many pixels (at 1080 lines). 0 draws every terrain at full detail.");
+            ImGui::TextDisabled("Levels are set per Mesh Renderer (Inspector).\nViewport > Debug > LOD Levels colours them\n(terrain chunks too).");
         }
 
         if (ImGui::CollapsingHeader("Volumetric Fog")) {
@@ -5135,6 +5141,9 @@ private:
             ImGui::SliderFloat("Dry patches", &f.DryAmount, 0.0f, 1.0f);
             ImGui::SliderFloat("Flowers", &f.FlowerAmount, 0.0f, 1.0f);
             ImGui::SliderFloat("Roughness", &f.Roughness, 0.05f, 1.0f);
+            ImGui::SliderFloat("Ground shade", &f.GroundShade, 0.0f, 1.0f);
+            ImGui::SetItemTooltip("How much the grass darkens the ground under it: its sunlight, and half as much of the sky light\n"
+                "(a steady stand-in for the shade the blades cast; 0 = none)");
             ImGui::SeparatorText("Wind and touch");
             ImGui::DragFloat("Wind strength", &f.WindStrength, 0.01f, 0.0f, 3.0f);
             ImGui::DragFloat("Wind speed", &f.WindSpeed, 0.01f, 0.0f, 5.0f);

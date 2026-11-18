@@ -6,7 +6,7 @@ namespace Engine {
     // Counters for the frame being drawn. Reset() runs at the start of every frame and keeps the
     // finished frame's numbers in LastFrame (what scripts and the game read).
     struct RenderStats {
-        struct Counts { uint32_t DrawCalls = 0, Triangles = 0, Instances = 0, Culled = 0, ShadowSkipped = 0, StaticBatches = 0, StaticMerged = 0, Particles = 0, Decals = 0, Foliage = 0, LodReduced = 0, LodCulled = 0, Lights = 0, LightsVisible = 0, LightsPerCluster = 0, ShadowedLights = 0, AtlasLights = 0, AtlasSmallest = 0, AtlasLargest = 0, AtlasUsed = 0, SunCascades = 0, SunCascadesDrawn = 0; };
+        struct Counts { uint32_t DrawCalls = 0, Triangles = 0, Instances = 0, Culled = 0, ShadowSkipped = 0, StaticBatches = 0, StaticMerged = 0, Particles = 0, Decals = 0, Foliage = 0, LodReduced = 0, LodCulled = 0, TerrainLodReduced = 0, Lights = 0, LightsVisible = 0, LightsPerCluster = 0, ShadowedLights = 0, AtlasLights = 0, AtlasSmallest = 0, AtlasLargest = 0, AtlasUsed = 0, SunCascades = 0, SunCascadesDrawn = 0; };
 
         static inline uint32_t DrawCalls = 0;
         static inline uint32_t Triangles = 0;
@@ -20,6 +20,7 @@ namespace Engine {
         static inline uint32_t Foliage = 0;       // grass / flower clumps drawn this frame (FoliageRenderer)
         static inline uint32_t LodReduced = 0;    // mesh renderers drawn at a coarser level of detail
         static inline uint32_t LodCulled = 0;     // mesh renderers beyond their cull distance
+        static inline uint32_t TerrainLodReduced = 0;   // terrain chunks drawn at a coarser level of detail
         static inline uint32_t Lights = 0;        // point lights (LightClusters)
         static inline uint32_t LightsVisible = 0; // ... whose reach the camera sees (in at least one cluster)
         static inline uint32_t LightsPerCluster = 0;   // the most in one cluster
@@ -31,8 +32,8 @@ namespace Engine {
         static inline Counts LastFrame;
 
         static void Reset() {
-            LastFrame = { DrawCalls, Triangles, Instances, Culled, ShadowSkipped, StaticBatches, StaticMerged, Particles, Decals, Foliage, LodReduced, LodCulled, Lights, LightsVisible, LightsPerCluster, ShadowedLights, AtlasLights, AtlasSmallest, AtlasLargest, AtlasUsed, SunCascades, SunCascadesDrawn };
-            DrawCalls = 0; Triangles = 0; Instances = 0; Culled = 0; ShadowSkipped = 0; StaticBatches = 0; StaticMerged = 0; Particles = 0; Decals = 0; Foliage = 0; LodReduced = 0; LodCulled = 0; Lights = 0; LightsVisible = 0; LightsPerCluster = 0;
+            LastFrame = { DrawCalls, Triangles, Instances, Culled, ShadowSkipped, StaticBatches, StaticMerged, Particles, Decals, Foliage, LodReduced, LodCulled, TerrainLodReduced, Lights, LightsVisible, LightsPerCluster, ShadowedLights, AtlasLights, AtlasSmallest, AtlasLargest, AtlasUsed, SunCascades, SunCascadesDrawn };
+            DrawCalls = 0; Triangles = 0; Instances = 0; Culled = 0; ShadowSkipped = 0; StaticBatches = 0; StaticMerged = 0; Particles = 0; Decals = 0; Foliage = 0; LodReduced = 0; LodCulled = 0; TerrainLodReduced = 0; Lights = 0; LightsVisible = 0; LightsPerCluster = 0;
             ShadowedLights = 0; AtlasLights = 0; AtlasSmallest = 0; AtlasLargest = 0; AtlasUsed = 0; SunCascades = 0; SunCascadesDrawn = 0;
         }
     };

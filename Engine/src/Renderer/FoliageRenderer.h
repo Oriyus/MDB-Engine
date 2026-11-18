@@ -30,6 +30,12 @@ namespace Engine {
         void Render(Scene& scene, const Camera& camera, Shader& shader, const DrawList& list,
                     const ShadowContext* shadows, const Environment* env, bool update = true);
 
+        // Bind the ground-shade maps of the fields (storage buffer binding 10, read by lit.frag's GroundGrassShade) for
+        // this camera: call before the opaque pass. Always binds (an empty list without grass), so another renderer's
+        // maps are never read. The maps are made when a field scatters (Render), so with the depth pre-pass they are
+        // this frame's, otherwise last frame's.
+        void BindGroundShade(const Camera& camera);
+
     private:
         struct Impl;
         std::unique_ptr<Impl> m_Impl;

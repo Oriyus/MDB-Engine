@@ -344,6 +344,7 @@ namespace Engine {
         bool  AvoidStatic = true;         // no clumps under Static meshes standing on the ground (walls, floors, props)
         bool  FollowTerrain = true;       // clumps over a terrain stand on its surface instead of the entity's height
         int   TerrainLayer = -1;          // 0..3: grow only where that terrain layer is painted (-1: anywhere)
+        float GroundShade = 0.6f;         // 0..1: how much the grass darkens the ground under it (sun, and half as much sky light)
     };
 
     // A heightmap terrain (Scene/Terrain.h): a grid of heights over Size metres in the entity's X/Z (centred on it),

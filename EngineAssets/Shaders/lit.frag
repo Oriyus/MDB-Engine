@@ -376,6 +376,52 @@ uniform float u_SceneWindTime;   // the scene clock (Time node)
 #endif
 // @GRAPH_CODE
 
+// Grass shading the ground (FoliageRenderer::BindGroundShade, storage buffer binding 10): per grass field, a map over
+// its area of how much grass covers each spot (0..1, built from the clumps where they grow) and the height of the
+// ground there. Surfaces facing up at that height get less sun and sky light under it: the shade the blades would
+// cast, without rays (grass is left out of contact shadows: thin blades made them flicker). Fades with the grass's
+// own draw distance. Grass blades themselves don't use it (u_NoGroundShade).
+struct GrassShadeField {
+    mat4 InvWorld;      // world -> the field's space
+    vec4 Area;          // size X, size Z (metres), cells X, cells Z
+    vec4 Params;        // strength, fade start, fade end (metres from the camera), height band (metres)
+    vec4 Range;         // lowest and highest ground height in the field's space, cell data offset, 0
+};
+layout(std430, binding = 10) readonly buffer GrassShadeData {
+    uvec4 g_ShadeHeader;                 // x: fields
+    GrassShadeField g_ShadeFields[8];
+    uint g_ShadeCells[];                 // per cell: coverage (8 bits) | ground height (24 bits, over Range.xy)
+};
+uniform int u_NoGroundShade;             // 1 for the grass's own pass
+
+float ShadeCell(GrassShadeField f, ivec2 c, float y) {
+    c = clamp(c, ivec2(0), ivec2(f.Area.zw) - 1);
+    uint v = g_ShadeCells[uint(f.Range.z) + uint(c.y) * uint(f.Area.z) + uint(c.x)];
+    float h = mix(f.Range.x, f.Range.y, float(v >> 8u) / 16777215.0);
+    return float(v & 255u) / 255.0 * (1.0 - smoothstep(0.5 * f.Params.w, f.Params.w, abs(y - h)));
+}
+
+float GroundGrassShade(vec3 p, vec3 Ng) {
+    if (u_NoGroundShade == 1 || Ng.y < 0.3) return 0.0;
+    uint count = min(g_ShadeHeader.x, 8u);
+    if (count == 0u) return 0.0;
+    float dist = length(u_ViewPos - p), shade = 0.0;
+    for (uint i = 0u; i < count; i++) {
+        GrassShadeField f = g_ShadeFields[i];
+        if (dist > f.Params.z) continue;
+        vec3 lp = (f.InvWorld * vec4(p, 1.0)).xyz;
+        vec2 uv = lp.xz / f.Area.xy + 0.5;
+        if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) continue;
+        vec2 c = uv * f.Area.zw - 0.5;
+        ivec2 c0 = ivec2(floor(c));
+        vec2 t = c - vec2(c0);
+        float s = mix(mix(ShadeCell(f, c0, lp.y), ShadeCell(f, c0 + ivec2(1, 0), lp.y), t.x),
+                      mix(ShadeCell(f, c0 + ivec2(0, 1), lp.y), ShadeCell(f, c0 + ivec2(1, 1), lp.y), t.x), t.y);
+        shade = max(shade, s * f.Params.x * (1.0 - smoothstep(f.Params.y, f.Params.z, dist)));
+    }
+    return clamp(shade, 0.0, 1.0) * smoothstep(0.3, 0.7, Ng.y);
+}
+
 void main() {
     EntityID = v_EntityID;
     Velocity = (v_CurClip.xy / v_CurClip.w - v_PrevClip.xy / v_PrevClip.w) * 0.5;   // NDC -> UV
@@ -403,7 +449,11 @@ void main() {
     float terrainRough = -1.0;
     vec3 terrainN = vec3(0.0, 0.0, 1.0);                     // tangent space (the terrain's UV axes)
     bool terrainNormals = u_Terrain == 1 && any(notEqual(u_TerrainMaps & 1, ivec4(0)));
-    if (u_Terrain == 1) TerrainSurface(v_TexCoord, albedo, terrainFlat, terrainRough, terrainN);
+    if (u_Terrain == 1) {
+        TerrainSurface(v_TexCoord, albedo, terrainFlat, terrainRough, terrainN);
+        albedo *= pow(v_Color.rgb, vec3(2.2));               // the instance tint: white, except Debug > LOD Levels
+        terrainFlat *= v_Color.rgb;
+    }
 
     // Editor view modes (SceneRenderer::ViewMode): 1 solid (colour only), 2 textured. A simple studio light
     // that follows the camera, no shadows or environment. 0 (rendered, the default) is the full shading below.
@@ -566,11 +616,13 @@ void main() {
     }
 #endif
 
+    float grassShade = blend ? 0.0 : GroundGrassShade(v_WorldPos, Ng);   // the ground under grass (stable, no rays)
     if (u_HasSun == 1) {
         vec3 L = normalize(-u_SunDir);
         float shadow = (u_SunShadow == 1 && dot(Ng, L) > 0.0) ? SunShadow(Ng, L) : 0.0;
         if (u_SunContact == 1 && u_ContactLength > 0.0 && shadow < 1.0 && dot(Ng, L) > 0.0 && length(u_ViewPos - v_WorldPos) < 40.0)
             shadow = max(shadow, 1.0 - ContactLit(v_WorldPos, Ng, L, 1e4));   // the small things the cascades miss
+        shadow = 1.0 - (1.0 - shadow) * (1.0 - grassShade);
         color += Shade(N, V, L, diffuse, metallic, roughness, F0, F90, u_SunColor, shadow);
     }
 
@@ -587,7 +639,7 @@ void main() {
         diffuseLight  = Env(N);
         specularLight = Env(normalize(mix(R, N, roughness * roughness)));
     }
-    color += ((1.0 - metallic) * diffuse * (1.0 - specAmb) * diffuseLight + specAmb * specularLight) * u_Ambient * AmbientOcclusion();
+    color += ((1.0 - metallic) * diffuse * (1.0 - specAmb) * diffuseLight + specAmb * specularLight) * u_Ambient * AmbientOcclusion() * (1.0 - 0.5 * grassShade);
 
     vec3 emissive = v_Emissive;
     if (u_UseEmissive == 1) emissive *= texture(u_EmissiveMap, v_TexCoord).rgb;

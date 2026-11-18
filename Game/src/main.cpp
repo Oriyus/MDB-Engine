@@ -24,6 +24,7 @@
 #include "Core/Project.h"
 #include "Renderer/Camera.h"
 #include "Renderer/SceneRenderer.h"
+#include "Renderer/FlickerMeter.h"
 #include "Scene/Scene.h"
 #include "Scene/SceneSerializer.h"
 #include "Physics/PhysicsWorld.h"
@@ -248,6 +249,12 @@ public:
         }
         m_Session->SetListener(*view);
         m_Renderer->Render(m_Scene, *view, w, h);
+        // Test hook MDB_FLICKER=<folder>: measure frame-to-frame change (FlickerMeter), then close
+        if (!m_FlickerChecked) {
+            m_FlickerChecked = true;
+            if (const char* f = std::getenv("MDB_FLICKER"); f && *f) m_Flicker = std::make_unique<Engine::FlickerMeter>(f);
+        }
+        if (m_Flicker) { m_Flicker->Frame(m_Renderer->GetOutput(), w, h); if (m_Flicker->Done()) { m_Flicker.reset(); Close(); } }
         glViewport(0, 0, (int)w, (int)h);
     }
 
@@ -593,6 +600,8 @@ private:
     Engine::Scene m_Scene;
     std::unique_ptr<Engine::ResourceLibrary> m_Resources;
     std::unique_ptr<Engine::SceneRenderer> m_Renderer;
+    std::unique_ptr<Engine::FlickerMeter> m_Flicker;      // MDB_FLICKER test hook
+    bool m_FlickerChecked = false;
     std::unique_ptr<Engine::GameSession> m_Session;
     Engine::Camera m_GameCamera, m_FallbackCamera;
     Engine::UIFonts m_Fonts;                 // script UI and the pause menu

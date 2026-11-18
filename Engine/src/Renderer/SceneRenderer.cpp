@@ -510,19 +510,24 @@ namespace Engine {
                 scene.Render(view, *I.Prepass, *I.Draws, nullptr, nullptr, Scene::RenderPass::Opaque);
                 // The selection outline tests against the depth of solid objects only: grass, decals and glass do not hide it
                 if (!I.Draws->Selected.empty()) selDepth = I.CopyDepthInto(I.SelDepth, I.SelDepthW, I.SelDepthH, I.HDR->GetWidth(), I.HDR->GetHeight());
-                I.Foliage->Render(scene, view, *I.FoliagePrepass, *I.Draws, nullptr, nullptr, true);   // advances wind, trampling
-                // Contact shadows march through this depth (the opaque scene and the grass) in the lit passes below
+                // Contact shadows march through the opaque scene's depth, taken before the grass: with the blades in it,
+                // the ground between them flickered (each frame's jittered rays hit or missed thin blades; measured on
+                // the terrain demo: 9.9% of pixels changing by more than 3/255 a frame against 4.5% without contact
+                // shadows), and grass casts no shadows of its own anyway
                 if (rendered && shadows && I.Shadows.Settings.Enabled && I.Shadows.Settings.ContactLength > 0.0f)
                 {
                     I.Shadows.ContactDepth = I.CopyDepthInto(I.ContactDepth, I.ContactDepthW, I.ContactDepthH, I.HDR->GetWidth(), I.HDR->GetHeight());
                     contactCopied = true;
                 }
+                I.Foliage->Render(scene, view, *I.FoliagePrepass, *I.Draws, nullptr, nullptr, true);   // advances wind, trampling
                 glColorMaski(0, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
                 glColorMaski(1, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
                 glDepthFunc(GL_LEQUAL);
                 glDepthMask(GL_FALSE);
                 I.Gpu.Mark("depth pre-pass");
             }
+            // Grass shading the ground under it (lit.frag GroundGrassShade): the fields' maps, for every lit pass below
+            I.Foliage->BindGroundShade(view);
             // Ambient occlusion from the pre-pass depth, before any lighting: lit.frag applies it to the ambient light
             // only (sky and environment), so the sun and lamps aren't darkened in creases. Without a pre-pass (or in the
             // editor's Solid / Textured views) it is computed after the opaque scene and multiplied in, as before (below)
@@ -568,9 +573,9 @@ namespace Engine {
                 I.SSAOShader->SetFloat("u_NoiseOffset", taa ? std::fmod(I.FrameIndex * 0.618034f, 1.0f) : 0.0f);
                 I.AO->Compute(I.HDR->GetDepthAttachment(), view.GetProjection(), *I.SSAOShader, *I.SSAOBlur);
                 // The depth-aware upsample reads the depth: a copy (sampling the attached one would be a feedback
-                // loop); the contact-shadow copy already holds it (the lit passes don't write depth)
-                const uint32_t aoDepth = contactCopied ? I.ContactDepth
-                    : I.CopyDepthInto(I.ContactDepth, I.ContactDepthW, I.ContactDepthH, I.HDR->GetWidth(), I.HDR->GetHeight());
+                // loop), taken now, with the grass in it (the contact-shadow copy is taken before the grass; it is
+                // finished with by now)
+                const uint32_t aoDepth = I.CopyDepthInto(I.ContactDepth, I.ContactDepthW, I.ContactDepthH, I.HDR->GetWidth(), I.HDR->GetHeight());
                 I.HDR->Bind();
                 if (!aoDebug) {
                     glDisable(GL_DEPTH_TEST);

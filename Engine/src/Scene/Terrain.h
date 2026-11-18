@@ -9,6 +9,7 @@
 namespace Engine {
 
     class Mesh;
+    class Renderable;
     class Scene;
 
     // What a terrain brush does (Editor/src/TerrainEditor; TerrainData::ApplyBrush)
@@ -101,9 +102,28 @@ namespace Engine {
         bool Raycast(const glm::vec2& size, const glm::vec3& origin, const glm::vec3& direction, float maxT, float& t) const;
 
         // ---- rendering (GL thread): rebuild the chunks that changed and upload changed paint
-        struct Chunk { std::shared_ptr<Mesh> Geometry; glm::vec3 Min{ 0.0f }, Max{ 0.0f }; };
+        // Levels of detail: level k draws every 2^k-th sample (0 = all, at most MaxLodLevels - 1 = every 16th) from the
+        // chunk's own full-resolution vertices, through index lists shared by every chunk of that shape. Neighbours
+        // differ by at most one level, and the finer side folds its odd edge vertices onto the coarser one's (Mask:
+        // bit 0 = the -X edge, 1 = +X, 2 = -Z, 3 = +Z), so there are no cracks. Part = the variant to draw.
+        static constexpr int MaxLodLevels = 5;
+        struct Chunk {
+            std::shared_ptr<Renderable> Geometry;
+            glm::vec3 Min{ 0.0f }, Max{ 0.0f };
+            float Error[MaxLodLevels] = {};      // the most a level's surface is off the full one (metres, the entity's Y)
+            uint8_t Levels = 1;                  // how many levels this chunk's shape allows
+            uint8_t Level = 0, Mask = 0;         // runtime: drawn with these (SelectLods)
+            bool LevelChanged = false;           // SelectLods changed Level or Mask this frame
+            int Part() const { return Level * 16 + Mask; }
+        };
         void UpdateGPU(const glm::vec2& size);
         const std::vector<Chunk>& Chunks() const { return m_Chunks; }
+        // Pick each chunk's level for this frame: the coarsest whose error, seen from eye (the entity's space) through
+        // pixelsPerMetre (pixels a metre at 1 m distance covers, height-scaled by heightScale), stays within maxPixels
+        // (going coarser needs 80% of it, so a level doesn't flicker at the edge). maxPixels <= 0: always full detail.
+        // Then neighbours are kept within one level and the stitch masks set. Returns how many chunks are coarser than 0.
+        uint32_t SelectLods(const glm::vec3& eye, const glm::vec3& axisScale, float pixelsPerMetre, float maxPixels);
+        uint32_t ChunksPerSide() const { return m_ChunksPerSide; }
         uint32_t SplatTexture() const;                   // GL texture (RGBA8, linear), 0 before UpdateGPU
         TerrainMaterial Material;                        // filled each frame by Scene::BuildDrawList (DrawBatch::Terrain)
         uint64_t DrawnRevision = ~0ull;                  // Scene::BuildDrawList: the revision drawn last frame
@@ -132,6 +152,7 @@ namespace Engine {
 
         // GPU side
         std::vector<Chunk> m_Chunks;
+        uint32_t m_ChunksPerSide = 0;
         std::vector<uint8_t> m_ChunkDirty;                  // per chunk
         glm::vec2 m_BuiltSize{ 0.0f };
         struct GLTexture;
