@@ -31,6 +31,7 @@ public:
 
     void SetResources(Engine::ResourceLibrary* resources) { m_Resources = resources; }
     void Open(const std::string& path);           // asks first if there are unsaved changes
+    void Reopen(const std::string& path) { DoOpen(path); }   // the file (moved or rewritten), unsaved changes dropped
     void New(const std::string& path);            // writes a starter graph there, then opens it
     // Presets: the engine's graphs in EngineAssets/ShaderGraphs/Presets (names = file stems, "Water")
     std::vector<std::string> Presets() const;

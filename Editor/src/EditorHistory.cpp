@@ -168,3 +168,11 @@ entt::entity EditorHistory::Redo(Scene& scene) {
     m_Index++;
     return scene.Restore(m_States[m_Index].Snapshot, m_States[m_Index].Selected);
 }
+
+void EditorHistory::RewritePaths(const std::function<void(Engine::EntitySnapshot&)>& patch,
+    const std::function<std::string(const std::string&)>& rewriteKey) {
+    for (State& s : m_States) {
+        for (Engine::EntitySnapshot& e : s.Snapshot) patch(e);
+        s.Key = rewriteKey(s.Key);
+    }
+}

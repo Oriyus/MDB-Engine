@@ -6,6 +6,7 @@
 #include <functional>
 #include <vector>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -110,6 +111,13 @@ namespace Engine {
         std::shared_ptr<Texture2D> LoadDataTexture(const std::string& path, bool flipGreen = false);
         // Grey roughness and metallic maps (either may be empty) packed into glTF's G / B layout; cached
         std::shared_ptr<Texture2D> PackMetalRough(const std::string& roughness, const std::string& metallic);
+
+        // Files were renamed or moved (the editor's Assets panel). Every cache entry whose path `moved` maps to a new
+        // path is keyed by the new one: the same objects, so their users keep them and are named by the new path from
+        // now on (GeometryName, TextureName, MaterialAsset::Path). Entries that had failed to load are dropped (the
+        // file may load now). moved: the new path, or nullopt for a path that stays. Call RefreshMaterials and
+        // RefreshShaderGraphs afterwards for files whose contents were rewritten.
+        void RenameAssets(const std::function<std::optional<std::string>(const std::string&)>& moved);
 
         // Name <-> resource mapping for SceneSerializer, PrefabLibrary and ScriptEngine.
         // The functions keep a pointer to this library, so it must outlive their users.

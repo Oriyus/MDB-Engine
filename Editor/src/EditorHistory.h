@@ -3,6 +3,7 @@
 #include "Scene/SceneSerializer.h"   // ResourceRegistry
 
 #include <cstddef>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -46,6 +47,11 @@ public:
     void MarkSaved() { m_Saved = (long)m_Index; }
     bool IsDirty() const { return m_Saved != (long)m_Index; }
     size_t Size() const { return m_States.size(); }
+
+    // Assets were renamed or moved: every state follows. patch changes one entity of a snapshot (its paths),
+    // rewriteKey a state's text the same way, so the scene (patched by the caller too) still matches its state.
+    void RewritePaths(const std::function<void(Engine::EntitySnapshot&)>& patch,
+        const std::function<std::string(const std::string&)>& rewriteKey);
 
     // The scene as text (exposed for tests)
     static std::string MakeKey(Engine::Scene& scene, const Engine::ResourceRegistry& res);

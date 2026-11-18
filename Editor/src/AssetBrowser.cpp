@@ -75,6 +75,11 @@ namespace {
 
 AssetBrowser::AssetBrowser(std::string assetDir) : m_AssetDir(std::move(assetDir)) {
     if (!m_AssetDir.empty() && m_AssetDir.back() != '/' && m_AssetDir.back() != '\\') m_AssetDir += '/';
+    // The project is the folder above Assets (project.json is there)
+    std::string p = m_AssetDir.substr(0, m_AssetDir.empty() ? 0 : m_AssetDir.size() - 1);
+    std::replace(p.begin(), p.end(), '\\', '/');
+    const size_t slash = p.rfind('/');
+    m_ProjectDir = slash == std::string::npos ? std::string() : p.substr(0, slash + 1);
 }
 
 AssetBrowser::Kind AssetBrowser::KindOf(const std::string& path) {
@@ -179,12 +184,14 @@ std::string AssetBrowser::UniqueName(const std::string& folder, const std::strin
 // ------------------------------------------------------------------ drawing
 std::vector<AssetBrowser::Action> AssetBrowser::Draw(bool* open, const std::function<uint32_t(const std::string&)>& thumbnail) {
     m_Actions.clear();
+    if (m_ShowMissing) DrawMissingWindow();
     if (!ImGui::Begin("Assets", open)) { ImGui::End(); return {}; }
     if (m_ForceScan || ImGui::GetTime() - m_LastScan > 1.0) Rescan();    // picks up files changed outside
 
     // ---- top row: breadcrumb (left), search, view toggle and tile size (right)
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
     if (ImGui::Button("Assets")) { m_Folder.clear(); m_Search[0] = '\0'; m_ForceScan = true; }
+    AcceptMoveInto("");
     std::string walked;
     size_t start = 0;
     while (!m_Folder.empty() && start <= m_Folder.size()) {
@@ -196,6 +203,7 @@ std::vector<AssetBrowser::Action> AssetBrowser::Draw(bool* open, const std::func
         ImGui::SameLine(0, 2);
         ImGui::PushID(walked.c_str());
         if (ImGui::Button(part.c_str())) { m_Folder = walked; m_ForceScan = true; }
+        AcceptMoveInto(walked);
         ImGui::PopID();
         if (slash == std::string::npos) break;
         start = slash + 1;
@@ -303,6 +311,8 @@ std::vector<AssetBrowser::Action> AssetBrowser::Draw(bool* open, const std::func
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Show in Explorer")) Platform::ShowInExplorer(m_AssetDir + m_Folder);
+            if (ImGui::MenuItem("Check References...")) ShowMissingReferences();
+            ImGui::SetItemTooltip("List references in the project's files to files that don't exist, and relink them");
             if (ImGui::MenuItem("Refresh")) m_ForceScan = true;
             ImGui::EndPopup();
         }
@@ -332,6 +342,7 @@ void AssetBrowser::DrawFolderTree(const std::string& folder, int depth) {
     const bool open = ImGui::TreeNodeEx(folder.empty() ? "##root" : folder.c_str(), flags, "%s",
         folder.empty() ? "Assets" : NameOf(folder).c_str());
     if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) { m_Folder = folder; m_Search[0] = '\0'; m_ForceScan = true; }
+    AcceptMoveInto(folder);
     if (open) {
         if (depth < 16) for (const auto& c : children) DrawFolderTree(c, depth + 1);
         ImGui::TreePop();
@@ -447,13 +458,15 @@ void AssetBrowser::HandleItem(const Entry& e) {
     if (ImGui::IsItemHovered() && !ImGui::IsMouseDragging(ImGuiMouseButton_Left))
         ImGui::SetItemTooltip("%s\n%s", e.Path.c_str(), KindName(e.Type));
 
-    // Drag a file anywhere that takes assets (viewport, Hierarchy, Inspector fields)
-    if (e.Type != Kind::Folder && ImGui::BeginDragDropSource()) {
+    // Drag a file anywhere that takes assets (viewport, Hierarchy, Inspector fields), or a file or folder onto a
+    // folder (here, in the folder tree or the breadcrumb) to move it there
+    if (ImGui::BeginDragDropSource()) {
         ImGui::SetDragDropPayload(Payload, e.Path.c_str(), e.Path.size() + 1);
         ImGui::Text("%s", e.Name.c_str());
         ImGui::TextDisabled("%s", KindName(e.Type));
         ImGui::EndDragDropSource();
     }
+    if (e.Type == Kind::Folder) AcceptMoveInto(e.Path);
 
     if (ImGui::BeginPopupContextItem("##item")) {
         m_Selected = e.Path;
@@ -493,13 +506,23 @@ void AssetBrowser::HandleItem(const Entry& e) {
         if (e.Type != Kind::Folder && ImGui::MenuItem("Open with System")) m_Actions.push_back({ Action::OpenExternal, e.Path });
         if (ImGui::MenuItem("Show in Explorer")) Platform::ShowInExplorer(m_AssetDir + e.Path);
         if (ImGui::MenuItem("Copy Path")) ImGui::SetClipboardText(e.Path.c_str());
+        if (ImGui::MenuItem("Find References...")) {
+            m_UsesTarget = e.Path;
+            m_Uses = AssetRefs::FindUses(m_ProjectDir, m_AssetDir, e.Path);
+            m_OpenUses = true;
+        }
         ImGui::Separator();
         if (ImGui::MenuItem("Rename...")) {
             m_RenameTarget = e.Path;
             std::snprintf(m_RenameBuf, sizeof(m_RenameBuf), "%s", e.Name.c_str());
             m_OpenRename = true;
         }
-        if (ImGui::MenuItem("Delete...")) { m_DeleteTarget = e.Path; m_OpenDelete = true; }
+        if (ImGui::MenuItem("Delete...")) {
+            m_DeleteTarget = e.Path;
+            m_UsesTarget = e.Path;
+            m_Uses = AssetRefs::FindUses(m_ProjectDir, m_AssetDir, e.Path);
+            m_OpenDelete = true;
+        }
         ImGui::EndPopup();
     }
 }
@@ -515,7 +538,7 @@ void AssetBrowser::DrawDialogs() {
         ImGui::SetNextItemWidth(300.0f);
         const bool enter = ImGui::InputText("##renameto", m_RenameBuf, sizeof(m_RenameBuf),
             ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
-        ImGui::TextDisabled("Scenes and scripts that use the old name are not updated.");
+        ImGui::TextDisabled("References to it in scenes, prefabs, materials and scripts are updated.");
         if (ImGui::Button("Rename", ImVec2(120, 0)) || enter) {
             std::string name = m_RenameBuf;
             const fs::path from = fs::u8path(m_AssetDir + m_RenameTarget);
@@ -523,15 +546,8 @@ void AssetBrowser::DrawDialogs() {
             if (!fs::is_directory(from) && fs::u8path(name).extension().empty()) name += U8(from.extension().u8string());
             const std::string folder = FolderOf(m_RenameTarget);
             const std::string rel = (folder.empty() ? "" : folder + "/") + name;
-            const fs::path to = fs::u8path(m_AssetDir + rel);
-            std::error_code ec;
             if (name.empty() || name.find_first_of("/\\:*?\"<>|") != std::string::npos) m_Status = "Rename: not a valid file name";
-            else if (rel != m_RenameTarget && fs::exists(to)) m_Status = "Rename: " + rel + " already exists";
-            else if (rel != m_RenameTarget) {
-                fs::rename(from, to, ec);
-                m_Status = ec ? "Rename failed: " + ec.message() : "Renamed to " + rel;
-                if (!ec) { if (m_Selected == m_RenameTarget) m_Selected = rel; if (m_Folder == m_RenameTarget) m_Folder = rel; }
-            }
+            else if (rel != m_RenameTarget) BeginMove({ { m_RenameTarget, rel } });   // asks first if anything refers to it
             m_ForceScan = true;
             ImGui::CloseCurrentPopup();
         }
@@ -544,8 +560,17 @@ void AssetBrowser::DrawDialogs() {
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     if (ImGui::BeginPopupModal("Delete Asset", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("Move %s to the Recycle Bin?", m_DeleteTarget.c_str());
-        ImGui::TextDisabled("Scenes and scripts that use it will not find it any more.");
-        if (ImGui::Button("Delete", ImVec2(120, 0))) {
+        const bool used = !m_Uses.References.empty();
+        if (used) {
+            ImGui::TextColored(ImVec4(1.0f, 0.62f, 0.3f, 1.0f), "%zu reference(s) to it will find nothing:", m_Uses.References.size());
+            DrawUseList(m_Uses.References, false, "##deluses");
+        }
+        else ImGui::TextDisabled("Nothing in the project's files refers to it.");
+        if (!m_Uses.Mentions.empty()) {
+            ImGui::TextDisabled("Also named here (may not be references):");
+            DrawUseList(m_Uses.Mentions, false, "##delmentions");
+        }
+        if (ImGui::Button(used ? "Delete anyway" : "Delete", ImVec2(120, 0))) {
             const bool ok = Platform::MoveToRecycleBin(m_AssetDir + m_DeleteTarget);
             m_Status = ok ? "Moved " + m_DeleteTarget + " to the Recycle Bin" : "Could not delete " + m_DeleteTarget;
             if (ok && m_Selected == m_DeleteTarget) m_Selected.clear();
@@ -557,4 +582,220 @@ void AssetBrowser::DrawDialogs() {
         if (ImGui::Button("Cancel", ImVec2(120, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
+
+    DrawMoveDialog();
+    DrawUsesDialog();
+}
+
+// ------------------------------------------------------------------ references: move, uses, missing
+bool AssetBrowser::AcceptMoveInto(const std::string& folder) {
+    if (!ImGui::BeginDragDropTarget()) return false;
+    bool moved = false;
+    const std::string src = PayloadPath(ImGui::GetDragDropPayload());
+    // Not into the folder it is already in, onto itself or inside itself
+    const bool ok = !src.empty() && src != folder && FolderOf(src) != folder && folder.rfind(src + "/", 0) != 0;
+    if (ok)
+        if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload(Payload)) {
+            const std::string from = PayloadPath(p);
+            BeginMove({ { from, (folder.empty() ? "" : folder + "/") + NameOf(from) } });
+            moved = true;
+        }
+    ImGui::EndDragDropTarget();
+    return moved;
+}
+
+void AssetBrowser::BeginMove(std::vector<AssetRefs::Move> moves, bool moveFiles) {
+    m_Plan = AssetRefs::PlanMoves(m_ProjectDir, m_AssetDir, std::move(moves), moveFiles);
+    m_ForceScan = true;
+    if (m_Plan.Moves.empty()) return;
+    if (!m_Plan.Problems.empty()) { m_Status = std::string(moveFiles ? "Move: " : "Relink: ") + m_Plan.Problems[0]; return; }
+    m_PlanBlock = CanMove ? CanMove(m_Plan) : std::string();
+    if (m_Plan.Changes.empty() && m_Plan.Mentions.empty() && m_PlanBlock.empty()) { FinishMove(); return; }   // nothing to ask
+    m_OpenMove = true;
+}
+
+bool AssetBrowser::MoveNow(std::vector<AssetRefs::Move> moves, bool moveFiles, std::string& why) {
+    m_Plan = AssetRefs::PlanMoves(m_ProjectDir, m_AssetDir, std::move(moves), moveFiles);
+    if (!m_Plan.Problems.empty()) { why = m_Plan.Problems[0]; return false; }
+    if (m_Plan.Moves.empty()) { why = "nothing to move"; return false; }
+    why = CanMove ? CanMove(m_Plan) : std::string();
+    if (!why.empty()) return false;
+    for (const auto& u : m_Plan.Changes) LOG_INFO("  change {}:{}  {} -> {}", u.File, u.Line, u.Text, u.NewText);
+    for (const auto& u : m_Plan.Mentions) LOG_INFO("  mention {}:{}  {}  ({})", u.File, u.Line, u.Text, u.Note);
+    FinishMove();
+    return true;
+}
+
+void AssetBrowser::FinishMove() {
+    std::vector<std::string> errors;
+    const auto& moves = m_Plan.Moves;
+    const bool ok = AssetRefs::Apply(m_Plan, m_ProjectDir, m_AssetDir, errors);
+    for (const auto& e : errors) LOG_WARN("Assets: {}", e);
+    if (ok) {
+        if (m_Plan.MoveFiles) {
+            if (auto s = AssetRefs::MovedPath(m_Selected, moves)) m_Selected = *s;
+            if (auto f = AssetRefs::MovedPath(m_Folder, moves)) m_Folder = *f;
+        }
+        if (OnMoved) OnMoved(m_Plan);
+        const AssetRefs::Move& m = moves.front();
+        std::string what = !m_Plan.MoveFiles ? "Relinked " + m.From + " to " + m.To
+            : moves.size() > 1 ? "Moved " + std::to_string(moves.size()) + " items"
+            : FolderOf(m.From) == FolderOf(m.To) ? "Renamed " + m.From + " to " + NameOf(m.To)
+            : "Moved " + m.From + " to " + m.To;
+        if (!m_Plan.Changes.empty())
+            what += ", " + std::to_string(m_Plan.Changes.size()) + " reference(s) in " + std::to_string(m_Plan.ChangedFiles.size()) + " file(s) updated";
+        if (!errors.empty()) what += " (" + std::to_string(errors.size()) + " problem(s): see the Console)";
+        m_Status = what;
+        LOG_INFO("Assets: {}", what);
+    }
+    else m_Status = errors.empty() ? "Nothing was moved" : errors.front();
+    m_ForceScan = true;
+    if (m_ShowMissing) ShowMissingReferences();      // what is still missing
+}
+
+void AssetBrowser::DrawUseList(const std::vector<AssetRefs::Use>& uses, bool showNew, const char* id) {
+    const float row = ImGui::GetTextLineHeightWithSpacing();
+    const float h = std::min((float)uses.size(), 10.0f) * row + ImGui::GetStyle().WindowPadding.y * 2.0f + 2.0f;
+    ImGui::BeginChild(id, ImVec2(std::max(560.0f, ImGui::GetContentRegionAvail().x), h), ImGuiChildFlags_Border);
+    if (ImGui::BeginTable("##uses", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
+        ImGui::TableSetupColumn("where", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("what", ImGuiTableColumnFlags_WidthStretch, 1.6f);
+        ImGuiListClipper clip;
+        clip.Begin((int)uses.size());
+        while (clip.Step())
+            for (int i = clip.DisplayStart; i < clip.DisplayEnd; i++) {
+                const AssetRefs::Use& u = uses[(size_t)i];
+                ImGui::PushID(i);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                const std::string where = u.File + ":" + std::to_string(u.Line);
+                // Click: show the file in the panel
+                if (ImGui::Selectable(where.c_str(), false) && u.File.rfind("Assets/", 0) == 0) {
+                    m_Selected = u.File.substr(7);
+                    m_Folder = FolderOf(m_Selected);
+                    m_Search[0] = '\0';
+                    m_ForceScan = true;
+                }
+                ImGui::SetItemTooltip("Show %s in Assets", u.File.c_str());
+                ImGui::TableSetColumnIndex(1);
+                if (showNew && !u.NewText.empty()) {
+                    ImGui::TextDisabled("%s", u.Text.c_str());
+                    ImGui::SameLine();
+                    ImGui::Text("-> %s", u.NewText.c_str());
+                }
+                else ImGui::TextUnformatted(u.Text.c_str());
+                if (!u.Note.empty() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", u.Note.c_str());
+                ImGui::PopID();
+            }
+        ImGui::EndTable();
+    }
+    ImGui::EndChild();
+}
+
+void AssetBrowser::DrawMoveDialog() {
+    if (m_OpenMove) { ImGui::OpenPopup("Update References###assetmove"); m_OpenMove = false; }
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal("Update References###assetmove", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+    const bool relink = !m_Plan.MoveFiles;
+    size_t shown = 0;
+    for (const auto& m : m_Plan.Moves) {
+        if (shown++ == 5) { ImGui::TextDisabled("... and %zu more", m_Plan.Moves.size() - 5); break; }
+        ImGui::Text("%s %s", relink ? "Relink" : "Move", m.From.c_str());
+        ImGui::SameLine();
+        ImGui::TextDisabled("to");
+        ImGui::SameLine();
+        ImGui::Text("%s", m.To.c_str());
+    }
+    ImGui::Spacing();
+    if (!m_Plan.Changes.empty()) {
+        ImGui::Text("%zu reference(s) in %zu file(s) will be updated:", m_Plan.Changes.size(), m_Plan.ChangedFiles.size());
+        DrawUseList(m_Plan.Changes, true, "##movechanges");
+    }
+    else ImGui::TextDisabled("Nothing in the project's files refers to it.");
+    if (!m_Plan.Mentions.empty()) {
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f), "Not changed: %zu place(s) name it in another way. Check them by hand:", m_Plan.Mentions.size());
+        DrawUseList(m_Plan.Mentions, false, "##movementions");
+        ImGui::TextDisabled("(Hover a line for why it isn't updated.)");
+    }
+    if (!m_PlanBlock.empty()) {
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s", m_PlanBlock.c_str());
+    }
+    ImGui::Spacing();
+    ImGui::BeginDisabled(!m_PlanBlock.empty());
+    const char* label = relink ? "Relink" : m_Plan.Changes.empty() ? "Move" : "Move and update";
+    if (ImGui::Button(label, ImVec2(150, 0))) { FinishMove(); ImGui::CloseCurrentPopup(); }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(120, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        m_Status = relink ? "Relink cancelled" : "Move cancelled";
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
+void AssetBrowser::DrawUsesDialog() {
+    if (m_OpenUses) { ImGui::OpenPopup("References###assetuses"); m_OpenUses = false; }
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal("References###assetuses", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+    ImGui::Text("%s", m_UsesTarget.c_str());
+    if (m_Uses.References.empty()) ImGui::TextDisabled("Nothing in the project's files refers to it.");
+    else {
+        ImGui::Text("%zu reference(s):", m_Uses.References.size());
+        DrawUseList(m_Uses.References, false, "##usesrefs");
+    }
+    if (!m_Uses.Mentions.empty()) {
+        ImGui::TextDisabled("Also named here (may not be references):");
+        DrawUseList(m_Uses.Mentions, false, "##usesmentions");
+    }
+    ImGui::TextDisabled("Only files are searched: unsaved changes in open editors are not.");
+    if (ImGui::Button("Close", ImVec2(120, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+}
+
+void AssetBrowser::ShowMissingReferences() {
+    m_Missing = AssetRefs::FindMissing(m_ProjectDir, m_AssetDir);
+    m_MissingPick.assign(m_Missing.size(), 0);
+    m_ShowMissing = true;
+}
+
+void AssetBrowser::DrawMissingWindow() {
+    ImGui::SetNextWindowSize(ImVec2(720, 420), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Missing References", &m_ShowMissing)) { ImGui::End(); return; }
+    if (ImGui::Button("Check again")) ShowMissingReferences();
+    ImGui::SameLine();
+    if (m_Missing.empty()) ImGui::TextDisabled("Every file the project's files name exists.");
+    else ImGui::Text("%zu file(s) are named but don't exist.", m_Missing.size());
+    ImGui::Separator();
+    ImGui::BeginChild("##missing");
+    for (size_t i = 0; i < m_Missing.size(); i++) {
+        const AssetRefs::Missing& m = m_Missing[i];
+        ImGui::PushID((int)i);
+        const bool open = ImGui::TreeNodeEx("##m", ImGuiTreeNodeFlags_SpanAvailWidth, "%s", m.Target.c_str());
+        ImGui::SameLine();
+        ImGui::TextDisabled("(%zu use%s)", m.Uses.size(), m.Uses.size() == 1 ? "" : "s");
+        if (!m.Candidates.empty()) {
+            ImGui::SameLine();
+            int& pick = m_MissingPick[i];
+            pick = std::clamp(pick, 0, (int)m.Candidates.size() - 1);
+            ImGui::SetNextItemWidth(260.0f);
+            if (ImGui::BeginCombo("##to", m.Candidates[(size_t)pick].c_str())) {
+                for (int c = 0; c < (int)m.Candidates.size(); c++)
+                    if (ImGui::Selectable(m.Candidates[(size_t)c].c_str(), c == pick)) pick = c;
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Relink")) BeginMove({ { m.Target, m.Candidates[(size_t)pick] } }, false);
+            ImGui::SetItemTooltip("Make every reference to %s name %s instead", m.Target.c_str(), m.Candidates[(size_t)pick].c_str());
+        }
+        else { ImGui::SameLine(); ImGui::TextDisabled("no file of that name in Assets"); }
+        if (open) {
+            DrawUseList(m.Uses, false, "##muses");
+            ImGui::TreePop();
+        }
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+    ImGui::End();
 }

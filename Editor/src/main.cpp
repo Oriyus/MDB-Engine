@@ -35,6 +35,10 @@
 #include "DemoLevels.h"
 #include "EditorHistory.h"
 #include "AssetBrowser.h"
+#include "AssetReferences.h"
+#include "Scene/AssetPaths.h"
+#include "Core/InputMap.h"
+#include "Runtime/GameDatabase.h"
 #include "DialogueEditor.h"
 #include "Platform.h"
 #include "Projects.h"
@@ -99,6 +103,9 @@ public:
         Splash::Report(0.10f, "Starting physics, audio and scripting");
         m_Session = std::make_unique<GameSession>(m_Scene, Projects::Current().AssetDir(), Projects::EngineDir(), m_Resources->Registry());
         m_TerrainEditor.OnEditMaterial = [this](const std::string& path) { m_MaterialEditor.Open(path); m_ShowMaterialEditor = true; };
+        // Renaming / moving assets: the files' references are rewritten by the Assets panel, the rest is ours
+        m_Assets.CanMove = [this](const AssetRefs::Plan& plan) { return CanMoveAssets(plan); };
+        m_Assets.OnMoved = [this](const AssetRefs::Plan& plan) { AssetsMoved(plan); };
         m_TerrainEditor.SetCreateAsset([this](const std::string& path) {
             const Entity e = CreateAsset(path);
             return e ? e.GetHandle() : entt::null;
@@ -259,6 +266,33 @@ public:
         else if (demo == "terrain") BuildLevel(BuildTerrainDemo);
         if (auto ts = EnvVar("MDB_TEST_SCRIPT"); !ts.empty())
             m_Scene.CreateEntity("Test").Add<ScriptComponent>().Path = ts;
+        // Test hooks: MDB_MOVE_ASSET=<from>|<to>[;<from>|<to>...] moves assets like the Assets panel (references
+        // updated, no dialog), before MDB_SAVE_SCENE; MDB_RELINK_ASSET=<missing>|<file> relinks references only;
+        // MDB_CHECK_REFERENCES=1 logs every reference to a file that doesn't exist
+        if (auto ask = EnvVar("MDB_ASK_MOVE_ASSET"); !ask.empty())    // <from>|<to>: opens the dialog instead
+            if (const size_t bar = ask.find('|'); bar != std::string::npos) m_Assets.AskMove({ { ask.substr(0, bar), ask.substr(bar + 1) } });
+        for (const char* var : { "MDB_MOVE_ASSET", "MDB_RELINK_ASSET" }) {
+            const std::string spec = EnvVar(var);
+            if (spec.empty()) continue;
+            std::vector<AssetRefs::Move> moves;
+            for (size_t start = 0; start < spec.size();) {
+                size_t end = spec.find(';', start);
+                if (end == std::string::npos) end = spec.size();
+                const std::string one = spec.substr(start, end - start);
+                if (const size_t bar = one.find('|'); bar != std::string::npos) moves.push_back({ one.substr(0, bar), one.substr(bar + 1) });
+                start = end + 1;
+            }
+            std::string why;
+            if (m_Assets.MoveNow(moves, std::string(var) == "MDB_MOVE_ASSET", why)) LOG_INFO("{}: {}", var, m_Assets.Status());
+            else LOG_WARN("{}: not done: {}", var, why);
+        }
+        if (EnvVar("MDB_CHECK_REFERENCES") == "1") {
+            const auto missing = AssetRefs::FindMissing(m_Assets.ProjectDir(), m_Assets.Absolute(""));
+            LOG_INFO("References to missing files: {}", missing.size());
+            for (const auto& m : missing)
+                LOG_INFO("  {} ({} uses, first {}:{}){}", m.Target, m.Uses.size(), m.Uses[0].File, m.Uses[0].Line,
+                    m.Candidates.empty() ? "" : ", same name: " + m.Candidates[0]);
+        }
         if (auto sv = EnvVar("MDB_SAVE_SCENE"); !sv.empty()) SaveScene(sv);
         if (auto dl = EnvVar("MDB_OPEN_DIALOGUE"); !dl.empty()) {     // "Dialogues/x.json" or "Dialogues/x.json#7" (selects node 7)
             const size_t hash = dl.find('#');
@@ -3364,6 +3398,89 @@ private:
         }
         m_Selected = target;
         m_MaybeChanged = true;
+    }
+
+    // ------------------------------------------------------------ renamed / moved assets (AssetReferences)
+    // "" if the files may move now, else why not
+    std::string CanMoveAssets(const AssetRefs::Plan& plan) {
+        if (m_PlayState != PlayState::Edit) return "Stop Play first: the running game is using these files.";
+        const auto& moves = plan.Moves;
+        auto touched = [&](const std::string& path) {                 // moved, or its contents rewritten
+            if (path.empty()) return false;
+            if (plan.MoveFiles && AssetRefs::MovedPath(path, moves)) return true;
+            return std::find(plan.ChangedFiles.begin(), plan.ChangedFiles.end(), "Assets/" + path) != plan.ChangedFiles.end();
+        };
+        if (plan.MoveFiles)
+            for (const char* fixed : { Engine::GameDatabase::kPath, Engine::InputMap::kPath })
+                if (AssetRefs::MovedPath(fixed, moves)) return std::string("The engine reads Assets/") + fixed + " at that path: it can't move.";
+        if (plan.MoveFiles)
+            if (auto to = AssetRefs::MovedPath("Scenes/" + m_SceneFile, moves); to && to->rfind("Scenes/", 0) != 0)
+                return "The open scene must stay in Assets/Scenes.";
+        struct Open { const char* Window; std::string Path; bool Dirty; };
+        const Open open[] = {
+            { "Material Editor", m_MaterialEditor.Path(), m_MaterialEditor.IsDirty() },
+            { "Shader Graph Editor", m_ShaderGraph.Path(), m_ShaderGraph.IsDirty() },
+            { "Dialogue Editor", m_Dialogue.Path(), m_Dialogue.IsDirty() },
+            { "AnimGraph Editor", m_AnimGraph.Path(), m_AnimGraph.IsDirty() },
+            { "UI Editor", m_UIEditor.Path(), m_UIEditor.IsDirty() },
+            { "Database window", Engine::GameDatabase::kPath, m_Database.IsDirty() },
+        };
+        for (const Open& o : open)
+            if (o.Dirty && touched(o.Path))
+                return std::string("Save or revert ") + o.Path + " in the " + o.Window + " first: it has unsaved changes.";
+        return {};
+    }
+
+    // After the files moved and their references were rewritten: bring what is in memory along
+    void AssetsMoved(const AssetRefs::Plan& plan) {
+        const auto& moves = plan.Moves;
+        auto changed = [&](const std::string& path) {
+            return std::find(plan.ChangedFiles.begin(), plan.ChangedFiles.end(), "Assets/" + path) != plan.ChangedFiles.end();
+        };
+        // Caches: the same objects under the new names (meshes and textures held by pointer are then saved with them)
+        m_Resources->RenameAssets([&](const std::string& p) { return AssetRefs::MovedPath(p, moves); });
+
+        // The paths the open scene keeps as text, in the scene and in every undo state
+        auto patch = [&](std::string& path, Engine::MaterialSlot* slot) {
+            auto to = AssetRefs::MovedReference(path, moves);
+            if (!to) return;
+            path = *to;
+            if (slot && (!slot->Asset || slot->Asset->Path != path)) slot->Asset = m_Resources->LoadMaterial(path);
+        };
+        Engine::ForEachAssetPath(m_Scene, patch);
+        m_History.RewritePaths([&](Engine::EntitySnapshot& e) { Engine::ForEachAssetPath(e, patch); },
+            [&](const std::string& key) { return AssetRefs::RewriteJsonText(key, moves); });
+        if (plan.MoveFiles) {
+            if (auto to = AssetRefs::MovedPath("Scenes/" + m_SceneFile, moves); to && to->rfind("Scenes/", 0) == 0) m_SceneFile = to->substr(7);
+            const std::string sky = m_Renderer->CurrentEnvironment();
+            if (!sky.empty())
+                if (auto to = AssetRefs::MovedPath("Environments/" + sky, moves); to && to->rfind("Environments/", 0) == 0)
+                    m_Renderer->RequestEnvironment(to->substr(13));
+        }
+
+        // Open editors (none of them has unsaved changes in what moved: CanMoveAssets): read their file again
+        auto reopen = [&](auto& editor) {
+            const std::string path = editor.Path();
+            if (path.empty()) return;
+            const auto to = plan.MoveFiles ? AssetRefs::MovedPath(path, moves) : std::nullopt;
+            if (to || changed(path)) editor.Reopen(to ? *to : path);
+        };
+        reopen(m_MaterialEditor);
+        reopen(m_ShaderGraph);
+        reopen(m_Dialogue);
+        reopen(m_AnimGraph);
+        reopen(m_UIEditor);
+        if (changed(Engine::GameDatabase::kPath) && !m_Database.IsDirty()) m_Database.Reload();
+
+        // Material and graph files whose contents were rewritten
+        m_Resources->RefreshShaderGraphs([this](const std::string& p) { return m_ShaderGraph.Holds(p); });
+        m_Resources->RefreshMaterials([this](const Engine::MaterialAsset& m) { return m_MaterialEditor.Holds(m); });
+
+        // Relinked: the open scene may name files it failed to load before. Read it again if nothing is unsaved.
+        if (!plan.MoveFiles && changed("Scenes/" + m_SceneFile)) {
+            if (!m_History.IsDirty()) LoadScene(m_SceneFile);
+            else LOG_WARN("{} was relinked on disk; it has unsaved changes, so reopen it to load the relinked files", m_SceneFile);
+        }
     }
 
     void HandleAssetActions(const std::vector<AssetBrowser::Action>& actions) {

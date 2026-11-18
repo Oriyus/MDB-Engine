@@ -1,5 +1,6 @@
 #pragma once
 #include <imgui.h>
+#include "AssetReferences.h"
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -42,6 +43,19 @@ public:
     const std::string& Selected() const { return m_Selected; }
     void SetFolder(const std::string& folder) { m_Folder = folder; m_Search[0] = '\0'; m_ForceScan = true; }
 
+    // Rename / move with reference updates. CanMove: "" lets the files move, else why not (shown, and the button
+    // is off). OnMoved: after the files moved (Plan::MoveFiles) or references were relinked, and every reference
+    // file was rewritten: the app brings what it holds in memory along (caches, the open scene, editors).
+    std::function<std::string(const AssetRefs::Plan&)> CanMove;
+    std::function<void(const AssetRefs::Plan&)> OnMoved;
+    // Open the Missing References window (references to files that don't exist, with relinking)
+    void ShowMissingReferences();
+    // Move (or relink) without asking, as if the dialog was confirmed (test hooks). False and why if it can't.
+    bool MoveNow(std::vector<AssetRefs::Move> moves, bool moveFiles, std::string& why);
+    void AskMove(std::vector<AssetRefs::Move> moves) { BeginMove(std::move(moves)); }   // with the dialog (test hook)
+    const std::string& Status() const { return m_Status; }
+    const std::string& ProjectDir() const { return m_ProjectDir; }
+
 private:
     struct Entry {
         std::string Name;              // "Fox.glb"
@@ -58,9 +72,17 @@ private:
     void DrawIcon(ImDrawList* dl, const ImVec2& mn, const ImVec2& mx, const Entry& e,
                   const std::function<uint32_t(const std::string&)>& thumbnail);
     void DrawDialogs();
+    void DrawMoveDialog();
+    void DrawUsesDialog();
+    void DrawMissingWindow();
+    void DrawUseList(const std::vector<AssetRefs::Use>& uses, bool showNew, const char* id);
+    void BeginMove(std::vector<AssetRefs::Move> moves, bool moveFiles = true);
+    void FinishMove();
+    bool AcceptMoveInto(const std::string& folder);   // a dragged asset dropped on a folder (the last item)
     std::string UniqueName(const std::string& folder, const std::string& base, const std::string& ext) const;
 
     std::string m_AssetDir;            // absolute, ending in '/'
+    std::string m_ProjectDir;          // the folder holding project.json and Assets, ending in '/'
     std::string m_Folder;              // current folder, relative ("" = the asset root)
     std::string m_Selected;            // relative path of the selected entry
     std::vector<Entry> m_Entries;      // the current folder's contents (folders first)
@@ -77,4 +99,17 @@ private:
     char m_RenameBuf[128] = {};
     bool m_OpenRename = false, m_OpenDelete = false;
     std::string m_Status;              // the last file operation's result, shown in the footer
+
+    // Moving: the plan waiting for the confirmation dialog
+    AssetRefs::Plan m_Plan;
+    std::string m_PlanBlock;           // CanMove's answer
+    bool m_OpenMove = false;
+    // Find References / Delete: the uses of m_UsesTarget
+    AssetRefs::Uses m_Uses;
+    std::string m_UsesTarget;
+    bool m_OpenUses = false;
+    // Missing References window
+    bool m_ShowMissing = false;
+    std::vector<AssetRefs::Missing> m_Missing;
+    std::vector<int> m_MissingPick;    // chosen candidate per entry
 };

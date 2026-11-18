@@ -1,6 +1,6 @@
 # The editor app (MDBEditor.exe): the engine plus its editing UI
 add_executable(MDBEditor src/main.cpp src/DemoLevels.cpp src/DemoLevels.h src/EditorHistory.cpp src/EditorHistory.h
-    src/AssetBrowser.cpp src/AssetBrowser.h src/Platform.cpp src/Platform.h src/DialogueEditor.cpp src/DialogueEditor.h
+    src/AssetBrowser.cpp src/AssetBrowser.h src/AssetReferences.cpp src/AssetReferences.h src/Platform.cpp src/Platform.h src/DialogueEditor.cpp src/DialogueEditor.h
     src/Projects.cpp src/Projects.h src/GameBuilder.cpp src/GameBuilder.h src/TerrainEditor.cpp src/TerrainEditor.h src/AnimGraphEditor.cpp src/AnimGraphEditor.h src/DatabaseEditor.cpp src/DatabaseEditor.h src/UIEditor.cpp src/UIEditor.h src/ModelPreview.cpp src/ModelPreview.h src/MaterialEditor.cpp src/MaterialEditor.h src/ShaderGraphEditor.cpp src/ShaderGraphEditor.h
     resources/editor.rc)                                    # the icon
 target_link_libraries(MDBEditor PRIVATE Engine)

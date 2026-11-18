@@ -395,6 +395,57 @@ namespace Engine {
         return out;
     }
 
+    // ------------------------------------------------------------ renamed files
+    namespace {
+        using MovedFn = std::function<std::optional<std::string>(const std::string&)>;
+
+        // A cache key after the moves: a path, or paths joined by '|' ("a.png|flipY", "pack|r.png|m.png")
+        std::optional<std::string> MovedKey(const std::string& key, const MovedFn& moved) {
+            std::string out;
+            bool changed = false;
+            size_t start = 0;
+            while (start <= key.size()) {
+                size_t bar = key.find('|', start);
+                if (bar == std::string::npos) bar = key.size();
+                const std::string part = key.substr(start, bar - start);
+                auto to = part.empty() ? std::nullopt : moved(part);
+                if (to) changed = true;
+                out += (start ? "|" : "") + (to ? *to : part);
+                start = bar + 1;
+            }
+            return changed ? std::optional<std::string>(out) : std::nullopt;
+        }
+
+        // Re-key a cache; entries that are not valid() (failed loads) are dropped instead
+        template <class Map, class Valid>
+        void Rekey(Map& map, const MovedFn& moved, Valid valid) {
+            std::vector<std::pair<std::string, typename Map::mapped_type>> keep;
+            for (auto it = map.begin(); it != map.end();) {
+                auto to = MovedKey(it->first, moved);
+                if (!to) { ++it; continue; }
+                if (valid(it->second)) keep.push_back({ *to, std::move(it->second) });
+                it = map.erase(it);
+            }
+            for (auto& [k, v] : keep) map[k] = std::move(v);    // over a failed entry of the new name
+        }
+    }
+
+    void ResourceLibrary::RenameAssets(const MovedFn& moved) {
+        auto notNull = [](const auto& p) { return p != nullptr; };
+        Rekey(m_Models, moved, notNull);
+        Rekey(m_Textures, moved, notNull);
+        Rekey(m_DataTextures, moved, notNull);
+        Rekey(m_Terrains, moved, [](const CachedTerrain& c) { return c.Data != nullptr; });
+        Rekey(m_Surfaces, moved, [](const CachedSurface& c) { return c.Data != nullptr; });
+        Rekey(m_Graphs, moved, [](const CachedGraph& c) { return c.Data != nullptr; });
+        Rekey(m_UIDocs, moved, [](const CachedUI& c) { return c.Data != nullptr && !c.Missing; });
+        Rekey(m_ShaderGraphs, moved, [](const std::shared_ptr<CachedShaderGraph>& c) { return c && !c->Missing; });
+        Rekey(m_Materials, moved, [](const CachedMaterial& c) { return c.Asset && !c.Asset->Missing; });
+        for (auto& [path, c] : m_Materials) c.Asset->Path = path;
+        for (auto& [look, path] : m_Looks) if (auto to = moved(path)) path = *to;
+        ResolveMaterials();
+    }
+
 } // namespace Engine
 
 namespace Engine {

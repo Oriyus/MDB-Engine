@@ -26,6 +26,7 @@ public:
 
     void SetResources(Engine::ResourceLibrary* resources) { m_Resources = resources; }
     void Open(const std::string& path);           // asks first if the open one has unsaved changes
+    void Reopen(const std::string& path) { DoOpen(path); }   // the file (moved or rewritten), unsaved changes dropped
     const std::string& Path() const { return m_Path; }
     void Draw(bool* open);
     void Render(float dt);                        // the preview (outside the ImGui frame, from OnUpdate)

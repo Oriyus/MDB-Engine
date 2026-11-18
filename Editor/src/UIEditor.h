@@ -30,6 +30,7 @@ public:
 
     void Draw(bool* open);
     void Open(const std::string& path);       // "UI/hud.json" (asks first if there are unsaved changes)
+    void Reopen(const std::string& path) { Load(path); }     // the file (moved or rewritten), unsaved changes dropped
     void New();
     bool IsFocused() const { return m_Focused; }
     bool IsDirty() const;
