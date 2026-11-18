@@ -363,6 +363,7 @@ public:
         }
         if (EnvVar("MDB_MOTION_VECTORS") == "1") m_Renderer->ShowMotionVectors = true;   // Viewport > Debug > Motion Vectors
         if (EnvVar("MDB_LIGHT_CLUSTERS") == "1") m_Scene.ClusterDebug = true;                // Viewport > Debug > Light Clusters
+        if (EnvVar("MDB_AO_DEBUG") == "1") m_Renderer->Post.AODebug = true;                  // Viewport > Debug > Ambient Occlusion Only
         if (EnvVar("MDB_SHADOW_ATLAS") == "1") m_ShowShadowAtlas = true;                    // Viewport > Debug > Shadow Atlas
         if (auto p = EnvVar("MDB_PREVIEW_ASSET"); !p.empty()) m_Preview.SetAsset(p);   // the Inspector's model preview
         // (with MDB_SCATTER_FILL, Play starts after the fill)

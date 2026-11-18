@@ -67,6 +67,7 @@ namespace Engine {
         aoShader.SetInt("u_Depth", 0);
         aoShader.SetMat4("u_Proj", projection);
         aoShader.SetMat4("u_InvProj", glm::inverse(projection));
+        aoShader.SetVec2("u_TargetSize", glm::vec2((float)m_Width, (float)m_Height));
         aoShader.SetFloat("u_Radius", Radius);
         aoShader.SetFloat("u_Bias", Bias);
         aoShader.SetInt("u_Samples", std::clamp(Samples, 1, 64));

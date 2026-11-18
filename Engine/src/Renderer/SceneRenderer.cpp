@@ -733,7 +733,9 @@ namespace Engine {
         I.Env->Show = s.ShowSky;
         I.Env->Blur = s.SkyBlur;
         I.Env->RotationDegrees = s.SkyRotation;
+        const bool aoDebug = Post.AODebug;       // a debug view (Viewport > Debug), not part of the level: kept
         Post = s.Post;
+        Post.AODebug = aoDebug;
         I.Shadows.Settings = s.Shadows;
         I.AO->Radius = s.AORadius;
         I.AO->Bias = s.AOBias;

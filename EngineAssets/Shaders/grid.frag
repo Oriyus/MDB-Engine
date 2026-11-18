@@ -56,14 +56,22 @@ void main() {
     else if (onZ > 0.0) { color = mix(color, vec3(0.32, 0.52, 0.95), onZ); alpha = max(alpha, 0.8 * onZ); }
 
     if (!hit) discard;
-    // Behind something? (a small tolerance, so a floor at exactly y = 0 shows the grid on it)
+    // Behind something? Tested by height, not depth: the surface seen here is hidden behind only if it is nearer
+    // and stands clearly above the plane on the camera's side. So anything lying at y = 0 (a floor, a flat terrain)
+    // always shows the grid on top: comparing depths there z-fought, made worse by the scene being drawn with TAA's
+    // jitter and the grid without it (the grid flickered).
+    float dist = length(p - u_CamPos);
     vec4 clip = u_ViewProj * vec4(p, 1.0);
-    float gridDepth = clip.z / clip.w * 0.5 + 0.5;
+    float gridLinear = LinearDepth(clip.z / clip.w * 0.5 + 0.5);
     float sceneDepth = texelFetch(u_Depth, ivec2(gl_FragCoord.xy), 0).r;
-    if (sceneDepth < 1.0 && LinearDepth(gridDepth) > LinearDepth(sceneDepth) * 1.002 + 0.002) discard;
+    if (sceneDepth < 1.0) {
+        float sceneLinear = LinearDepth(sceneDepth);
+        vec3 q = u_CamPos + (p - u_CamPos) * (sceneLinear / gridLinear);   // the surface's point on the same ray
+        float above = q.y * sign(u_CamPos.y);                             // its height on the camera's side
+        if (sceneLinear < gridLinear && above > 0.02 + 0.002 * dist) discard;
+    }
 
     // Fade with distance (further when the camera is higher) and at grazing angles
-    float dist = length(p - u_CamPos);
     float reach = clamp(abs(u_CamPos.y) * 60.0, 60.0, u_Far * 0.9);
     alpha *= 1.0 - smoothstep(reach * 0.4, reach, dist);
     alpha *= smoothstep(0.0, 0.08, abs(normalize(dir).y));

@@ -6,18 +6,29 @@ out vec2 FragAO;            // AO (1 = open), view depth (for the depth-aware bl
 uniform sampler2D u_Depth;
 uniform mat4  u_Proj;
 uniform mat4  u_InvProj;
+uniform vec2  u_TargetSize; // this pass's size in pixels (half the depth's)
 uniform float u_Radius;     // view-space units
 uniform float u_Bias;
 uniform int   u_Samples;
 uniform float u_NoiseOffset;   // 0..1, a new value every frame while TAA is on (0 without TAA: a steady pattern)
 
 const float PI = 3.14159265359;
+// Occluders less than about 8.6 degrees above the surface's plane don't count (HBAO's angle bias): the shallow
+// creases between the faces of a terrain or any faceted mesh (normals here come from depth, so per face) would
+// otherwise each draw a dark line, stripes along the triangles.
+const float kAngleBias = 0.15;
 
-// View-space position of the surface at a screen position
-vec3 ViewPos(vec2 uv) {
-    float d = texture(u_Depth, uv).r;
-    vec4 p = u_InvProj * vec4(uv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
-    return p.xyz / p.w;
+// Depth texels are read with texelFetch: this pass is half resolution, so its pixel centres fall exactly on the
+// borders between depth texels, and a filtered or NEAREST read there picks either side depending on rounding,
+// in bands across the screen (wrong normals, stripes).
+ivec2 g_Size;
+
+vec3 ViewPosAt(ivec2 p) {
+    p = clamp(p, ivec2(0), g_Size - 1);
+    float d = texelFetch(u_Depth, p, 0).r;
+    vec2 uv = (vec2(p) + 0.5) / vec2(g_Size);
+    vec4 v = u_InvProj * vec4(uv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
+    return v.xyz / v.w;
 }
 
 vec2 Hammersley(int i, int n) {
@@ -25,14 +36,16 @@ vec2 Hammersley(int i, int n) {
 }
 
 void main() {
-    if (texture(u_Depth, v_UV).r >= 0.99999) { FragAO = vec2(1.0, 1e6); return; }   // sky
+    g_Size = textureSize(u_Depth, 0);
+    // the depth texel under this pixel's centre (the one whose depth the blur and the upsample compare against)
+    ivec2 px = clamp(ivec2((floor(gl_FragCoord.xy) + 0.5) * vec2(g_Size) / u_TargetSize), ivec2(0), g_Size - 1);
+    if (texelFetch(u_Depth, px, 0).r >= 0.99999) { FragAO = vec2(1.0, 1e6); return; }   // sky
 
-    vec2 texel = 1.0 / vec2(textureSize(u_Depth, 0));
-    vec3 P  = ViewPos(v_UV);
-    vec3 Pl = ViewPos(v_UV - vec2(texel.x, 0.0));
-    vec3 Pr = ViewPos(v_UV + vec2(texel.x, 0.0));
-    vec3 Pd = ViewPos(v_UV - vec2(0.0, texel.y));
-    vec3 Pu = ViewPos(v_UV + vec2(0.0, texel.y));
+    vec3 P  = ViewPosAt(px);
+    vec3 Pl = ViewPosAt(px - ivec2(1, 0));
+    vec3 Pr = ViewPosAt(px + ivec2(1, 0));
+    vec3 Pd = ViewPosAt(px - ivec2(0, 1));
+    vec3 Pu = ViewPosAt(px + ivec2(0, 1));
 
     // Use the closer neighbour on each axis, which avoids bad normals at silhouette edges
     vec3 dx = abs(Pr.z - P.z) < abs(P.z - Pl.z) ? Pr - P : P - Pl;
@@ -65,10 +78,12 @@ void main() {
         vec2 uv = o.xy / o.w * 0.5 + 0.5;
         if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) continue;
 
-        float sceneZ = ViewPos(uv).z;
+        vec3 Q = ViewPosAt(ivec2(uv * vec2(g_Size)));                     // the surface seen there
+        if (Q.z < samplePos.z + u_Bias) continue;                        // the sample isn't behind it
+        vec3 toQ = Q - P;
+        if (dot(N, toQ) < kAngleBias * length(toQ)) continue;           // barely above this surface's plane
         // Ignore occluders far in front of or behind the sample (stops dark halos around objects)
-        float range = smoothstep(0.0, 1.0, u_Radius / max(abs(P.z - sceneZ), 1e-4));
-        occlusion += (sceneZ >= samplePos.z + u_Bias ? 1.0 : 0.0) * range;
+        occlusion += smoothstep(0.0, 1.0, u_Radius / max(abs(P.z - Q.z), 1e-4));
     }
     FragAO = vec2(1.0 - occlusion / float(u_Samples), -P.z);
 }
