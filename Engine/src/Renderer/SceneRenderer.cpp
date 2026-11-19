@@ -2,6 +2,7 @@
 #include "Core/SplashScreen.h"
 #include "Renderer/Shader.h"
 #include "Renderer/DrawList.h"
+#include "Renderer/Renderable.h"
 #include "Renderer/ShaderGraph.h"
 #include "Renderer/ParticleRenderer.h"
 #include "Renderer/DecalRenderer.h"
@@ -22,10 +23,99 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <cstdlib>
+#include <string>
 
 namespace Engine {
 
+    namespace {
+        // Measurement only (MDB_OCCLUSION_ORACLE=1): perfect occlusion culling of the lit opaque pass, to see what a real
+        // one could save. After the depth pre-pass, the depth is read back (a stall), a max-depth pyramid built on the
+        // CPU, and every opaque part whose world box lies wholly behind it is left out of the Opaque batches (compacted
+        // in place, indices uploaded again). Logs every 120 frames how many parts and triangles were hidden.
+        struct OcclusionOracle {
+            std::vector<std::vector<float>> Pyramid;
+            std::vector<glm::ivec2> Sizes;
+            uint64_t Frames = 0, Parts = 0, Hidden = 0, Tris = 0, HiddenTris = 0;
+
+            void Run(DrawList& list, const Camera& view, uint32_t depthTex, uint32_t w, uint32_t h) {
+                if (list.Opaque.empty() || w == 0 || h == 0) return;
+                Pyramid.resize(1);
+                Sizes.assign(1, glm::ivec2((int)w, (int)h));
+                Pyramid[0].resize(size_t(w) * h);
+                glGetTextureImage(depthTex, 0, GL_DEPTH_COMPONENT, GL_FLOAT, (GLsizei)(Pyramid[0].size() * 4), Pyramid[0].data());
+                while (Sizes.back().x > 1 || Sizes.back().y > 1) {             // max of each 2 x 2 (odd edges: the rest)
+                    const glm::ivec2 s = Sizes.back(), n((s.x + 1) / 2, (s.y + 1) / 2);
+                    const std::vector<float>& src = Pyramid.back();
+                    std::vector<float> dst(size_t(n.x) * n.y);
+                    for (int y = 0; y < n.y; y++)
+                        for (int x = 0; x < n.x; x++) {
+                            float m = 0.0f;
+                            for (int k = 0; k < 4; k++) {
+                                const int sx = std::min(x * 2 + (k & 1), s.x - 1), sy = std::min(y * 2 + (k >> 1), s.y - 1);
+                                m = std::max(m, src[size_t(sy) * s.x + sx]);
+                            }
+                            dst[size_t(y) * n.x + x] = m;
+                        }
+                    Pyramid.push_back(std::move(dst));
+                    Sizes.push_back(n);
+                }
+                const glm::mat4 vp = view.GetViewProjection();       // the jittered camera the depth was drawn with
+                auto hidden = [&](const glm::vec4& c, const glm::vec4& e) {
+                    if (e.x < 0.0f) return false;
+                    glm::vec2 mn(1e30f), mx(-1e30f);
+                    float zNear = 1.0f;
+                    for (int k = 0; k < 8; k++) {
+                        const glm::vec3 p = glm::vec3(c) + glm::vec3(k & 1 ? e.x : -e.x, k & 2 ? e.y : -e.y, k & 4 ? e.z : -e.z);
+                        const glm::vec4 q = vp * glm::vec4(p, 1.0f);
+                        if (q.w <= 1e-4f) return false;                    // reaches behind the camera
+                        const glm::vec3 ndc = glm::vec3(q) / q.w;
+                        mn = glm::min(mn, glm::vec2(ndc)); mx = glm::max(mx, glm::vec2(ndc));
+                        zNear = std::min(zNear, ndc.z * 0.5f + 0.5f);
+                    }
+                    const glm::vec2 a = glm::clamp((mn * 0.5f + 0.5f) * glm::vec2(w, h), glm::vec2(0.0f), glm::vec2(w - 1, h - 1));
+                    const glm::vec2 b = glm::clamp((mx * 0.5f + 0.5f) * glm::vec2(w, h), glm::vec2(0.0f), glm::vec2(w - 1, h - 1));
+                    const float span = std::max(b.x - a.x, b.y - a.y);
+                    int level = span <= 1.0f ? 0 : (int)std::ceil(std::log2(span));   // the rect covers at most 2 x 2 texels there
+                    level = std::clamp(level, 0, (int)Sizes.size() - 1);
+                    const glm::ivec2 s = Sizes[(size_t)level];
+                    const int x0 = (int)a.x >> level, x1 = std::min((int)b.x >> level, s.x - 1);
+                    const int y0 = (int)a.y >> level, y1 = std::min((int)b.y >> level, s.y - 1);
+                    float far = 0.0f;
+                    for (int y = y0; y <= y1; y++)
+                        for (int x = x0; x <= x1; x++) far = std::max(far, Pyramid[(size_t)level][size_t(y) * s.x + x]);
+                    return zNear > far + 1e-6f;                          // in front of nothing it covers: hidden
+                };
+                uint32_t lo = UINT32_MAX, hi = 0;
+                for (DrawBatch& bt : list.Opaque) {
+                    const uint32_t tris = bt.Geometry ? bt.Geometry->TriangleCount() / std::max(1u, bt.Part >= 0 ? bt.Geometry->SubmeshCount() : 1u) : 0;
+                    uint32_t keep = 0;
+                    for (uint32_t i = 0; i < bt.Count; i++) {
+                        const uint32_t at = bt.First + i, local = at - list.OpaqueFirst;
+                        const bool h = (size_t(local) * 2 + 1 < list.OpaqueBoxes.size()) &&
+                            hidden(list.OpaqueBoxes[size_t(local) * 2], list.OpaqueBoxes[size_t(local) * 2 + 1]);
+                        Parts++; Tris += tris;
+                        if (h) { Hidden++; HiddenTris += tris; list.OcclusionCulled++; continue; }
+                        list.Indices[bt.First + keep++] = list.Indices[at];
+                    }
+                    if (keep != bt.Count) { lo = std::min(lo, bt.First); hi = std::max(hi, bt.First + bt.Count); }
+                    bt.Count = keep;
+                }
+                if (lo < hi) list.UploadIndices(lo, hi - lo);
+                if (++Frames % 120 == 0) {
+                    ENGINE_INFO("Occlusion oracle ({} frames): {:.1f}% of opaque parts hidden ({:.0f} of {:.0f} a frame), {:.1f}% of their triangles ({:.0f}k of {:.0f}k)",
+                        Frames, 100.0 * Hidden / std::max<uint64_t>(Parts, 1), double(Hidden) / Frames, double(Parts) / Frames,
+                        100.0 * HiddenTris / std::max<uint64_t>(Tris, 1), HiddenTris / 1000.0 / Frames, Tris / 1000.0 / Frames);
+                }
+            }
+        };
+    }
+
     struct SceneRenderer::Impl {
+        std::unique_ptr<OcclusionOracle> Oracle = [] {
+            const char* e = std::getenv("MDB_OCCLUSION_ORACLE");
+            return e && std::string(e) == "1" ? std::make_unique<OcclusionOracle>() : nullptr;
+        }();
         std::string AssetDir;                    // the project's Assets (Environments)
         std::string EngineDir;                   // the engine's files (Shaders)
         std::unique_ptr<Shader> Lit, LitArea, PointDepth, SunDepth, Post, SSAOShader, SSAOBlur, BloomDown, BloomUp, FXAA, ParticleShader, DecalShader;
@@ -474,6 +564,7 @@ namespace Engine {
         I.Draws->Highlight = &I.HighlightSorted;
 
         // 1) Depth passes (all point lights + sun)
+        I.Draws->WantBoxes = I.Oracle != nullptr;   // the boxes only the occlusion oracle reads
         { PROFILE_SCOPE("Build draw list"); scene.BuildDrawList(*I.Draws, view, shadows); }
         I.Gpu.Mark("uploads");
         if (shadows) { PROFILE_SCOPE("Shadow passes"); scene.RenderShadows(I.Shadows, *I.Draws); }
@@ -525,6 +616,7 @@ namespace Engine {
                 glDepthFunc(GL_LEQUAL);
                 glDepthMask(GL_FALSE);
                 I.Gpu.Mark("depth pre-pass");
+                if (I.Oracle && rendered) { PROFILE_SCOPE("Occlusion oracle"); I.Oracle->Run(*I.Draws, view, I.HDR->GetDepthAttachment(), I.HDR->GetWidth(), I.HDR->GetHeight()); }
             }
             // Grass shading the ground under it (lit.frag GroundGrassShade): the fields' maps, for every lit pass below
             I.Foliage->BindGroundShade(view);

@@ -83,19 +83,29 @@ namespace Engine {
         DrawList& operator=(const DrawList&) = delete;
 
         // A part to draw in one view: its state (First/Count ignored) and which instance it is
-        struct Item { DrawBatch State; uint32_t Instance = 0; float Distance = 0.0f; };
+        // Box: the part's world box (centre, half size; a negative size = not known, never occlusion-culled)
+        struct Item { DrawBatch State; uint32_t Instance = 0; float Distance = 0.0f; glm::vec3 BoxCenter{ 0.0f }, BoxExtent{ -1.0f }; };
         enum class Order { ByState, BackToFront };
 
         void Clear();
         uint32_t AddInstance(const InstanceData& d) { Instances.push_back(d); return (uint32_t)Instances.size() - 1; }
         // Sort a view's items and append them as batches (with their indices) to out
-        void AddBatches(std::vector<Item>& items, std::vector<DrawBatch>& out, Order order);
+        // boxes: if given, two vec4 per index appended (the item's BoxCenter, BoxExtent), for occlusion tests
+        void AddBatches(std::vector<Item>& items, std::vector<DrawBatch>& out, Order order, std::vector<glm::vec4>* boxes = nullptr);
+        // Upload part of the index list again (after occlusion culling compacted the Opaque batches in place)
+        void UploadIndices(uint32_t first, uint32_t count);
         void Upload();                      // instances and indices to the GPU
         void Bind() const;                  // storage buffer bindings 0 and 1
 
         std::vector<InstanceData> Instances;
         std::vector<uint32_t> Indices;
         std::vector<DrawBatch> Opaque, Transparent;
+        // The Opaque batches' indices start at OpaqueFirst; OpaqueBoxes holds two vec4 per index (world box centre,
+        // half size), in the same order, for occlusion culling
+        uint32_t OpaqueFirst = 0;
+        std::vector<glm::vec4> OpaqueBoxes;
+        bool WantBoxes = false;             // input (kept across Clear): fill OpaqueBoxes (only the occlusion oracle needs them)
+        uint32_t OcclusionCulled = 0;       // opaque parts left out because hidden (occlusion oracle)
         std::vector<DrawBatch> Selected;    // the highlighted parts inside the view (editor outline), albedo only for alpha tests
         // Input, kept across Clear: entity handles (entt integral, sorted) to collect into Selected. Null or empty: none.
         const std::vector<uint32_t>* Highlight = nullptr;

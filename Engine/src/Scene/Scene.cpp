@@ -1224,6 +1224,7 @@ namespace Engine {
         }
 
         void DrawBatchGeometry(const DrawBatch& b) {
+            if (b.Count == 0) return;                  // every instance culled (occlusion)
             if (b.Part < 0) b.Geometry->DrawInstanced(b.Count);
             else            b.Geometry->DrawSubmeshInstanced((uint32_t)b.Part, b.Count);
         }
@@ -1713,6 +1714,8 @@ namespace Engine {
             DrawList::Item item;
             item.Instance = list.AddInstance(sb.Instance);
             item.State = sb.State;
+            item.BoxCenter = (sb.Min + sb.Max) * 0.5f;
+            item.BoxExtent = (sb.Max - sb.Min) * 0.5f;
             if (anyShadow) {
                 DrawList::Item sh = item;
                 sh.State.Normal = sh.State.MetalRough = sh.State.Emissive = nullptr;
@@ -1831,6 +1834,8 @@ namespace Engine {
             const glm::vec3 lodTint = TintLodLevels ? kLodTint[std::min<size_t>(level, std::size(kLodTint) - 1)] : glm::vec3(1.0f);
 
             const uint32_t parts = PartCount(mr, geometry);
+            bool boxKnown = false;                           // the world box for occlusion tests (opaque parts only)
+            glm::vec3 boxCenter(0.0f), boxExtent(-1.0f);
             const bool split = SplitParts(mr) && geometry->SubmeshCount() > 1;   // drawn submesh by submesh
             for (uint32_t i = 0; i < parts; i++) {
                 const Material* mat = PartMaterial(mr, geometry, i);
@@ -1886,7 +1891,12 @@ namespace Engine {
                     item.Distance = distance;
                     transparent.push_back(item);
                 }
-                else opaque.push_back(item);
+                else {
+                    if (list.WantBoxes && !boxKnown) { Frustum::WorldBox(world, mn, mx, boxCenter, boxExtent); boxKnown = true; }   // once per object
+                    item.BoxCenter = boxCenter;
+                    item.BoxExtent = boxExtent;
+                    opaque.push_back(item);
+                }
             }
         }
 
@@ -1992,6 +2002,7 @@ namespace Engine {
                 if (!visible) continue;
                 if (highlighted) selected.push_back(item);
                 item.State.Terrain = &m;
+                if (list.WantBoxes) Frustum::WorldBox(world, ch.Min, ch.Max, item.BoxCenter, item.BoxExtent);
                 opaque.push_back(item);
             }
         }
@@ -2001,7 +2012,8 @@ namespace Engine {
         list.PrevMoving.swap(list.CurMoving);
         list.CurMoving.clear();
         { PROFILE_SCOPE("Sort into batches");
-        list.AddBatches(opaque, list.Opaque, DrawList::Order::ByState);
+        list.OpaqueFirst = (uint32_t)list.Indices.size();
+        list.AddBatches(opaque, list.Opaque, DrawList::Order::ByState, list.WantBoxes ? &list.OpaqueBoxes : nullptr);
         list.AddBatches(transparent, list.Transparent, DrawList::Order::BackToFront);
         if (!selected.empty()) list.AddBatches(selected, list.Selected, DrawList::Order::ByState);
         for (size_t v = 0; v < views.size(); v++) list.AddBatches(shadow[v], list.ShadowViews[v], DrawList::Order::ByState);

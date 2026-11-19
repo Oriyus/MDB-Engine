@@ -28,6 +28,9 @@ namespace Engine {
         Instances.clear();
         Indices.clear();
         Opaque.clear();
+        OpaqueFirst = 0;
+        OpaqueBoxes.clear();
+        OcclusionCulled = 0;
         Transparent.clear();
         Selected.clear();
         for (auto& v : ShadowViews) v.clear();
@@ -42,7 +45,7 @@ namespace Engine {
         Lights.clear();
     }
 
-    void DrawList::AddBatches(std::vector<Item>& items, std::vector<DrawBatch>& out, Order order) {
+    void DrawList::AddBatches(std::vector<Item>& items, std::vector<DrawBatch>& out, Order order, std::vector<glm::vec4>* boxes) {
         // Stable, so the order inside a batch doesn't flicker from frame to frame. Indices are sorted, not the
         // items themselves (about 80 bytes each: moving them dominated the sort)
         std::vector<uint32_t>& order_ = m_SortOrder;
@@ -61,6 +64,7 @@ namespace Engine {
                 out.back().Count = 0;
             }
             Indices.push_back(it.Instance);
+            if (boxes) { boxes->push_back(glm::vec4(it.BoxCenter, 0.0f)); boxes->push_back(glm::vec4(it.BoxExtent, 0.0f)); }
             out.back().Count++;
         }
     }
@@ -76,6 +80,11 @@ namespace Engine {
         upload(0, Instances.data(), Instances.size() * sizeof(InstanceData));
         upload(1, Indices.data(), Indices.size() * sizeof(uint32_t));
         Clusters.Upload();
+    }
+
+    void DrawList::UploadIndices(uint32_t first, uint32_t count) {
+        if (count == 0 || size_t(first) + count > Indices.size()) return;
+        glNamedBufferSubData(m_Buffers[1], (GLintptr)(size_t(first) * sizeof(uint32_t)), (GLsizeiptr)(size_t(count) * sizeof(uint32_t)), Indices.data() + first);
     }
 
     void DrawList::Bind() const {
