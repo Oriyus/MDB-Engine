@@ -363,8 +363,10 @@ public:
             if (EnvVar("MDB_SAVE_UI") == "1") m_UIEditor.SaveIfNamed();   // re-save it through the editor
             m_ShowUIEditor = true;
         }
-        if (auto ag = EnvVar("MDB_OPEN_ANIMGRAPH"); !ag.empty()) {   // test hook: "AnimGraphs/x.json"
-            m_AnimGraph.Open(ag);
+        if (auto ag = EnvVar("MDB_OPEN_ANIMGRAPH"); !ag.empty()) {   // test hook: "AnimGraphs/x.json" or "...json#State" (selects it)
+            const size_t hash = ag.find('#');
+            m_AnimGraph.Open(ag.substr(0, hash));
+            if (hash != std::string::npos) m_AnimGraph.SelectState(ag.substr(hash + 1));
             m_ShowAnimGraph = true;
         }
         if (EnvVar("MDB_TEST_PICK_FOLDER") == "1")                // test hook: the folder picker must show (it once hung)

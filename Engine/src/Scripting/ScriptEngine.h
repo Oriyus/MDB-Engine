@@ -200,6 +200,7 @@ namespace Engine {
     //   Animation graph (Animation/AnimGraph.h, AnimGraph Editor): e.animator.graph = "AnimGraphs/x.json" ("" = clips again),
     //     set(name, number | bool), get(name), trigger(name), reset_trigger(name), state([layer=1]) -> name,
     //     state_time([layer]) -> seconds in it, phase([layer]) -> 0..1, in_transition([layer]),
+    //     blend_weights([layer]) -> { [clip] = weight } of the current state (1D / 2D blends; a clip state: { clip = 1 }),
     //     play_state(name [, layer=1, blend=0.2]). Entering a state calls on_anim_event(self, "enter", <state name>).
     //   e:add_animator{ clip, speed=1, loop=true, blend=0.25, graph = "AnimGraphs/x.json" }   needs a Mesh Renderer with an animated model
     //

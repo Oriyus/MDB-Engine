@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "params": [
+    { "name": "x", "type": "float", "default": 0.0 },
+    { "name": "y", "type": "float", "default": 0.0 },
+    { "name": "cartesian", "type": "trigger", "default": 0.0 }
+  ],
+  "layers": [
+    {
+      "name": "Base",
+      "mask": "",
+      "weight": 1.0,
+      "weightParam": "",
+      "additive": false,
+      "entry": 1,
+      "entryPos": [ 20.0, 40.0 ],
+      "anyPos": [ 20.0, 250.0 ],
+      "states": [
+        { "id": 1, "name": "Move", "kind": "blend2d", "param": "x", "paramY": "y", "mode": "directional",
+          "points": [ { "clip": "Survey", "at": [ 0.0, 0.0 ], "speed": 1.0 },
+                      { "clip": "Walk", "at": [ 1.0, 0.0 ], "speed": 1.0 },
+                      { "clip": "Run", "at": [ 0.0, 1.0 ], "speed": 1.0 } ],
+          "speed": 1.0, "speedParam": "", "loop": true, "pos": [ 200.0, 30.0 ] },
+        { "id": 2, "name": "Grid", "kind": "blend2d", "param": "x", "paramY": "y", "mode": "cartesian",
+          "points": [ { "clip": "Survey", "at": [ 0.0, 0.0 ], "speed": 1.0 },
+                      { "clip": "Walk", "at": [ 1.0, 0.0 ], "speed": 1.0 },
+                      { "clip": "Run", "at": [ 0.0, 1.0 ], "speed": 1.0 } ],
+          "speed": 1.0, "speedParam": "", "loop": true, "pos": [ 300.0, 230.0 ] }
+      ],
+      "transitions": [
+        { "from": "any", "to": 2, "duration": 0.0, "exitTime": null, "conditions": [ { "param": "cartesian", "op": "true", "value": 0.0 } ] }
+      ]
+    }
+  ]
+}

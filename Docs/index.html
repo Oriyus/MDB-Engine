@@ -588,7 +588,8 @@ ui.text(s.draw_calls .. " draws, " .. s.static_merged .. " merged", 0.02, 0.95)<
 <p>Models with bones (glTF/FBX) keep their skeleton and clips; the GPU skins up to 128 bones, 4 weights per vertex.</p>
 <ul>
   <li><b>Clips</b> with cross-fade when the clip changes.</li>
-  <li><b>Animation graphs</b>: state machines, 1D blends, layers and conditions (<a href="#engine-animgraph">below</a>).</li>
+  <li><b>Clips from other files</b> (a clip library): animations exported on their own (one .glb per set, made for the same rig) join a model through a file beside it named <code>&lt;model name&gt;.clips.json</code>, for example <code>Models/SkeletonRig.clips.json</code> = <code>{ "clips": [ "Animations/Walks.glb", "Animations/Idle.glb" ] }</code> (paths in Assets). Their clips are matched to the model's bones by name (channels for bones it doesn't have are left out, with a warning) and appear with its own everywhere (Inspector, graphs, <code>a:clips()</code>); a clip named like one the model already has is skipped, so the model's own and earlier files win. The Console logs how many clips came from how many files.</li>
+  <li><b>Animation graphs</b>: state machines, 1D and 2D blends, layers and conditions (<a href="#engine-animgraph">below</a>).</li>
   <li><b>Layers</b>: another clip on a bone and its descendants (mask), override or <b>additive</b>, with fading weights.</li>
   <li><b>Events</b> at clip times → <code>on_anim_event</code>, or <code>"sound:Sounds/x.wav"</code> plays a sound.</li>
   <li><b>Root motion</b>: the root bone's travel moves the entity.</li>
@@ -608,7 +609,7 @@ self.animator:set_ik(1, { type = "look", bone = "b_Head_05", target = player, ma
 <tr><th>Part</th><th>What it does</th></tr>
 <tr><td>Parameters</td><td>Named values of type float, int, bool or <b>trigger</b> (a bool that the transition using it resets). Scripts set them (<code>set</code>, <code>trigger</code>); the editor can change them while the game runs.</td></tr>
 <tr><td>Layers</td><td>The first layer makes the base pose. Each further layer runs its own state machine over its <b>mask</b> (a bone and everything below it), replacing the pose by its <b>weight</b> (optionally times a parameter, so scripts can fade it) or, when <b>additive</b>, adding its motion relative to the state's first frame (a head turn or breathing over any walk).</td></tr>
-<tr><td>States</td><td>Play one clip, or a <b>1D blend</b>: clips placed along a number parameter (walk at 1.1, run at 3.6). The two clips around the value are blended and share one phase, so feet stay matched; past either end the end clip plays. Speed, an optional speed parameter, loop or play once.</td></tr>
+<tr><td>States</td><td>Play one clip, or a <b>1D blend</b>: clips placed along a number parameter (walk at 1.1, run at 3.6). The two clips around the value are blended and share one phase, so feet stay matched; past either end the end clip plays. Or a <b>2D blend</b>: clips placed on the plane of two parameters (X sideways speed, Y forward speed: idle at 0, walks and runs around it), weighted by gradient band interpolation and sharing one phase the same way. <b>Directional</b> weights (for velocities) work in speed and heading, so between two directions the speed is kept; <b>Cartesian</b> uses plain distances (for parameters that aren't a direction). Beyond the outermost points the nearest clips play. Directional needs the directions to go all the way round (no gap over half a turn, else the blend jumps there: the problems list warns). Each point of a blend (1D or 2D) has a <b>cycle offset</b> (0..1 of its clip, looping states): clips that start on different feet are shifted so the same foot lifts at the same phase; without it, blending two such clips averages the steps into a shuffle. <b>Matching feet to movement:</b> put each walk at its own natural velocity (how fast its planted foot moves) and set a speed parameter to real speed divided by the blended clips' velocity (their positions weighted by <code>blend_weights()</code>); then the feet stay planted in every direction. Cartesian weights follow velocities more closely than Directional when the clips' speeds differ a lot (short side steps against long forward strides). Speed, an optional speed parameter, loop or play once.</td></tr>
 <tr><td>Transitions</td><td>From a state (or from <b>Any State</b>) to another, when <b>all conditions</b> hold (<code>&gt; &lt; == !=</code> on numbers, is true / false, a trigger fired) and, with an <b>exit time</b>, once the state has played that share of its length (an exit time alone moves on at the end, like a one-shot attack). The two states cross-fade over its <b>blend</b> time. Any State transitions are checked first and also during a cross-fade; the others wait for it. In a list, the first that can be taken wins.</td></tr>
 <tr><td>Events</td><td>Entering a state calls <code>on_anim_event(self, "enter", stateName)</code>. Clip events fire from the clip that leads a blend.</td></tr>
 </table>
@@ -846,6 +847,7 @@ audio.set_volume("music", 0.6)                    -- or "master"; audio.volume(b
 <tr><td><code>ui_test.lua</code></td><td>Laid-out UI with a simulated pointer (19)</td></tr>
 <tr><td><code>dialogue_test.lua</code></td><td>Dialogue runner on the Sage's dialogue (31)</td></tr>
 <tr><td><code>anim_graph_test.lua</code></td><td>Animation graphs on a spawned fox: states, blend, conditions, triggers, Any State, exit time, play_state, an additive layer weight (17)</td></tr>
+<tr><td><code>blend2d_test.lua</code></td><td>2D blend spaces on a spawned fox (<code>AnimGraphs/fox_2d.json</code>): directional and cartesian weights against worked values, sums and smoothness over a sweep, the blended phase rate, <code>blend_weights</code> (15)</td></tr>
 <tr><td><code>transform_test.lua</code></td><td>Rotations through Euler angles near gimbal lock (4)</td></tr>
 <tr><td><code>shader_graph_test.lua</code></td><td>Shader graph materials: the example graphs (vertex offset and water included) compile and draw, params, set_param, overrides, save round trip (17; <code>MDB_SCENE=demo.json</code>)</td></tr>
 <tr><td><code>camera_collision_test.lua</code></td><td>scene.spherecast, and the follow camera: pulled in at once by a wall, never seeing through it, easing back out, ignoring dynamic bodies (15; <code>MDB_SCENE=village.json</code>)</td></tr>
@@ -879,7 +881,7 @@ MDBEditor.exe &gt; log.txt</code></pre>
 <tr><td><code>MDB_PROFILE=1</code></td><td>Every 300 frames, log the average milliseconds per frame of each timed section (update, render passes, draw list, foliage, physics, UI panels), nested. Add a section in C++ with <code>PROFILE_SCOPE("Name")</code> (<code>Core/Profiler.h</code>). Profile in Release to see what a player gets; Debug is many times slower on per-object work.</td></tr>
 <tr><td><code>MDB_SAVE_DIR</code></td><td>Save slot folder while play-testing</td></tr>
 <tr><td><code>MDB_OPEN_DIALOGUE=Dialogues/x.json[#node]</code></td><td>Open the Dialogue Editor on a file (and select a node)</td></tr>
-<tr><td><code>MDB_OPEN_ANIMGRAPH=AnimGraphs/x.json</code></td><td>Open the AnimGraph Editor on a file</td></tr>
+<tr><td><code>MDB_OPEN_ANIMGRAPH=AnimGraphs/x.json[#State]</code></td><td>Open the AnimGraph Editor on a file (and select that state)</td></tr>
 <tr><td><code>MDB_SAVE_DIALOGUE=1</code></td><td>Re-save that dialogue through the editor</td></tr>
 </table>
 </section>
@@ -890,7 +892,7 @@ MDBEditor.exe &gt; log.txt</code></pre>
   <li>Only the first sun is used. Point and spot lights are unlimited (up to 4096), but at most 4 + 64 lights cast shadows at a time (all from the shadow atlas; 4 + 24 by default). Contact shadows fill in small gaps for 2 lights a pixel. Lights can be spheres, tubes or rectangles; area lights shadow from their centre (softened by their size), and shader-graph materials light them as points. Cookies (images, flipbooks) and IES profiles work on any light; a profile shapes the light but does not set its brightness, and a cookie image edited while in use keeps its old copy.</li>
   <li>Transparency is sorted per entity, not per triangle; glass boxes show front faces only.</li>
   <li>SSAO darkens direct light too when the depth pre-pass is off (then it is multiplied in afterwards).</li>
-  <li>Animation: graphs blend in one dimension only (no 2D blend spaces or nested graphs), no full-body IK; graph states are not kept in save games.</li>
+  <li>Animation: no nested graphs (blend trees) or Delaunay-style 2D blending, no full-body IK; graph states are not kept in save games.</li>
   <li>Compound bodies don't rebuild when parts move during Play; Inspector body changes apply on the next Play.</li>
   <li>Navigation bakes once, single-threaded, from static bodies only.</li>
   <li>Terrain: level of detail without blending between levels (a chunk changes level in one step, within the error), one material blend of 4 layers (no per-layer normal maps), no holes; scripts can read it but not sculpt it.</li>
@@ -1124,9 +1126,10 @@ MDBEditor.exe &gt; log.txt</code></pre>
 <p><b>Window &gt; AnimGraph Editor</b>, double-click a graph in <code>Assets/AnimGraphs</code>, or <b>Edit graph</b> on an Animator. It opens as a tab beside the Viewport, on the same canvas as the Dialogue Editor.</p>
 <ul>
   <li><b>Left</b>: the layers (add, order, delete; name, mask bone, weight, weight parameter, additive) and the parameters (name, type, default; renaming one updates every use).</li>
-  <li><b>Centre</b>: the selected layer's states (blue: a clip, purple: a blend), the <b>Entry</b> and <b>Any State</b> nodes, and transitions as arrows (red: one that can never be taken).
+  <li><b>Centre</b>: the selected layer's states (blue: a clip, purple: a 1D blend, magenta: a 2D blend), the <b>Entry</b> and <b>Any State</b> nodes, and transitions as arrows (red: one that can never be taken).
     Drag a node's pin onto a state to make a transition (from Entry: choose the entry state). Click an arrow to select it. Double-click empty space for a new state; right-click for menus (add a state for a clip, set as entry, a transition to itself, duplicate, delete). Wheel zooms, right or middle drag pans, <b>F</b> frames everything.</li>
-  <li><b>Right</b>: the selected state (clip or blend clips with their thresholds and speeds, speed, loop) or transition (target, blend time, exit time, conditions, order), and the <b>problems</b> list: missing clips or parameters, unreachable states, transitions that never fire. Clip names are checked against the model of the watched or selected entity.</li>
+  <li><b>Right</b>: the selected state (clip, or blend clips with their thresholds or X / Y positions, speeds and cycle offsets, speed, loop) or transition (target, blend time, exit time, conditions, order), and the <b>problems</b> list: missing clips or parameters, unreachable states, transitions that never fire. Clip names are checked against the model of the watched or selected entity.</li>
+  <li><b>2D blends</b> get a plot of their plane: each point (its dot grows with its weight, which is written beside it), the value being blended (an orange cross: the live animator's parameters, else a value to try), rings at the points' speeds (Directional), and in blue the area where the point under the pointer (or the last one dragged) has weight. Drag a point to move it (<b>Ctrl</b> snaps to the grid); drag anywhere else to move the value (while live, that sets the animator's parameters).</li>
   <li><b>Live</b>: during Play (and in Edit mode as a preview) it watches an Animator using the file (the selected entity's, else the first). The current state of each layer lights up green with a progress bar, the state fading out orange, the transition being taken green; the parameters get a <b>Live</b> column to change values or fire triggers, and a state's menu has <b>Play Now</b>. Each condition shows whether it holds now.</li>
   <li>Every edit goes live at once, even unsaved, so a graph can be tuned while the game runs. <b>Ctrl+S</b> saves (Save As into <code>AnimGraphs/</code>), <b>Ctrl+Z / Ctrl+Y</b> undo and redo (its own history), <b>Delete</b>, <b>Ctrl+D</b>. Quitting or opening another graph asks about unsaved changes; discarding puts the saved version back into the game.</li>
 </ul>
@@ -1507,6 +1510,7 @@ a:trigger("look_around")                 -- fires a trigger (reset when a transi
 local v = a:get("speed")                 -- bools and triggers read 0 / 1
 log(a:state(), a:state(2))               -- the current state of layer 1 (base) and layer 2
 log(a:state_time(), a:phase(), a:in_transition())   -- seconds in it, 0..1 through it, cross-fading?
+local w = a:blend_weights()              -- { Walk = 0.5, Run = 0.5 }: the current state's clips by weight (a clip state: its clip at 1)
 a:play_state("Look", 1, 0.2)             -- go there now (layer, blend seconds), whatever the transitions say
 function on_anim_event(self, name, state) if name == "enter" then log("now " .. state) end end</code></pre>
 <p>Setting a parameter the graph doesn't have, or playing a missing state, is an error.</p>

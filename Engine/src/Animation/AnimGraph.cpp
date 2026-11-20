@@ -67,13 +67,24 @@ namespace Engine {
                         { "additive", L.Additive },{ "entry", L.Entry },{ "entryPos", L.EntryPos },{ "anyPos", L.AnyPos } };
             json states = json::array();
             for (const AnimState& s : L.States) {
-                json js = { { "id", s.Id },{ "name", s.Name },{ "kind", s.Kind == AnimStateKind::Blend1D ? "blend1d" : "clip" },
+                const char* kind = s.Kind == AnimStateKind::Blend1D ? "blend1d" : s.Kind == AnimStateKind::Blend2D ? "blend2d" : "clip";
+                json js = { { "id", s.Id },{ "name", s.Name },{ "kind", kind },
                             { "speed", s.Speed },{ "speedParam", s.SpeedParam },{ "loop", s.Loop },{ "pos", s.Pos } };
                 if (s.Kind == AnimStateKind::Clip) js["clip"] = s.Clip;
                 else {
+                    const bool twoD = s.Kind == AnimStateKind::Blend2D;
                     js["param"] = s.BlendParam;
+                    if (twoD) {
+                        js["paramY"] = s.BlendParamY;
+                        js["mode"] = s.Mode == AnimBlend2DMode::Cartesian ? "cartesian" : "directional";
+                    }
                     json pts = json::array();
-                    for (const AnimBlendPoint& p : s.Points) pts.push_back({ { "clip", p.Clip },{ "threshold", p.Threshold },{ "speed", p.Speed } });
+                    for (const AnimBlendPoint& p : s.Points) {
+                        json jp = twoD ? json{ { "clip", p.Clip },{ "at", p.Position },{ "speed", p.Speed } }
+                                       : json{ { "clip", p.Clip },{ "threshold", p.Threshold },{ "speed", p.Speed } };
+                        if (p.Offset != 0.0f) jp["offset"] = p.Offset;
+                        pts.push_back(jp);
+                    }
                     js["points"] = pts;
                 }
                 states.push_back(js);
@@ -119,11 +130,18 @@ namespace Engine {
                 AnimState s;
                 s.Id = js.value("id", 0);
                 s.Name = js.value("name", s.Name);
-                s.Kind = js.value("kind", std::string("clip")) == "blend1d" ? AnimStateKind::Blend1D : AnimStateKind::Clip;
+                const std::string kind = js.value("kind", std::string("clip"));
+                s.Kind = kind == "blend1d" ? AnimStateKind::Blend1D : kind == "blend2d" ? AnimStateKind::Blend2D : AnimStateKind::Clip;
                 s.Clip = js.value("clip", std::string());
                 s.BlendParam = js.value("param", std::string());
-                for (const json& jp : js.value("points", json::array()))
-                    s.Points.push_back({ jp.value("clip", std::string()), jp.value("threshold", 0.0f), jp.value("speed", 1.0f) });
+                s.BlendParamY = js.value("paramY", std::string());
+                s.Mode = js.value("mode", std::string("directional")) == "cartesian" ? AnimBlend2DMode::Cartesian : AnimBlend2DMode::Directional;
+                for (const json& jp : js.value("points", json::array())) {
+                    AnimBlendPoint p{ jp.value("clip", std::string()), jp.value("threshold", 0.0f), jp.value("speed", 1.0f) };
+                    if (jp.contains("at")) p.Position = jp["at"].get<glm::vec2>();
+                    p.Offset = jp.value("offset", 0.0f);
+                    s.Points.push_back(p);
+                }
                 s.Speed = js.value("speed", 1.0f);
                 s.SpeedParam = js.value("speedParam", std::string());
                 s.Loop = js.value("loop", true);
@@ -193,6 +211,28 @@ namespace Engine {
                 else {
                     if (s.BlendParam.empty()) out.push_back(where + "no blend parameter");
                     else if (!paramOk(s.BlendParam)) out.push_back(where + "no parameter \"" + s.BlendParam + "\"");
+                    if (s.Kind == AnimStateKind::Blend2D) {
+                        if (s.BlendParamY.empty()) out.push_back(where + "no Y parameter");
+                        else if (!paramOk(s.BlendParamY)) out.push_back(where + "no parameter \"" + s.BlendParamY + "\"");
+                        else if (s.BlendParamY == s.BlendParam) out.push_back(where + "X and Y are the same parameter");
+                        for (size_t a = 0; a < s.Points.size(); a++)
+                            for (size_t b = a + 1; b < s.Points.size(); b++)
+                                if (glm::length(s.Points[a].Position - s.Points[b].Position) < 1e-4f)
+                                    out.push_back(where + "two clips at the same point (they share its weight)");
+                        // Directional measures headings, which wrap half a turn away from each point: with no point
+                        // within half a turn either way, the weights jump across that line
+                        if (s.Mode == AnimBlend2DMode::Directional) {
+                            std::vector<float> headings;
+                            for (const AnimBlendPoint& p : s.Points)
+                                if (glm::length(p.Position) > 1e-4f) headings.push_back(std::atan2(p.Position.y, p.Position.x));
+                            std::sort(headings.begin(), headings.end());
+                            float gap = headings.empty() ? 0.0f : headings.front() + 6.2831853f - headings.back();
+                            for (size_t k = 1; k < headings.size(); k++) gap = std::max(gap, headings[k] - headings[k - 1]);
+                            if (headings.size() >= 1 && gap > 3.1416f + 0.01f)
+                                out.push_back(where + "the directions leave a gap over half a turn: the blend jumps across it "
+                                                      "(add clips that way, or use Cartesian)");
+                        }
+                    }
                     if (s.Points.size() < 2) out.push_back(where + "a blend needs two clips or more");
                     for (const AnimBlendPoint& p : s.Points)
                         if (!p.Clip.empty() && !clipOk(p.Clip)) out.push_back(where + "the model has no clip \"" + p.Clip + "\"");
@@ -268,14 +308,75 @@ namespace Engine {
         return t < 0.0f ? t + d : t;
     }
 
+    // ---------------------------------------------------------------- blend weights
+    void AnimBlend2DWeights(const std::vector<glm::vec2>& pts, glm::vec2 at, AnimBlend2DMode mode, std::vector<float>& out) {
+        const size_t n = pts.size();
+        out.assign(n, 0.0f);
+        if (n == 0) return;
+        if (n == 1) { out[0] = 1.0f; return; }
+        constexpr float kEps = 1e-5f;
+        constexpr float kAngleScale = 2.0f;   // how much a heading difference counts against a speed difference
+        const bool polar = mode == AnimBlend2DMode::Directional;
+        auto signedAngle = [](glm::vec2 a, glm::vec2 b) { return std::atan2(a.x * b.y - a.y * b.x, glm::dot(a, b)); };
+        const float m = glm::length(at);
+        float sum = 0.0f;
+        for (size_t i = 0; i < n; i++) {
+            float h = 1.0f;
+            const glm::vec2 pi = pts[i];
+            for (size_t j = 0; j < n; j++) {
+                if (j == i) continue;
+                const glm::vec2 pj = pts[j];
+                glm::vec2 vij, vix;
+                if (!polar) { vij = pj - pi; vix = at - pi; }
+                else {
+                    // Polar: (speed difference relative to the pair's mean speed, heading difference x kAngleScale).
+                    // A pair with a point at the origin (idle) has no heading: speed only.
+                    const float mi = glm::length(pi), mj = glm::length(pj), mean = 0.5f * (mi + mj);
+                    if (mean < kEps) continue;                       // both at the origin
+                    vij = { (mj - mi) / mean, 0.0f };
+                    vix = { (m - mi) / mean, 0.0f };
+                    if (mi > kEps && mj > kEps) {
+                        const float aix = m > kEps ? signedAngle(pi, at) : 0.0f;
+                        float aij = signedAngle(pi, pj);
+                        // Opposite points (forward and back) are half a turn apart either way: go round on the
+                        // query's side, or a side query would weigh forward vs back differently from back vs forward
+                        if (std::abs(aij) > 3.14059f) aij = std::copysign(3.14159265f, aix);
+                        vij.y = aij * kAngleScale;
+                        vix.y = aix * kAngleScale;
+                    }
+                }
+                const float len2 = glm::dot(vij, vij);
+                if (len2 < kEps * kEps) continue;                    // the same spot: no band between them
+                h = std::min(h, 1.0f - glm::dot(vix, vij) / len2);
+                if (h <= 0.0f) break;
+            }
+            out[i] = std::max(h, 0.0f);
+            sum += out[i];
+        }
+        if (sum > kEps) { for (float& w : out) w /= sum; return; }
+        // Nothing has weight (can't happen with sane points, but never blend to nothing): the nearest point
+        size_t best = 0;
+        for (size_t i = 1; i < n; i++)
+            if (glm::length(pts[i] - at) < glm::length(pts[best] - at)) best = i;
+        std::fill(out.begin(), out.end(), 0.0f);
+        out[best] = 1.0f;
+    }
+
     // ---------------------------------------------------------------- runtime
     namespace {
         struct ClipSample {
             int Clip = -1;
             const std::string* Name = nullptr;
             float Weight = 0.0f, Duration = 0.0f, Speed = 1.0f;
+            float Offset = 0.0f;                    // cycle offset (0 unless the state loops)
         };
 
+        // The clip's own phase at the state's phase: shifted by its cycle offset, wrapped
+        float ClipPhase(float phase, const ClipSample& c) {
+            if (c.Offset == 0.0f) return phase;
+            const float p = phase + c.Offset;
+            return p - std::floor(p);
+        }
         float ParamValue(const AnimatorComponent& an, const AnimGraph& g, const std::string& name, float fallback) {
             if (name.empty()) return fallback;
             if (auto it = an.Params.find(name); it != an.Params.end()) return it->second;
@@ -288,32 +389,25 @@ namespace Engine {
         void StateClips(const AnimState& s, const AnimGraph& g, const AnimatorComponent& an, const Model& m,
                         std::vector<ClipSample>& out) {
             out.clear();
-            auto add = [&](const std::string& clip, float w, float speed) {
+            auto add = [&](const std::string& clip, float w, float speed, float offset) {
                 ClipSample c;
                 c.Clip = m.FindAnimation(clip);
                 c.Name = &clip;
                 c.Weight = w;
                 c.Duration = m.AnimationDuration(c.Clip);
                 c.Speed = speed;
+                c.Offset = s.Loop ? offset - std::floor(offset) : 0.0f;
                 out.push_back(c);
             };
-            if (s.Kind == AnimStateKind::Clip) { add(s.Clip, 1.0f, 1.0f); return; }
-            if (s.Points.empty()) return;
-            static thread_local std::vector<const AnimBlendPoint*> pts;
-            pts.clear();
-            for (const AnimBlendPoint& p : s.Points) pts.push_back(&p);
-            std::stable_sort(pts.begin(), pts.end(), [](const AnimBlendPoint* a, const AnimBlendPoint* b) { return a->Threshold < b->Threshold; });
-            const float v = ParamValue(an, g, s.BlendParam, 0.0f);
-            if (v <= pts.front()->Threshold) { add(pts.front()->Clip, 1.0f, pts.front()->Speed); return; }
-            if (v >= pts.back()->Threshold) { add(pts.back()->Clip, 1.0f, pts.back()->Speed); return; }
-            for (size_t i = 0; i + 1 < pts.size(); i++) {
-                const float a = pts[i]->Threshold, b = pts[i + 1]->Threshold;
-                if (v < a || v > b) continue;
-                const float t = b - a > 1e-6f ? (v - a) / (b - a) : 0.0f;
-                if (t < 1.0f) add(pts[i]->Clip, 1.0f - t, pts[i]->Speed);
-                if (t > 0.0f) add(pts[i + 1]->Clip, t, pts[i + 1]->Speed);
-                return;
-            }
+            if (s.Kind == AnimStateKind::Clip) { add(s.Clip, 1.0f, 1.0f, 0.0f); return; }
+            static thread_local std::vector<float> w;
+            AnimStateWeights(s, g, an, w);
+            // Clips with next to no weight aren't sampled (a 2D blend touches most of its points a little); the
+            // rest are renormalised. In point order, so the leading clip is stable when two weigh the same.
+            float sum = 0.0f;
+            for (float x : w) if (x >= 1e-3f) sum += x;
+            for (size_t i = 0; i < s.Points.size() && i < w.size(); i++)
+                if (w[i] >= 1e-3f) add(s.Points[i].Clip, w[i] / sum, s.Points[i].Speed, s.Points[i].Offset);
         }
 
         // Seconds for one pass through the state at speed 1: the clips' lengths (at their own speeds) by weight
@@ -334,12 +428,12 @@ namespace Engine {
         void SampleState(const std::vector<ClipSample>& clips, const Model& m, float phase,
                          std::vector<Model::NodePose>& pose, std::vector<Model::NodePose>& tmp) {
             if (clips.empty()) { m.SamplePose(-1, 0.0f, pose); return; }
-            m.SamplePose(clips[0].Clip, phase * clips[0].Duration, pose);
+            m.SamplePose(clips[0].Clip, ClipPhase(phase, clips[0]) * clips[0].Duration, pose);
             float acc = clips[0].Weight;
             for (size_t k = 1; k < clips.size(); k++) {
                 const float w = clips[k].Weight;
                 if (w <= 0.0f) continue;
-                m.SamplePose(clips[k].Clip, phase * clips[k].Duration, tmp);
+                m.SamplePose(clips[k].Clip, ClipPhase(phase, clips[k]) * clips[k].Duration, tmp);
                 const float t = w / std::max(acc + w, 1e-6f);
                 for (size_t i = 0; i < pose.size() && i < tmp.size(); i++) {
                     pose[i].T = glm::mix(pose[i].T, tmp[i].T, t);
@@ -388,6 +482,35 @@ namespace Engine {
         }
     }
 
+    void AnimStateWeights(const AnimState& s, const AnimGraph& g, const AnimatorComponent& an, std::vector<float>& out) {
+        out.assign(s.Kind == AnimStateKind::Clip ? 0 : s.Points.size(), 0.0f);
+        if (out.empty()) return;
+        if (s.Kind == AnimStateKind::Blend2D) {
+            static thread_local std::vector<glm::vec2> at;
+            at.clear();
+            for (const AnimBlendPoint& p : s.Points) at.push_back(p.Position);
+            const glm::vec2 v(ParamValue(an, g, s.BlendParam, 0.0f), ParamValue(an, g, s.BlendParamY, 0.0f));
+            AnimBlend2DWeights(at, v, s.Mode, out);
+            return;
+        }
+        // 1D: the two points around the value (one past either end)
+        static thread_local std::vector<size_t> order;
+        order.resize(s.Points.size());
+        for (size_t i = 0; i < order.size(); i++) order[i] = i;
+        std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) { return s.Points[a].Threshold < s.Points[b].Threshold; });
+        const float v = ParamValue(an, g, s.BlendParam, 0.0f);
+        if (v <= s.Points[order.front()].Threshold) { out[order.front()] = 1.0f; return; }
+        if (v >= s.Points[order.back()].Threshold) { out[order.back()] = 1.0f; return; }
+        for (size_t k = 0; k + 1 < order.size(); k++) {
+            const float a = s.Points[order[k]].Threshold, b = s.Points[order[k + 1]].Threshold;
+            if (v < a || v > b) continue;
+            const float t = b - a > 1e-6f ? (v - a) / (b - a) : 0.0f;
+            out[order[k]] = 1.0f - t;
+            out[order[k + 1]] = t;
+            return;
+        }
+    }
+
     void EvaluateAnimGraph(AnimatorComponent& an, const Model& model, float dt, std::vector<Model::NodePose>& pose,
                            AnimGraphBase& base) {
         static thread_local std::vector<Model::NodePose> layerPose, fromPose, ref, tmp;
@@ -430,10 +553,11 @@ namespace Engine {
                 const float prevPhase = rt.Phase;
                 if (dom.Duration > 0.0f) {
                     // The leading clip runs the phase: its events fire, a one-shot ends ("end")
-                    const float prevSec = rt.Phase * dom.Duration;
+                    const float prevSec = ClipPhase(rt.Phase, dom) * dom.Duration;
                     const float domStep = phaseStep * dom.Duration;
                     const float sec = AdvanceClip(an, model, dom.Clip, *dom.Name, prevSec, domStep, state.Loop);
                     rt.Phase = std::clamp(sec / dom.Duration, 0.0f, 1.0f);
+                    if (dom.Offset != 0.0f) { rt.Phase -= dom.Offset; if (rt.Phase < 0.0f) rt.Phase += 1.0f; }
                     if (li == 0) base = { dom.Clip, prevSec, sec, domStep, state.Loop };
                 }
                 wrapped = state.Loop && phaseStep > 0.0f && rt.Phase < prevPhase;

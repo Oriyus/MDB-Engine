@@ -594,7 +594,7 @@ namespace Engine {
         };
 
         // ---- vertices (kept until the rest pose is known, for bounds and colliders)
-        struct Pending { std::vector<SkinnedVertex> Vertices; std::vector<uint32_t> Indices; uint32_t Material; };
+        using Pending = PendingSkinned;
         std::vector<Pending> pending;
         for (unsigned i = 0; i < scene->mNumMeshes; i++) {
             const aiMesh* m = scene->mMeshes[i];
@@ -642,18 +642,31 @@ namespace Engine {
             if (!p.Vertices.empty() && !p.Indices.empty()) pending.push_back(std::move(p));
         }
 
-        // ---- animation clips (times in seconds)
+        // ---- animation clips
+        AppendClips(scene, [&](const char* name) { auto it = nodeIndex.find(name); return it == nodeIndex.end() ? -1 : it->second; }, false);
+
+        FinishSkinned(pending);
+    }
+
+    // The clips of `scene` (times in seconds), their channels matched to this model's nodes by `nodeOf` (-1: no such
+    // node: dropped). skipExisting: a clip named like one already here is left out. Returns the number added.
+    int Model::AppendClips(const aiScene* scene, const std::function<int(const char*)>& nodeOf, bool skipExisting,
+                           int* dropped) {
+        int added = 0;
         for (unsigned a = 0; a < scene->mNumAnimations; a++) {
             const aiAnimation* anim = scene->mAnimations[a];
+            std::string name = anim->mName.C_Str();
+            if (name.empty()) name = "Animation " + std::to_string(m_Clips.size());
+            if (skipExisting && FindAnimation(name) >= 0) continue;
             const double tps = anim->mTicksPerSecond > 0.0 ? anim->mTicksPerSecond : 25.0;
             Clip clip;
             clip.Duration = (float)(anim->mDuration / tps);
             for (unsigned c = 0; c < anim->mNumChannels; c++) {
                 const aiNodeAnim* ch = anim->mChannels[c];
-                auto it = nodeIndex.find(ch->mNodeName.C_Str());
-                if (it == nodeIndex.end()) continue;
+                const int node = nodeOf(ch->mNodeName.C_Str());
+                if (node < 0) { if (dropped) (*dropped)++; continue; }
                 Channel out;
-                out.Node = it->second;
+                out.Node = node;
                 for (unsigned k = 0; k < ch->mNumPositionKeys; k++) {
                     const auto& key = ch->mPositionKeys[k];
                     out.T.emplace_back((float)(key.mTime / tps), glm::vec3(key.mValue.x, key.mValue.y, key.mValue.z));
@@ -668,12 +681,28 @@ namespace Engine {
                 }
                 clip.Channels.push_back(std::move(out));
             }
-            std::string name = anim->mName.C_Str();
-            if (name.empty()) name = "Animation " + std::to_string(a);
             m_ClipNames.push_back(name);
             m_Clips.push_back(std::move(clip));
+            added++;
         }
+        return added;
+    }
 
+    int Model::AddClipsFrom(const std::string& path, std::string* error) {
+        if (m_Nodes.empty()) { if (error) *error = "the model has no skeleton"; return 0; }
+        Assimp::Importer importer;
+        // Only the animations and node names are wanted: no post-processing of the meshes
+        const aiScene* scene = importer.ReadFile(path, 0);
+        if (!scene || !scene->mRootNode) { if (error) *error = importer.GetErrorString(); return 0; }
+        if (scene->mNumAnimations == 0) { if (error) *error = "no animations in it"; return 0; }
+        int dropped = 0;
+        const int added = AppendClips(scene, [&](const char* name) { return FindNode(name); }, true, &dropped);
+        if (dropped > 0)
+            ENGINE_WARN("Model: {} channel(s) in {} name bones this model doesn't have (left out)", dropped, path);
+        return added;
+    }
+
+    void Model::FinishSkinned(std::vector<PendingSkinned>& pending) {
         // ---- the rest pose: where vertices are without animation (bounds, colliders)
         std::vector<NodePose> rest;
         SamplePose(-1, 0.0f, rest);

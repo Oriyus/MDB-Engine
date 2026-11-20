@@ -49,6 +49,7 @@ namespace Engine {
         // Any model file under the asset folder, loaded once ("Models/Fox.glb"). Null if it can't be loaded.
         // In scene files its geometry name is "model:Models/Fox.glb".
         std::shared_ptr<Model> LoadModel(const std::string& path);
+        void AddClipLibrary(Model& model, const std::string& path);   // <model name>.clips.json, if there is one
         std::shared_ptr<Texture2D> Checker() const;
         // Any image under the asset folder, loaded once ("Textures/fence.png"). Null if it can't be loaded.
         // In scene files its texture name is "texture:Textures/fence.png".

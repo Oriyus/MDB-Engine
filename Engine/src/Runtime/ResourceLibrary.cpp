@@ -18,6 +18,8 @@
 #include <cctype>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
@@ -261,6 +263,38 @@ namespace Engine {
         m_UIDocs[path] = { std::move(doc), stamp, false };   // until the file is written again
     }
 
+    // A clip library: <model name>.clips.json beside the model, { "clips": [ "Animations/Walks.glb", ... ] } (paths
+    // in Assets), adds those files' clips to it (Model::AddClipsFrom), in that order; the model's own come first.
+    void ResourceLibrary::AddClipLibrary(Model& model, const std::string& path) {
+        std::string libPath = m_AssetDir + path;            // Models/Rig.glb -> Models/Rig.clips.json
+        const size_t dot = libPath.find_last_of('.');
+        if (dot != std::string::npos && libPath.find_first_of("/\\", dot) == std::string::npos) libPath.resize(dot);
+        libPath += ".clips.json";
+        const auto lib = std::filesystem::u8path(libPath);
+        const std::string libName = libPath.substr(libPath.find_last_of("/\\") + 1);   // npos + 1 = 0
+        std::error_code ec;
+        if (!std::filesystem::exists(lib, ec)) return;
+        nlohmann::json j;
+        try {
+            std::ifstream f(lib);
+            f >> j;
+        }
+        catch (const std::exception& e) {
+            ENGINE_ERROR("{}: can't read it ({})", libPath, e.what());
+            return;
+        }
+        int files = 0, clips = 0;
+        for (const auto& c : j.value("clips", nlohmann::json::array())) {
+            if (!c.is_string()) continue;
+            const std::string source = c.get<std::string>();
+            std::string error;
+            const int n = model.AddClipsFrom(m_AssetDir + source, &error);
+            if (!error.empty()) ENGINE_ERROR("{}: {}: {}", libName, source, error);
+            else { files++; clips += n; }
+        }
+        ENGINE_INFO("{}: {} clip(s) from {} file(s) of {}", path, clips, files, libName);
+    }
+
     std::shared_ptr<Model> ResourceLibrary::LoadModel(const std::string& path) {
         if (auto it = m_Models.find(path); it != m_Models.end()) return it->second;
         Splash::Status("Loading " + path);               // while the app starts (nothing otherwise)
@@ -271,6 +305,7 @@ namespace Engine {
             std::error_code ec;
             const auto folder = std::filesystem::u8path(m_AssetDir + path).parent_path();
             model->NativeSize = std::filesystem::exists(folder / "kit.json", ec);
+            if (model->IsSkinned()) AddClipLibrary(*model, path);
         }
         return m_Models[path] = model;
     }

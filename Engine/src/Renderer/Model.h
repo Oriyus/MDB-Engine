@@ -4,6 +4,7 @@
 #include "Renderer/Renderable.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -99,6 +100,11 @@ namespace Engine {
         int RootMotionNode(int clip) const;
         glm::vec3 SampleNodeTranslation(int clip, int node, float time) const;
         glm::mat4 ParentRestGlobal(int node) const;
+        // Add the clips of another file made for the same skeleton (an animation-only .glb / .fbx): channels are
+        // matched to this model's nodes by name (others are left out, with a warning); a clip named like one
+        // already here is skipped. Returns how many were added (0 and *error on failure). ResourceLibrary does
+        // this for the files a <model name>.clips.json beside the model lists.
+        int AddClipsFrom(const std::string& path, std::string* error = nullptr);
 
     private:
         Model() = default;                 // a level of detail, filled by the file's Model
@@ -116,6 +122,10 @@ namespace Engine {
         bool m_VertexWind = false;
         glm::vec3 m_Min{ 0.0f }, m_Max{ 0.0f };
         void LoadSkinned(const aiScene* scene, VertexColorUse colors);
+        struct PendingSkinned { std::vector<SkinnedVertex> Vertices; std::vector<uint32_t> Indices; uint32_t Material = 0; };
+        void FinishSkinned(std::vector<PendingSkinned>& pending);   // rest pose, GPU meshes, bounds
+        int AppendClips(const aiScene* scene, const std::function<int(const char*)>& nodeOf, bool skipExisting,
+                        int* dropped = nullptr);
 
         struct SkeletonNode { std::string Name; int Parent = -1; NodePose Rest; };   // parents come first
         struct Bone { int Node = 0; glm::mat4 Offset{ 1.0f }; };   // offset: model space -> bone space at rest

@@ -1,0 +1,323 @@
+{
+  "links": [
+    {
+      "from": [
+        3,
+        "Position"
+      ],
+      "to": [
+        4,
+        "In"
+      ]
+    },
+    {
+      "from": [
+        4,
+        "G"
+      ],
+      "to": [
+        5,
+        "A"
+      ]
+    },
+    {
+      "from": [
+        15,
+        "Value"
+      ],
+      "to": [
+        5,
+        "B"
+      ]
+    },
+    {
+      "from": [
+        6,
+        "Time"
+      ],
+      "to": [
+        7,
+        "A"
+      ]
+    },
+    {
+      "from": [
+        16,
+        "Value"
+      ],
+      "to": [
+        7,
+        "B"
+      ]
+    },
+    {
+      "from": [
+        5,
+        "Out"
+      ],
+      "to": [
+        8,
+        "A"
+      ]
+    },
+    {
+      "from": [
+        7,
+        "Out"
+      ],
+      "to": [
+        8,
+        "B"
+      ]
+    },
+    {
+      "from": [
+        8,
+        "Out"
+      ],
+      "to": [
+        9,
+        "In"
+      ]
+    },
+    {
+      "from": [
+        9,
+        "Out"
+      ],
+      "to": [
+        11,
+        "A"
+      ]
+    },
+    {
+      "from": [
+        10,
+        "Value"
+      ],
+      "to": [
+        11,
+        "B"
+      ]
+    },
+    {
+      "from": [
+        2,
+        "Normal"
+      ],
+      "to": [
+        12,
+        "A"
+      ]
+    },
+    {
+      "from": [
+        11,
+        "Out"
+      ],
+      "to": [
+        12,
+        "B"
+      ]
+    },
+    {
+      "from": [
+        12,
+        "Out"
+      ],
+      "to": [
+        1,
+        "Vertex Offset"
+      ]
+    },
+    {
+      "from": [
+        13,
+        "Value"
+      ],
+      "to": [
+        1,
+        "BaseColor"
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "id": 1,
+      "pos": [
+        1300.0,
+        0.0
+      ],
+      "type": "Output",
+      "values": {
+        "Roughness": [
+          0.35
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "pos": [
+        728.0,
+        546.0
+      ],
+      "type": "Normal",
+      "values": {}
+    },
+    {
+      "id": 3,
+      "pos": [
+        0.0,
+        0.0
+      ],
+      "type": "Position",
+      "values": {}
+    },
+    {
+      "id": 4,
+      "pos": [
+        208.0,
+        0.0
+      ],
+      "type": "Split",
+      "values": {}
+    },
+    {
+      "id": 15,
+      "pos": [
+        208.0,
+        294.0
+      ],
+      "type": "Property",
+      "values": {
+        "param": "Waves"
+      }
+    },
+    {
+      "id": 5,
+      "pos": [
+        416.0,
+        0.0
+      ],
+      "type": "Multiply",
+      "values": {}
+    },
+    {
+      "id": 6,
+      "pos": [
+        208.0,
+        504.0
+      ],
+      "type": "Time",
+      "values": {}
+    },
+    {
+      "id": 16,
+      "pos": [
+        208.0,
+        714.0
+      ],
+      "type": "Property",
+      "values": {
+        "param": "Speed"
+      }
+    },
+    {
+      "id": 7,
+      "pos": [
+        416.0,
+        504.0
+      ],
+      "type": "Multiply",
+      "values": {}
+    },
+    {
+      "id": 8,
+      "pos": [
+        624.0,
+        168.0
+      ],
+      "type": "Add",
+      "values": {}
+    },
+    {
+      "id": 9,
+      "pos": [
+        806.0,
+        168.0
+      ],
+      "type": "Sine",
+      "values": {}
+    },
+    {
+      "id": 10,
+      "pos": [
+        806.0,
+        378.0
+      ],
+      "type": "Property",
+      "values": {
+        "param": "Amount"
+      }
+    },
+    {
+      "id": 11,
+      "pos": [
+        988.0,
+        252.0
+      ],
+      "type": "Multiply",
+      "values": {}
+    },
+    {
+      "id": 12,
+      "pos": [
+        1144.0,
+        462.0
+      ],
+      "type": "Multiply",
+      "values": {}
+    },
+    {
+      "id": 13,
+      "pos": [
+        988.0,
+        -252.0
+      ],
+      "type": "Property",
+      "values": {
+        "param": "Color"
+      }
+    }
+  ],
+  "params": [
+    {
+      "default": [
+        0.3499999940395355,
+        0.75,
+        0.44999998807907104
+      ],
+      "name": "Color",
+      "type": "color"
+    },
+    {
+      "default": 0.05999999865889549,
+      "name": "Amount",
+      "type": "float"
+    },
+    {
+      "default": 9.0,
+      "name": "Waves",
+      "type": "float"
+    },
+    {
+      "default": 3.0,
+      "name": "Speed",
+      "type": "float"
+    }
+  ],
+  "settings": {
+    "unlit": false
+  },
+  "version": 1
+}

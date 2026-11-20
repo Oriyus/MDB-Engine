@@ -18,7 +18,9 @@ namespace Engine {
     //   Layers      the first is the base pose; each further one replaces (or, Additive, adds to) the pose of its
     //               Mask (a bone and everything below it; "" = the whole skeleton) by Weight x WeightParam.
     //   States      play a clip, or a 1D blend space: clips placed along a parameter (walk at 1, run at 4), the two
-    //               around its value blended and kept in step (one shared phase, so feet stay matched).
+    //               around its value blended and kept in step (one shared phase, so feet stay matched), or a 2D
+    //               blend space: clips placed on a plane of two parameters (strafe x, forward y), weighted by
+    //               gradient band interpolation (AnimBlend2DWeights) and kept in step the same way.
     //   Transitions from a state (or from Any State) to another when all conditions hold and, with an exit time,
     //               once the state's phase has passed it; the two states cross-fade over Duration seconds.
     //               Triggers in the conditions are reset when it is taken. Entering a state sends scripts
@@ -42,16 +44,29 @@ namespace Engine {
         std::string Clip;
         float Threshold = 0.0f;          // where along the blend parameter this clip plays alone
         float Speed = 1.0f;              // playback speed of this clip at that point
+        glm::vec2 Position{ 0.0f };      // Blend2D: where on the (BlendParam, BlendParamY) plane this clip plays alone
+        // Cycle offset, 0..1 of the clip, added to the state's shared phase (looping states): lines up clips that
+        // start on different feet, so the blend steps with one foot instead of averaging two into a shuffle
+        float Offset = 0.0f;
     };
 
-    enum class AnimStateKind : int { Clip = 0, Blend1D = 1 };
+    enum class AnimStateKind : int { Clip = 0, Blend1D = 1, Blend2D = 2 };
+    // How a 2D blend weighs its clips (gradient bands, Johansen 2009):
+    //   Directional  in polar terms about the origin (speed and heading): for locomotion, where the points are
+    //                velocities (idle at 0, walks in four or eight directions, runs further out). Between two
+    //                directions the speed is kept, where averaging the vectors would shorten it.
+    //   Cartesian    plain X / Y distances: for parameters that aren't a direction (lean x aim, mood x energy)
+    enum class AnimBlend2DMode : int { Directional = 0, Cartesian = 1 };
     struct AnimState {
         int Id = 0;                      // unique in its layer; transitions refer to it
         std::string Name = "State";
         AnimStateKind Kind = AnimStateKind::Clip;
         std::string Clip;                // Clip
-        std::string BlendParam;          // Blend1D
-        std::vector<AnimBlendPoint> Points;   // Blend1D, any order (sorted by threshold when used)
+        std::string BlendParam;          // Blend1D, and Blend2D's X
+        std::string BlendParamY;         // Blend2D's Y
+        AnimBlend2DMode Mode = AnimBlend2DMode::Directional;   // Blend2D
+        std::vector<AnimBlendPoint> Points;   // Blend1D (any order, sorted by threshold when used) and Blend2D
+        bool IsBlend() const { return Kind != AnimStateKind::Clip; }
         float Speed = 1.0f;
         std::string SpeedParam;          // optional: the speed is also multiplied by this parameter
         bool Loop = true;
@@ -102,6 +117,13 @@ namespace Engine {
     // and "end" when a non-looping clip reaches its end). Looping clips wrap in either direction.
     float AdvanceClip(AnimatorComponent& an, const Model& model, int clip, const std::string& clipName,
                       float time, float step, bool loop);
+
+    // The weight of each point (out[i] for points[i], summing to 1) of a 2D blend at `at`. Each point gets a band
+    // against every other one (its weight falls to 0 at the other point) and keeps the smallest; beyond the
+    // outermost points the nearest keep the weight. Points on the same spot share it.
+    void AnimBlend2DWeights(const std::vector<glm::vec2>& points, glm::vec2 at, AnimBlend2DMode mode, std::vector<float>& out);
+    // The weight of each of a state's Points with the animator's parameter values now (empty for a clip state)
+    void AnimStateWeights(const AnimState& s, const AnimGraph& g, const AnimatorComponent& an, std::vector<float>& out);
 
     // What the base layer's leading clip did this frame (root motion follows it)
     struct AnimGraphBase {

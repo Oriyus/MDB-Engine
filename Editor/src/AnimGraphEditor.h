@@ -30,6 +30,7 @@ public:
     void Open(const std::string& path);       // "AnimGraphs/fox.json" (asks first if there are unsaved changes)
     void Reopen(const std::string& path) { Load(path); }     // the file (moved or rewritten), unsaved changes dropped
     void New();
+    void SelectState(const std::string& name);   // the first state of that name, in whichever layer has it
     bool IsFocused() const { return m_Focused; }
     bool IsDirty() const;
     const std::string& Path() const { return m_Path; }
@@ -75,6 +76,8 @@ private:
     void DrawCanvas();
     void DrawProperties();
     void DrawStateProperties(Engine::AnimState& s);
+    void DrawBlend2DPlot(Engine::AnimState& s);
+    void Default2DPoints(Engine::AnimState& s) const;
     void DrawTransitionProperties(int index);
     void DrawPopups();
     Geo StateGeo(const Engine::AnimState& s) const;
@@ -119,6 +122,13 @@ private:
     int m_ContextState = 0, m_ContextTransition = -1;
     ImVec2 m_PopupPos{ 0, 0 };
     bool m_RightDragged = false;
+
+    // the 2D blend plot (DrawBlend2DPlot)
+    int m_PlotState = 0;                       // the state it shows (reset when another is selected)
+    int m_PlotPoint = -1;                      // the last point dragged (its weight is shaded)
+    int m_PlotDrag = -2;                       // being dragged: a point, -1 the value, -2 nothing
+    float m_PlotExtent = 1.0f;                 // plane units from the middle to the nearest edge, kept while dragging
+    glm::vec2 m_Probe{ 0.0f, 0.5f };           // the value tried without a live animator
 
     // dialogs
     std::string m_PendingOpen;

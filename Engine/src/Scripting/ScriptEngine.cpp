@@ -1559,6 +1559,22 @@ namespace Engine {
                 const size_t l = (size_t)std::max(layer.value_or(1) - 1, 0);
                 return l < an.GraphLayers.size() && an.GraphLayers[l].Fade < 1.0f;
             },
+            // blend_weights([layer = 1]) -> { [clip] = weight } of the current state with the parameters now
+            // (a clip state: its clip at 1; summed when a blend uses a clip twice; empty without a graph)
+            "blend_weights", [this](const AnimatorRef& a, sol::optional<int> layer) {
+                const auto& an = a.E.Get<AnimatorComponent>();
+                sol::table out = Lua->create_table();
+                const size_t l = (size_t)std::max(layer.value_or(1) - 1, 0);
+                if (!an.GraphData || l >= an.GraphData->Layers.size() || l >= an.GraphLayers.size()) return out;
+                const AnimState* s = an.GraphData->Layers[l].Find(an.GraphLayers[l].State);
+                if (!s) return out;
+                if (s->Kind == AnimStateKind::Clip) { out[s->Clip] = 1.0f; return out; }
+                std::vector<float> w;
+                AnimStateWeights(*s, *an.GraphData, an, w);
+                for (size_t i = 0; i < w.size(); i++)
+                    if (w[i] > 0.0f) out[s->Points[i].Clip] = out.get<sol::optional<float>>(s->Points[i].Clip).value_or(0.0f) + w[i];
+                return out;
+            },
             // play_state(name [, layer = 1, blend = 0.2]): go to a state now, whatever the transitions say
             "play_state", [](const AnimatorRef& a, const std::string& name, sol::optional<int> layer, sol::optional<float> blend) {
                 if (!AnimGraphPlayState(a.E.Get<AnimatorComponent>(), (size_t)std::max(layer.value_or(1) - 1, 0), name, blend.value_or(0.2f)))

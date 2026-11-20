@@ -155,6 +155,12 @@ void AnimGraphEditor::SetModel(const std::vector<std::string>& clips, const std:
     m_Bones = bones;
 }
 
+void AnimGraphEditor::SelectState(const std::string& name) {
+    for (size_t li = 0; li < m_Graph.Layers.size(); li++)
+        for (const AnimState& s : m_Graph.Layers[li].States)
+            if (s.Name == name) { m_Layer = (int)li; m_Sel = Sel::State; m_SelState = s.Id; m_SelTransition = -1; return; }
+}
+
 // ------------------------------------------------------------------ graph helpers
 AnimGraphLayer& AnimGraphEditor::Layer() {
     if (m_Graph.Layers.empty()) m_Graph.Layers.push_back(AnimGraphLayer{});
@@ -174,6 +180,17 @@ std::string AnimGraphEditor::UniqueParamName(const std::string& base) const {
     for (int i = 2; ; i++) if (!m_Graph.FindParam(base + std::to_string(i))) return base + std::to_string(i);
 }
 
+// A starting 2D blend: still in the middle, then forward, right, back and left (the clips in turn, as placeholders)
+void AnimGraphEditor::Default2DPoints(AnimState& s) const {
+    const glm::vec2 at[] = { { 0, 0 }, { 0, 1 }, { 1, 0 }, { 0, -1 }, { -1, 0 } };
+    s.Points.clear();
+    for (size_t i = 0; i < 5; i++) {
+        AnimBlendPoint p{ m_Clips.empty() ? std::string() : m_Clips[i % m_Clips.size()], 0.0f, 1.0f };
+        p.Position = at[i];
+        s.Points.push_back(p);
+    }
+}
+
 AnimState& AnimGraphEditor::AddState(AnimStateKind kind, ImVec2 pos, const std::string& clip) {
     AnimGraphLayer& L = Layer();
     AnimState s;
@@ -184,12 +201,21 @@ AnimState& AnimGraphEditor::AddState(AnimStateKind kind, ImVec2 pos, const std::
         s.Clip = !clip.empty() ? clip : m_Clips.empty() ? std::string() : m_Clips.front();
         s.Name = UniqueStateName(s.Clip.empty() ? "State" : s.Clip);
     }
-    else {
+    else if (kind == AnimStateKind::Blend1D) {
         s.Name = UniqueStateName("Blend");
         for (const AnimParam& p : m_Graph.Params)
             if (p.Type == AnimParamType::Float) { s.BlendParam = p.Name; break; }
         for (size_t i = 0; i < 2; i++)
             s.Points.push_back({ i < m_Clips.size() ? m_Clips[i] : std::string(), (float)i, 1.0f });
+    }
+    else {
+        s.Name = UniqueStateName("Blend 2D");
+        for (const AnimParam& p : m_Graph.Params) {
+            if (p.Type != AnimParamType::Float) continue;
+            if (s.BlendParam.empty()) s.BlendParam = p.Name;
+            else if (s.BlendParamY.empty()) { s.BlendParamY = p.Name; break; }
+        }
+        Default2DPoints(s);
     }
     if (L.States.empty()) L.Entry = s.Id;
     L.States.push_back(s);
@@ -222,7 +248,7 @@ void AnimGraphEditor::RenameParam(const std::string& from, const std::string& to
     auto fix = [&](std::string& s) { if (s == from) s = to; };
     for (AnimGraphLayer& L : m_Graph.Layers) {
         fix(L.WeightParam);
-        for (AnimState& s : L.States) { fix(s.BlendParam); fix(s.SpeedParam); }
+        for (AnimState& s : L.States) { fix(s.BlendParam); fix(s.BlendParamY); fix(s.SpeedParam); }
         for (AnimTransition& t : L.Transitions) for (AnimCondition& c : t.Conditions) fix(c.Param);
     }
     if (m_Live) {
@@ -467,6 +493,7 @@ void AnimGraphEditor::DrawMenuBar() {
         const ImVec2 at = ToCanvas(Add(m_CanvasMin, ImVec2(m_CanvasSize.x * 0.4f, m_CanvasSize.y * 0.4f)));
         if (ImGui::MenuItem("Add State")) { AddState(AnimStateKind::Clip, at); Commit(); }
         if (ImGui::MenuItem("Add Blend State (1D)")) { AddState(AnimStateKind::Blend1D, at); Commit(); }
+        if (ImGui::MenuItem("Add Blend State (2D)")) { AddState(AnimStateKind::Blend2D, at); Commit(); }
         if (ImGui::MenuItem("Delete", "Delete", false, m_Sel == Sel::State || m_Sel == Sel::Transition)) {
             if (m_Sel == Sel::State) RemoveState(m_SelState); else RemoveTransition(m_SelTransition);
             Commit();
@@ -777,11 +804,11 @@ void AnimGraphEditor::DrawCanvas() {
     auto drawState = [&](const AnimState& s) {
         const Geo g = StateGeo(s);
         const float r = 6.0f * m_Zoom;
-        const bool blend = s.Kind == AnimStateKind::Blend1D;
+        const bool blend = s.IsBlend(), blend2 = s.Kind == AnimStateKind::Blend2D;
         dl->AddRectFilled(Add(g.Min, ImVec2(3, 4)), Add(g.Max, ImVec2(3, 4)), IM_COL32(0, 0, 0, 70), r);
         dl->AddRectFilled(g.Min, g.Max, IM_COL32(36, 39, 47, 245), r);
         const float headerBottom = g.Min.y + kHeaderH * m_Zoom;
-        dl->AddRectFilled(g.Min, ImVec2(g.Max.x, headerBottom), blend ? IM_COL32(118, 72, 150, 255) : IM_COL32(52, 88, 150, 255), r, ImDrawFlags_RoundCornersTop);
+        dl->AddRectFilled(g.Min, ImVec2(g.Max.x, headerBottom), blend2 ? IM_COL32(150, 70, 120, 255) : blend ? IM_COL32(118, 72, 150, 255) : IM_COL32(52, 88, 150, 255), r, ImDrawFlags_RoundCornersTop);
         dl->PushClipRect(g.Min, g.Max, true);
         dl->AddText(font, fs, ImVec2(g.Min.x + 8 * m_Zoom, g.Min.y + (kHeaderH * m_Zoom - fs) * 0.5f), IM_COL32(255, 255, 255, 240), s.Name.c_str());
         if (s.Id == L.Entry) {
@@ -803,12 +830,18 @@ void AnimGraphEditor::DrawCanvas() {
         };
         if (!blend) text(s.Clip.empty() ? std::string("(no clip)") : "> " + s.Clip + (s.Loop ? "" : "  (once)"), clipCol(s.Clip));
         else {
-            text("blend by " + (s.BlendParam.empty() ? std::string("?") : s.BlendParam), IM_COL32(210, 190, 240, 230));
-            for (size_t i = 0; i < s.Points.size() && i < 4; i++) {
-                char buf[96];
-                std::snprintf(buf, sizeof(buf), "  %s @ %g", s.Points[i].Clip.empty() ? "?" : s.Points[i].Clip.c_str(), s.Points[i].Threshold);
-                text(buf, clipCol(s.Points[i].Clip));
+            auto pname = [](const std::string& p) { return p.empty() ? std::string("?") : p; };
+            text("blend by " + pname(s.BlendParam) + (blend2 ? ", " + pname(s.BlendParamY) : std::string()), IM_COL32(210, 190, 240, 230));
+            const size_t shown = s.Points.size() > 4 ? 3 : s.Points.size();     // four lines at most (StateGeo)
+            for (size_t i = 0; i < shown; i++) {
+                char buf[112];
+                const AnimBlendPoint& p = s.Points[i];
+                const char* clip = p.Clip.empty() ? "?" : p.Clip.c_str();
+                if (blend2) std::snprintf(buf, sizeof(buf), "  %s @ %g, %g", clip, p.Position.x, p.Position.y);
+                else std::snprintf(buf, sizeof(buf), "  %s @ %g", clip, p.Threshold);
+                text(buf, clipCol(p.Clip));
             }
+            if (shown < s.Points.size()) text("  + " + std::to_string(s.Points.size() - shown) + " more", IM_COL32(200, 200, 210, 160));
         }
         // live progress bar along the bottom
         const bool current = live && live->State == s.Id, fadingOut = liveFading && live->From == s.Id;
@@ -849,6 +882,7 @@ void AnimGraphEditor::DrawCanvas() {
     if (ImGui::BeginPopup("##addmenu")) {
         if (ImGui::MenuItem("State")) { AddState(AnimStateKind::Clip, m_PopupPos); Commit(); }
         if (ImGui::MenuItem("Blend State (1D)")) { AddState(AnimStateKind::Blend1D, m_PopupPos); Commit(); }
+        if (ImGui::MenuItem("Blend State (2D)")) { AddState(AnimStateKind::Blend2D, m_PopupPos); Commit(); }
         if (!m_Clips.empty() && ImGui::BeginMenu("State for Clip")) {
             for (const std::string& c : m_Clips)
                 if (ImGui::MenuItem(c.c_str())) { AddState(AnimStateKind::Clip, m_PopupPos, c); Commit(); }
@@ -939,50 +973,100 @@ void AnimGraphEditor::DrawProperties() {
 
 void AnimGraphEditor::DrawStateProperties(AnimState& s) {
     AnimGraphLayer& L = Layer();
-    ImGui::SeparatorText(s.Kind == AnimStateKind::Blend1D ? "Blend state" : "State");
+    const bool twoD = s.Kind == AnimStateKind::Blend2D;
+    ImGui::SeparatorText(s.Kind == AnimStateKind::Blend1D ? "Blend state (1D)" : twoD ? "Blend state (2D)" : "State");
     ImGui::PushItemWidth(-110.0f);
     InputString("Name", s.Name);
     int kind = (int)s.Kind;
     ImGui::RadioButton("Clip", &kind, 0);
     ImGui::SameLine();
     ImGui::RadioButton("Blend 1D", &kind, 1);
+    ImGui::SameLine();
+    ImGui::RadioButton("Blend 2D", &kind, 2);
     if (kind != (int)s.Kind) {
+        const AnimStateKind was = s.Kind;
         s.Kind = (AnimStateKind)kind;
         if (s.Kind == AnimStateKind::Blend1D && s.Points.empty()) {
             s.Points.push_back({ s.Clip, 0.0f, 1.0f });
             s.Points.push_back({ m_Clips.size() > 1 ? m_Clips[1] : std::string(), 1.0f, 1.0f });
         }
+        else if (s.Kind == AnimStateKind::Blend2D) {
+            if (s.Points.empty()) Default2DPoints(s);
+            else if (was == AnimStateKind::Blend1D) {
+                bool placed = false;
+                for (const AnimBlendPoint& p : s.Points) placed |= p.Position != glm::vec2(0.0f);
+                if (!placed) for (AnimBlendPoint& p : s.Points) p.Position = { 0.0f, p.Threshold };   // speeds become forward speeds
+            }
+        }
+        else if (s.Kind == AnimStateKind::Blend1D && was == AnimStateKind::Blend2D) {
+            bool placed = false;
+            for (const AnimBlendPoint& p : s.Points) placed |= p.Threshold != s.Points.front().Threshold;
+            if (!placed) for (AnimBlendPoint& p : s.Points) p.Threshold = glm::length(p.Position);
+        }
     }
     if (s.Kind == AnimStateKind::Clip) ClipCombo("Clip", s.Clip);
     else {
-        ParamCombo("Blend by", s.BlendParam, true);
-        ImGui::SetItemTooltip("A number parameter: each clip below plays alone at its threshold, the two around\n"
-                              "the value blend (and stay in step), beyond either end the end clip plays");
-        if (m_Live && !s.BlendParam.empty())
-            if (auto it = m_Live->Params.find(s.BlendParam); it != m_Live->Params.end())
+        auto liveValue = [&](const std::string& param) {
+            if (!m_Live || param.empty()) return;
+            if (auto it = m_Live->Params.find(param); it != m_Live->Params.end())
                 ImGui::TextDisabled("Live value: %.2f", it->second);
+        };
+        if (!twoD) {
+            ParamCombo("Blend by", s.BlendParam, true);
+            ImGui::SetItemTooltip("A number parameter: each clip below plays alone at its threshold, the two around\n"
+                                  "the value blend (and stay in step), beyond either end the end clip plays");
+            liveValue(s.BlendParam);
+        }
+        else {
+            ParamCombo("X", s.BlendParam, true);
+            ImGui::SetItemTooltip("The horizontal parameter (sideways speed, for locomotion)");
+            ParamCombo("Y", s.BlendParamY, true);
+            ImGui::SetItemTooltip("The vertical parameter (forward speed, for locomotion)");
+            int mode = (int)s.Mode;
+            if (ImGui::Combo("Weights", &mode, "Directional\0Cartesian\0")) s.Mode = (AnimBlend2DMode)mode;
+            ImGui::SetItemTooltip("Directional: the points are velocities (idle at 0, walks and runs around it); between\n"
+                                  "two directions the speed is kept. Cartesian: plain distances, for anything else.");
+            DrawBlend2DPlot(s);
+        }
         int remove = -1;
-        if (ImGui::BeginTable("##points", 4, ImGuiTableFlags_SizingStretchProp)) {
+        if (ImGui::BeginTable("##points", twoD ? 6 : 5, ImGuiTableFlags_SizingStretchProp)) {
             ImGui::TableSetupColumn("Clip", ImGuiTableColumnFlags_WidthStretch, 2.0f);
-            ImGui::TableSetupColumn("At", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-            ImGui::TableSetupColumn("Speed", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+            if (twoD) {
+                ImGui::TableSetupColumn("X", ImGuiTableColumnFlags_WidthStretch, 0.8f);
+                ImGui::TableSetupColumn("Y", ImGuiTableColumnFlags_WidthStretch, 0.8f);
+            }
+            else ImGui::TableSetupColumn("At", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+            ImGui::TableSetupColumn("Speed", ImGuiTableColumnFlags_WidthStretch, twoD ? 0.8f : 1.0f);
+            ImGui::TableSetupColumn("Offset", ImGuiTableColumnFlags_WidthStretch, 0.8f);
             ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 18.0f);
             ImGui::TableHeadersRow();
             for (size_t i = 0; i < s.Points.size(); i++) {
                 ImGui::PushID((int)i);
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-FLT_MIN); ClipCombo("##clip", s.Points[i].Clip);
-                ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-FLT_MIN); ImGui::DragFloat("##at", &s.Points[i].Threshold, 0.01f);
+                if (twoD) {
+                    ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-FLT_MIN); ImGui::DragFloat("##x", &s.Points[i].Position.x, 0.01f);
+                    ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-FLT_MIN); ImGui::DragFloat("##y", &s.Points[i].Position.y, 0.01f);
+                }
+                else { ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-FLT_MIN); ImGui::DragFloat("##at", &s.Points[i].Threshold, 0.01f); }
                 ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-FLT_MIN); ImGui::DragFloat("##speed", &s.Points[i].Speed, 0.01f, 0.01f, 10.0f);
+                ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-FLT_MIN); ImGui::SliderFloat("##offset", &s.Points[i].Offset, 0.0f, 1.0f, "%.2f");
+                ImGui::SetItemTooltip("Cycle offset (0..1 of the clip, looping states): line up clips that start on\nthe other foot, so blending them doesn't shuffle. Match when each clip's same foot lifts.");
                 ImGui::TableNextColumn(); if (ImGui::SmallButton("x")) remove = (int)i;
                 ImGui::PopID();
             }
             ImGui::EndTable();
         }
-        if (remove >= 0) s.Points.erase(s.Points.begin() + remove);
+        if (remove >= 0) { s.Points.erase(s.Points.begin() + remove); m_PlotPoint = -1; }
         if (ImGui::SmallButton("+ Clip")) {
-            const float next = s.Points.empty() ? 0.0f : s.Points.back().Threshold + 1.0f;
-            s.Points.push_back({ m_Clips.empty() ? std::string() : m_Clips.front(), next, 1.0f });
+            AnimBlendPoint p{ m_Clips.empty() ? std::string() : m_Clips.front(), s.Points.empty() ? 0.0f : s.Points.back().Threshold + 1.0f, 1.0f };
+            if (twoD) {
+                // somewhere free: beyond the farthest point, straight ahead
+                float far = 0.0f;
+                for (const AnimBlendPoint& q : s.Points) far = std::max(far, glm::length(q.Position));
+                p.Position = { 0.0f, far + 1.0f };
+            }
+            s.Points.push_back(p);
         }
     }
     ImGui::DragFloat("Speed", &s.Speed, 0.01f, -5.0f, 10.0f);
@@ -1010,6 +1094,141 @@ void AnimGraphEditor::DrawStateProperties(AnimState& s) {
         ImGui::PopID();
     }
     if (!any) ImGui::TextDisabled("None: drag this state's pin onto another");
+}
+
+// The 2D blend's plane: its points (dot size = weight now), the value being blended (the live animator's
+// parameters, else a probe), and a shading of the weight of the point under the pointer (else the last one
+// dragged). Drag a point to move it (Ctrl: snap to the grid), drag anywhere else to move the value (live: it
+// sets the animator's parameters).
+void AnimGraphEditor::DrawBlend2DPlot(AnimState& s) {
+    if (m_PlotState != s.Id) { m_PlotState = s.Id; m_PlotPoint = -1; m_PlotDrag = -2; }
+    const float w = ImGui::GetContentRegionAvail().x;
+    const float h = std::clamp(w * 0.8f, 160.0f, 320.0f);
+    const ImVec2 p0 = ImGui::GetCursorScreenPos(), p1 = Add(p0, ImVec2(w, h));
+    ImGui::InvisibleButton("##plot2d", ImVec2(w, h));
+    const bool hovered = ImGui::IsItemHovered(), active = ImGui::IsItemActive();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    // the value
+    glm::vec2 value = m_Probe;
+    auto liveParam = [&](const std::string& n) -> float* {
+        if (!m_Live || n.empty()) return nullptr;
+        auto it = m_Live->Params.find(n);
+        return it != m_Live->Params.end() ? &it->second : nullptr;
+    };
+    float* liveX = liveParam(s.BlendParam);
+    float* liveY = liveParam(s.BlendParamY);
+    if (liveX) value.x = *liveX;
+    if (liveY) value.y = *liveY;
+
+    // the view: centred on the origin, the same scale both ways, kept while dragging (else it would run away)
+    if (m_PlotDrag == -2) {
+        float extent = 1.0f;
+        for (const AnimBlendPoint& p : s.Points) extent = std::max({ extent, std::abs(p.Position.x), std::abs(p.Position.y) });
+        extent = std::max({ extent, std::abs(value.x), std::abs(value.y) });
+        m_PlotExtent = extent * 1.2f;
+    }
+    const float scale = std::min(w, h) * 0.5f / m_PlotExtent;
+    const ImVec2 mid((p0.x + p1.x) * 0.5f, (p0.y + p1.y) * 0.5f);
+    auto toScreen = [&](glm::vec2 v) { return ImVec2(mid.x + v.x * scale, mid.y - v.y * scale); };
+    auto toPlane = [&](ImVec2 q) { return glm::vec2((q.x - mid.x) / scale, (mid.y - q.y) / scale); };
+    const float step = std::pow(10.0f, std::floor(std::log10(m_PlotExtent))) * (m_PlotExtent / std::pow(10.0f, std::floor(std::log10(m_PlotExtent))) < 2.5f ? 0.5f : 1.0f);
+
+    std::vector<glm::vec2> pts;
+    for (const AnimBlendPoint& p : s.Points) pts.push_back(p.Position);
+    std::vector<float> weights;
+    AnimBlend2DWeights(pts, value, s.Mode, weights);
+
+    // the point under the pointer
+    const ImVec2 mouse = ImGui::GetIO().MousePos;
+    int under = -1;
+    float best = 9.0f;
+    for (size_t i = 0; i < pts.size(); i++) {
+        const float d = Len(Sub(toScreen(pts[i]), mouse));
+        if (d < best) { best = d; under = (int)i; }
+    }
+    if (!hovered && !active) under = -1;
+
+    // interaction
+    if (ImGui::IsItemActivated()) m_PlotDrag = under;          // -1: the value
+    if (active && m_PlotDrag >= 0 && m_PlotDrag < (int)s.Points.size()) {
+        glm::vec2 at = toPlane(mouse);
+        if (ImGui::GetIO().KeyCtrl) at = glm::round(at / (step * 0.5f)) * (step * 0.5f);
+        s.Points[m_PlotDrag].Position = at;
+        pts[m_PlotDrag] = at;
+        m_PlotPoint = m_PlotDrag;
+        AnimBlend2DWeights(pts, value, s.Mode, weights);
+    }
+    else if (active && m_PlotDrag == -1) {
+        value = toPlane(mouse);
+        m_Probe = value;
+        if (m_Live) {
+            if (!s.BlendParam.empty()) m_Live->Params[s.BlendParam] = value.x;
+            if (!s.BlendParamY.empty()) m_Live->Params[s.BlendParamY] = value.y;
+        }
+        AnimBlend2DWeights(pts, value, s.Mode, weights);
+    }
+    if (!active) m_PlotDrag = -2;
+
+    // background, the weight field of one point, grid, axes
+    dl->PushClipRect(p0, p1, true);
+    dl->AddRectFilled(p0, p1, IM_COL32(24, 26, 31, 255), 4.0f);
+    const int shade = under >= 0 ? under : m_PlotPoint;
+    if (shade >= 0 && shade < (int)pts.size()) {
+        constexpr int kCells = 40;
+        const float cw = w / kCells, ch = h / kCells;
+        std::vector<float> fw;
+        for (int y = 0; y < kCells; y++)
+            for (int x = 0; x < kCells; x++) {
+                const ImVec2 c0(p0.x + x * cw, p0.y + y * ch);
+                AnimBlend2DWeights(pts, toPlane(Add(c0, ImVec2(cw * 0.5f, ch * 0.5f))), s.Mode, fw);
+                const float v = fw[shade];
+                if (v > 0.002f) dl->AddRectFilled(c0, Add(c0, ImVec2(cw + 0.5f, ch + 0.5f)), IM_COL32(90, 170, 255, (int)(v * 110.0f)));
+            }
+    }
+    const float reach = std::max(w, h) * 0.5f / scale;          // plane units from the middle to the far edge
+    for (int k = 1; k * step <= reach && k < 200; k++)
+        for (float g : { k * step, -k * step }) {
+            const ImVec2 vx = toScreen({ g, 0.0f }), hy = toScreen({ 0.0f, g });
+            dl->AddLine(ImVec2(vx.x, p0.y), ImVec2(vx.x, p1.y), IM_COL32(255, 255, 255, 14));
+            dl->AddLine(ImVec2(p0.x, hy.y), ImVec2(p1.x, hy.y), IM_COL32(255, 255, 255, 14));
+        }
+    dl->AddLine(ImVec2(p0.x, mid.y), ImVec2(p1.x, mid.y), IM_COL32(230, 90, 90, 90));
+    dl->AddLine(ImVec2(mid.x, p0.y), ImVec2(mid.x, p1.y), IM_COL32(110, 200, 110, 90));
+    dl->AddText(ImVec2(p1.x - 14.0f - ImGui::CalcTextSize(s.BlendParam.c_str()).x, mid.y - ImGui::GetFontSize() - 2.0f),
+                IM_COL32(230, 120, 120, 200), s.BlendParam.c_str());
+    dl->AddText(ImVec2(mid.x + 5.0f, p0.y + 3.0f), IM_COL32(130, 210, 130, 200), s.BlendParamY.c_str());
+    if (s.Mode == AnimBlend2DMode::Directional) {                // rings at the points' speeds: what Directional blends along
+        std::set<int> rings;
+        for (const glm::vec2& p : pts) if (glm::length(p) > 1e-3f) rings.insert((int)std::round(glm::length(p) * 100.0f));
+        for (int r : rings) dl->AddCircle(mid, r * 0.01f * scale, IM_COL32(255, 255, 255, 22), 64);
+    }
+
+    // points
+    for (size_t i = 0; i < pts.size(); i++) {
+        const ImVec2 c = toScreen(pts[i]);
+        const float wt = i < weights.size() ? weights[i] : 0.0f;
+        const bool hot = (int)i == under || (int)i == m_PlotDrag;
+        dl->AddCircleFilled(c, 4.0f + 7.0f * std::sqrt(wt), wt > 0.001f ? IM_COL32(110, 220, 130, 255) : IM_COL32(150, 155, 170, 255));
+        dl->AddCircle(c, 4.0f + 7.0f * std::sqrt(wt) + 1.5f, hot ? IM_COL32(255, 200, 80, 255) : IM_COL32(0, 0, 0, 160), 0, hot ? 2.0f : 1.0f);
+        char label[96];
+        if (wt > 0.001f) std::snprintf(label, sizeof(label), "%s %.0f%%", s.Points[i].Clip.empty() ? "?" : s.Points[i].Clip.c_str(), wt * 100.0f);
+        else std::snprintf(label, sizeof(label), "%s", s.Points[i].Clip.empty() ? "?" : s.Points[i].Clip.c_str());
+        const float lw = ImGui::CalcTextSize(label).x, rad = 9.0f + 7.0f * std::sqrt(wt);
+        const float lx = c.x + rad + lw > p1.x - 4.0f ? c.x - rad - lw : c.x + rad;    // flip left at the right edge
+        dl->AddText(ImVec2(lx, c.y - ImGui::GetFontSize() * 0.5f), wt > 0.001f ? IM_COL32(230, 240, 230, 240) : IM_COL32(170, 175, 185, 200), label);
+    }
+    // the value
+    const ImVec2 v = toScreen(value);
+    const ImU32 vc = m_Live ? IM_COL32(255, 170, 60, 255) : IM_COL32(255, 210, 120, 230);
+    dl->AddLine(ImVec2(v.x - 7, v.y), ImVec2(v.x + 7, v.y), vc, 2.0f);
+    dl->AddLine(ImVec2(v.x, v.y - 7), ImVec2(v.x, v.y + 7), vc, 2.0f);
+    dl->AddCircle(v, 4.0f, vc, 0, 1.5f);
+    dl->PopClipRect();
+    dl->AddRect(p0, p1, IM_COL32(255, 255, 255, 30), 4.0f);
+
+    ImGui::TextDisabled("%s (%.2f, %.2f)%s", m_Live ? "Live" : "Try", value.x, value.y,
+                        under >= 0 ? "  -  drag the point (Ctrl snaps)" : "  -  drag to move the cross");
 }
 
 void AnimGraphEditor::DrawTransitionProperties(int index) {
