@@ -226,7 +226,11 @@ public:
                 m_MonoFont = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/consola.ttf", 15.0f);
             ApplyEditorStyle();
         }
-        m_GameFonts = LoadGameFonts();   // before the first ImGui frame builds the font atlas
+        {   // the project's UI fonts (project.json "fonts"), else the engine's; before the first ImGui frame builds the atlas
+            const auto& project = Projects::Current();
+            m_GameFonts = LoadGameFonts(project.FontRegular.empty() ? std::string() : project.AssetDir() + project.FontRegular,
+                                        project.FontBold.empty() ? std::string() : project.AssetDir() + project.FontBold);
+        }
         m_Session->Scripts().SetUIFonts(m_GameFonts.Bold, m_GameFonts.Regular);   // ui.label measures with them
         m_UIEditor.SetFonts(m_GameFonts);   // the UI Editor previews layouts with the game's fonts
         m_UIEditor.SetTextures(&m_UITextures);

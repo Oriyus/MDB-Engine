@@ -1,4 +1,5 @@
 #pragma once
+#include "Core/VideoSettings.h"
 #include <glm/glm.hpp>
 #include <nlohmann/json.hpp>
 #include <cstdint>
@@ -33,6 +34,15 @@ namespace Engine {
         virtual std::string LevelEntry() const = 0;
         virtual bool Arrived() const = 0;          // this level was entered by level.change (not a load or a new game)
         virtual float PlayTime() const = 0;
+    };
+
+    // What video.* reaches: the Game app implements it (window and renderer; saved in the player's settings file).
+    // The editor has none, so there video.available() is false.
+    class VideoHost {
+    public:
+        virtual ~VideoHost() = default;
+        virtual VideoSettings GetVideo() const = 0;
+        virtual void SetVideo(const VideoSettings& video) = 0;   // applies at once; the host saves it
     };
 
     // One ui.* call: drawn by the app over the game view for the frame it was made in, in call
@@ -216,6 +226,19 @@ namespace Engine {
     //     in the game these are the player's settings (saved on quit), in the editor Stop puts back the mix Play began with
     //   audio.buses() -> { "sfx", "music", ... }, audio.voices([bus]) -> sounds alive (all, or on that bus)
     //   scene.quit()                         the game closes (in the editor: Play stops)
+    //   ---- video: the player's display and quality settings (Core/VideoSettings.h), for an options menu. Changes
+    //   apply at once and the Game saves them in the player's settings file (the "video" key). The editor has no
+    //   video settings: video.available() is false there, get() returns nil and set() does nothing (false).
+    //   video.available() -> bool
+    //   video.get() -> { fullscreen, vsync, shadows, ambient_occlusion, bloom, volumetric_fog (bools),
+    //                    antialiasing = "off"|"fxaa"|"taa", brightness (0.5..2, times the level's exposure) }
+    //   video.set(key, value) -> true    one of get()'s keys; a wrong key or type is an error. The quality switches
+    //                                    only turn off what the level has on.
+    //   ---- prefs: the game's own player options (gameplay settings in an options menu), kept across runs in the
+    //   player's settings file (the "prefs" key; written at once). Without a settings file (the editor) they last
+    //   until the editor closes.
+    //   prefs.get(key [, default]) -> the stored boolean, number or string, else default
+    //   prefs.set(key, value)                a boolean, number or string; nil removes it
     //   scene.render_stats() -> { draw_calls, triangles, instances, culled, shadow_skipped, particles, decals, static_batches, static_merged, foliage, lod_reduced, lod_culled, terrain_lod_reduced (terrain chunks drawn coarser),
     //       lights, lights_visible, lights_per_cluster,   (point lights: all, those the camera's view reaches, the most in one cluster)
     //       shadowed_lights, atlas_lights, atlas_smallest, atlas_largest, atlas_used,   (lights with shadows; in the shadow atlas, their squares in texels, the share of it used 0..1)
@@ -229,7 +252,8 @@ namespace Engine {
     //               be off the full surface (default 1; 0 = full detail everywhere): reads it, or sets it first
     //   scene.spawn_particles(pos, "Sparks" | { preset, count })   a one-shot burst entity that removes itself when done
     //   ---- ui: drawn this frame only, in call order. x, y, w, h are 0..1 of the view (top left origin).
-    //   ui.text(text, x, y [, { size=24, color=vec3, alpha=1, align="left"|"center"|"right" }])
+    //   ui.text(text, x, y [, { size=24, color=vec3, alpha=1, align="left"|"center"|"right", regular=false (true: the
+    //           regular font instead of the bold one), shadow=true }])
     //   ui.rect(x, y, w, h [, { color, alpha, rounding }])                 rounding in px at 720p
     //   ui.bar(x, y, w, h, fraction [, { color, back=vec3, alpha, rounding }])   e.g. health or time
     //   ui.image(path, x, y, w [, h] [, { color (tint), alpha }])          "Textures/x.png"; no h: keep aspect
@@ -394,6 +418,8 @@ namespace Engine {
         void SetFog(FogOfWar* fog);                // for fog.*
         void SetViewAspect(float aspect);          // width / height of the game view, for scene.screen_ray
         void SetHost(ScriptHost* host);            // for saves.* and level.*
+        void SetVideo(VideoHost* video);           // for video.* (null: video.available() is false)
+        void SetSettingsFile(const std::string& file);   // the player's settings file, for prefs.* (read now)
 
         // Script state for a save game: { "game": {...}, "shared": {...}, "scripts": { "<uid>": on_save(self) } }.
         // include: which entities' scripts to ask (by uid; null = all). Errors in on_save are reported and skipped.

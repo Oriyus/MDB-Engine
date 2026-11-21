@@ -12,7 +12,9 @@ namespace Engine {
     //
     // project.json (every field optional):
     //   { "title": "My Game", "scene": "main.json", "width": 1280, "height": 720, "fullscreen": false,
-    //     "vsync": true, "exclude": ["Scripts/*_test.lua"] }
+    //     "vsync": true, "exclude": ["Scripts/*_test.lua"],
+    //     "fonts": { "regular": "Fonts/x-Regular.ttf", "bold": "Fonts/x-Bold.ttf" } }
+    // "fonts": the game UI's two fonts (files under Assets; Runtime/GameUI LoadGameFonts), else the engine's own.
     // "scene" is the start scene (in Assets/Scenes). "exclude" lists files under Assets that Build Game
     // leaves out ('*' matches anything, including '/').
     struct Project {
@@ -22,6 +24,7 @@ namespace Engine {
         uint32_t Width = 1280, Height = 720;
         bool Fullscreen = false, VSync = true;
         std::vector<std::string> Exclude;
+        std::string FontRegular, FontBold;     // under Assets ("" = the engine's fonts)
 
         std::string AssetDir() const { return Root + "Assets/"; }
         std::string File() const { return Root + "project.json"; }

@@ -34,7 +34,9 @@ target_include_directories(lua PUBLIC ${lua_SOURCE_DIR})
 # ---------------------------------------------------------------
 # Engine
 # ---------------------------------------------------------------
-file(GLOB_RECURSE ENGINE_SOURCES
+# CONFIGURE_DEPENDS: every build re-checks the list, so a new or deleted file reaches each build folder
+# (build, build-web) without re-running configure by hand
+file(GLOB_RECURSE ENGINE_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/*.h
 )

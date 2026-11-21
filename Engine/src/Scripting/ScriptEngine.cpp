@@ -22,6 +22,7 @@
 #include "Runtime/Characters.h"
 #include "Core/Input.h"
 #include "Core/InputMap.h"
+#include "Core/SettingsFile.h"
 #include "Core/Log.h"
 
 #define SOL_ALL_SAFETIES_ON 1
@@ -128,6 +129,9 @@ namespace Engine {
         NavGrid* Nav = nullptr;
         FogOfWar* Fog = nullptr;
         ScriptHost* Host = nullptr;
+        VideoHost* Video = nullptr;                       // video.* (the Game app; none in the editor)
+        std::string SettingsFile;                         // prefs.* are kept in its "prefs" key ("" = in memory only)
+        nlohmann::json Prefs = nlohmann::json::object();
         nlohmann::json PendingRestore;                    // SetRestore: applied by the next Start
         bool HasPendingRestore = false, PendingLoading = false;
         nlohmann::json RestoreScripts = nlohmann::json::object();   // uid -> on_load data, during Start
@@ -1086,6 +1090,8 @@ namespace Engine {
             if (opts) {
                 const std::string align = opts->get_or<std::string>("align", "left");
                 t.Align = align == "center" ? 1 : align == "right" ? 2 : 0;
+                t.Regular = opts->get<sol::optional<bool>>("regular").value_or(t.Regular);   // the regular font
+                t.Shadow = opts->get<sol::optional<bool>>("shadow").value_or(t.Shadow);
             }
             push(std::move(t));
         });
@@ -2386,6 +2392,73 @@ namespace Engine {
             return h != entt::null ? MakeEntity(h) : sol::make_object(*Lua, sol::lua_nil);
         });
 
+        // ---- video: the player's display and quality settings (Core/VideoSettings.h), through the app's VideoHost
+        sol::table video = lua.create_named_table("video");
+        video.set_function("available", [this]() { return Video != nullptr; });
+        video.set_function("get", [this]() -> sol::object {
+            if (!Video) return sol::make_object(*Lua, sol::lua_nil);
+            const VideoSettings v = Video->GetVideo();
+            sol::table t = Lua->create_table();
+            t["fullscreen"] = v.Fullscreen;
+            t["vsync"] = v.VSync;
+            t["shadows"] = v.Shadows;
+            t["ambient_occlusion"] = v.AmbientOcclusion;
+            t["bloom"] = v.Bloom;
+            t["volumetric_fog"] = v.VolumetricFog;
+            t["antialiasing"] = std::string(AntiAliasingName(v.AntiAliasing));
+            t["brightness"] = v.Brightness;
+            return t;
+        });
+        video.set_function("set", [this](const std::string& key, sol::object value) {
+            if (!Video) return false;
+            VideoSettings v = Video->GetVideo();
+            auto flag = [&](bool& out) {
+                if (!value.is<bool>()) throw std::runtime_error("video.set: " + key + " takes true or false");
+                out = value.as<bool>();
+            };
+            if (key == "fullscreen") flag(v.Fullscreen);
+            else if (key == "vsync") flag(v.VSync);
+            else if (key == "shadows") flag(v.Shadows);
+            else if (key == "ambient_occlusion") flag(v.AmbientOcclusion);
+            else if (key == "bloom") flag(v.Bloom);
+            else if (key == "volumetric_fog") flag(v.VolumetricFog);
+            else if (key == "antialiasing") {
+                const int mode = value.is<std::string>() ? AntiAliasingFromName(value.as<std::string>()) : -1;
+                if (mode < 0) throw std::runtime_error("video.set: antialiasing takes \"off\", \"fxaa\" or \"taa\"");
+                v.AntiAliasing = mode;
+            }
+            else if (key == "brightness") {
+                if (value.get_type() != sol::type::number) throw std::runtime_error("video.set: brightness takes a number");
+                v.Brightness = std::clamp((float)value.as<double>(), 0.5f, 2.0f);
+            }
+            else throw std::runtime_error("video.set: unknown setting '" + key + "'");
+            Video->SetVideo(v);
+            return true;
+        });
+
+        // ---- prefs: the game's own player options, in the settings file's "prefs" key
+        sol::table prefs = lua.create_named_table("prefs");
+        prefs.set_function("get", [this](const std::string& key, sol::object def) -> sol::object {
+            auto it = Prefs.find(key);
+            if (it == Prefs.end()) return def;
+            if (it->is_boolean()) return sol::make_object(*Lua, it->get<bool>());
+            if (it->is_number()) return sol::make_object(*Lua, it->get<double>());
+            if (it->is_string()) return sol::make_object(*Lua, it->get<std::string>());
+            return def;
+        });
+        prefs.set_function("set", [this](const std::string& key, sol::object value) {
+            nlohmann::json v;
+            switch (value.get_type()) {
+                case sol::type::boolean: v = value.as<bool>(); break;
+                case sol::type::number: v = value.as<double>(); break;
+                case sol::type::string: v = value.as<std::string>(); break;
+                case sol::type::lua_nil: case sol::type::none: break;
+                default: throw std::runtime_error("prefs.set: '" + key + "' takes a boolean, number or string");
+            }
+            if (v.is_null()) Prefs.erase(key); else Prefs[key] = v;
+            if (!SettingsFile.empty()) WriteSettingsSection(SettingsFile, "prefs", Prefs);
+        });
+
         sol::table saves = lua.create_named_table("saves");
         saves.set_function("save", [this](const std::string& slot, sol::optional<std::string> name) {
             std::string error = "saving is not available here";
@@ -3163,6 +3236,13 @@ namespace Engine {
     void ScriptEngine::SetFog(FogOfWar* fog) { m_Impl->Fog = fog; }
     void ScriptEngine::SetViewAspect(float aspect) { if (aspect > 0.0f) m_Impl->ViewAspect = aspect; }
     void ScriptEngine::SetHost(ScriptHost* host) { m_Impl->Host = host; }
+    void ScriptEngine::SetVideo(VideoHost* video) { m_Impl->Video = video; }
+
+    void ScriptEngine::SetSettingsFile(const std::string& file) {
+        m_Impl->SettingsFile = file;
+        nlohmann::json p;
+        if (ReadSettingsSection(file, "prefs", p) && p.is_object()) m_Impl->Prefs = p;
+    }
 
     void ScriptEngine::SetRestore(nlohmann::json state, bool loading) {
         m_Impl->PendingRestore = std::move(state);

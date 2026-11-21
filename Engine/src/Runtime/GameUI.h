@@ -19,9 +19,9 @@ namespace Engine {
         ImFont* Regular = nullptr;
     };
 
-    // Large TTFs (Segoe UI Bold / Regular, or Arial), so text stays crisp when scaled. Call before the
-    // first ImGui frame (it adds to the font atlas). Keeps the default font first.
-    UIFonts LoadGameFonts();
+    // Large TTFs (the project's, given as full paths, else Segoe UI Bold / Regular or Arial), so text stays crisp when
+    // scaled. Call before the first ImGui frame (it adds to the font atlas). Keeps the default font first.
+    UIFonts LoadGameFonts(const std::string& regularFile = {}, const std::string& boldFile = {});
     inline ImFont* LoadGameFont() { return LoadGameFonts().Bold; }   // the older call
 
     // Images for ui.image, loaded on first use from the asset folder and kept. Loaded as plain

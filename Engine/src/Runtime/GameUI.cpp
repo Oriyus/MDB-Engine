@@ -8,23 +8,30 @@
 
 namespace Engine {
 
-    // Segoe UI on Windows; elsewhere (the web build) the open fonts in EngineAssets/Fonts
-    UIFonts LoadGameFonts() {
+    // The project's fonts if it names them (project.json "fonts"), else Segoe UI on Windows and, elsewhere (the web
+    // build), the open fonts in EngineAssets/Fonts
+    UIFonts LoadGameFonts(const std::string& regularFile, const std::string& boldFile) {
         ImGuiIO& io = ImGui::GetIO();
         if (io.Fonts->Fonts.empty()) io.Fonts->AddFontDefault();
-        auto load = [&](std::initializer_list<const char*> files) -> ImFont* {
-            for (const char* f : files)
-                if (std::filesystem::exists(f)) return io.Fonts->AddFontFromFileTTF(f, 64.0f);
+        // Latin, Latin-1, Latin Extended-A (c with caron, s with caron, d with stroke...) and general punctuation
+        // (dashes, curly quotes, bullet, ellipsis); the atlas only holds the glyphs asked for
+        static const ImWchar kRanges[] = { 0x0020, 0x00FF, 0x0100, 0x017F, 0x2010, 0x2030, 0 };
+        auto load = [&](std::initializer_list<std::string> files) -> ImFont* {
+            for (const std::string& f : files)
+                if (!f.empty() && std::filesystem::exists(std::filesystem::u8path(f)))
+                    return io.Fonts->AddFontFromFileTTF(f.c_str(), 64.0f, nullptr, kRanges);
             return nullptr;
         };
         UIFonts fonts;
 #ifdef __EMSCRIPTEN__
-        fonts.Bold = load({ "/game/EngineAssets/Fonts/Roboto-Medium.ttf" });
-        fonts.Regular = load({ "/game/EngineAssets/Fonts/DroidSans.ttf" });
+        fonts.Bold = load({ boldFile, "/game/EngineAssets/Fonts/Roboto-Medium.ttf" });
+        fonts.Regular = load({ regularFile, "/game/EngineAssets/Fonts/DroidSans.ttf" });
 #else
-        fonts.Bold = load({ "C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf" });
-        fonts.Regular = load({ "C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/arial.ttf" });
+        fonts.Bold = load({ boldFile, "C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf" });
+        fonts.Regular = load({ regularFile, "C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/arial.ttf" });
 #endif
+        for (const std::string& f : { regularFile, boldFile })
+            if (!f.empty() && !std::filesystem::exists(std::filesystem::u8path(f))) ENGINE_WARN("Game font '{}' not found: using the engine's", f);
         if (!fonts.Regular) fonts.Regular = fonts.Bold;
         if (!fonts.Bold) fonts.Bold = fonts.Regular;
         return fonts;

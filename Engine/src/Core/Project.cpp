@@ -39,6 +39,10 @@ namespace Engine {
             p.VSync = j.value("vsync", p.VSync);
             if (j.contains("exclude") && j["exclude"].is_array())
                 for (const auto& e : j["exclude"]) if (e.is_string()) p.Exclude.push_back(e.get<std::string>());
+            if (j.contains("fonts") && j["fonts"].is_object()) {
+                p.FontRegular = j["fonts"].value("regular", std::string());
+                p.FontBold = j["fonts"].value("bold", std::string());
+            }
         }
         catch (const std::exception& ex) {
             if (error) *error = p.File() + " is malformed: " + ex.what();
@@ -57,6 +61,7 @@ namespace Engine {
         j["fullscreen"] = Fullscreen;
         j["vsync"] = VSync;
         j["exclude"] = Exclude;
+        if (!FontRegular.empty() || !FontBold.empty()) j["fonts"] = { { "regular", FontRegular }, { "bold", FontBold } };
         std::ofstream out(fs::u8path(File()));
         if (!out) { if (error) *error = "can't write " + File(); return false; }
         out << j.dump(2) << "\n";

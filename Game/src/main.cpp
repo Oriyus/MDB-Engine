@@ -62,6 +62,9 @@ namespace {
         float QuitAfter = 0.0f;               // test hook: close after this many seconds (0 = never)
         std::string SaveDir;                  // save slots: %APPDATA%/<title>/Saves unless --save-dir is given
         std::string SettingsFile;             // the player's settings: %APPDATA%/<title>/settings.json (see the top)
+        Engine::VideoSettings Video;          // the player's video settings (settings.json "video"), window ones applied below
+        bool FullscreenArg = false, VSyncArg = false;   // --fullscreen / --windowed / --no-vsync win over saved settings
+        std::string FontRegular, FontBold;    // the project's UI fonts (full paths; empty: the engine's)
     };
 
     GameConfig LoadConfig() {
@@ -95,6 +98,8 @@ namespace {
         c.Window.Height = project.Height;
         c.Window.Fullscreen = project.Fullscreen;
         c.Window.VSync = project.VSync;
+        if (!project.FontRegular.empty()) c.FontRegular = c.AssetDir + project.FontRegular;   // project.json "fonts"
+        if (!project.FontBold.empty()) c.FontBold = c.AssetDir + project.FontBold;
         LOG_INFO("Project: {} ({})  Engine files: {}", project.Title, project.Root, c.EngineDir);
 
         for (size_t i = 1; i < args.size(); i++) {
@@ -102,9 +107,9 @@ namespace {
             const bool hasValue = i + 1 < args.size();
             if (a == "--project" && hasValue) i++;       // read above
             else if (a == "--scene" && hasValue) c.Scene = args[++i];
-            else if (a == "--fullscreen") c.Window.Fullscreen = true;
-            else if (a == "--windowed") c.Window.Fullscreen = false;
-            else if (a == "--no-vsync") c.Window.VSync = false;      // uncapped frame rate (benchmarks)
+            else if (a == "--fullscreen") { c.Window.Fullscreen = true; c.FullscreenArg = true; }
+            else if (a == "--windowed") { c.Window.Fullscreen = false; c.FullscreenArg = true; }
+            else if (a == "--no-vsync") { c.Window.VSync = false; c.VSyncArg = true; }   // uncapped frame rate (benchmarks)
             else if (a == "--width" && hasValue) c.Window.Width = (uint32_t)std::stoul(args[++i]);
             else if (a == "--height" && hasValue) c.Window.Height = (uint32_t)std::stoul(args[++i]);
             else if (a == "--quit-after" && hasValue) c.QuitAfter = std::stof(args[++i]);
@@ -129,12 +134,26 @@ namespace {
             if (c.SettingsFile.empty()) c.SettingsFile = (root / "settings.json").generic_string();
         }
         if (c.SettingsFile.empty()) c.SettingsFile = (fs::path(c.SaveDir) / "settings.json").generic_string();   // --save-dir given
+
+        // The player's video settings, read before the window opens so it opens as they left it. The project's
+        // full screen / vsync are the defaults; the command line wins over both (and is not saved unless changed).
+        c.Video.Fullscreen = c.Window.Fullscreen;
+        c.Video.VSync = c.Window.VSync;
+        const Engine::VideoSettings fromProject = c.Video;
+        if (Engine::LoadVideoSettings(c.SettingsFile, c.Video)) {
+            if (c.FullscreenArg) c.Video.Fullscreen = fromProject.Fullscreen;
+            if (c.VSyncArg) c.Video.VSync = fromProject.VSync;
+            c.Window.Fullscreen = c.Video.Fullscreen;
+            c.Window.VSync = c.Video.VSync;
+        }
         return c;
     }
 
 } // namespace
 
-class GameApp : public Engine::Application {
+// The game also hosts video.* for scripts (Engine::VideoHost): an options menu made in Lua changes the window and
+// the renderer through it, and the player's choices are saved in settings.json ("video").
+class GameApp : public Engine::Application, public Engine::VideoHost {
 public:
     explicit GameApp(GameConfig cfg) : Application(cfg.Window), m_Cfg(std::move(cfg)) {
         m_ShowFpsInTitle = false;
@@ -144,7 +163,7 @@ public:
         using namespace Engine;
         ImGui::GetIO().IniFilename = nullptr;    // no imgui.ini next to a shipped game
         glClearColor(0.02f, 0.02f, 0.03f, 1.0f);   // only visible if the scene can't be shown
-        m_Fonts = LoadGameFonts();
+        m_Fonts = LoadGameFonts(m_Cfg.FontRegular, m_Cfg.FontBold);
 
         m_Resources = std::make_unique<ResourceLibrary>(m_Cfg.AssetDir, m_Cfg.EngineDir);
         m_Renderer = std::make_unique<SceneRenderer>(m_Cfg.EngineDir, m_Cfg.AssetDir, GetWindow().GetWidth(), GetWindow().GetHeight());
@@ -155,6 +174,9 @@ public:
         else m_SavedMix = m_Session->Audio().GetMix();
         nlohmann::json bindings;                 // ... and controls (applied when the scripts start)
         if (LoadInputBindings(m_Cfg.SettingsFile, bindings)) m_Session->Scripts().SetInputOverrides(bindings);
+        m_Video = m_SavedVideo = m_Cfg.Video;   // ... and video (the window already opened with it)
+        m_Session->Scripts().SetVideo(this);
+        m_Session->Scripts().SetSettingsFile(m_Cfg.SettingsFile);   // prefs.* (the game's own options)
 
         SceneSettings settings;
         m_Renderer->GatherSettings(settings);    // defaults for anything the file leaves out
@@ -163,7 +185,7 @@ public:
             m_Error = "Could not load Scenes/" + m_Cfg.Scene;
             return;
         }
-        m_Renderer->ApplySettings(settings);
+        ApplyLevelSettings(settings);
         m_Session->Physics().SetGravity(settings.Gravity);
 
         // Used only if the scene has no Camera entity: the view the level was saved with
@@ -185,8 +207,45 @@ public:
         LOG_INFO("Playing {} (saves in {})", m_Cfg.Scene, m_Cfg.SaveDir);
     }
 
+    // ---- video settings (Engine::VideoHost, for video.* in scripts)
+    Engine::VideoSettings GetVideo() const override { return m_Video; }
+
+    void SetVideo(const Engine::VideoSettings& video) override {
+        m_Video = video;
+        ApplyVideo();
+        m_VideoSaveIn = 1.0f;          // written a second after the last change (a slider being dragged)
+    }
+
+    // A level's own render settings go in first, then the player's video settings switch off what they don't want
+    void ApplyLevelSettings(const Engine::SceneSettings& s) {
+        m_Renderer->ApplySettings(s);
+        m_LevelLook = { s.Post.AOEnabled, s.Post.BloomEnabled, s.Shadows.Enabled, s.VolumetricFog.Enabled, s.Post.Exposure };
+        ApplyVideo();
+    }
+
+    void ApplyVideo() {
+        Engine::Window& w = GetWindow();
+        if (w.IsFullscreen() != m_Video.Fullscreen) w.SetFullscreen(m_Video.Fullscreen);
+        if (w.IsVSync() != m_Video.VSync) w.SetVSync(m_Video.VSync);
+        if (!m_Renderer) return;
+        Engine::PostSettings& p = m_Renderer->Post;
+        p.AOEnabled = m_LevelLook.AO && m_Video.AmbientOcclusion;
+        p.BloomEnabled = m_LevelLook.Bloom && m_Video.Bloom;
+        p.TAA = m_Video.AntiAliasing == 2;
+        p.FXAA = m_Video.AntiAliasing >= 1;        // FXAA is what runs when TAA is off
+        p.Exposure = m_LevelLook.Exposure * m_Video.Brightness;
+        m_Renderer->Shadows().Enabled = m_LevelLook.Shadows && m_Video.Shadows;
+        m_Renderer->VolFog.Enabled = m_LevelLook.Fog && m_Video.VolumetricFog;
+    }
+
+    void SaveVideo() {
+        m_VideoSaveIn = 0.0f;
+        if (m_Video != m_SavedVideo && Engine::SaveVideoSettings(m_Cfg.SettingsFile, m_Video)) m_SavedVideo = m_Video;
+    }
+
     void OnUpdate(float dt) override {
         using namespace Engine;
+        if (m_VideoSaveIn > 0.0f && (m_VideoSaveIn -= dt) <= 0.0f) SaveVideo();
         dt = std::min(dt, 0.1f);     // a long hitch (window drag, environment bake) shouldn't fling the game
 #ifdef __EMSCRIPTEN__
         if (++m_Frames == 2) EM_ASM({ if (Module.gameReady) Module.gameReady(); });   // a frame is up: hide the loader
@@ -217,8 +276,11 @@ public:
         const bool esc = (escKey || start || back) && !binding;
         if (esc && m_Paused && m_MenuPage == MenuPage::Settings) LeaveSettings();   // Esc: back to the menu
         else if (esc) { m_Paused = !m_Paused; m_MenuPage = MenuPage::Main; }
-        if (Edge(Key::F11, m_F11Down) || (alt && Edge(257, m_EnterDown)))  // F11, Alt+Enter
-            GetWindow().SetFullscreen(!GetWindow().IsFullscreen());
+        if (Edge(Key::F11, m_F11Down) || (alt && Edge(257, m_EnterDown))) {   // F11, Alt+Enter (kept as a video setting)
+            m_Video.Fullscreen = !GetWindow().IsFullscreen();
+            ApplyVideo();
+            SaveVideo();
+        }
         bool r = Edge(Key::R, m_RDown), q = Edge(Key::Q, m_QDown);
         if (m_MenuPage != MenuPage::Main || binding) r = q = false;
         if (m_Paused && q) Close();
@@ -231,7 +293,7 @@ public:
         SceneSettings settings;
         m_Renderer->GatherSettings(settings);
         if (m_Session->ApplyPending(settings)) {
-            m_Renderer->ApplySettings(settings);
+            ApplyLevelSettings(settings);
             m_Renderer->ResetTemporalHistory();   // a new level: a camera cut
             m_FallbackCamera.Position = settings.CameraPosition;
             m_FallbackCamera.FocusDistance = settings.CameraFocusDistance;
@@ -305,6 +367,7 @@ public:
     void OnShutdown() override {
         SaveMix();
         SaveInput();
+        SaveVideo();
 #ifdef __EMSCRIPTEN__
         EM_ASM({ if (Module.gameEnded) Module.gameEnded(); });   // the page writes the saves back and says so
 #endif
@@ -629,6 +692,10 @@ private:
     std::string m_Error;
 
     Engine::AudioMix m_SavedMix;             // what the settings file holds
+    Engine::VideoSettings m_Video, m_SavedVideo;   // the player's video settings, and what the file holds
+    float m_VideoSaveIn = 0.0f;              // seconds until a changed video setting is written (0 = nothing pending)
+    struct LevelLook { bool AO = true, Bloom = true, Shadows = true, Fog = false; float Exposure = 1.0f; };
+    LevelLook m_LevelLook;                   // the level's own render switches, before the player's video settings
     nlohmann::json m_SavedInput = nlohmann::json::object();   // the same for the binding overrides
     int m_SettingsTab = 0;                   // Audio, Controls
     Engine::InputCapture m_Capture;          // Controls: waiting for the key / button to bind
