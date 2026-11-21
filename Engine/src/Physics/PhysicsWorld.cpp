@@ -2,7 +2,11 @@
 #include <Jolt/RegisterTypes.h>
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Core/TempAllocator.h>
+#ifdef __EMSCRIPTEN__
+#include <Jolt/Core/JobSystemSingleThreaded.h>   // the web build has no threads
+#else
 #include <Jolt/Core/JobSystemThreadPool.h>
+#endif
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
@@ -204,12 +208,20 @@ namespace Engine {
     struct PhysicsWorld::Impl {
         Impl()
             : Temp(10 * 1024 * 1024),
+#ifdef __EMSCRIPTEN__
+            Jobs(JPH::cMaxPhysicsJobs) {}
+#else
             Jobs(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers,
                 std::max(1, (int)std::thread::hardware_concurrency() - 1)) {}
+#endif
 
         // Declaration order = construction order. System is last, so it is destroyed first.
         JPH::TempAllocatorImpl Temp;
+#ifdef __EMSCRIPTEN__
+        JPH::JobSystemSingleThreaded Jobs;
+#else
         JPH::JobSystemThreadPool Jobs;
+#endif
         BPLayerInterfaceImpl BPInterface;
         ObjectVsBroadPhaseLayerFilterImpl ObjVsBP;
         ObjectLayerPairFilterImpl ObjPair;

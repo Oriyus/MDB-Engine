@@ -12,7 +12,21 @@ struct Clump {
     vec4 Color;      // rgb tint (multiplies the blade colours), a dryness 0..1
     vec4 Flower;     // rgb petal colour
 };
+#ifdef MDB_WEB
+#include "web_storage.glsl"
+uniform highp usampler2D u_SB4;      // the clumps, 4 texels each
+Clump FetchClump(int i) {
+    Clump c;
+    c.PosRot = SB_Vec4(u_SB4, i * 4);
+    c.Params = SB_Vec4(u_SB4, i * 4 + 1);
+    c.Color = SB_Vec4(u_SB4, i * 4 + 2);
+    c.Flower = SB_Vec4(u_SB4, i * 4 + 3);
+    return c;
+}
+#else
 layout(std430, binding = 4) readonly buffer Clumps { Clump u_Clumps[]; };
+Clump FetchClump(int i) { return u_Clumps[i]; }
+#endif
 uniform int u_InstanceOffset;        // this draw's first clump (a chunk of the field)
 
 uniform mat4  u_ViewProjection;
@@ -43,7 +57,7 @@ flat out int   v_EntityID;
 flat out int   v_Unlit;
 
 void main() {
-    Clump c = u_Clumps[u_InstanceOffset + gl_InstanceID];
+    Clump c = FetchClump(u_InstanceOffset + gl_InstanceID);
     vec3 root = c.PosRot.xyz;
 
     // Thin out with distance: of the clumps a chunk draws, the higher ranks shrink away first

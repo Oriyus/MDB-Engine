@@ -9,7 +9,9 @@ namespace Engine {
         // A buffer without vertex colours (location 5) reads the generic value, which is context state and starts
         // at (0, 0, 0, 1): make it white once, so lit.vert's multiply changes nothing for those meshes
         static bool whiteDefault = false;
-        if (!whiteDefault) { glVertexAttrib4f(5, 1.0f, 1.0f, 1.0f, 1.0f); whiteDefault = true; }
+        // Bone indices (location 3) are integers: their generic value must be one too, or WebGL refuses every draw of a
+        // mesh without bones (it checks the type even with the array off)
+        if (!whiteDefault) { glVertexAttrib4f(5, 1.0f, 1.0f, 1.0f, 1.0f); glVertexAttribI4i(3, 0, 0, 0, 0); whiteDefault = true; }
     }
     VertexArray::~VertexArray() { glDeleteVertexArrays(1, &m_ID); }
 

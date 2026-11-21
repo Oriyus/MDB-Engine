@@ -10,7 +10,23 @@ struct DecalData {
     vec4 Params;       // shape, thickness, fill, softness
     vec4 Extra;        // emission
 };
+#ifdef MDB_WEB
+#include "web_storage.glsl"
+uniform highp usampler2D u_SB3;      // the decals, 11 texels each
+DecalData FetchDecal(int i) {
+    int t = i * 11;
+    DecalData d;
+    d.Model = SB_Mat4(u_SB3, t);
+    d.InvModel = SB_Mat4(u_SB3, t + 4);
+    d.Color = SB_Vec4(u_SB3, t + 8);
+    d.Params = SB_Vec4(u_SB3, t + 9);
+    d.Extra = SB_Vec4(u_SB3, t + 10);
+    return d;
+}
+#else
 layout(std430, binding = 3) readonly buffer Decals { DecalData u_Decals[]; };
+DecalData FetchDecal(int i) { return u_Decals[i]; }
+#endif
 
 flat in int v_Index;
 
@@ -31,7 +47,7 @@ void main() {
     vec3 n = normalize(cross(dFdx(world), dFdy(world)));
     if (depth >= 1.0) discard;                     // the sky
 
-    DecalData d = u_Decals[v_Index];
+    DecalData d = FetchDecal(v_Index);
     vec3 local = (d.InvModel * vec4(world, 1.0)).xyz;
     if (any(greaterThan(abs(local), vec3(0.5)))) discard;
 

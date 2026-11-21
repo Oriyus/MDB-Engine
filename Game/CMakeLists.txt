@@ -12,6 +12,33 @@ if(MSVC)
     target_link_options(Game PRIVATE $<$<CONFIG:Release>:/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup>)
 endif()
 
+if(EMSCRIPTEN)
+    # The web player: Game.html (the page, from web/shell.html), Game.js and Game.wasm. It holds no game: the page
+    # downloads game.pak (the project's files, Game/web/README.md) and puts it in /game before main runs.
+    # Saves and settings go to /persist (IndexedDB, synced by the page).
+    set_target_properties(Game PROPERTIES SUFFIX ".html")
+    target_link_options(Game PRIVATE
+        -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2
+        -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=268435456 -sMAXIMUM_MEMORY=4294967296
+        -sSTACK_SIZE=8388608
+        -sFORCE_FILESYSTEM=1 -lidbfs.js
+        "-sEXPORTED_RUNTIME_METHODS=['FS','ENV','addRunDependency','removeRunDependency']"
+        -sENVIRONMENT=web
+        --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html)
+    set_property(TARGET Game APPEND PROPERTY LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html)
+
+    # build-web/dist/web: a playable folder of the Examples project (or -DGAME_PROJECT=<folder>):
+    #   cmake --build build-web --target package_game_web    then    build-web/dist/web/Play.bat
+    set(GAME_PROJECT "${CMAKE_SOURCE_DIR}/Examples" CACHE PATH "The project package_game_web packages")
+    set(WEB_DIST_DIR ${CMAKE_BINARY_DIR}/dist/web)
+    add_custom_target(package_game_web
+        COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File ${CMAKE_SOURCE_DIR}/Tools/package_web.ps1
+            -Player $<TARGET_FILE_DIR:Game> -Project ${GAME_PROJECT} -Engine ${CMAKE_SOURCE_DIR}/EngineAssets
+            -Out ${WEB_DIST_DIR} -Launcher ${CMAKE_CURRENT_SOURCE_DIR}/web
+        DEPENDS Game
+        VERBATIM)
+endif()
+
 # A folder you can zip and ship: build/dist/<Config>/ with Game.exe, EngineAssets, the project's Assets and
 # project.json. The editor's File > Build Game does the same for the open project (and names the exe after
 # its title, leaving out the project's "exclude" files).

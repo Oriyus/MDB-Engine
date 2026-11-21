@@ -123,7 +123,11 @@ namespace Engine {
         } Lod;
         bool TintLodLevels = false;        // debug (Viewport > Debug > LOD Levels): colour parts by their level, not saved
         bool ClusterDebug = false;         // debug (Viewport > Debug > Light Clusters): tint by how many point lights each pixel weighs, not saved
+#ifdef __EMSCRIPTEN__
+        bool GpuLightBinning = false;      // WebGL2 has no compute shaders: always on the CPU
+#else
         bool GpuLightBinning = true;       // sort point lights into clusters with a compute shader (LightClusters); false = on the CPU (tests, comparison), not saved
+#endif
         // Entities the editor hides (the Hierarchy's eye; filled each frame in Edit mode, empty in the game): sorted
         // entt integrals of every hidden entity, descendants included. Their mesh parts, terrain chunks and grass
         // fields are not drawn (no shadows, no click picking either). Not saved.

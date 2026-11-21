@@ -50,6 +50,43 @@ set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
 set(ASSIMP_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
 
+if(EMSCRIPTEN)
+    # The web build (WebGL2 in a browser): only the Game, see Game/web/README.md. Configure it in its own folder:
+    #   emcmake cmake -S . -B build-web -G Ninja -DCMAKE_BUILD_TYPE=Release
+    # GLFW is Emscripten's contrib.glfw3 port (gamepads, resizable canvas, full screen), and glad is the WebGL2
+    # stand-in in Engine/web (the engine's desktop GL 4.5 calls, emulated: Engine/src/Renderer/WebGL.cpp).
+    # Exceptions are WebAssembly's own (the engine, sol2 and nlohmann use them).
+    add_compile_options(-fwasm-exceptions)
+    add_link_options(-fwasm-exceptions)
+    # spdlog's bundled fmt 10 checks format strings with consteval, which this clang rejects inside fmt itself:
+    # formatting still works, only the compile-time check is off
+    add_compile_definitions(FMT_CONSTEVAL=)
+    set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "" FORCE)
+    set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
+    set(ASSIMP_NO_EXPORT ON CACHE BOOL "" FORCE)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(glm spdlog entt imgui assimp json JoltPhysics lua sol2 miniaudio)
+    # sol2 3.3.0: optional<T&>::emplace calls a member that doesn't exist; clang checks it although it is never
+    # used (MSVC doesn't). Give it a body that compiles.
+    set(_sol_optional ${sol2_SOURCE_DIR}/include/sol/optional_implementation.hpp)
+    file(READ ${_sol_optional} _sol_text)
+    string(REPLACE "\t\t\t*this = nullopt;\n\t\t\tthis->construct(std::forward<Args>(args)...);\n"
+                   "\t\t\t*this = nullopt;\n\t\t\treturn this->value();   // MDB: patched for clang (never used)\n" _sol_patched "${_sol_text}")
+    if(NOT _sol_patched STREQUAL _sol_text)
+        file(WRITE ${_sol_optional} "${_sol_patched}")
+    endif()
+
+    add_library(glfw INTERFACE)
+    target_compile_options(glfw INTERFACE --use-port=contrib.glfw3)
+    target_link_options(glfw INTERFACE --use-port=contrib.glfw3)
+    add_library(glad INTERFACE)
+    target_include_directories(glad INTERFACE ${CMAKE_SOURCE_DIR}/Engine/web)
+
+    add_subdirectory(Engine)
+    add_subdirectory(Game)
+    return()
+endif()
+
 FetchContent_MakeAvailable(glfw glm spdlog entt imgui assimp json JoltPhysics lua sol2 miniaudio)
 
 add_subdirectory(vendor/glad)
@@ -88,6 +125,8 @@ add_custom_target(package_editor
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/Examples/project.json ${EDITOR_DIST_DIR}/Examples/
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/Docs ${EDITOR_DIST_DIR}/Docs
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/Editor/package/README.txt ${EDITOR_DIST_DIR}/
+    COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR}/build-web/bin -DLAUNCHER=${CMAKE_SOURCE_DIR}/Game/web
+            -DDST=${EDITOR_DIST_DIR}/Player/Web -P ${CMAKE_SOURCE_DIR}/Tools/copy_web_player.cmake
     COMMAND ${CMAKE_COMMAND} -E echo "Editor packaged in ${EDITOR_DIST_DIR}"
     DEPENDS MDBEditor Game
     VERBATIM)

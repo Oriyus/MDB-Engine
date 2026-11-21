@@ -372,7 +372,9 @@ public:
         if (EnvVar("MDB_TEST_PICK_FOLDER") == "1")                // test hook: the folder picker must show (it once hung)
             LOG_INFO("Picked: '{}'", Platform::PickFolder("Test: pick a folder", Projects::Current().Root));
         if (auto out = EnvVar("MDB_BUILD_GAME"); !out.empty()) {   // File > Build Game into <out> (the editor waits for it on quit)
-            m_Builder.Start(Projects::Current(), Projects::EngineDir(), out);
+            // MDB_BUILD_WEB=1: the web build instead (Emscripten; see Tools/build_web.ps1)
+            if (EnvVar("MDB_BUILD_WEB") == "1") m_BuildTarget = GameBuilder::Target::Web;
+            m_Builder.Start(Projects::Current(), Projects::EngineDir(), out, m_BuildTarget);
             m_ShowBuildGame = true;
         }
         // Test hooks for the viewport: MDB_VIEW_MODE=wireframe|xray|solid|textured|rendered, MDB_SELECT=<entity name>
@@ -923,20 +925,27 @@ public:
         }
         if (changed) { std::string error; if (!project.Save(&error)) LOG_ERROR("{}", error); }
 
+        // Windows: an exe and its files. Web: a folder for a web host (WebGL2 in a browser; Game/web)
+        int target = m_BuildTarget == GameBuilder::Target::Web ? 1 : 0;
+        if (ImGui::Combo("Platform", &target, "Windows\0Web (browser)\0")) m_BuildTarget = target == 1 ? GameBuilder::Target::Web : GameBuilder::Target::Windows;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Web: the game runs in a browser (WebGL2). Upload the folder to a web host, or play it with its Play.bat.\n"
+                              "Point and spot light shadows, light cookies, contact shadows and terrain layer maps are left out on the web.");
+
         char outBuf[512];
         std::snprintf(outBuf, sizeof(outBuf), "%s", m_BuildOutput.c_str());
         if (ImGui::InputText("Output folder", outBuf, sizeof(outBuf))) m_BuildOutput = outBuf;
         ImGui::SameLine();
         if (ImGui::Button("...")) { const std::string f = Platform::PickFolder("Where to put the built game", m_BuildOutput); if (!f.empty()) m_BuildOutput = f; }
-        const std::string target = Engine::Project::Normalize(m_BuildOutput) + GameBuilder::SafeName(project.Title) + "/";
-        ImGui::TextDisabled("The game goes to %s", target.c_str());
+        const std::string folder = Engine::Project::Normalize(m_BuildOutput) + GameBuilder::FolderName(project.Title, m_BuildTarget) + "/";
+        ImGui::TextDisabled("The game goes to %s", folder.c_str());
         ImGui::EndDisabled();
 
         ImGui::Spacing();
         ImGui::BeginDisabled(running);
         if (ImGui::Button(running ? "Building..." : "Build", ImVec2(140, 0))) {
             if (m_History.IsDirty()) LOG_WARN("The scene has unsaved changes: the game uses the saved file. Save first (Ctrl+S) to include them.");
-            m_Builder.Start(project, Projects::EngineDir(), m_BuildOutput);
+            m_Builder.Start(project, Projects::EngineDir(), m_BuildOutput, m_BuildTarget);
         }
         ImGui::EndDisabled();
         if (m_Builder.Done() && m_Builder.Succeeded()) {
@@ -946,6 +955,8 @@ public:
             if (ImGui::Button("Show in Explorer")) Platform::ShowInExplorer(m_Builder.GameFolder());
         }
         if (running) { ImGui::SameLine(); ImGui::TextDisabled("compiling and copying, the editor keeps working"); }
+        if (m_Builder.Done() && m_Builder.Succeeded() && m_Builder.BuiltTarget() == GameBuilder::Target::Web)
+            ImGui::TextDisabled("Play it starts a small local web server (a console window) and opens the game in your browser.");
 
         ImGui::Separator();
         if (m_MonoFont) ImGui::PushFont(m_MonoFont);
@@ -5826,6 +5837,7 @@ private:
     bool m_QuitConfirmed = false;
     std::string m_SwitchProject;                 // File > Open Project: restart with --project <this> when quitting
     GameBuilder m_Builder;                       // File > Build Game
+    GameBuilder::Target m_BuildTarget = GameBuilder::Target::Windows;
     bool m_ShowBuildGame = false, m_BuildExcludeLoaded = false;
     std::string m_BuildOutput, m_BuildExclude;
     size_t m_BuildLogLines = 0;

@@ -456,23 +456,32 @@ namespace Engine {
         Impl& I = *m_Impl;
         I.AssetDir = assetDir;
         I.EngineDir = engineDir;
+        // The web build compiles what a game may never use on first use (a browser compiles shaders slowly: each of these
+        // took 0.3 to 1.3 s of start-up): area-light variants, the editor's wireframe / selection / grid, fog, decals
+        auto rarely = [](const std::string& vs, const std::string& fs, Shader::Injection inj = {}) {
+#ifdef __EMSCRIPTEN__
+            return Shader::CreateLazy(vs, fs, std::move(inj));
+#else
+            return std::make_unique<Shader>(vs, fs, std::move(inj));
+#endif
+        };
         I.Lit = std::make_unique<Shader>(I.ShaderPath("lit.vert"), I.ShaderPath("lit.frag"));
         // The variants with area lights (tubes, rects: MDB_AREA_LIGHTS), used only for frames that have one: their code made
         // the plain shader about 0.3 ms slower on the village even when it never ran
-        I.LitArea = std::make_unique<Shader>(I.ShaderPath("lit.vert"), I.ShaderPath("lit.frag"), Shader::Injection{ "#define MDB_AREA_LIGHTS 1\n", "", "", "" });
+        I.LitArea = rarely(I.ShaderPath("lit.vert"), I.ShaderPath("lit.frag"), Shader::Injection{ "#define MDB_AREA_LIGHTS 1\n", "", "", "" });
         I.PointDepth = std::make_unique<Shader>(I.ShaderPath("shadow.vert"), I.ShaderPath("shadow.frag"));
         I.SunDepth = std::make_unique<Shader>(I.ShaderPath("shadow.vert"), I.ShaderPath("sun_shadow.frag"));
         I.ParticleShader = std::make_unique<Shader>(I.ShaderPath("particle.vert"), I.ShaderPath("particle.frag"));
         I.Particles = std::make_unique<ParticleRenderer>();
-        I.DecalShader = std::make_unique<Shader>(I.ShaderPath("decal.vert"), I.ShaderPath("decal.frag"));
+        I.DecalShader = rarely(I.ShaderPath("decal.vert"), I.ShaderPath("decal.frag"));
         I.Decals = std::make_unique<DecalRenderer>();
         I.FoliageShader = std::make_unique<Shader>(I.ShaderPath("foliage.vert"), I.ShaderPath("lit.frag"));
-        I.FoliageArea = std::make_unique<Shader>(I.ShaderPath("foliage.vert"), I.ShaderPath("lit.frag"), Shader::Injection{ "#define MDB_AREA_LIGHTS 1\n", "", "", "" });
+        I.FoliageArea = rarely(I.ShaderPath("foliage.vert"), I.ShaderPath("lit.frag"), Shader::Injection{ "#define MDB_AREA_LIGHTS 1\n", "", "", "" });
         I.Foliage = std::make_unique<FoliageRenderer>();
-        I.VolFogMarch = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("volfog.frag"));
-        I.VolFogComposite = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("volfog_composite.frag"));
+        I.VolFogMarch = rarely(I.ShaderPath("tonemap.vert"), I.ShaderPath("volfog.frag"));
+        I.VolFogComposite = rarely(I.ShaderPath("tonemap.vert"), I.ShaderPath("volfog_composite.frag"));
         I.FogPass = std::make_unique<VolumetricFog>();
-        I.FogShader = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("fog.frag"));
+        I.FogShader = rarely(I.ShaderPath("tonemap.vert"), I.ShaderPath("fog.frag"));
         I.Post = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("tonemap.frag"));
         I.SSAOShader = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("ssao.frag"));
         I.SSAOBlur = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("ssao_blur.frag"));
@@ -480,10 +489,10 @@ namespace Engine {
         I.BloomDown = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("bloom_down.frag"));
         I.BloomUp = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("bloom_up.frag"));
         I.FXAA = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("fxaa.frag"));
-        I.Wire = std::make_unique<Shader>(I.ShaderPath("lit.vert"), I.ShaderPath("wire.frag"));
-        I.SelectMask = std::make_unique<Shader>(I.ShaderPath("lit.vert"), I.ShaderPath("select_mask.frag"));
-        I.Outline = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("outline.frag"));
-        I.Grid = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("grid.frag"));
+        I.Wire = rarely(I.ShaderPath("lit.vert"), I.ShaderPath("wire.frag"));
+        I.SelectMask = rarely(I.ShaderPath("lit.vert"), I.ShaderPath("select_mask.frag"));
+        I.Outline = rarely(I.ShaderPath("tonemap.vert"), I.ShaderPath("outline.frag"));
+        I.Grid = rarely(I.ShaderPath("tonemap.vert"), I.ShaderPath("grid.frag"));
         I.TAAResolve = std::make_unique<Shader>(I.ShaderPath("tonemap.vert"), I.ShaderPath("taa.frag"));
         I.Prepass = std::make_unique<Shader>(I.ShaderPath("lit.vert"), I.ShaderPath("depth_prepass.frag"));
         I.FoliagePrepass = std::make_unique<Shader>(I.ShaderPath("foliage.vert"), I.ShaderPath("depth_prepass.frag"));
@@ -623,7 +632,11 @@ namespace Engine {
             // Ambient occlusion from the pre-pass depth, before any lighting: lit.frag applies it to the ambient light
             // only (sky and environment), so the sun and lamps aren't darkened in creases. Without a pre-pass (or in the
             // editor's Solid / Textured views) it is computed after the opaque scene and multiplied in, as before (below)
+#ifdef __EMSCRIPTEN__
+            const bool aoInLighting = false;   // the web's lit.frag has no AO sampler (16 textures a shader): applied afterwards
+#else
             const bool aoInLighting = aoOn && prepass && shadows;
+#endif
             if (aoInLighting) {
                 PROFILE_SCOPE("SSAO");
                 Framebuffer::Unbind();

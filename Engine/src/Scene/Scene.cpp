@@ -1015,7 +1015,13 @@ namespace Engine {
             for (size_t i = 0; i < all.size(); i++) if (slotOf[i] >= 0) owners[slotOf[i]] = all[i].Entity;
         };
         std::vector<int> slotOf(all.size(), -1);
+#ifdef __EMSCRIPTEN__
+        // The web build has no point / spot light shadows (the atlas needs more textures than WebGL2 gives a shader)
+        if (ctx) ctx->AtlasEntries.clear();
+        if (false) {
+#else
         if (ctx) {
+#endif
             // Every shadowed light by rank: the best MaxDirect are shaded directly from uniforms (and get the biggest
             // atlas squares); they and the next AtlasLights get shadows in the atlas
             std::vector<std::pair<float, uint32_t>> ranked = cubeCandidates;
@@ -1211,7 +1217,9 @@ namespace Engine {
             glm::vec4 use(0.0f);
             for (int i = 0; i < 4; i++) {
                 if (m.Layers[i]) { m.Layers[i]->Bind(10 + i); use[i] = 1.0f; }
-                if (m.Surface[i]) m.Surface[i]->Bind(14 + i);
+#ifndef __EMSCRIPTEN__
+                if (m.Surface[i]) m.Surface[i]->Bind(14 + i);   // (the web build reads storage buffers from 14..21)
+#endif
                 shader.SetVec4("u_TerrainColor[" + std::to_string(i) + "]", m.Color[i]);
             }
             shader.SetVec4("u_TerrainUseTex", use);
@@ -2220,7 +2228,9 @@ namespace Engine {
         shader.SetInt("u_SunContact", contact && ctx->Settings.SunContact ? 1 : 0);
         shader.SetMat4("u_ContactVP", camera.GetViewProjection());      // also AO's view depth
         if (contact) {
+#ifndef __EMSCRIPTEN__
             glBindTextureUnit(1, ctx->ContactDepth);
+#endif
             shader.SetVec2("u_ContactNearFar", glm::vec2(camera.GetNear(), camera.GetFar()));
         }
         // Ambient occlusion on the ambient light only (unit 21), when SceneRenderer computed it before this pass
@@ -2228,7 +2238,9 @@ namespace Engine {
         const bool ao = ctx && ctx->AOMap != 0;
         shader.SetInt("u_AOOn", ao ? 1 : 0);
         if (ao) {
+#ifndef __EMSCRIPTEN__
             glBindTextureUnit(21, ctx->AOMap);
+#endif
             shader.SetFloat("u_AOStrength", ctx->AOStrength);
             shader.SetVec2("u_AOScreen", ctx->ScreenSize);
         }

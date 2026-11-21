@@ -3,8 +3,11 @@
 
 #include "Core/Log.h"
 
+#include <algorithm>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 
 namespace fs = std::filesystem;
 
@@ -28,20 +31,33 @@ void GameBuilder::Add(const std::string& line) {
     m_Lines.push_back(line);
 }
 
-bool GameBuilder::Start(const Engine::Project& project, const std::string& engineDir, const std::string& outputDir) {
+std::string GameBuilder::FolderName(const std::string& title, Target target) {
+    return SafeName(title) + (target == Target::Web ? " (Web)" : "");
+}
+
+void GameBuilder::Fail(const std::string& why) {
+    Add("FAILED: " + why);
+    LOG_ERROR("Build Game failed: {}", why);
+    m_Succeeded = false;
+    m_Done = true;
+    m_Running = false;
+}
+
+bool GameBuilder::Start(const Engine::Project& project, const std::string& engineDir, const std::string& outputDir, Target target) {
     if (m_Running) return false;
     if (m_Thread.joinable()) m_Thread.join();
     {
         std::lock_guard lock(m_Mutex);
         m_Lines.clear();
-        const std::string name = SafeName(project.Title);
-        m_GameFolder = Engine::Project::Normalize(outputDir) + name + "/";
-        m_Exe = m_GameFolder + name + ".exe";
+        m_GameFolder = Engine::Project::Normalize(outputDir) + FolderName(project.Title, target) + "/";
+        m_Exe = m_GameFolder + (target == Target::Web ? std::string("Play.bat") : SafeName(project.Title) + ".exe");
     }
+    m_Target = target;
     m_Done = false;
     m_Succeeded = false;
     m_Running = true;
-    m_Thread = std::thread(&GameBuilder::Run, this, project, engineDir, outputDir);
+    m_Thread = target == Target::Web ? std::thread(&GameBuilder::RunWeb, this, project, engineDir, outputDir)
+                                     : std::thread(&GameBuilder::Run, this, project, engineDir, outputDir);
     return true;
 }
 
@@ -121,6 +137,144 @@ void GameBuilder::Run(Engine::Project project, std::string engineDir, std::strin
     Add("Done: " + std::to_string(files) + " files, " + size + (skipped ? ", " + std::to_string(skipped) + " left out by \"exclude\"" : std::string()));
     Add("Ship the folder " + Engine::Project::PathString(out) + " (zip it). Players need the Microsoft Visual C++ Redistributable (x64), which most PCs have.");
     LOG_INFO("Game built in {}", Engine::Project::PathString(out));
+    m_Succeeded = true;
+    m_Done = true;
+    m_Running = false;
+}
+
+bool GameBuilder::WritePak(const std::string& pakPath, const std::vector<std::pair<std::string, std::string>>& files,
+                           uintmax_t* bytes, std::string* error) {
+    std::error_code ec;
+    // The index first: JSON [[path, offset, size], ...] with offsets from the end of the index
+    std::string index = "[";
+    uintmax_t offset = 0;
+    for (size_t i = 0; i < files.size(); i++) {
+        const uintmax_t size = fs::file_size(fs::u8path(files[i].second), ec);
+        if (ec) { if (error) *error = "can't read " + files[i].second + ": " + ec.message(); return false; }
+        std::string path;
+        for (char c : files[i].first) { if (c == '"' || c == '\\') path += '\\'; path += c; }
+        index += (i ? ",[\"" : "[\"") + path + "\"," + std::to_string(offset) + "," + std::to_string(size) + "]";
+        offset += size;
+    }
+    index += "]";
+    std::ofstream out(fs::u8path(pakPath), std::ios::binary | std::ios::trunc);
+    if (!out) { if (error) *error = "can't write " + pakPath; return false; }
+    const uint32_t length = (uint32_t)index.size();
+    const unsigned char le[4] = { (unsigned char)(length & 0xFF), (unsigned char)((length >> 8) & 0xFF),
+                                  (unsigned char)((length >> 16) & 0xFF), (unsigned char)((length >> 24) & 0xFF) };
+    out.write("MDBPAK01", 8);
+    out.write(reinterpret_cast<const char*>(le), 4);
+    out.write(index.data(), (std::streamsize)index.size());
+    std::vector<char> buffer(1 << 20);
+    for (const auto& file : files) {
+        std::ifstream in(fs::u8path(file.second), std::ios::binary);
+        if (!in) { if (error) *error = "can't read " + file.second; return false; }
+        while (in) {
+            in.read(buffer.data(), (std::streamsize)buffer.size());
+            out.write(buffer.data(), in.gcount());
+        }
+    }
+    if (!out) { if (error) *error = "writing " + pakPath + " failed (disk full?)"; return false; }
+    if (bytes) *bytes = offset;
+    return true;
+}
+
+void GameBuilder::RunWeb(Engine::Project project, std::string engineDir, std::string outputDir) {
+    (void)outputDir;
+    std::error_code ec;
+    // 1. The web player: a packaged editor ships it (Player/Web, with Play.bat and serve.ps1); an editor run from the
+    //    source tree builds it with Emscripten (Tools/build_web.ps1 into <source>/build-web)
+    fs::path player = fs::u8path(Platform::ExeDir()) / "Player" / "Web";
+    fs::path launcher = player;
+    if (fs::is_regular_file(player / "Game.wasm", ec)) {
+        Add("Using the prebuilt web player " + Engine::Project::PathString(player));
+    }
+    else {
+        const std::string source = MDB_SOURCE_DIR;
+        Add("Building the web player with Emscripten (Tools/build_web.ps1). The first time compiles the engine for the web: several minutes.");
+        const std::string cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File \"" + source + "Tools/build_web.ps1\"";
+        Add("> " + cmd);
+        const int code = Platform::RunProcess(cmd, [this](const std::string& line) {
+            if (line.find("rror") != std::string::npos || line.find("Emscripten") != std::string::npos
+                || line.find("Linking") != std::string::npos || line.find("Configuring") != std::string::npos
+                || line.find("not found") != std::string::npos || line.find(".cpp") != std::string::npos)
+                Add("  " + line);
+        });
+        if (code != 0) {
+            Fail(code < 0 ? std::string("could not run PowerShell")
+                          : "the web build failed (exit code " + std::to_string(code) + "). Is Emscripten installed? See Tools/build_web.ps1");
+            return;
+        }
+        player = fs::u8path(source + "build-web/bin");
+        launcher = fs::u8path(source + "Game/web");
+        if (!fs::is_regular_file(player / "Game.wasm", ec)) { Fail("no web player at " + Engine::Project::PathString(player)); return; }
+    }
+
+    // 2. The folder
+    const fs::path out = fs::u8path(GameFolder());
+    if (fs::exists(out, ec)) {
+        if (!fs::exists(out / "game.pak", ec)) { Fail(Engine::Project::PathString(out) + " exists and is not an earlier web build; pick another output folder"); return; }
+        Add("Replacing the earlier build in " + Engine::Project::PathString(out));
+        fs::remove_all(out, ec);
+        if (ec) { Fail("can't remove the earlier build (is its server still running?): " + ec.message()); return; }
+    }
+    fs::create_directories(out, ec);
+    if (ec) { Fail("can't create " + Engine::Project::PathString(out) + ": " + ec.message()); return; }
+
+    // The files, as the Windows build lays them out next to its exe
+    std::vector<std::pair<std::string, std::string>> files;
+    size_t skipped = 0;
+    auto collect = [&](const fs::path& from, const std::string& prefix, bool useExclude) -> bool {
+        std::vector<fs::path> found;
+        for (auto it = fs::recursive_directory_iterator(from, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec))
+            if (it->is_regular_file(ec)) found.push_back(it->path());
+        if (ec) { Fail("can't read " + Engine::Project::PathString(from) + ": " + ec.message()); return false; }
+        std::sort(found.begin(), found.end());
+        for (const fs::path& p : found) {
+            const std::string rel = Engine::Project::PathString(fs::relative(p, from, ec));
+            if (useExclude && project.IsExcluded(rel)) { skipped++; continue; }
+            files.emplace_back(prefix + rel, Engine::Project::PathString(p));
+        }
+        return true;
+    };
+    Add("Packing the engine files and the project's Assets into game.pak");
+    if (!collect(fs::u8path(engineDir), "EngineAssets/", false)) return;
+    if (!collect(fs::u8path(project.AssetDir()), "Assets/", true)) return;
+    files.emplace_back("project.json", project.File());
+    uintmax_t bytes = 0;
+    std::string error;
+    if (!WritePak(Engine::Project::PathString(out / "game.pak"), files, &bytes, &error)) { Fail(error); return; }
+
+    // The page (titled after the game), the player and the launcher
+    {
+        std::ifstream in(player / "Game.html", std::ios::binary);
+        std::string html((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        if (html.empty()) { Fail("can't read Game.html"); return; }
+        std::string title;
+        for (char c : project.Title) {
+            if (c == '<') title += "&lt;"; else if (c == '>') title += "&gt;"; else if (c == '&') title += "&amp;"; else title += c;
+        }
+        const std::string from = "<title>MDB Game</title>";
+        if (const size_t at = html.find(from); at != std::string::npos) html.replace(at, from.size(), "<title>" + title + "</title>");
+        std::ofstream page(out / "index.html", std::ios::binary);
+        page << html;
+        if (!page) { Fail("can't write index.html"); return; }
+    }
+    for (const char* f : { "Game.js", "Game.wasm" }) {
+        fs::copy_file(player / f, out / f, ec);
+        if (ec) { Fail(std::string("can't copy ") + f + ": " + ec.message()); return; }
+    }
+    for (const char* f : { "Play.bat", "serve.ps1" }) {
+        fs::copy_file(launcher / f, out / f, ec);
+        if (ec) { Fail(std::string("can't copy ") + f + " (from " + Engine::Project::PathString(launcher) + "): " + ec.message()); return; }
+    }
+
+    char size[64];
+    std::snprintf(size, sizeof(size), "%.1f MB", double(bytes) / (1024.0 * 1024.0));
+    Add("Done: " + std::to_string(files.size()) + " files in game.pak, " + size + (skipped ? ", " + std::to_string(skipped) + " left out by \"exclude\"" : std::string()));
+    Add("Play it with Play.bat in " + Engine::Project::PathString(out) + " (a small local web server: browsers don't run it from a file).");
+    Add("To share it, upload the folder to a web host. itch.io: zip the folder, project kind HTML.");
+    LOG_INFO("Web game built in {}", Engine::Project::PathString(out));
     m_Succeeded = true;
     m_Done = true;
     m_Running = false;

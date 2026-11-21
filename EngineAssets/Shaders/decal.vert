@@ -9,7 +9,23 @@ struct DecalData {
     vec4 Params;       // shape (0 circle, 1 square, 2 texture), thickness, fill, softness
     vec4 Extra;        // emission
 };
+#ifdef MDB_WEB
+#include "web_storage.glsl"
+uniform highp usampler2D u_SB3;      // the decals, 11 texels each
+DecalData FetchDecal(int i) {
+    int t = i * 11;
+    DecalData d;
+    d.Model = SB_Mat4(u_SB3, t);
+    d.InvModel = SB_Mat4(u_SB3, t + 4);
+    d.Color = SB_Vec4(u_SB3, t + 8);
+    d.Params = SB_Vec4(u_SB3, t + 9);
+    d.Extra = SB_Vec4(u_SB3, t + 10);
+    return d;
+}
+#else
 layout(std430, binding = 3) readonly buffer Decals { DecalData u_Decals[]; };
+DecalData FetchDecal(int i) { return u_Decals[i]; }
+#endif
 
 uniform mat4 u_ViewProjection;
 uniform int u_Base;                // first decal of this draw (one draw per texture)
@@ -25,5 +41,5 @@ const int kIndices[36] = int[36](0, 2, 1, 0, 3, 2,   4, 5, 6, 4, 6, 7,   0, 4, 7
 
 void main() {
     v_Index = u_Base + gl_InstanceID;
-    gl_Position = u_ViewProjection * u_Decals[v_Index].Model * vec4(kCorners[kIndices[gl_VertexID]], 1.0);
+    gl_Position = u_ViewProjection * FetchDecal(v_Index).Model * vec4(kCorners[kIndices[gl_VertexID]], 1.0);
 }

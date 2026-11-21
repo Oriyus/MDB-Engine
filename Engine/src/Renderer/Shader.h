@@ -41,7 +41,10 @@ namespace Engine {
         Shader(const std::string& vertexPath, const std::string& fragmentPath, Injection injection);
         // A compute program from one file (glDispatchCompute after Bind); Reload works the same
         static std::unique_ptr<Shader> CreateCompute(const std::string& computePath);
-        bool Valid() const { return m_Program != 0; }
+        // A shader compiled on first use (Bind): until then the values set on it are kept and given to it then. The web
+        // build makes the shaders a game may never need this way (a browser compiles slowly: start-up time)
+        static std::unique_ptr<Shader> CreateLazy(const std::string& vertexPath, const std::string& fragmentPath, Injection injection = {});
+        bool Valid() const { return m_Pending || m_Program != 0; }
         const std::string& LastError() const { return m_Error; }   // the compile / link log of the last failure
 
         // Remember every value set (not arrays), so ReplayInto can give them to another program of the same kind:
@@ -53,6 +56,11 @@ namespace Engine {
         uint32_t Compile(const std::string& vertexPath, const std::string& fragmentPath);
         struct Value { int Kind = 0; glm::vec4 V{ 0.0f }; glm::ivec4 I{ 0 }; glm::mat4 M{ 1.0f }; };   // 1 int 2 float 3 vec2 4 vec3 5 vec4 6 ivec4 7 mat4
         void Remember(const std::string& name, const Value& v) { if (Record) m_Values[name] = v; }
+        // A value for a lazy shader that isn't compiled yet: kept (true = don't set it now)
+        bool Hold(const std::string& name, const Value& v) { Remember(name, v); if (!m_Pending) return false; m_PendingValues[name] = v; return true; }
+        void EnsureCompiled() const;
+        bool m_Pending = false;
+        std::unordered_map<std::string, Value> m_PendingValues;
         std::unordered_map<std::string, Value> m_Values;
         Injection m_Injection;
         std::string m_Error;

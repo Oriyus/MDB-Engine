@@ -1030,7 +1030,9 @@ namespace Engine {
         scene.set_function("light_binning", [this](sol::optional<std::string> mode) {
             if (mode) {
                 if (*mode != "gpu" && *mode != "cpu") throw std::runtime_error("scene.light_binning: \"gpu\" or \"cpu\"");
-                ActiveScene->GpuLightBinning = *mode == "gpu";
+#ifndef __EMSCRIPTEN__
+                ActiveScene->GpuLightBinning = *mode == "gpu";   // (the web build always bins on the CPU)
+#endif
             }
             return std::string(ActiveScene->GpuLightBinning && LightClusters::GpuAvailable() ? "gpu" : "cpu");
         });

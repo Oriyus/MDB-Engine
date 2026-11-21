@@ -39,7 +39,11 @@ namespace Engine {
         std::string NowString() {
             const std::time_t t = std::time(nullptr);
             std::tm tm{};
+#ifdef _WIN32
             localtime_s(&tm, &t);
+#else
+            localtime_r(&t, &tm);
+#endif
             char buf[32];
             std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", &tm);
             return buf;

@@ -266,7 +266,7 @@ namespace Engine {
                 if (!fs::exists(p)) p = baseDir / fs::path(rel).filename();
                 if (fs::exists(p)) {
                     std::error_code ec;
-                    const auto stamp = fs::last_write_time(p, ec).time_since_epoch().count();     // an edited file loads again
+                    const long long stamp = (long long)fs::last_write_time(p, ec).time_since_epoch().count();     // an edited file loads again
                     tex = shared("file:" + fs::weakly_canonical(p, ec).string() + ":" + std::to_string(stamp), [&] {
                         return std::make_shared<Texture2D>(p.string(), srgb);
                         });

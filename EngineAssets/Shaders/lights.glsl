@@ -12,9 +12,33 @@ struct PointLightGpu {
     vec4 Extra;         // x: the light's radius (metres; 0 = a point), y: contact shadows (1 / 0), z: shape (0 sphere, 1 tube, 2 rect), w: extent
     vec4 Area;          // an area light: its X axis x half the width (a tube's half length), w: a rect's half height
 };
+#ifdef MDB_WEB
+// The web build: the same buffers as textures (web_storage.glsl); a light is 7 texels
+#include "web_storage.glsl"
+uniform highp usampler2D u_SB5;   // lights
+uniform highp usampler2D u_SB6;   // cells: first, count
+uniform highp usampler2D u_SB7;   // indices
+PointLightGpu ClusterLight(uint k) {
+    int t = int(SB_Word(u_SB7, int(k))) * 7;
+    PointLightGpu l;
+    l.PosRange = SB_Vec4(u_SB5, t);
+    l.Color = SB_Vec4(u_SB5, t + 1);
+    l.Spot = SB_Vec4(u_SB5, t + 2);
+    l.Shadow = SB_Vec4(u_SB5, t + 3);
+    l.Cookie = SB_Vec4(u_SB5, t + 4);
+    l.Extra = SB_Vec4(u_SB5, t + 5);
+    l.Area = SB_Vec4(u_SB5, t + 6);
+    return l;
+}
+uvec2 ClusterCellAt(int i) { return SB_UVec2(u_SB6, i); }
+#else
 layout(std430, binding = 5) readonly buffer PointLights { PointLightGpu u_Lights[]; };
 layout(std430, binding = 6) readonly buffer LightClusterCells { uvec2 u_ClusterCells[]; };   // first, count
 layout(std430, binding = 7) readonly buffer LightClusterIndices { uint u_ClusterIndices[]; };
+// Entry k of the cluster index list: the light it names
+PointLightGpu ClusterLight(uint k) { return u_Lights[u_ClusterIndices[k]]; }
+uvec2 ClusterCellAt(int i) { return u_ClusterCells[i]; }
+#endif
 
 // The most useful shadowed lights (at most 4; their shadows in the atlas like the rest) are not in the clusters: they are shaded
 // directly from these uniforms (cheaper for a handful). A light with range 0 is an unused slot.
@@ -46,7 +70,7 @@ int LightSlice(vec3 worldPos) {
     float depth = max(-dot(u_ClusterViewRow, vec4(worldPos, 1.0)), 1e-4);
     return clamp(int(floor(log(depth) * u_ClusterZ.x + u_ClusterZ.y)), 0, CLUSTER_Z - 1);
 }
-uvec2 LightCell(int tile, int slice) { return u_ClusterCells[slice * (CLUSTER_X * CLUSTER_Y) + tile]; }
+uvec2 LightCell(int tile, int slice) { return ClusterCellAt(slice * (CLUSTER_X * CLUSTER_Y) + tile); }
 // A pixel's cluster: (first index, light count)
 uvec2 LightCluster(vec2 screenUV, vec3 worldPos) { return LightCell(LightTile(screenUV), LightSlice(worldPos)); }
 
@@ -120,10 +144,12 @@ float SpotCone(vec3 L, vec4 spot, float cosInner) {
 // distance / far plane, compared in hardware. Lights carry their records' index: Shadow.x = a spot's one square,
 // Shadow.y = the first of a cube's six (+X, -X, +Y, -Y, +Z, -Z; a face without a square has Rect.z 0). A cube face is
 // drawn a few texels wider than 90 degrees (AtlasFaceMatrix), so filtering never leaves it.
+#ifndef MDB_WEB
 struct ShadowTile { mat4 ViewProj; vec4 Rect; };    // Rect: corner x, y and size (0..1 of the atlas), far plane
 layout(std430, binding = 9) readonly buffer ShadowTiles { ShadowTile u_ShadowTiles[]; };
 uniform sampler2DShadow u_ShadowAtlas;     // unit 18
 uniform sampler2D u_ShadowAtlasRaw;        // unit 19: the same texture, plain depth (the blocker search)
+#endif
 uniform int   u_AtlasOn;
 uniform float u_AtlasBias;                 // world units (Scene Settings > Shadows > point bias)
 uniform float u_AtlasTexel;                // 1 / the atlas's size
@@ -140,6 +166,7 @@ vec2 VogelDisk(int k, int n) {
     return r * vec2(cos(a), sin(a));
 }
 
+#ifndef MDB_WEB
 // How much light reaches p through an atlas square (1 = lit), once p is placed in it: rect = ShadowTile.Rect, uv = 0..1
 // across it, tanHalf = tan of the view's half angle. dist: from the light; taps = 1 (fog) or 4; radius: the
 // light's size (> 0 with taps > 1: shadows soften with the gap between the casters and p, PCSS)
@@ -219,13 +246,22 @@ float AtlasCubeLit(int first, vec3 lightPos, vec3 p, float NdotL, int taps, floa
     return AtlasLitUV(rect, ndc * 0.5 + 0.5, tanHalf, dist, NdotL, taps, radius);
 }
 
+#else
+// The web build has no shadow atlas (WebGL2 allows 16 textures per fragment shader): point and spot lights are unshadowed
+float AtlasSpotLit(int t, vec3 p, float NdotL, float dist, int taps, float radius) { return 1.0; }
+float AtlasCubeLit(int first, vec3 lightPos, vec3 p, float NdotL, int taps, float radius) { return 1.0; }
+#endif
+
 // Contact shadows: a short ray from the surface towards the light through the depth of the scene (the depth pre-pass,
 // copied by SceneRenderer; the camera's jittered view-projection it was drawn with). Clip w is the view depth.
+#ifndef MDB_WEB
 uniform sampler2D u_ContactDepth;          // unit 1
+#endif
 uniform float u_ContactLength;             // metres (0 = off: ShadowSettings::ContactLength)
 uniform mat4  u_ContactVP;
 uniform vec2  u_ContactNearFar;
 
+#ifndef MDB_WEB
 float ContactViewDepth(float d01) {
     float n = u_ContactNearFar.x, f = u_ContactNearFar.y, z = d01 * 2.0 - 1.0;
     return 2.0 * n * f / (f + n - z * (f - n));
@@ -254,6 +290,9 @@ float ContactLit(vec3 p, vec3 Ng, vec3 L, float lightDist) {
     }
     return 1.0;
 }
+#else
+float ContactLit(vec3 p, vec3 Ng, vec3 L, float lightDist) { return 1.0; }   // no contact shadows on the web
+#endif
 
 // A light's size as an angle at a surface: GGX roughness (alpha) widens by radius / (2 distance), so a big light up
 // close leaves a broad highlight instead of a pin-point (alpha is roughness squared; the lobe stays normalised)
@@ -268,13 +307,18 @@ float SizedRoughness(float rough, float radius, float dist) {
 // along the light's aim, Spot.xyz = the entity's -Z, the top along the entity's +Y). A flipbook cookie is a grid of
 // frames (left to right, top row first). A profile (an IES file, IesProfile::Bake) is brightness over the angle from
 // the aim (v) and round it (u). The frame (r, u, d) is CookieBasis (LightClusters.cpp) turned by the roll.
+#ifndef MDB_WEB
 uniform sampler2DArray u_LightCookies;    // unit 20, sRGB (read as linear light)
+#endif
 const float COOKIE_PI = 3.14159265;
 
 // What multiplies the light leaving towards -L. spot: aim, cos outer (points < -1.5); ck: cookie layer, roll, profile
 // layer; frames: columns, rows, frame. footprint: the size of the pixel at the light's distance over that distance
 // (radians; picks the mip level: lit.frag passes about 1.5 mrad x view distance / light distance)
 vec3 LightCookie(vec4 spot, vec3 ck, vec3 frames, vec3 L, float footprint) {
+#ifdef MDB_WEB
+    return vec3(1.0);                     // no cookies or profiles on the web
+#else
     if (ck.x < 0.0 && ck.z < 0.0) return vec3(1.0);
     vec3 d = spot.xyz;
     vec3 ref = abs(d.y) > 0.99 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0);
@@ -314,6 +358,7 @@ vec3 LightCookie(vec4 spot, vec3 ck, vec3 frames, vec3 L, float footprint) {
         result *= textureLod(u_LightCookies, vec3(phi / (2.0 * COOKIE_PI), theta / COOKIE_PI, ck.z), 0.0).r;
     }
     return result;
+#endif
 }
 vec3 LightCookie(PointLightGpu pl, vec3 L, float footprint) {
     return LightCookie(pl.Spot, vec3(pl.Shadow.zw, pl.Cookie.x), pl.Cookie.yzw, L, footprint);

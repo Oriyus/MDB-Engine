@@ -34,17 +34,36 @@ uniform int  u_ViewMode;        // editor view mode: 0 rendered (never set by th
 
 // Terrain (Scene/Terrain.h): four layers blended by a weight map over the terrain (v_TexCoord 0..1 across it)
 uniform int       u_Terrain;            // 1: this batch is a terrain chunk
+#if defined(MDB_WEB) && defined(MDB_GRAPH)
+// A shader graph on the web: never a terrain, and its own textures need the units (16 per fragment shader)
+#define u_TerrainSplat u_Texture
+#define u_TerrainLayer0 u_Texture
+#define u_TerrainLayer1 u_Texture
+#define u_TerrainLayer2 u_Texture
+#define u_TerrainLayer3 u_Texture
+#else
 uniform sampler2D u_TerrainSplat;       // unit 9: RGBA = weights of layers 0..3
 uniform sampler2D u_TerrainLayer0;      // units 10..13: each layer's colour texture (optional, repeating)
 uniform sampler2D u_TerrainLayer1;
 uniform sampler2D u_TerrainLayer2;
 uniform sampler2D u_TerrainLayer3;
+#endif
+#ifndef MDB_WEB
 uniform sampler2D u_TerrainSurface0;    // units 14..17: each layer's packed maps (optional, linear, same repeat):
 uniform sampler2D u_TerrainSurface1;    //   RG = normal X / Y (0..1, Z rebuilt), B = roughness, A = height
 uniform sampler2D u_TerrainSurface2;
 uniform sampler2D u_TerrainSurface3;
+#endif
 uniform vec4  u_TerrainUseTex;          // per layer: 1 = has a colour texture
 uniform ivec4 u_TerrainMaps;            // per layer: which packed maps it has (1 normal, 2 roughness, 4 height)
+#ifdef MDB_WEB
+// The web build has 16 textures per fragment shader: no packed layer maps (the colour samplers stand in, never read)
+#define u_TerrainSurface0 u_TerrainLayer0
+#define u_TerrainSurface1 u_TerrainLayer1
+#define u_TerrainSurface2 u_TerrainLayer2
+#define u_TerrainSurface3 u_TerrainLayer3
+#define u_TerrainMaps ivec4(0)
+#endif
 uniform vec4  u_TerrainNormalStrength;  // per layer: scales the normal map's tilt
 uniform vec4  u_TerrainColor[4];        // rgb sRGB-style tint, a roughness (times the roughness map)
 uniform vec4  u_TerrainTiling;          // per layer: metres per repeat
@@ -340,12 +359,17 @@ uniform int   u_UseIBL;
 // Ambient occlusion (SSAO, computed from the depth pre-pass before this pass): it dims only the light from the sky and
 // the environment, not the sun or the lamps. Half resolution (AO, view depth): the 4 nearest texels weighted by
 // distance and by how close their depth is to this pixel's (no bleeding across silhouettes)
-uniform sampler2D u_AOMap;        // unit 21
+#ifndef MDB_WEB
+uniform sampler2D u_AOMap;        // unit 21 (the web build applies AO after lighting: ao_apply.frag)
+#endif
 uniform int   u_AOOn;             // 0: no AO here (applied afterwards, or off)
 uniform float u_AOStrength;
 uniform vec2  u_AOScreen;         // the full-resolution target's size
 uniform int   u_SunContact;       // contact shadows for the sun too (ShadowSettings::SunContact)
 float AmbientOcclusion() {
+#ifdef MDB_WEB
+    return 1.0;
+#else
     if (u_AOOn != 1) return 1.0;
     vec2 size = vec2(textureSize(u_AOMap, 0));
     vec2 f = gl_FragCoord.xy / u_AOScreen * size - 0.5;
@@ -361,6 +385,7 @@ float AmbientOcclusion() {
         weights += w;
     }
     return mix(1.0, sum / weights, u_AOStrength);
+#endif
 }
 uniform float u_PrefilterMaxLod;
 uniform float u_EnvRot;
@@ -387,27 +412,46 @@ struct GrassShadeField {
     vec4 Params;        // strength, fade start, fade end (metres from the camera), height band (metres)
     vec4 Range;         // lowest and highest ground height in the field's space, cell data offset, 0
 };
+#ifdef MDB_WEB
+#include "web_storage.glsl"
+uniform highp usampler2D u_SB10;          // the same layout as below: header texel, 8 fields of 7 texels, cells from word 228
+uint ShadeFieldCount() { return SB_Texel(u_SB10, 0).x; }
+GrassShadeField ShadeField(uint i) {
+    int t = 1 + int(i) * 7;
+    GrassShadeField f;
+    f.InvWorld = SB_Mat4(u_SB10, t);
+    f.Area = SB_Vec4(u_SB10, t + 4);
+    f.Params = SB_Vec4(u_SB10, t + 5);
+    f.Range = SB_Vec4(u_SB10, t + 6);
+    return f;
+}
+uint ShadeCellWord(uint i) { return SB_Word(u_SB10, 228 + int(i)); }
+#else
 layout(std430, binding = 10) readonly buffer GrassShadeData {
     uvec4 g_ShadeHeader;                 // x: fields
     GrassShadeField g_ShadeFields[8];
     uint g_ShadeCells[];                 // per cell: coverage (8 bits) | ground height (24 bits, over Range.xy)
 };
+uint ShadeFieldCount() { return g_ShadeHeader.x; }
+GrassShadeField ShadeField(uint i) { return g_ShadeFields[i]; }
+uint ShadeCellWord(uint i) { return g_ShadeCells[i]; }
+#endif
 uniform int u_NoGroundShade;             // 1 for the grass's own pass
 
 float ShadeCell(GrassShadeField f, ivec2 c, float y) {
     c = clamp(c, ivec2(0), ivec2(f.Area.zw) - 1);
-    uint v = g_ShadeCells[uint(f.Range.z) + uint(c.y) * uint(f.Area.z) + uint(c.x)];
+    uint v = ShadeCellWord(uint(f.Range.z) + uint(c.y) * uint(f.Area.z) + uint(c.x));
     float h = mix(f.Range.x, f.Range.y, float(v >> 8u) / 16777215.0);
     return float(v & 255u) / 255.0 * (1.0 - smoothstep(0.5 * f.Params.w, f.Params.w, abs(y - h)));
 }
 
 float GroundGrassShade(vec3 p, vec3 Ng) {
     if (u_NoGroundShade == 1 || Ng.y < 0.3) return 0.0;
-    uint count = min(g_ShadeHeader.x, 8u);
+    uint count = min(ShadeFieldCount(), 8u);
     if (count == 0u) return 0.0;
     float dist = length(u_ViewPos - p), shade = 0.0;
     for (uint i = 0u; i < count; i++) {
-        GrassShadeField f = g_ShadeFields[i];
+        GrassShadeField f = ShadeField(i);
         if (dist > f.Params.z) continue;
         vec3 lp = (f.InvWorld * vec4(p, 1.0)).xyz;
         vec2 uv = lp.xz / f.Area.xy + 0.5;
@@ -555,7 +599,7 @@ void main() {
         cell = LightCluster(v_CurClip.xy / v_CurClip.w * 0.5 + 0.5, v_WorldPos);
         lightsHere += cell.y;
         for (uint k = 0u; k < cell.y; k++) {
-            PointLightGpu pl = u_Lights[u_ClusterIndices[cell.x + k]];
+            PointLightGpu pl = ClusterLight(cell.x + k);
 #ifdef MDB_AREA_LIGHTS
             if (pl.Extra.z > 0.5) continue;                    // an area light: shaded below
 #endif
@@ -592,7 +636,7 @@ void main() {
                 c = u_PointPosRange[j].xyz; spot = u_PointSpot[j]; area = u_PointArea[j]; col = vec4(u_PointColor[j].rgb, u_PointPosRange[j].w);
                 spotRec = u_PointShadow[j].x; cubeRec = u_PointShadow[j].y;
             } else {
-                PointLightGpu pl = u_Lights[u_ClusterIndices[cell.x + uint(j - u_PointCount)]];
+                PointLightGpu pl = ClusterLight(cell.x + uint(j - u_PointCount));
                 extra = pl.Extra;
                 if (extra.z < 0.5) continue;
                 c = pl.PosRange.xyz; spot = pl.Spot; area = pl.Area; col = vec4(pl.Color.rgb, pl.PosRange.w);

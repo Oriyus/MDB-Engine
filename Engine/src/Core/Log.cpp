@@ -31,7 +31,11 @@ namespace Engine {
                 e.Text.assign(msg.payload.begin(), msg.payload.end());
                 const std::time_t t = std::chrono::system_clock::to_time_t(msg.time);
                 std::tm tm{};
+#ifdef _WIN32
                 localtime_s(&tm, &t);
+#else
+                localtime_r(&t, &tm);
+#endif
                 char buf[16];
                 std::strftime(buf, sizeof(buf), "%H:%M:%S", &tm);
                 e.Time = buf;

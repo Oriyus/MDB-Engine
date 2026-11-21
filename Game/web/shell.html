@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>MDB Game</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #050507; overflow: hidden; color: #d8dbe2;
+               font: 15px/1.4 "Segoe UI", system-ui, sans-serif; }
+  #canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; outline: none; }
+  #loader { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+            justify-content: center; gap: 14px; background: #050507; transition: opacity .4s; }
+  #loader.gone { opacity: 0; pointer-events: none; }
+  #title { font-size: 26px; font-weight: 600; letter-spacing: .02em; }
+  #bar { width: min(420px, 80vw); height: 6px; background: #1b1d24; border-radius: 3px; overflow: hidden; }
+  #fill { width: 0; height: 100%; background: #6f9cff; transition: width .15s; }
+  #status { color: #8a8f9c; min-height: 1.4em; text-align: center; max-width: 80vw; }
+  #status.error { color: #ff8a70; }
+  #slow { position: fixed; left: 50%; top: 16px; transform: translateX(-50%); max-width: min(640px, 92vw); display: none;
+          padding: 12px 40px 12px 16px; background: rgba(40, 20, 16, .94); border: 1px solid #ff8a70; border-radius: 6px;
+          color: #ffd8cc; font-size: 14px; z-index: 10; }
+  #slow b { color: #fff; }
+  #slow button { position: absolute; right: 8px; top: 8px; background: none; border: 0; color: #ffd8cc; font-size: 18px; cursor: pointer; }
+</style>
+</head>
+<body>
+<canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
+<div id="loader">
+  <div id="title">Loading</div>
+  <div id="bar"><div id="fill"></div></div>
+  <div id="status">Starting</div>
+</div>
+<div id="slow"><button onclick="this.parentNode.style.display='none'" title="Close">&times;</button>
+  <b>The browser is drawing this game without the graphics card</b> (hardware acceleration is off or unavailable), so it
+  will run very slowly. Turn on <i>Use graphics acceleration when available</i> in the browser's settings (System), restart
+  the browser and reload this page.</div>
+<script>
+  // The engine's player (Game.js / Game.wasm) holds no game: the project's files come from game.pak, made by
+  // File > Build Game > Web (or Tools/package_web.ps1). Format: "MDBPAK01", a little-endian uint32 with the
+  // length of a UTF-8 JSON index [[path, offset, size], ...], the index, then the files' bytes (offsets from
+  // the end of the index). They go to /game, which the player treats as the folder its exe is in.
+  // Saves and settings live in /persist (IndexedDB), written back every few seconds and when the page is left.
+  const loader = document.getElementById('loader');
+  const fill = document.getElementById('fill');
+  const status = document.getElementById('status');
+  function setStatus(text, error) { status.textContent = text; status.className = error ? 'error' : ''; }
+  function setProgress(f) { fill.style.width = Math.round(Math.max(0, Math.min(1, f)) * 100) + '%'; }
+
+  if (location.protocol === 'file:') {
+    setStatus('Browsers can’t run this page from a file. Start Play.bat (or any web server) in this folder.', true);
+  }
+
+  async function fetchPak(onProgress) {
+    const response = await fetch('game.pak');
+    if (!response.ok) throw new Error('game.pak: ' + response.status + ' ' + response.statusText);
+    const total = Number(response.headers.get('Content-Length')) || 0;
+    if (!response.body || !total) return new Uint8Array(await response.arrayBuffer());
+    const data = new Uint8Array(total);
+    const reader = response.body.getReader();
+    let got = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      data.set(value, got);
+      got += value.length;
+      onProgress(got / total);
+    }
+    return data;
+  }
+
+  function unpack(FS, bytes) {
+    const magic = new TextDecoder().decode(bytes.subarray(0, 8));
+    if (magic !== 'MDBPAK01') throw new Error('game.pak is not a game package');
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const indexLength = view.getUint32(8, true);
+    const index = JSON.parse(new TextDecoder().decode(bytes.subarray(12, 12 + indexLength)));
+    const base = 12 + indexLength;
+    let title = null;
+    for (const [path, offset, size] of index) {
+      const full = '/game/' + path;
+      FS.mkdirTree(full.substring(0, full.lastIndexOf('/')));
+      FS.writeFile(full, bytes.subarray(base + offset, base + offset + size));
+      if (path === 'project.json') {
+        try { title = JSON.parse(new TextDecoder().decode(bytes.subarray(base + offset, base + offset + size))).title; } catch (e) {}
+      }
+    }
+    return { count: index.length, title };
+  }
+
+  // True when WebGL runs on the CPU (hardware acceleration off, or the GPU blocked): the browser refuses a context that
+  // asks to fail on a "major performance caveat", and the renderer is a software one (SwiftShader, Basic Render Driver)
+  function softwareWebGL() {
+    try {
+      const c = document.createElement('canvas');
+      if (!c.getContext('webgl2', { failIfMajorPerformanceCaveat: true })) return true;
+      const gl = document.createElement('canvas').getContext('webgl2');
+      const ext = gl && gl.getExtension('WEBGL_debug_renderer_info');
+      const name = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : '';
+      return /SwiftShader|Basic Render Driver|llvmpipe|Software/i.test(name);
+    } catch (e) { return false; }
+  }
+
+  let syncing = false, syncAgain = false;
+  function persist() {
+    if (!Module.FS) return;
+    if (syncing) { syncAgain = true; return; }
+    syncing = true;
+    Module.FS.syncfs(false, () => { syncing = false; if (syncAgain) { syncAgain = false; persist(); } });
+  }
+
+  var Module = {
+    canvas: document.getElementById('canvas'),
+    arguments: [],
+    print: (t) => console.log(t),
+    printErr: (t) => console.warn(t),
+    preRun: [() => {
+      const FS = Module.FS;
+      // The URL can pick a scene and set the test hooks the desktop Game reads from the environment:
+      // index.html?scene=demo.json&MDB_PAUSE_MENU=audio
+      const query = new URLSearchParams(location.search);
+      for (const [k, v] of query) {
+        if (k === 'scene') Module.arguments.push('--scene', v);
+        else if (k.startsWith('MDB_') && Module.ENV) Module.ENV[k] = v;
+      }
+      // The game's files
+      Module.addRunDependency('game.pak');
+      setStatus('Downloading the game');
+      fetchPak(setProgress).then((bytes) => {
+        setStatus('Unpacking');
+        const { count, title } = unpack(FS, bytes);
+        if (title) { document.title = title; document.getElementById('title').textContent = title; }
+        console.log('game.pak: ' + count + ' files, ' + (bytes.length / 1048576).toFixed(1) + ' MB');
+        setStatus('Starting the game');
+        Module.removeRunDependency('game.pak');
+      }).catch((e) => setStatus('Could not load the game: ' + e.message, true));
+      // Saves and settings
+      FS.mkdir('/persist');
+      FS.mount(FS.filesystems.IDBFS, {}, '/persist');
+      Module.addRunDependency('persist');
+      FS.syncfs(true, (err) => {
+        if (err) console.warn('Saved games are not available (IndexedDB): ' + err);
+        Module.removeRunDependency('persist');
+      });
+    }],
+    onRuntimeInitialized: () => {
+      setInterval(persist, 3000);
+      addEventListener('pagehide', persist);
+      document.addEventListener('visibilitychange', () => { if (document.hidden) persist(); });
+    },
+    // Called by the player once its first frame is on screen (Game/src/main.cpp)
+    gameReady: () => { loader.classList.add('gone'); Module.canvas.focus(); if (softwareWebGL()) document.getElementById('slow').style.display = 'block'; },
+    gameEnded: () => {
+      persist();
+      loader.classList.remove('gone');
+      document.getElementById('bar').style.display = 'none';
+      setStatus('The game has ended. Reload the page to play again.');
+    },
+    onAbort: (what) => { loader.classList.remove('gone'); setStatus('The game stopped: ' + what, true); },
+  };
+  window.addEventListener('error', (e) => { if (loader && !loader.classList.contains('gone')) setStatus(String(e.message), true); });
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>

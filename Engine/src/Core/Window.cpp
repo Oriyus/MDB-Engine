@@ -4,10 +4,17 @@
 
 #include <glad/glad.h>      // must come before GLFW
 #include <GLFW/glfw3.h>
+#ifdef __EMSCRIPTEN__
+#include <GLFW/emscripten_glfw3.h>
+#include <emscripten/html5.h>
+#endif
 
 namespace Engine {
 
     static void GLFWErrorCallback(int error, const char* description) {
+#ifdef __EMSCRIPTEN__
+        if (error == 0) return;      // the browser port's warnings about window features a page doesn't have
+#endif
         ENGINE_ERROR("GLFW error ({}): {}", error, description);
     }
 
@@ -20,9 +27,16 @@ namespace Engine {
             std::abort();
         }
 
+#ifdef __EMSCRIPTEN__
+        // WebGL2 (OpenGL ES 3.0) on the page's canvas, at the display's pixel density
+        // (the WebGL version comes from the link flags: -sMIN/MAX_WEBGL_VERSION=2)
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
+        glfwWindowHint(GLFW_SCALE_FRAMEBUFFER, GLFW_TRUE);
+#else
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+#endif
         glfwWindowHint(GLFW_VISIBLE, props.StartHidden ? GLFW_FALSE : GLFW_TRUE);
 
         m_Window = glfwCreateWindow((int)props.Width, (int)props.Height,
@@ -33,6 +47,10 @@ namespace Engine {
         }
 
         glfwMakeContextCurrent(m_Window);
+#ifdef __EMSCRIPTEN__
+        // The canvas fills the browser window and follows its size (Game/web/shell.html styles it full window)
+        emscripten_glfw_make_canvas_resizable(m_Window, "window", nullptr);
+#endif
 
         if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
             ENGINE_ERROR("Failed to initialize glad");
@@ -75,6 +93,9 @@ namespace Engine {
 
         // Always created windowed, then switched: that way there is a windowed size to return to
         m_Data.Fullscreen = false;
+#ifdef __EMSCRIPTEN__
+        return;   // a page fills the browser window already; full screen needs a click or key from the player (F11)
+#endif
         if (props.Maximized) glfwMaximizeWindow(m_Window);   // GLFW sizes a hidden window to the work area by hand
         if (props.Fullscreen) {
             if (props.StartHidden) m_PendingFullscreen = true; // switching the monitor would show it
@@ -88,9 +109,24 @@ namespace Engine {
         if (m_PendingFullscreen) { m_PendingFullscreen = false; SetFullscreen(true); }
     }
 
-    bool Window::IsVisible() const { return glfwGetWindowAttrib(m_Window, GLFW_VISIBLE) != 0; }
+    bool Window::IsVisible() const {
+#ifdef __EMSCRIPTEN__
+        return true;                                       // the page's canvas
+#else
+        return glfwGetWindowAttrib(m_Window, GLFW_VISIBLE) != 0;
+#endif
+    }
 
     void Window::SetFullscreen(bool fullscreen) {
+#ifdef __EMSCRIPTEN__
+        // The browser's full screen (it allows it only from a key press or click, which is how F11 / the menu ask)
+        m_Data.Fullscreen = emscripten_glfw_is_window_fullscreen(m_Window);
+        if (fullscreen == m_Data.Fullscreen) return;
+        if (fullscreen) emscripten_glfw_request_fullscreen(m_Window, false, true);
+        else emscripten_exit_fullscreen();
+        m_Data.Fullscreen = fullscreen;
+        return;
+#endif
         if (fullscreen == m_Data.Fullscreen) return;
         if (fullscreen) {
             // Remember the normal (restored) rect; a maximized window is maximized again on the way back
@@ -116,7 +152,9 @@ namespace Engine {
     }
 
     void Window::OnUpdate() {
-        glfwSwapBuffers(m_Window);
+#ifndef __EMSCRIPTEN__
+        glfwSwapBuffers(m_Window);         // (a browser shows the canvas when the frame callback returns)
+#endif
         glfwPollEvents();
     }
 

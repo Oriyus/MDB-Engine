@@ -803,6 +803,24 @@ audio.set_volume("music", 0.6)                    -- or "master"; audio.volume(b
   <li>Fills <code>&lt;output&gt;/&lt;title&gt;/</code> with <code>&lt;title&gt;.exe</code>, <code>EngineAssets/</code>, your <code>Assets/</code> (minus <code>exclude</code>) and <code>project.json</code>.</li>
 </ol>
 <p><b>Play it</b> runs the result and <b>Show in Explorer</b> opens the folder. The game uses the <i>saved</i> scene files, so save first. Players need the Microsoft Visual C++ Redistributable (x64), which most PCs have. A rebuild replaces the earlier build (only a folder that holds a <code>project.json</code> is ever replaced).</p>
+<h3>Web (browser)</h3>
+<p>Set <b>Platform</b> to <b>Web (browser)</b> to build a game that runs in a browser (WebGL2: Chrome, Edge, Firefox, Safari). The result is <code>&lt;output&gt;/&lt;title&gt; (Web)/</code>:</p>
+<table>
+<tr><td><code>index.html</code>, <code>Game.js</code>, <code>Game.wasm</code></td><td>The page and the web player (the engine compiled to WebAssembly). The page shows a loading bar while the game downloads.</td></tr>
+<tr><td><code>game.pak</code></td><td>The same files a Windows build has (EngineAssets, Assets minus <code>exclude</code>, project.json) in one package.</td></tr>
+<tr><td><code>Play.bat</code>, <code>serve.ps1</code></td><td>Play it on this PC: a small local web server (only this computer can connect) that opens the game in your browser. Browsers won't run the game from a double-clicked file.</td></tr>
+</table>
+<p>To share it, upload the folder to any web host. On itch.io: zip the folder's contents, upload them as an HTML project. Saves and the player's settings are kept by the browser (IndexedDB, per site). F11 asks the browser for full screen.</p>
+<p>The web player comes from <code>Tools/build_web.ps1</code> (Emscripten 3.1.74 in <code>D:\emsdk</code>, <code>C:\emsdk</code>, <code>%USERPROFILE%\emsdk</code> or <code>MDB_EMSDK</code>; the first build compiles the engine for the web, several minutes). A packaged editor ships it prebuilt in <code>Player/Web</code>.</p>
+<p><b>What differs on the web</b> (a browser shader may use 16 textures, has no compute shaders or storage buffers, and runs on one thread):</p>
+<ul>
+  <li>Point and spot lights cast no shadows (the sun does, with its cascades); no light cookies or IES profiles; no contact shadows.</li>
+  <li>Terrain layers use their colour textures only (no normal / roughness / height maps). Ambient occlusion is applied after lighting.</li>
+  <li>Shader-graph materials can use at most 5 textures.</li>
+  <li>Physics and grass scattering run on one thread. The first start compiles shaders for a few seconds (browsers cache them afterwards).</li>
+  <li>Esc in browser full screen leaves full screen first.</li>
+  <li>The browser must use the graphics card. With hardware acceleration off (a browser setting: "Use graphics acceleration when available"), WebGL is drawn on the CPU: Coin Rush ran at 4 FPS that way against 144 with it on (RTX 2060). The page notices this and shows the player how to fix it.</li>
+</ul>
 </section>
 
 <section class="doc" data-group="Engine" id="engine-game">
@@ -866,7 +884,7 @@ MDBEditor.exe &gt; log.txt</code></pre>
 <table>
 <tr><th>Variable</th><th>Effect</th></tr>
 <tr><td><code>MDB_PROJECT=Examples</code></td><td>The project to open (a folder, or a folder name in the engine repo). Set it for test runs: otherwise the editor opens the last project used</td></tr>
-<tr><td><code>MDB_BUILD_GAME=folder</code></td><td>Run File › Build Game into the folder (the editor waits for it when quitting)</td></tr>
+<tr><td><code>MDB_BUILD_GAME=folder</code></td><td>Run File › Build Game into the folder (the editor waits for it when quitting); with <code>MDB_BUILD_WEB=1</code> the web build</td></tr>
 <tr><td><code>MDB_WINDOWED=1</code></td><td>A plain 1600 × 900 window instead of maximized</td></tr>
 <tr><td><code>MDB_DEMO=script|coinrush|tactics|cellar|terrain</code></td><td>Build an example level</td></tr>
 <tr><td><code>MDB_TERRAIN_TOOL=raise|smooth|flatten|noise|paint[:1-4]|scatter[:items]</code></td><td>Pick that terrain brush (with <code>MDB_SELECT=Terrain</code>), for scripted brush tests; <code>scatter:a.gltf,b.gltf</code> also sets the items</td></tr>

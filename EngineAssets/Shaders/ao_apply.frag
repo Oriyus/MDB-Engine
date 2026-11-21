@@ -30,6 +30,6 @@ void main() {
         sum += s.x * w;
         weights += w;
     }
-    const float ao = mix(1.0, sum / weights, u_AOStrength);
+    float ao = mix(1.0, sum / weights, u_AOStrength);
     FragColor = vec4(vec3(ao), 1.0);
 }

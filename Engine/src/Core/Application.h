@@ -37,10 +37,16 @@ namespace Engine {
         void SetTitle(const std::string& title);   // the window title (the FPS counter is appended)
 
     private:
+        bool Frame();                   // one pass of the loop; false when the app is done
+        void Finish();                  // OnShutdown, once
+
         std::unique_ptr<Window> m_Window;
         std::unique_ptr<ImGuiLayer> m_ImGui;
         std::string m_Name;
         bool m_Running = true;
+        bool m_Finished = false;
+        double m_LastTime = 0.0, m_FpsTimer = 0.0;
+        int m_FrameCount = 0;
 
         static inline Application* s_Instance = nullptr;
         static inline std::vector<std::string> s_Args;

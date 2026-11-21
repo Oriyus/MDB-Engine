@@ -18,9 +18,8 @@ struct Instance {
     ivec4 Info;        // x entity ID, y unlit, z 1000 x (1 - specular): 0 = full specular
     mat4  PrevModel;   // last frame's Model: motion vectors for temporal anti-aliasing
 };
-layout(std430, binding = 0) readonly buffer Instances { Instance u_Instances[]; };
-layout(std430, binding = 1) readonly buffer InstanceIndices { uint u_Indices[]; };   // per view: which instances
 uniform int u_InstanceBase;          // the batch's first entry in u_Indices
+#include "instance_fetch.glsl"
 
 uniform mat4 u_ViewProjection;
 
@@ -98,7 +97,7 @@ vec3 GraphOffset(vec3 worldPos, vec3 worldNormal, vec2 uv, float time) {
 #endif
 
 void main() {
-    Instance inst = u_Instances[u_Indices[u_InstanceBase + gl_InstanceID]];
+    Instance inst = FetchInstance(u_InstanceBase + gl_InstanceID);
 
     vec4 pos = vec4(a_Position, 1.0);
     vec3 nrm = a_Normal;

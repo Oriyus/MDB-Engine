@@ -389,7 +389,9 @@ namespace Engine {
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, m_Buffers[0]);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, m_Buffers[1]);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, m_Buffers[2]);
+#ifndef __EMSCRIPTEN__
         glBindTextureUnit(20, m_CookieTex);           // cookies and profiles (0 until the first one)
+#endif
         if (m_TileBuffer) glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 9, m_TileBuffer);   // shadow atlas squares
     }
 

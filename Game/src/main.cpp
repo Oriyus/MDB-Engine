@@ -46,6 +46,9 @@
 #include <fstream>
 #include <memory>
 #include <string>
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -69,7 +72,11 @@ namespace {
         // The project: --project, else project.json next to the executable (a packaged game), else the
         // source tree's Examples. The engine files: EngineAssets next to the executable, else the source tree's.
         std::error_code ec;
+#ifdef __EMSCRIPTEN__
+        const fs::path exeDir = "/game";        // the web page unpacks game.pak there (Game/web/shell.html)
+#else
         const fs::path exeDir = args.empty() ? fs::current_path(ec) : fs::absolute(args[0], ec).parent_path();
+#endif
         std::string projectDir;
         for (size_t i = 1; i + 1 < args.size(); i++) if (args[i] == "--project") projectDir = args[i + 1];
         if (projectDir.empty()) projectDir = Engine::Project::IsProject(Engine::Project::PathString(exeDir)) ? Engine::Project::PathString(exeDir) : std::string(EXAMPLES_DIR);
@@ -110,10 +117,14 @@ namespace {
             std::string title;
             for (char ch : c.Window.Title) if (std::string("<>:\"/\\|?*").find(ch) == std::string::npos) title += ch;
             if (title.empty()) title = "MDB Game";
+#ifdef __EMSCRIPTEN__
+            const fs::path root = fs::path("/persist") / title;   // IndexedDB, kept by the browser per site
+#else
             char* appData = nullptr;
             size_t len = 0;
             const fs::path root = (_dupenv_s(&appData, &len, "APPDATA") == 0 && appData) ? fs::path(appData) / title : exeDir;
             std::free(appData);
+#endif
             c.SaveDir = (root / "Saves").generic_string();
             if (c.SettingsFile.empty()) c.SettingsFile = (root / "settings.json").generic_string();
         }
@@ -177,6 +188,9 @@ public:
     void OnUpdate(float dt) override {
         using namespace Engine;
         dt = std::min(dt, 0.1f);     // a long hitch (window drag, environment bake) shouldn't fling the game
+#ifdef __EMSCRIPTEN__
+        if (++m_Frames == 2) EM_ASM({ if (Module.gameReady) Module.gameReady(); });   // a frame is up: hide the loader
+#endif
         m_Time += dt;
         if (m_Cfg.QuitAfter > 0.0f && m_Time >= m_Cfg.QuitAfter) Close();
         // Settings > Controls waiting for a key / button: every key goes to it, not to the shell
@@ -288,7 +302,13 @@ public:
     }
 
     // The player's volumes outlive the run: written when they leave Settings and when the game closes
-    void OnShutdown() override { SaveMix(); SaveInput(); }
+    void OnShutdown() override {
+        SaveMix();
+        SaveInput();
+#ifdef __EMSCRIPTEN__
+        EM_ASM({ if (Module.gameEnded) Module.gameEnded(); });   // the page writes the saves back and says so
+#endif
+    }
 
     // The pause menu is laid-out UI (Runtime/UILayout) of its own, so a mouse, the arrow keys + Enter and a gamepad
     // (D-pad / stick + A) all work it. Esc and the pad's B stay the shell's (resume / back), handled in OnUpdate.
@@ -629,6 +649,7 @@ private:
     bool m_EscDown = false, m_F11Down = false, m_EnterDown = false, m_RDown = false, m_QDown = false;
     bool m_StartDown = false, m_BDown = false;
     float m_Time = 0.0f;
+    int m_Frames = 0;
 };
 
 std::unique_ptr<Engine::Application> Engine::CreateApplication() {

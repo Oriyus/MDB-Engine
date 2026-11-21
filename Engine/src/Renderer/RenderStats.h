@@ -5,8 +5,12 @@ namespace Engine {
 
     // Counters for the frame being drawn. Reset() runs at the start of every frame and keeps the
     // finished frame's numbers in LastFrame (what scripts and the game read).
+    // The finished frame's numbers (RenderStats::LastFrame). Outside RenderStats: clang won't use a nested type's
+    // default member initializers in a static member of the enclosing class
+    struct RenderCounts { uint32_t DrawCalls = 0, Triangles = 0, Instances = 0, Culled = 0, ShadowSkipped = 0, StaticBatches = 0, StaticMerged = 0, Particles = 0, Decals = 0, Foliage = 0, LodReduced = 0, LodCulled = 0, TerrainLodReduced = 0, Lights = 0, LightsVisible = 0, LightsPerCluster = 0, ShadowedLights = 0, AtlasLights = 0, AtlasSmallest = 0, AtlasLargest = 0, AtlasUsed = 0, SunCascades = 0, SunCascadesDrawn = 0; };
+
     struct RenderStats {
-        struct Counts { uint32_t DrawCalls = 0, Triangles = 0, Instances = 0, Culled = 0, ShadowSkipped = 0, StaticBatches = 0, StaticMerged = 0, Particles = 0, Decals = 0, Foliage = 0, LodReduced = 0, LodCulled = 0, TerrainLodReduced = 0, Lights = 0, LightsVisible = 0, LightsPerCluster = 0, ShadowedLights = 0, AtlasLights = 0, AtlasSmallest = 0, AtlasLargest = 0, AtlasUsed = 0, SunCascades = 0, SunCascadesDrawn = 0; };
+        using Counts = RenderCounts;
 
         static inline uint32_t DrawCalls = 0;
         static inline uint32_t Triangles = 0;

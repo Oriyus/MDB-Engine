@@ -142,7 +142,7 @@ void March(vec3 dir, float from, float to, int n, float jitter, inout vec3 light
                 if (z != g_Slice) { g_Slice = z; g_Cell = LightCell(g_Tile, z); }
                 uvec2 cell = g_Cell;
                 for (uint k = 0u; k < cell.y; k++) {
-                    PointLightGpu pl = u_Lights[u_ClusterIndices[cell.x + k]];
+                    PointLightGpu pl = ClusterLight(cell.x + k);
                     vec3 toLight = pl.PosRange.xyz - p;
                     if (pl.Extra.z > 0.5) toLight = AreaClosest(pl.PosRange.xyz, pl.Spot.xyz, pl.Area, pl.Extra.z, p) - p;
                     float d2 = dot(toLight, toLight);

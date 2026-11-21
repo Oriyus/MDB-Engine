@@ -8,6 +8,7 @@
 
 namespace Engine {
 
+    // Segoe UI on Windows; elsewhere (the web build) the open fonts in EngineAssets/Fonts
     UIFonts LoadGameFonts() {
         ImGuiIO& io = ImGui::GetIO();
         if (io.Fonts->Fonts.empty()) io.Fonts->AddFontDefault();
@@ -17,8 +18,13 @@ namespace Engine {
             return nullptr;
         };
         UIFonts fonts;
+#ifdef __EMSCRIPTEN__
+        fonts.Bold = load({ "/game/EngineAssets/Fonts/Roboto-Medium.ttf" });
+        fonts.Regular = load({ "/game/EngineAssets/Fonts/DroidSans.ttf" });
+#else
         fonts.Bold = load({ "C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf" });
         fonts.Regular = load({ "C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/arial.ttf" });
+#endif
         if (!fonts.Regular) fonts.Regular = fonts.Bold;
         if (!fonts.Bold) fonts.Bold = fonts.Regular;
         return fonts;

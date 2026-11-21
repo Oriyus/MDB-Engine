@@ -16,7 +16,11 @@ namespace Engine {
         ImGui::StyleColorsDark();
 
         ImGui_ImplGlfw_InitForOpenGL(window, true);   // true = install GLFW callbacks
+#ifdef __EMSCRIPTEN__
+        ImGui_ImplOpenGL3_Init("#version 300 es");   // WebGL2
+#else
         ImGui_ImplOpenGL3_Init("#version 450");
+#endif
     }
 
     ImGuiLayer::~ImGuiLayer() {

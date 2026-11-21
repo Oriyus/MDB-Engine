@@ -19,9 +19,8 @@ struct Instance {
     ivec4 Info;
     mat4  PrevModel;   // last frame's Model (motion vectors; unused here)
 };
-layout(std430, binding = 0) readonly buffer Instances { Instance u_Instances[]; };
-layout(std430, binding = 1) readonly buffer InstanceIndices { uint u_Indices[]; };   // per view: which instances
 uniform int u_InstanceBase;
+#include "instance_fetch.glsl"
 
 uniform mat4 u_LightVP;
 
@@ -88,7 +87,7 @@ vec3 GraphOffset(vec3 worldPos, vec3 worldNormal, vec2 uv, float time) {
 #endif
 
 void main() {
-    Instance inst = u_Instances[u_Indices[u_InstanceBase + gl_InstanceID]];
+    Instance inst = FetchInstance(u_InstanceBase + gl_InstanceID);
     vec4 pos = vec4(a_Position, 1.0);
     if (u_Skinned == 1) {
         mat4 skin = a_Weights.x * u_Bones[a_Bones.x] + a_Weights.y * u_Bones[a_Bones.y]
