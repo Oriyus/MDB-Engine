@@ -16,20 +16,28 @@ namespace Engine {
         // Latin, Latin-1, Latin Extended-A (c with caron, s with caron, d with stroke...) and general punctuation
         // (dashes, curly quotes, bullet, ellipsis); the atlas only holds the glyphs asked for
         static const ImWchar kRanges[] = { 0x0020, 0x00FF, 0x0100, 0x017F, 0x2010, 0x2030, 0 };
-        auto load = [&](std::initializer_list<std::string> files) -> ImFont* {
+        // the large bold: printable ASCII only, so its big glyphs stay a small part of the atlas
+        static const ImWchar kLargeRanges[] = { 0x0020, 0x007E, 0 };
+        std::string boldPath;
+        auto load = [&](std::initializer_list<std::string> files, std::string* chosen = nullptr) -> ImFont* {
             for (const std::string& f : files)
-                if (!f.empty() && std::filesystem::exists(std::filesystem::u8path(f)))
+                if (!f.empty() && std::filesystem::exists(std::filesystem::u8path(f))) {
+                    if (chosen) *chosen = f;
                     return io.Fonts->AddFontFromFileTTF(f.c_str(), 64.0f, nullptr, kRanges);
+                }
             return nullptr;
         };
         UIFonts fonts;
 #ifdef __EMSCRIPTEN__
-        fonts.Bold = load({ boldFile, "/game/EngineAssets/Fonts/Roboto-Medium.ttf" });
+        fonts.Bold = load({ boldFile, "/game/EngineAssets/Fonts/Roboto-Medium.ttf" }, &boldPath);
         fonts.Regular = load({ regularFile, "/game/EngineAssets/Fonts/DroidSans.ttf" });
 #else
-        fonts.Bold = load({ boldFile, "C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf" });
+        fonts.Bold = load({ boldFile, "C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf" }, &boldPath);
         fonts.Regular = load({ regularFile, "C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/arial.ttf" });
 #endif
+        // Big text (titles) drawn from 64 px glyphs is blurry once it is scaled past them: the bold font again at
+        // kLargeSize for that (DrawScriptUI picks it for bold ASCII text drawn above kLargeFrom pixels)
+        if (!boldPath.empty()) fonts.BoldLarge = io.Fonts->AddFontFromFileTTF(boldPath.c_str(), kLargeSize, nullptr, kLargeRanges);
         for (const std::string& f : { regularFile, boldFile })
             if (!f.empty() && !std::filesystem::exists(std::filesystem::u8path(f))) ENGINE_WARN("Game font '{}' not found: using the engine's", f);
         if (!fonts.Regular) fonts.Regular = fonts.Bold;
@@ -99,10 +107,16 @@ namespace Engine {
 
         for (const auto& it : items) {
             switch (it.Kind) {
-            case ScriptUIItem::Type::Text:
-                DrawLabel(dl, it.Regular ? regular : bold, std::clamp(it.Size * scale, 4.0f, 256.0f), at(it.X, it.Y),
-                    it.Align, it.Text, it.Color, it.Alpha, it.Shadow);
+            case ScriptUIItem::Type::Text: {
+                const float px = std::clamp(it.Size * scale, 4.0f, 256.0f);
+                ImFont* font = it.Regular ? regular : bold;
+                // big bold titles: the large bake (downscaled, crisp) if it has every character of the text
+                if (!it.Regular && fonts.BoldLarge && px > kLargeFrom
+                    && std::all_of(it.Text.begin(), it.Text.end(), [](char c) { return (unsigned char)c < 0x80; }))
+                    font = fonts.BoldLarge;
+                DrawLabel(dl, font, px, at(it.X, it.Y), it.Align, it.Text, it.Color, it.Alpha, it.Shadow);
                 break;
+            }
 
             case ScriptUIItem::Type::Rect:
                 dl->AddRectFilled(at(it.X, it.Y), at(it.X + it.W, it.Y + it.H), ToColor(it.Color, it.Alpha), it.Rounding * scale);
@@ -145,8 +159,14 @@ namespace Engine {
                 if (it.Pressed)      face *= 0.75f;
                 else if (it.Hovered) face = glm::mix(face, glm::vec3(1.0f), 0.18f);
                 const ImVec2 p0 = at(it.X, it.Y), p1 = at(it.X + it.W, it.Y + it.H);
-                dl->AddRectFilled(p0, p1, ToColor(face, it.Alpha), it.Rounding * scale);
-                dl->AddRect(p0, p1, ToColor(glm::vec3(1.0f), (it.Hovered ? 0.55f : 0.25f) * it.Alpha), it.Rounding * scale, 0, std::max(1.0f, 2.0f * scale));
+                const Texture2D* frame = (!it.Image.empty() && textures) ? textures->Get(it.Image) : nullptr;
+                if (frame) {        // a 9-slice frame image tinted by the face colour
+                    DrawNineSlice(dl, (ImTextureID)(intptr_t)frame->GetID(), p0, p1, (float)frame->GetWidth(),
+                        (float)frame->GetHeight(), it.Slice, it.Slice * scale, ToColor(face, it.Alpha));
+                } else {
+                    dl->AddRectFilled(p0, p1, ToColor(face, it.Alpha), it.Rounding * scale);
+                    dl->AddRect(p0, p1, ToColor(glm::vec3(1.0f), (it.Hovered ? 0.55f : 0.25f) * it.Alpha), it.Rounding * scale, 0, std::max(1.0f, 2.0f * scale));
+                }
                 const float px = std::clamp(it.Size * scale, 4.0f, 256.0f);
                 const ImVec2 extent = bold->CalcTextSizeA(px, FLT_MAX, 0.0f, it.Text.c_str());
                 DrawLabel(dl, bold, px, ImVec2((p0.x + p1.x) * 0.5f, (p0.y + p1.y) * 0.5f - extent.y * 0.5f), 1, it.Text, it.TextColor, it.Alpha, it.Shadow);

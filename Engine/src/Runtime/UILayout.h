@@ -27,6 +27,7 @@ namespace Engine {
         float Padding = 14.0f, Spacing = 8.0f, Rounding = 8.0f;
         glm::vec3 SlotColor{ 0.1f, 0.12f, 0.16f };      float SlotSize = 64.0f;
         std::string SlotImage;                          float SlotSlice = 0.0f;
+        std::string ButtonImage;                        float ButtonSlice = 0.0f;  // a 9-slice frame for buttons and tabs, tinted by their face colour
         float TooltipWidth = 320.0f;
     };
 

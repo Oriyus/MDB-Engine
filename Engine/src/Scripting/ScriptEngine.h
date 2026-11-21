@@ -65,6 +65,8 @@ namespace Engine {
         bool Shadow = true;                 // text: a soft drop shadow
         float Thickness = 1.0f;             // border width in pixels at 720p
         float Slice = 0.0f;                 // image: 9-slice frame, this many texture pixels kept unstretched on each side
+        std::string Image;                  // button: a 9-slice frame image ("Textures/x.png") tinted by Color, instead of
+                                            // the rounded face (Slice: its unstretched border, texture pixels)
     };
     using ScriptText = ScriptUIItem;        // the older name
 
@@ -256,8 +258,10 @@ namespace Engine {
     //           regular font instead of the bold one), shadow=true }])
     //   ui.rect(x, y, w, h [, { color, alpha, rounding }])                 rounding in px at 720p
     //   ui.bar(x, y, w, h, fraction [, { color, back=vec3, alpha, rounding }])   e.g. health or time
-    //   ui.image(path, x, y, w [, h] [, { color (tint), alpha }])          "Textures/x.png"; no h: keep aspect
-    //   ui.button(label, x, y, w, h [, { color, text_color, size, alpha, rounding }]) -> true on the frame it's clicked
+    //   ui.image(path, x, y, w [, h] [, { color (tint), alpha, slice }])   "Textures/x.png"; no h: keep aspect; slice: a 9-slice
+    //       frame (this many texture pixels kept unstretched on each side)
+    //   ui.button(label, x, y, w, h [, { color, text_color, size, alpha, rounding, image, slice }]) -> true on the frame it's clicked
+    //       (image: a 9-slice frame "Textures/x.png" tinted by color instead of the rounded face)
     //   ui.mouse() -> x, y, inside                                         pointer over the view, 0..1
     //   ---- laid-out UI (Runtime/UILayout.h): panels place their contents. Sizes are units (pixels at 720p).
     //   ui.begin_panel(id, { x=0.5, y=0.5, anchor="center", w=400, h (0: fit the content), title, close=false,
@@ -299,7 +303,9 @@ namespace Engine {
     //       just placed has the focus, ui.focus_default(). Test with input.simulate_key / simulate_gamepad.
     //   ui.theme{ panel_color, panel_alpha, panel_image, panel_slice, border_color, border_alpha, title_color, title_size,
     //             text_color, text_size, muted_color, button_color, accent_color, button_text_size, button_height,
-    //             padding, spacing, rounding, slot_color, slot_size, slot_image, slot_slice, tooltip_width }
+    //             padding, spacing, rounding, slot_color, slot_size, slot_image, slot_slice, tooltip_width,
+    //             button_image, button_slice }   button_image: a 9-slice frame for buttons and tabs, tinted by their colour
+    //             (draw it light grey); a panel_image also frames tooltips
     //   ui.wants_mouse() -> true when the pointer is over UI (or dragging): don't treat the click as a world click
     //   ui.dragging() -> the dragged value or nil, ui.last_rect() -> x, y, w, h (0..1), ui.text_width(text [, size [, bold]])
     //   ui.show(path [, { vars = {...}, id }]) -> clicked, index    draws a layout made in the UI Editor (Assets/UI/x.json,

@@ -1168,6 +1168,7 @@ namespace Engine {
                 }
                 if (!opts) opts = tableAt(va, 4);
                 style(opts, img);
+                img.Slice = optF(opts, "slice", 0.0f);   // a 9-slice frame: this many texture pixels kept on each side
                 push(std::move(img));
                 return;
             }
@@ -1190,6 +1191,8 @@ namespace Engine {
                 b.Rounding = 10.0f;
                 b.Size = 28.0f;
                 style(tableAt(va, 4), b);
+                b.Image = optS(tableAt(va, 4), "image", "");   // a 9-slice frame tinted by color, instead of the rounded face
+                b.Slice = optF(tableAt(va, 4), "slice", 0.0f);
                 b.Hovered = PtrInside && PtrX >= x && PtrX <= x + w && PtrY >= y && PtrY <= y + h;
                 b.Pressed = b.Hovered && PtrDown;
                 const bool clicked = b.Hovered && PtrClicked;
@@ -1391,6 +1394,7 @@ namespace Engine {
             f("button_text_size", th.ButtonTextSize); f("button_height", th.ButtonHeight);
             f("padding", th.Padding); f("spacing", th.Spacing); f("rounding", th.Rounding);
             c("slot_color", th.SlotColor); f("slot_size", th.SlotSize); s("slot_image", th.SlotImage); f("slot_slice", th.SlotSlice);
+            s("button_image", th.ButtonImage); f("button_slice", th.ButtonSlice);
             f("tooltip_width", th.TooltipWidth);
         });
 

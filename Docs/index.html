@@ -1809,6 +1809,13 @@ ui.focus_default()                                 -- move the focus to the defa
           panel_slice = 20, title_color = vec3(1, 0.85, 0.4), text_size = 18, button_color = vec3(0.16, 0.2, 0.3),
           accent_color = vec3(0.25, 0.45, 0.85), padding = 14, spacing = 8, rounding = 8, slot_size = 64 }
 
+-- Framed buttons: a 9-slice image for every laid-out button and tab, tinted by its colour (draw the frame light
+-- grey so selected / custom colours show true). With panel_image set, tooltips use the panel frame too.
+ui.theme{ button_image = "Textures/UI/button.png", button_slice = 10, rounding = 0 }
+-- Positioned widgets take frames as well
+ui.button("Play", 0.42, 0.6, 0.16, 0.06, { image = "Textures/UI/button.png", slice = 8, color = vec3(0.8, 0.4, 0.1) })
+ui.image("Textures/UI/strip.png", 0, 0, 1, 0.05, { slice = 10 })      -- a stretched 9-slice bar
+
 if ui.wants_mouse() then return end          -- the pointer is over UI: not a world click
 local held = ui.dragging()                    -- the dragged value, or nil
 local x, y, w, h = ui.last_rect()             -- the widget just placed (0..1)

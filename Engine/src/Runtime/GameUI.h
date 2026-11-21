@@ -14,9 +14,13 @@ namespace Engine {
 
     // The two game fonts: Bold for titles, buttons and HUD text (ui.text), Regular for body text
     // (ui.label). Either may be null: the other one (or ImGui's default font) is used then.
+    // Fonts are baked into the atlas at 64 px; bold text drawn bigger than kLargeFrom pixels uses a kLargeSize bake
+    constexpr float kLargeSize = 160.0f, kLargeFrom = 72.0f;
+
     struct UIFonts {
         ImFont* Bold = nullptr;
         ImFont* Regular = nullptr;
+        ImFont* BoldLarge = nullptr;         // Bold baked at kLargeSize (printable ASCII) for big titles; null: none
     };
 
     // Large TTFs (the project's, given as full paths, else Segoe UI Bold / Regular or Arial), so text stays crisp when

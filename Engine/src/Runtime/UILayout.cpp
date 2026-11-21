@@ -261,7 +261,9 @@ namespace Engine {
             if (r.X + r.W > m_VW - 4) r.X = ax - r.W - 8;
             if (r.Y + r.H > kUnitH - 4) r.Y = (m_HotFromNav ? m_NavRect.Y : ay) - r.H - 8;
             r.X = std::max(4.0f, r.X);
-            EmitFrame(r, Theme.PanelColor * 0.8f, 0.97f, std::string(), 0.0f, 6.0f);
+            // the panel frame image if the theme has one (tinted darker, nearly opaque), else a flat rounded box
+            if (!Theme.PanelImage.empty()) EmitFrame(r, glm::vec3(0.85f), 0.98f, Theme.PanelImage, Theme.PanelSlice, 0.0f);
+            else EmitFrame(r, Theme.PanelColor * 0.8f, 0.97f, std::string(), 0.0f, std::min(6.0f, Theme.Rounding));
             LayoutText(m_PendingTooltip, r.X + pad, r.Y + pad, textW, o, true);
         }
         // Text fields: the focused one wasn't drawn (its panel closed) or a press landed elsewhere: it lets go.
@@ -461,7 +463,9 @@ namespace Engine {
             float w = pieces[i].Width;
             while (j < pieces.size() && !pieces[j].Newline && !pieces[j].SpaceBefore) w += pieces[j++].Width;
             const float gap = lines.back().empty() ? 0.0f : space;
-            if (width > 0.0f && !lines.back().empty() && widths.back() + gap + w > width) {
+            // (a hair of tolerance: Label lays text out at exactly its measured width, and float rounding must not
+            // push the last word onto a line of its own)
+            if (width > 0.0f && !lines.back().empty() && widths.back() + gap + w > width + 0.01f) {
                 lines.emplace_back();
                 widths.push_back(0.0f);
             }
@@ -769,15 +773,20 @@ namespace Engine {
         if (o.Disabled) { face *= 0.7f; alpha = 0.5f; }
         else if (held) face *= 0.75f;
         else if (hovered || nav) face = glm::mix(face, glm::vec3(1.0f), 0.16f);
-        ScriptUIItem& f = Emit(ScriptUIItem::Type::Rect, r.X, r.Y, r.W, r.H);
-        f.Color = face;
-        f.Alpha = alpha;
-        f.Rounding = Theme.Rounding;
-        ScriptUIItem& b = Emit(ScriptUIItem::Type::Border, r.X, r.Y, r.W, r.H);
-        b.Color = o.Selected ? glm::mix(Theme.AccentColor, glm::vec3(1.0f), 0.4f) : glm::vec3(1.0f);
-        b.Alpha = (hovered ? 0.5f : 0.2f) * alpha;
-        b.Rounding = Theme.Rounding;
-        b.Thickness = 1.5f;
+        if (!Theme.ButtonImage.empty()) {
+            // a 9-slice frame tinted by the face colour (draw it light grey, so the tint shows true)
+            EmitImage(Theme.ButtonImage, r.X, r.Y, r.W, r.H, face, alpha, Theme.ButtonSlice);
+        } else {
+            ScriptUIItem& f = Emit(ScriptUIItem::Type::Rect, r.X, r.Y, r.W, r.H);
+            f.Color = face;
+            f.Alpha = alpha;
+            f.Rounding = Theme.Rounding;
+            ScriptUIItem& b = Emit(ScriptUIItem::Type::Border, r.X, r.Y, r.W, r.H);
+            b.Color = o.Selected ? glm::mix(Theme.AccentColor, glm::vec3(1.0f), 0.4f) : glm::vec3(1.0f);
+            b.Alpha = (hovered ? 0.5f : 0.2f) * alpha;
+            b.Rounding = Theme.Rounding;
+            b.Thickness = 1.5f;
+        }
 
         UITextOptions t;
         t.Size = size;
