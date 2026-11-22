@@ -207,6 +207,9 @@ namespace Engine {
 
         m_PrevPanels = std::move(m_Panels);
         m_Panels.clear();
+        m_PrevRowDy = std::move(m_RowDy);
+        m_RowDy.clear();
+        m_RowCount.clear();
         m_PrevBlockers = std::move(m_Blockers);
         m_Blockers.clear();
         m_HoverPanel.clear();
@@ -355,7 +358,9 @@ namespace Engine {
         if (m_Stack.empty()) throw std::runtime_error("call it between ui.begin_panel and ui.end_panel");
         Box& b = m_Stack.back();
         if (b.K == Box::Kind::Row) {
-            Rect r{ b.CurX, b.Y, w, h };
+            const float pre = RowPre(b);         // where end_row centred this child last frame
+            Rect r{ b.CurX, b.Y + pre, w, h };
+            b.Pre.push_back(pre);
             b.Children.emplace_back(m_Out ? m_Out->size() : 0, h);
             b.CurX += w + b.Spacing;
             b.LineH = std::max(b.LineH, h);
@@ -366,6 +371,12 @@ namespace Engine {
         b.CurY += h + b.Spacing;
         b.MaxRight = std::max(b.MaxRight, r.X + w);
         return r;
+    }
+
+    float UIContext::RowPre(const Box& row) const {
+        const auto it = m_PrevRowDy.find(row.RowKey);
+        const size_t i = row.Pre.size();
+        return (it != m_PrevRowDy.end() && i < it->second.size()) ? it->second[i] : 0.0f;
     }
 
     void UIContext::ChildDone(float x, float y, float w, float h, size_t firstItem) {
@@ -612,7 +623,9 @@ namespace Engine {
         col.K = Box::Kind::Column;
         col.Id = parent.Id;
         col.X = inRow ? parent.CurX : parent.X;
-        col.Y = col.CurY = col.StartY = inRow ? parent.Y : parent.CurY;
+        float pre = 0.0f;
+        if (inRow) { pre = RowPre(parent); m_Stack.back().Pre.push_back(pre); }   // (parent is that back())
+        col.Y = col.CurY = col.StartY = inRow ? parent.Y + pre : parent.CurY;
         col.W = width > 0.0f ? width : Avail();
         col.MaxRight = col.X;
         col.Spacing = Theme.Spacing;
@@ -635,7 +648,13 @@ namespace Engine {
         row.K = Box::Kind::Row;
         row.Id = parent.Id;
         row.X = parent.K == Box::Kind::Row ? parent.CurX : parent.X;
-        row.Y = parent.K == Box::Kind::Row ? parent.Y : parent.CurY;
+        float pre = 0.0f;
+        if (parent.K == Box::Kind::Row) { pre = RowPre(parent); m_Stack.back().Pre.push_back(pre); }
+        row.Y = parent.K == Box::Kind::Row ? parent.Y + pre : parent.CurY;
+        {
+            const std::string& panel = CurrentPanel();
+            row.RowKey = panel + "#" + std::to_string(m_RowCount[panel]++);
+        }
         row.W = Avail();
         row.CurX = row.X;
         row.MaxRight = row.X;
@@ -648,13 +667,19 @@ namespace Engine {
         if (m_Stack.empty() || m_Stack.back().K != Box::Kind::Row) throw std::runtime_error("ui.end_row without ui.begin_row");
         Box row = std::move(m_Stack.back());
         m_Stack.pop_back();
-        // Centre each child vertically in the row
+        // Centre each child vertically in the row. Each was placed at last frame's centring (what the pointer was
+        // tested against); only what changed since is moved here, and the new centring is kept for next frame.
+        std::vector<float>& keep = m_RowDy[row.RowKey];
+        keep.assign(row.Children.size(), 0.0f);
         if (m_Out) {
             for (size_t c = 0; c < row.Children.size(); c++) {
                 const auto [start, h] = row.Children[c];
                 const size_t end = c + 1 < row.Children.size() ? std::get<0>(row.Children[c + 1]) : m_Out->size();
-                const float dy = (row.LineH - h) * 0.5f / kUnitH;
-                if (dy > 0.0f) {
+                const float want = std::max(0.0f, (row.LineH - h) * 0.5f);
+                keep[c] = want;
+                const float pre = c < row.Pre.size() ? row.Pre[c] : 0.0f;
+                const float dy = (want - pre) / kUnitH;
+                if (std::abs(dy) > 1e-6f) {
                     for (size_t i = start; i < end && i < m_Out->size(); i++) (*m_Out)[i].Y += dy;
                     for (NavItem& n : m_NavItems)    // the focusable widgets in it move down with it
                         if (n.OutIndex >= start && n.OutIndex < end) {

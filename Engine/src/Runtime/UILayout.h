@@ -228,6 +228,8 @@ namespace Engine {
             Rect Outer;                          // the panel or scroll region on screen
             std::vector<size_t> Patch;           // panels: background items whose height is set at End
             std::vector<std::tuple<size_t, float>> Children;   // rows: (first item, height) per child, centred at End
+            std::string RowKey;                  // rows: which row this is (its panel and its place in it), to remember its centring
+            std::vector<float> Pre;              // rows: the centring each child was placed with (last frame's)
             size_t ClipItem = 0;
             float Padding = 0;
             float Scroll = 0;
@@ -270,6 +272,12 @@ namespace Engine {
         Rect m_Last;
         std::string m_LastId;
         std::unordered_map<std::string, int> m_IdCount;          // this frame: repeats of an id
+        // Rows centre shorter children vertically, which is only known at end_row. Each row keeps the offsets it ended
+        // with last frame and places its children there at once, so what the pointer is tested against is where they
+        // are drawn (a layout that changes is a frame late, like panel hovering)
+        std::unordered_map<std::string, std::vector<float>> m_RowDy, m_PrevRowDy;
+        std::unordered_map<std::string, int> m_RowCount;          // this frame: rows begun per panel
+        float RowPre(const Box& row) const;      // the centring offset for the next child of a row
 
         // panels: last frame's (in draw order) and this frame's; their measured heights
         std::vector<std::pair<std::string, Rect>> m_Panels, m_PrevPanels;

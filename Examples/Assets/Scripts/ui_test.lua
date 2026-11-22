@@ -8,6 +8,7 @@ local LONG = "This sentence is long enough that a 392 unit wide label has to wra
 
 local frame, step = 0, 0
 local clicks, tab, dropped, dragging_seen = 0, 1, nil, false
+local centred_clicks = 0           -- the button beside a taller column (rows centre their children)
 local closed = false
 local r = {}                        -- rects from the last draw: name -> { x, y, w, h } (0..1 of the view)
 local vw                            -- the view width in units (the height is 720)
@@ -35,6 +36,14 @@ local function draw()
     if got then dropped = got end
     ui.end_row()
     if ui.dragging() then dragging_seen = true end
+    -- a short button beside a taller column: end_row centres it, and it must be clicked where it's drawn
+    ui.begin_row()
+    if ui.button("Centred") then centred_clicks = centred_clicks + 1 end
+    rect("centred")
+    ui.begin_column(120)
+    ui.label("one"); ui.label("two"); ui.label("three")
+    ui.end_column()
+    ui.end_row(); rect("tall_row")
     ui.begin_scroll("list", 100)
     for i = 1, 20 do
         ui.label("Line " .. i)
@@ -46,6 +55,20 @@ local function draw()
 end
 
 local steps = {
+    -- a row's centring: placed (and so hit-tested) where it's drawn
+    function()
+        local _, cy = center("centred")
+        local _, ry = center("tall_row")
+        check("a short child of a row is placed centred, where it's drawn", math.abs(cy - ry) * 720 < 1, (cy - ry) * 720)
+        ui.simulate_pointer(center("centred"))
+    end,
+    function() local x, y = center("centred"); ui.simulate_pointer(x, y, true) end,
+    function() ui.simulate_pointer(center("centred")) end,
+    function()
+        check("a centred button clicks where it's drawn", centred_clicks == 1, centred_clicks)
+        ui.simulate_pointer()
+    end,
+    function() end,
     -- layout
     function()
         local lineH = 18 * 1.25
