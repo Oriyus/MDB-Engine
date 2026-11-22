@@ -21,6 +21,7 @@
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/CollideShape.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyLock.h>
@@ -157,6 +158,28 @@ namespace Engine {
             JPH::BodyID m_Ignore;
             bool m_StaticOnly = false;
         };
+
+        // Overlap queries: everything but `ignore`, statics and sensors only when asked for
+        class OverlapFilter final : public JPH::BodyFilter {
+        public:
+            OverlapFilter(JPH::BodyID ignore, bool statics, bool triggers) : m_Ignore(ignore), m_Statics(statics), m_Triggers(triggers) {}
+            bool ShouldCollide(const JPH::BodyID& id) const override { return id != m_Ignore; }
+            bool ShouldCollideLocked(const JPH::Body& body) const override {
+                if (body.IsSensor() && !m_Triggers) return false;
+                return m_Statics || !body.IsStatic();
+            }
+        private:
+            JPH::BodyID m_Ignore;
+            bool m_Statics = true, m_Triggers = false;
+        };
+
+        // Distance from p to the segment a..b
+        inline float SegmentDistance(const glm::vec3& p, const glm::vec3& a, const glm::vec3& b) {
+            const glm::vec3 ab = b - a;
+            const float len2 = glm::dot(ab, ab);
+            const float t = len2 > 1e-12f ? glm::clamp(glm::dot(p - a, ab) / len2, 0.0f, 1.0f) : 0.0f;
+            return glm::length(p - (a + ab * t));
+        }
 
         inline uint64_t PairKey(JPH::BodyID a, JPH::BodyID b) {
             uint32_t x = a.GetIndexAndSequenceNumber(), y = b.GetIndexAndSequenceNumber();
@@ -1085,6 +1108,63 @@ namespace Engine {
         const JPH::Vec3 axis = r.mPenetrationAxis;
         hit.Normal = axis.LengthSq() > 1e-12f ? ToGlm(-axis.Normalized()) : -dir;
         return true;
+    }
+
+    void PhysicsWorld::OverlapSphere(const glm::vec3& center, float radius, std::vector<RayHit>& hits,
+        entt::entity ignore, bool includeStatic, bool includeTriggers) const {
+        OverlapCapsule(center, center, radius, hits, ignore, includeStatic, includeTriggers);
+    }
+
+    void PhysicsWorld::OverlapCapsule(const glm::vec3& a, const glm::vec3& b, float radius, std::vector<RayHit>& hits,
+        entt::entity ignore, bool includeStatic, bool includeTriggers) const {
+        hits.clear();
+        if (radius <= 0.0f) return;
+
+        JPH::BodyID ignoreId;
+        if (auto it = m_Impl->Bindings.find(ignore); it != m_Impl->Bindings.end()) ignoreId = it->second.Id;
+        else if (auto c = m_Impl->Characters.find(ignore); c != m_Impl->Characters.end()) ignoreId = c->second.Ch->GetInnerBodyID();
+
+        // Jolt's capsule stands along local Y, centred: turn Y onto a..b and put it in the middle
+        const glm::vec3 ab = b - a;
+        const float len = glm::length(ab);
+        const glm::vec3 mid = (a + b) * 0.5f;
+        JPH::Quat rot = JPH::Quat::sIdentity();
+        if (len > 1e-4f) rot = JPH::Quat::sFromTo(JPH::Vec3::sAxisY(), ToJolt(ab / len));
+        const JPH::RMat44 xform = JPH::RMat44::sRotationTranslation(rot, JPH::RVec3(mid.x, mid.y, mid.z));
+
+        JPH::SphereShape sphere(radius);
+        JPH::CapsuleShape capsule(std::max(len * 0.5f, 1e-4f), radius);
+        sphere.SetEmbedded();                          // on the stack: no reference counting
+        capsule.SetEmbedded();
+        const JPH::Shape* shape = len > 1e-4f ? static_cast<const JPH::Shape*>(&capsule) : &sphere;
+
+        JPH::CollideShapeSettings settings;
+        settings.mBackFaceMode = JPH::EBackFaceMode::CollideWithBackFaces;
+        JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> collector;
+        OverlapFilter filter(ignoreId, includeStatic, includeTriggers);
+        m_Impl->System.GetNarrowPhaseQuery().CollideShape(shape, JPH::Vec3::sReplicate(1.0f), xform, settings,
+            JPH::RVec3::sZero(), collector, {}, {}, filter);
+
+        // One hit per entity: its deepest contact
+        std::unordered_map<entt::entity, std::pair<float, glm::vec3>> best;
+        for (const JPH::CollideShapeResult& r : collector.mHits) {
+            auto ent = m_Impl->BodyToEntity.find(r.mBodyID2.GetIndexAndSequenceNumber());
+            if (ent == m_Impl->BodyToEntity.end()) continue;
+            auto [it, added] = best.try_emplace(ent->second, r.mPenetrationDepth, ToGlm(JPH::Vec3(r.mContactPointOn2)));
+            if (!added && r.mPenetrationDepth > it->second.first)
+                it->second = { r.mPenetrationDepth, ToGlm(JPH::Vec3(r.mContactPointOn2)) };
+        }
+        hits.reserve(best.size());
+        for (const auto& [e, d] : best) {
+            RayHit h;
+            h.Entity = e;
+            h.Point = d.second;
+            h.Distance = std::max(0.0f, SegmentDistance(d.second, a, b));
+            const glm::vec3 away = d.second - (len > 1e-4f ? a + ab * glm::clamp(glm::dot(d.second - a, ab) / (len * len), 0.0f, 1.0f) : a);
+            h.Normal = glm::length(away) > 1e-6f ? glm::normalize(away) : glm::vec3(0, 1, 0);   // from the query out to the contact
+            hits.push_back(h);
+        }
+        std::sort(hits.begin(), hits.end(), [](const RayHit& x, const RayHit& y) { return x.Distance < y.Distance; });
     }
 
     bool PhysicsWorld::StaticBounds(glm::vec3& mn, glm::vec3& mx) const {

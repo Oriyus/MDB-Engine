@@ -141,7 +141,10 @@ namespace Engine {
         float ViewAspect = 16.0f / 9.0f;
         ResourceRegistry Resources;
         Scene* ActiveScene = nullptr;
-        float Time = 0.0f;
+        float Time = 0.0f;                                // game time (scaled)
+        float RealTime = 0.0f, RealDt = 0.0f;             // unscaled: since Play, and this frame
+        float TimeScale = 1.0f;                           // scene.time_scale
+        float HitStopLeft = 0.0f, HitStopScale = 1.0f;    // scene.hitstop: real seconds left, and its speed
 
         // Declared before Instances so the instances (which hold Lua references) die first
         std::unique_ptr<sol::state> Lua;
@@ -199,6 +202,19 @@ namespace Engine {
         std::array<bool, kKeyCount> SimKeys{};            // input.simulate_key
         std::array<bool, kKeyCount> KeyMasked{};          // held when a text field took or let go of the keyboard: up until released
         bool KeyboardAllowed = true;                      // SetKeyboard: typing reaches text fields
+        // Mouse look: input.lock_mouse hides and holds the cursor while the app allows it (playing, not paused, the view
+        // focused); input.mouse_delta is how far it moved this frame
+        bool MouseLockWanted = false, MouseLockAllowed = false, MouseLockApplied = false;
+        bool MousePrevValid = false;
+        float MousePrevX = 0.0f, MousePrevY = 0.0f, MouseDX = 0.0f, MouseDY = 0.0f;
+        bool SimMouse = false; float SimMouseDX = 0.0f, SimMouseDY = 0.0f;   // input.simulate_mouse_delta, next frame
+        void ApplyMouseLock() {
+            const bool lock = MouseLockWanted && MouseLockAllowed;
+            if (lock == MouseLockApplied) return;
+            Input::SetCursorLocked(lock);
+            MouseLockApplied = lock;
+            MousePrevValid = false;                       // no jump from where the free cursor was
+        }
         std::vector<TextEvent> SimText;                   // ui.simulate_type / simulate_key, for the next frame
         std::string LastDevice = "keyboard";
         void LoadInputMap();
@@ -1015,6 +1031,20 @@ namespace Engine {
             return Wrap(e.GetHandle());
         });
         scene.set_function("time", [this]() { return Time; });
+        scene.set_function("real_time", [this]() { return RealTime; });
+        scene.set_function("real_dt", [this]() { return RealDt; });
+        scene.set_function("time_scale", [this](sol::optional<float> v) {
+            if (v) TimeScale = std::clamp(*v, 0.0f, 10.0f);
+            return TimeScale;
+        });
+        // A freeze-frame: the game runs at `scale` for `seconds` of real time (the longer and slower of overlapping ones)
+        scene.set_function("hitstop", [this](float seconds, sol::optional<float> scale) {
+            const float s = std::clamp(scale.value_or(0.05f), 0.0f, 1.0f);
+            if (seconds <= 0.0f) return;
+            if (HitStopLeft <= 0.0f) HitStopScale = s;
+            else HitStopScale = std::min(HitStopScale, s);
+            HitStopLeft = std::max(HitStopLeft, seconds);
+        });
         scene.set_function("restart", [this]() { RestartRequested = true; });   // the app does Stop + Play next frame
         scene.set_function("quit", [this]() { QuitRequested = true; });         // the app closes (editor: stops Play)
         // the last finished frame: { draw_calls, triangles, instances, culled }
@@ -1068,6 +1098,38 @@ namespace Engine {
                 return sol::make_object(*Lua, sol::lua_nil);
             return Lua->create_table_with("entity", Wrap(hit.Entity), "point", hit.Point,
                 "normal", hit.Normal, "distance", hit.Distance);
+        });
+        // Every body touching a sphere / capsule now: one hit per entity, nearest first
+        auto overlapOpts = [](const sol::optional<sol::table>& opts, entt::entity& ignore, bool& statics, bool& triggers) {
+            ignore = entt::null; statics = true; triggers = false;
+            if (!opts) return;
+            if (auto e = opts->get<sol::optional<ScriptEntity>>("ignore")) ignore = e->Handle;
+            statics = opts->get<sol::optional<bool>>("static").value_or(true);
+            triggers = opts->get<sol::optional<bool>>("triggers").value_or(false);
+        };
+        auto overlapResult = [this](const std::vector<RayHit>& hits) {
+            sol::table out = Lua->create_table(static_cast<int>(hits.size()), 0);
+            int i = 1;
+            for (const RayHit& h : hits)
+                out[i++] = Lua->create_table_with("entity", Wrap(h.Entity), "point", h.Point,
+                    "normal", h.Normal, "distance", h.Distance);
+            return out;
+        };
+        scene.set_function("overlap_sphere", [this, overlapOpts, overlapResult](const glm::vec3& center, float radius,
+            sol::optional<sol::table> opts) {
+            std::vector<RayHit> hits;
+            entt::entity ignore; bool statics, triggers;
+            overlapOpts(opts, ignore, statics, triggers);
+            if (Physics) Physics->OverlapSphere(center, radius, hits, ignore, statics, triggers);
+            return overlapResult(hits);
+        });
+        scene.set_function("overlap_capsule", [this, overlapOpts, overlapResult](const glm::vec3& a, const glm::vec3& b,
+            float radius, sol::optional<sol::table> opts) {
+            std::vector<RayHit> hits;
+            entt::entity ignore; bool statics, triggers;
+            overlapOpts(opts, ignore, statics, triggers);
+            if (Physics) Physics->OverlapCapsule(a, b, radius, hits, ignore, statics, triggers);
+            return overlapResult(hits);
         });
         // ---- ui: drawn over the game view this frame, in call order. x, y, w, h are 0..1 of the view
         sol::table ui = lua.create_named_table("ui");
@@ -1838,6 +1900,15 @@ namespace Engine {
         input.set_function("mouse_position", []() { auto [x, y] = Input::GetMousePosition(); return std::make_tuple(x, y); });
         input.set_function("mouse_released", [this, mouseIndex](int b) { int i = mouseIndex(b); return !MouseNow[i] && MousePrev[i]; });
         input.set_function("wheel", [this]() { return PtrInside ? PtrWheel : 0.0f; });   // this frame's mouse wheel over the view (notches, + = away)
+        // Mouse look: hide and hold the cursor (while the app allows it), and read how far the mouse moved this frame
+        input.set_function("lock_mouse", [this](bool on) { MouseLockWanted = on; ApplyMouseLock(); });
+        input.set_function("mouse_locked", [this]() { return MouseLockApplied; });
+        input.set_function("mouse_delta", [this]() { return std::make_tuple(MouseDX, MouseDY); });
+        input.set_function("simulate_mouse_delta", [this](sol::optional<float> dx, sol::optional<float> dy) {
+            SimMouse = dx.has_value();                     // no arguments: the real mouse again
+            SimMouseDX = dx.value_or(0.0f);
+            SimMouseDY = dy.value_or(0.0f);
+        });
 
         // Actions (Assets/Data/input.json): an unknown name is a script error, so typos show at once
         auto action = [this](const std::string& name) -> const InputAction& {
@@ -3325,12 +3396,40 @@ namespace Engine {
         return r;
     }
 
+    void ScriptEngine::SetMouseLookAllowed(bool allowed) {
+        m_Impl->MouseLockAllowed = allowed;
+        m_Impl->ApplyMouseLock();
+    }
+
+    bool ScriptEngine::MouseLocked() const { return m_Impl->MouseLockApplied; }
+
+    float ScriptEngine::AdvanceTimeScale(float realDt) {
+        Impl& m = *m_Impl;
+        m.RealDt = realDt;
+        m.RealTime += realDt;
+        float scale = m.TimeScale;
+        if (m.HitStopLeft > 0.0f) {
+            scale *= m.HitStopScale;
+            m.HitStopLeft -= realDt;               // counted in real time, so a freeze always ends
+            if (m.HitStopLeft <= 0.0f) { m.HitStopLeft = 0.0f; m.HitStopScale = 1.0f; }
+        }
+        return scale;
+    }
+
     void ScriptEngine::Start(Scene& scene) {
         Impl& m = *m_Impl;
         if (m.Lua) Stop(scene);
 
         m.ActiveScene = &scene;
         m.Time = 0.0f;
+        m.RealTime = m.RealDt = 0.0f;
+        m.TimeScale = 1.0f;
+        m.HitStopLeft = 0.0f;
+        m.HitStopScale = 1.0f;
+        m.MouseLockWanted = false;
+        m.ApplyMouseLock();
+        m.SimMouse = false;
+        m.MouseDX = m.MouseDY = 0.0f;
         m.NavTried = false;
         m.NavConfig = NavSettings{};
         m.UIC.Reset();
@@ -3377,6 +3476,14 @@ namespace Engine {
         if (!m.Lua) return;
         m.ActiveScene = &scene;
         m.Time += dt;
+        // Mouse look: how far the held cursor moved since the last frame (nothing while it is free)
+        m.MouseDX = m.MouseDY = 0.0f;
+        if (m.SimMouse) { m.MouseDX = m.SimMouseDX; m.MouseDY = m.SimMouseDY; }
+        else if (m.MouseLockApplied) {
+            const auto [x, y] = Input::GetMousePosition();
+            if (m.MousePrevValid) { m.MouseDX = x - m.MousePrevX; m.MouseDY = y - m.MousePrevY; }
+            m.MousePrevX = x; m.MousePrevY = y; m.MousePrevValid = true;
+        }
         m.UI.clear();               // a paused game keeps showing the last frame's UI (and decals)
         scene.Decals.clear();       // decal.draw is per frame too
         if (m.Fog) m.Fog->BeginFrame();   // fog.reveal is per frame too
@@ -3494,6 +3601,8 @@ namespace Engine {
         Impl& m = *m_Impl;
         if (!m.Lua) return;
         m.ActiveScene = &scene;
+        m.MouseLockWanted = false;       // Stop always gives the cursor back
+        m.ApplyMouseLock();
         m.DragPayload = sol::object();   // before the Lua state goes
         scene.Decals.clear();
 

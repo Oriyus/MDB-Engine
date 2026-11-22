@@ -301,6 +301,7 @@ public:
         }
 
         m_Session->SetPaused(m_Paused);
+        m_Session->Scripts().SetMouseLookAllowed(!m_Paused);   // input.lock_mouse: the pause menu gets the cursor back
         if (!m_Paused) {
             // ui.button / ui.mouse: the pointer over the window (ImGui puts it far outside when it's gone)
             const ImGuiIO& io = ImGui::GetIO();

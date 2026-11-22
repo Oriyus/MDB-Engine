@@ -646,6 +646,8 @@ scene.spawn_particles(self.position, { preset = "Sparks", count = 40 })   -- one
   <li><b>Events</b>: exactly one begin and one end per touching pair; removed bodies end their contacts.</li>
   <li><code>add_force</code> lasts the frame; <code>add_impulse</code> applies once. Moving a static body from a script teleports it.</li>
   <li>Raycasts (closest, all hits, static only) and <b>sphere casts</b> (<code>scene.spherecast</code>: a ball swept along a ray, for cameras and wide probes). <b>T</b> in the editor throws a ball.</li>
+  <li><b>Overlap queries</b> (<code>scene.overlap_sphere</code>, <code>scene.overlap_capsule</code>): every body a shape touches right now, one per entity, nearest first. For weapon hits, explosions and "who is near".</li>
+  <li><b>Time scale</b>: <code>scene.time_scale</code> and <code>scene.hitstop</code> scale the whole frame (animation, scripts, physics) in <code>GameSession::Update</code>; play time stays real.</li>
 </ul>
 <pre><code class="lua">self:add_body{ type = "dynamic", shape = "sphere", size = 0.5, mass = 2, bounciness = 0.6 }
 function on_collision_begin(self, other, hit)
@@ -872,6 +874,7 @@ audio.set_volume("music", 0.6)                    -- or "master"; audio.volume(b
 <tr><td><code>shader_graph_test.lua</code></td><td>Shader graph materials: the example graphs (vertex offset and water included) compile and draw, params, set_param, overrides, save round trip (17; <code>MDB_SCENE=demo.json</code>)</td></tr>
 <tr><td><code>camera_collision_test.lua</code></td><td>scene.spherecast, and the follow camera: pulled in at once by a wall, never seeing through it, easing back out, ignoring dynamic bodies (15; <code>MDB_SCENE=village.json</code>)</td></tr>
 <tr><td><code>character_test.lua</code></td><td>Character controller: landing, walking, a step and a wall, jumping, a moving platform, pushing a crate, raycasts and triggers, crouching under a ceiling, slopes of 25 and 60 degrees, save round trip (27; <code>MDB_SCENE=demo.json</code>)</td></tr>
+<tr><td><code>overlap_time_test.lua</code></td><td>Overlap queries (sphere, capsule, statics, triggers, ignore, characters, order, normals) and the time scale: half speed, hit-stop freezing and ending in real time, mouse delta (27; <code>MDB_SCENE=demo.json</code>)</td></tr>
 <tr><td><code>material_test.lua</code></td><td>Material files: values, variants, mesh slots from scripts, material.set, errors, save round trip (17; <code>MDB_SCENE=demo.json</code>)</td></tr>
 <tr><td><code>engine_features_test.lua</code></td><td>world_to_screen, decals, line of sight, cover, primitives, flash (22)</td></tr>
 <tr><td><code>fog_test.lua</code></td><td>Fog of war: reveal, explore, save / load, e.visible (17)</td></tr>
@@ -1564,7 +1567,12 @@ function on_anim_event(self, name, state) if name == "enter" then log("now " .. 
 <tr><td><code>scene.raycast(origin, dir, dist [, ignore])</code></td><td>nil or <code>{ entity, point, normal, distance }</code></td></tr>
 <tr><td><code>scene.screen_ray(x, y)</code></td><td>Ray origin, direction through the game camera</td></tr>
 <tr><td><code>scene.pick(x, y [, dist])</code></td><td>What is under a screen point</td></tr>
-<tr><td><code>scene.time()</code></td><td>Seconds since Play started</td></tr>
+<tr><td><code>scene.time()</code></td><td>Seconds of game time since Play started (runs at the time scale)</td></tr>
+<tr><td><code>scene.time_scale([v])</code></td><td>Game speed: 1 normal, 0.5 slow motion, 0 frozen (0..10). Animation, <code>on_update</code>'s dt, physics and <code>scene.time()</code> run at it; UI, input and audio don't. Reads it, or sets it first</td></tr>
+<tr><td><code>scene.hitstop(seconds [, scale])</code></td><td>A freeze-frame on a hit: the game runs at <code>scale</code> (default 0.05) for that many <b>real</b> seconds, on top of the time scale. Overlapping calls keep the longer and the slower</td></tr>
+<tr><td><code>scene.real_dt()</code> / <code>scene.real_time()</code></td><td>This frame's unscaled seconds / unscaled seconds since Play (cameras and UI fades that should ignore slow motion)</td></tr>
+<tr><td><code>scene.overlap_sphere(center, radius [, opts])</code></td><td>Every body touching the sphere now, one hit per entity, nearest first: <code>{ { entity, point, normal, distance }... }</code>. <code>point</code> is the deepest contact on the body's surface, <code>distance</code> from the centre to it, <code>normal</code> from the centre out to it. Options: <code>ignore = entity</code>, <code>static = false</code> (leave the level out), <code>triggers = true</code> (include sensors). Character controllers are found too</td></tr>
+<tr><td><code>scene.overlap_capsule(a, b, radius [, opts])</code></td><td>The same for a capsule from <code>a</code> to <code>b</code> (a blade, a swing's sweep); distances are from the segment</td></tr>
 <tr><td><code>scene.restart()</code> / <code>scene.quit()</code></td><td>Restart the level / close the game (the editor stops Play)</td></tr>
 <tr><td><code>scene.is_loading()</code></td><td>True while a restored level runs on_create / on_load</td></tr>
 <tr><td><code>scene.render_stats()</code></td><td>draw_calls, triangles, instances, culled, shadow_skipped, particles, decals, static_batches, static_merged, foliage, lod_reduced, lod_culled</td></tr>
@@ -1695,6 +1703,12 @@ if input.mouse_pressed(Mouse.Left) then ... end     -- also mouse_down, mouse_re
 local notches = input.wheel()                    -- this frame's mouse wheel over the game view (+ = scrolled up)
 local x, y = input.mouse_position()              -- window pixels
 local ux, uy, inside = ui.mouse()                -- 0..1 over the game view</code></pre>
+<h3>Mouse look</h3>
+<pre><code class="lua">input.lock_mouse(true)                            -- hide and hold the cursor (third-person / first-person look)
+local dx, dy = input.mouse_delta()                -- pixels it moved this frame (y + = down); 0, 0 while it is free
+if input.mouse_locked() then ... end              -- whether it is held right now
+input.simulate_mouse_delta(5, -3)                 -- tests: this delta every frame; no arguments = the real mouse</code></pre>
+<p>The cursor is held only while a script wants it <b>and</b> the app allows it: the Game while playing and not paused (the pause menu gets the cursor back), the editor while playing through the game camera with the Viewport focused (Esc stops Play, which releases it). Stop always releases it.</p>
 <p>Keys: <code>Key.A</code>…<code>Key.Z</code>, <code>Key.Num0</code>…<code>Key.Num9</code>, <code>Key.F1</code>…<code>Key.F12</code>, <code>Key.Space</code>, <code>Key.Enter</code>, <code>Key.Escape</code>, <code>Key.Tab</code>, arrows (<code>Key.Left</code>…), <code>Key.LeftShift</code>, <code>Key.LeftCtrl</code>, <code>Key.LeftAlt</code>. Mouse: <code>Mouse.Left</code>, <code>Mouse.Right</code>, <code>Mouse.Middle</code>.</p>
 <div class="note">Key state is sampled once per frame; keys must be held across a frame to be seen.</div>
 </section>

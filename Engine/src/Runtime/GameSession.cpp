@@ -162,8 +162,11 @@ namespace Engine {
 
     void GameSession::Update(float dt, bool singleStep) {
         if (!m_Running) return;
-        const float stepDt = singleStep ? 1.0f / 60.0f : dt;
-        m_Campaign->PlayTime += stepDt;
+        const float realDt = singleStep ? 1.0f / 60.0f : dt;
+        m_Campaign->PlayTime += realDt;                    // play time is the player's: unscaled
+        // scene.time_scale / scene.hitstop slow animation, scripts and physics alike (a single step stays one step)
+        const float scale = m_Scripts->AdvanceTimeScale(realDt);
+        const float stepDt = singleStep ? realDt : dt * scale;
         { PROFILE_SCOPE("Scene update"); m_Scene.OnUpdate(stepDt); }   // Spin / Orbit / animation
         m_Scripts->DispatchAnimationEvents(m_Scene);       // on_anim_event, "sound:" events
         { PROFILE_SCOPE("Scripts"); m_Scripts->Update(m_Scene, stepDt); }   // Lua on_update

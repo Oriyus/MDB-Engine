@@ -474,6 +474,8 @@ public:
         }
         m_PlayCmd = PlayCmd::None;
         m_Session->Audio().SetPaused(m_PlayState == PlayState::Paused);
+        // input.lock_mouse: only while playing through the game camera with the Viewport focused (Esc stops Play)
+        m_Session->Scripts().SetMouseLookAllowed(m_PlayState == PlayState::Play && m_ViewingGame && m_ViewportFocused);
 
         if (m_ReloadScripts) {
             m_ReloadScripts = false;

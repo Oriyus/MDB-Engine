@@ -218,7 +218,16 @@ namespace Engine {
     //
     // ---- Globals
     //   vec3(x, y, z): + - * / unary-, v:length(), v:normalize(), v:dot(w), v:cross(w)
-    //   scene.find(name), scene.find_all(name), scene.spawn(name [, position]), scene.time()
+    //   scene.find(name), scene.find_all(name), scene.spawn(name [, position]), scene.time()   (game time: scaled)
+    //   scene.time_scale([v])  -> game speed (1 normal, 0.5 slow motion, 0 frozen; 0..10): reads it, or sets it first.
+    //               Animation, on_update's dt, physics and scene.time() run at it; UI, input and audio don't
+    //   scene.hitstop(seconds [, scale = 0.05])  freeze-frame on a hit: the game runs at scale for that many REAL seconds
+    //               (on top of time_scale; overlapping calls keep the longer and the slower)
+    //   scene.real_dt(), scene.real_time()   this frame's unscaled seconds / unscaled seconds since Play (cameras, UI fades)
+    //   input.lock_mouse(bool)  hide and hold the cursor for mouse look (only while the app allows it: playing, not
+    //               paused, the view focused; the editor's Esc stops Play, which releases it). input.mouse_locked() -> bool
+    //   input.mouse_delta() -> dx, dy   pixels the held cursor moved this frame (0, 0 while it is free; y + = down)
+    //   input.simulate_mouse_delta(dx, dy) / input.simulate_mouse_delta()   test hook: the delta for every frame / real mouse
     //   scene.spawn_prefab(name [, position])  an instance of Prefabs/<name>.json (nil if missing)
     //   scene.restart()                      Stop + Play on the next frame (retry a level)
     //   audio.play(clip [, { volume, pitch, bus = "sfx" }])  2D one-shot, e.g. "Sounds/coin.wav"
@@ -318,6 +327,11 @@ namespace Engine {
     //   scene.raycast(origin, dir, max_dist [, ignore_entity]) -> nil or { entity, point, normal, distance }
     //   scene.spherecast(origin, dir, max_dist, radius [, ignore_entity [, static_only]]) -> nil or { entity, point, normal,
     //                    distance }   a sphere swept along the ray (distance = how far its centre got; 0 = touching at the start)
+    //   scene.overlap_sphere(center, radius [, { ignore = entity, static = true, triggers = false }]) -> { { entity, point,
+    //                    normal, distance }... }   every body touching the sphere now, one per entity, nearest first
+    //                    (point: the deepest contact, on the body's surface; distance: centre to point; normal: from the
+    //                    centre out to the point)
+    //   scene.overlap_capsule(a, b, radius [, opts]) -> the same for a capsule from a to b (a blade, a swing's sweep)
     //   scene.screen_ray(x, y) -> origin, dir          through the game camera, x, y 0..1 of the view (ui.mouse())
     //   scene.pick(x, y [, max_dist = 500]) -> nil or a raycast result along screen_ray (what is under the mouse)
     //   scene.world_to_screen(pos) -> x, y, visible, depth     where a world point is on the view (0..1; the inverse
@@ -470,6 +484,15 @@ namespace Engine {
 
         bool ConsumeQuitRequest();                             // true once after scene.quit()
         bool ConsumeRestartRequest();                           // true once after scene.restart()
+        // Game speed for the frame about to run (scene.time_scale times any running scene.hitstop), given this frame's
+        // real seconds. Call once per frame before Update: it counts hit-stops down in real time and keeps realDt
+        // for scene.real_dt(). The session scales animation, scripts and physics by it.
+        float AdvanceTimeScale(float realDt);
+        // Mouse look (input.lock_mouse): the cursor is hidden and held only while a script wants it AND the app allows it.
+        // Call every frame: the Game allows it while playing and not paused, the editor while playing through the game
+        // camera with the Viewport focused. Stop always releases it.
+        void SetMouseLookAllowed(bool allowed);
+        bool MouseLocked() const;
 
         struct Impl;                           // keeps sol2 out of everything else (named here so helpers in the .cpp can use it)
     private:

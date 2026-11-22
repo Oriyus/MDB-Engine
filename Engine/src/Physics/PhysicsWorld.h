@@ -108,6 +108,17 @@ namespace Engine {
         // that starts touching something hits at distance 0. For cameras (keeping them out of walls) and wide probes.
         bool SphereCast(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, float radius,
             RayHit& hit, entt::entity ignore = entt::null, bool staticOnly = false) const;
+        // Every body a shape placed in the world touches right now (weapon hits, explosions, "who is near"): one hit
+        // per entity, nearest first. Point is the deepest contact on that body (on its surface); Distance is from the
+        // query's centre (sphere) or its segment (capsule) to that point. `ignore` is skipped (a body or
+        // a character's inner capsule); includeStatic = false leaves the level out; triggers only with includeTriggers.
+        void OverlapSphere(const glm::vec3& center, float radius, std::vector<RayHit>& hits,
+            entt::entity ignore = entt::null, bool includeStatic = true, bool includeTriggers = false) const;
+        // A capsule from a to b (the centres of its two end spheres) of `radius`: a sword's blade, a sweep along a swing.
+        // a == b is a sphere.
+        void OverlapCapsule(const glm::vec3& a, const glm::vec3& b, float radius, std::vector<RayHit>& hits,
+            entt::entity ignore = entt::null, bool includeStatic = true, bool includeTriggers = false) const;
+
         // The world bounds of every static, non-trigger body. False if there are none.
         bool StaticBounds(glm::vec3& min, glm::vec3& max) const;
 
