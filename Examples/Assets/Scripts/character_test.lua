@@ -68,6 +68,13 @@ local steps = {
         check("a raycast can ignore it", (function()
             local hit = scene.raycast(self.position + vec3(0, 4, 0), vec3(0, -1, 0), 6, self)
             return hit ~= nil and hit.entity.name == "CT ground" end)())
+        mark.still = { changes = 0 }                -- standing: watch the position frame by frame
+    end },
+    { 1.0, function(self) end, function(self)
+        -- exactly the same every frame: drawing between two equal physics states used to round off by a float step
+        -- now and then, which made still things count as moving (and their cached sun shadows flicker)
+        check("standing still, the position doesn't change at all", mark.still.changes == 0, mark.still.changes)
+        mark.still = nil
         mark.x = rel(self).x
         self.character:move(vec3(3, 0, 0))
     end },
@@ -180,6 +187,12 @@ function on_update(self, dt)
         build()
         self.position = O + vec3(0, 1, 0)
         mark.built = true
+    end
+    if mark.still then
+        local p = self.position
+        local k = string.format("%.9g %.9g %.9g", p.x, p.y, p.z)
+        if mark.still.last and mark.still.last ~= k then mark.still.changes = mark.still.changes + 1 end
+        mark.still.last = k
     end
     if mark.moving and platform then platform.position = platform.position + vec3(1.5 * dt, 0, 0) end
     if not started then steps[step][2](self); started = true end

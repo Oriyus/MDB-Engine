@@ -49,6 +49,12 @@ namespace Engine {
         constexpr float kFixedStep = 1.0f / 60.0f;
         constexpr int   kMaxSteps = 5;             // after a long hitch, drop time instead of spiralling
 
+        // Between two physics states, exactly a state when both are the same. glm::mix (a*(1-t) + b*t) and slerp
+        // round off by a float step at some t, so a thing at rest seemed to move now and then: it went in and out
+        // of the cached sun cascades' moving-caster pass, and its shadow flickered.
+        glm::vec3 Between(const glm::vec3& a, const glm::vec3& b, float t) { return a == b ? b : a + (b - a) * t; }
+        glm::quat Between(const glm::quat& a, const glm::quat& b, float t) { return a == b ? b : glm::slerp(a, b, t); }
+
         // Two object layers: things that never move, and things that do
         namespace Layers {
             constexpr JPH::ObjectLayer Static = 0;
@@ -880,8 +886,8 @@ namespace Engine {
         for (auto& [e, b] : I.Bindings) {
             if (b.Type != BodyType::Dynamic) continue;
             auto& t = reg.get<TransformComponent>(e);
-            const glm::vec3 pos = glm::mix(b.PrevPos, b.CurPos, alpha);
-            const glm::quat rot = glm::slerp(b.PrevRot, b.CurRot, alpha);
+            const glm::vec3 pos = Between(b.PrevPos, b.CurPos, alpha);
+            const glm::quat rot = Between(b.PrevRot, b.CurRot, alpha);
             if (reg.all_of<ParentComponent>(e)) {          // physics is world space; the transform is local
                 scene.SetWorldPosition(e, pos);
                 scene.SetWorldRotation(e, rot);
@@ -895,7 +901,7 @@ namespace Engine {
         }
         for (auto& [e, cb] : I.Characters) {               // position only: physics never turns a character
             auto& t = reg.get<TransformComponent>(e);
-            const glm::vec3 pos = glm::mix(cb.PrevPos, cb.CurPos, alpha);
+            const glm::vec3 pos = Between(cb.PrevPos, cb.CurPos, alpha);
             if (reg.all_of<ParentComponent>(e)) scene.SetWorldPosition(e, pos);
             else t.Position = pos;
             cb.WrittenPos = t.Position;

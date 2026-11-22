@@ -1808,7 +1808,10 @@ namespace Engine {
             }
             // (A new level of detail changes the shadow's shape too.)
             const bool moving = bones || prevWorld != world || lodChanged;
-            casterMoving = moving;                           // cached sun cascades: moving casters go in the overlay pass
+            // Cached sun cascades: moving casters go in the overlay pass. So does one that stopped this frame or is new:
+            // the static layer only takes it in when redrawn next frame (markSunStill), and until then it would be in
+            // neither pass, and its shadow would blink out for a frame (a caster that jitters still/moving flickers)
+            casterMoving = moving || wasMoving || isNew;
             if (shadowSettings && mr.CastShadows) {
                 if (moving) list.CurMoving.insert(moveKey);
                 if (moving || moving != wasMoving || isNew) {
