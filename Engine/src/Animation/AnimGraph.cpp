@@ -469,6 +469,11 @@ namespace Engine {
         }
 
         void Enter(AnimatorComponent& an, AnimGraphLayerState& rt, const AnimState& to, float duration, int transition, bool instant) {
+            // mid-fade: fade out from last frame's blend (both states it mixed), not just the state it was fading to
+            const bool midFade = rt.Fade < 1.0f && (rt.From >= 0 || rt.FromHeld) && !rt.Last.empty();
+            if (midFade) rt.Held.swap(rt.Last);
+            rt.FromHeld = midFade;
+            rt.Last.clear();
             rt.From = rt.State;
             rt.FromPhase = rt.Phase;
             rt.State = to.Id;
@@ -477,7 +482,7 @@ namespace Engine {
             rt.FadeDuration = duration;
             rt.Transition = transition;
             rt.Fade = (instant || duration <= 0.0f || rt.From < 0) ? 1.0f : 0.0f;
-            if (rt.Fade >= 1.0f) { rt.From = -1; rt.Transition = -1; }
+            if (rt.Fade >= 1.0f) { rt.From = -1; rt.Transition = -1; rt.FromHeld = false; }
             an.Fired.emplace_back("enter", to.Name);
         }
     }
@@ -564,8 +569,12 @@ namespace Engine {
             }
             if (advancing) rt.StateTime += std::abs(dt);
 
+            const bool held = rt.FromHeld && rt.Held.size() == pose.size();
             const AnimState* from = rt.From >= 0 ? L.Find(rt.From) : nullptr;
-            if (from && rt.Fade < 1.0f) {
+            if (held && rt.Fade < 1.0f) {
+                rt.Fade = dt == 0.0f ? 1.0f : std::min(1.0f, rt.Fade + std::abs(dt) / std::max(rt.FadeDuration, 1e-4f));
+            }
+            else if (from && rt.Fade < 1.0f) {
                 StateClips(*from, g, an, model, fromClips);
                 const float fcycle = CycleLength(fromClips);
                 const float fstep = advancing ? dt * an.Speed * from->Speed * ParamValue(an, g, from->SpeedParam, 1.0f) : 0.0f;
@@ -579,12 +588,20 @@ namespace Engine {
 
             // ---- this layer's pose (sampled before any transition below: a new state starts next frame)
             SampleState(clips, model, rt.Phase, layerPose, tmp);
-            if (from && rt.Fade < 1.0f) {
-                SampleState(fromClips, model, rt.FromPhase, fromPose, tmp);
+            if ((held || from) && rt.Fade < 1.0f) {
+                if (held) {
+                    fromPose.resize(rt.Held.size());
+                    for (size_t i = 0; i < rt.Held.size(); i++) fromPose[i] = { rt.Held[i].T, rt.Held[i].R, rt.Held[i].S };
+                }
+                else SampleState(fromClips, model, rt.FromPhase, fromPose, tmp);
                 Blend(fromPose, layerPose, rt.Fade, nullptr);
                 layerPose.swap(fromPose);
             }
-            if (rt.Fade >= 1.0f) { rt.From = -1; rt.Transition = -1; }
+            if (rt.Fade >= 1.0f) { rt.From = -1; rt.Transition = -1; rt.FromHeld = false; rt.Held.clear(); rt.Last.clear(); }
+            else {                                                  // kept for a state entered mid-fade (Enter)
+                rt.Last.resize(layerPose.size());
+                for (size_t i = 0; i < layerPose.size(); i++) rt.Last[i] = { layerPose[i].T, layerPose[i].R, layerPose[i].S };
+            }
 
             // ---- transitions: Any State first, then the current state's, in list order. While fading, only Any State.
             const bool fading = rt.Fade < 1.0f;

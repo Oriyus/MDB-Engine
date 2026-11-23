@@ -498,6 +498,12 @@ namespace Engine {
         float FadeDuration = 0.0f;
         int Transition = -1;              // the transition being taken (index into the layer's list; -1: none)
         float StateTime = 0.0f;           // seconds since the state was entered
+        // A state entered while a fade is still going (a script's play_state a frame after a transition began, a
+        // chained attack) fades out from the pose on screen, held still, instead of dropping it (no snap)
+        struct Node { glm::vec3 T{ 0.0f }; glm::quat R{ 1.0f, 0.0f, 0.0f, 0.0f }; glm::vec3 S{ 1.0f }; };
+        std::vector<Node> Last;           // the layer's blended pose last frame, kept while fading
+        std::vector<Node> Held;           // the pose fading out when FromHeld
+        bool FromHeld = false;
     };
     struct AnimGraph;
 
