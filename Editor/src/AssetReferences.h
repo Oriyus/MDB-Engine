@@ -74,6 +74,28 @@ namespace AssetRefs {
     };
     std::vector<Missing> FindMissing(const std::string& projectDir, const std::string& assetDir);
 
+    // The assets a game uses (Build Game ships only these). Starting from project.json (start scene, fonts), the files
+    // the engine always reads (Data/database.json, Data/input.json, Scripts/Lib/*) and the files matching `include`
+    // patterns, every reached file is followed:
+    //   - text files (scenes, prefabs, materials, shader graphs, UI layouts, dialogues, Lua, .gltf and a .glb's JSON
+    //     chunk, .mtl): their references as above, and every word that names an asset file ("Exit: cellar.json > Yard",
+    //     a comment naming "step.wav": shipping too much is safe, too little breaks the game)
+    //   - Lua: a string that is a prefab's or dialogue's bare name ("coin", "sage"), and a string naming a folder
+    //     ("Dialogues/", from "Dialogues/" .. name .. ".json"): the whole folder is kept
+    //   - scenes: an entity whose name is a dialogue's (npc.lua plays Dialogues/<name in lower case>.json)
+    //   - models: <stem>.clips.json and kit.json beside them; .obj / .fbx / .dae: the images in their folder
+    // Missing lists references from used files to files that don't exist.
+    struct UsedAssets {
+        std::vector<std::string> Files;               // relative to Assets, as on disk, sorted
+        std::map<std::string, std::string> Why;      // file -> what brought it in ("Scenes/a.json:12", "always read")
+        std::vector<std::string> Unused;              // every other file under Assets
+        std::vector<Missing> Missing;
+        std::vector<std::string> Notes;               // folders kept whole, ...
+    };
+    // engineDir: EngineAssets/ (its Scripts/Lib runs in every game and may name project files)
+    UsedAssets FindUsedAssets(const std::string& projectDir, const std::string& assetDir, const std::string& engineDir,
+                              const std::vector<std::string>& include);
+
     // ---- the pieces, exposed for tests
     // A path made relative to a folder ("Models/Village", "Textures/a.png" -> "../../Textures/a.png")
     std::string RelativeTo(const std::string& folder, const std::string& path);

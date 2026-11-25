@@ -39,6 +39,9 @@ namespace Engine {
             p.VSync = j.value("vsync", p.VSync);
             if (j.contains("exclude") && j["exclude"].is_array())
                 for (const auto& e : j["exclude"]) if (e.is_string()) p.Exclude.push_back(e.get<std::string>());
+            if (j.contains("include") && j["include"].is_array())
+                for (const auto& e : j["include"]) if (e.is_string()) p.Include.push_back(e.get<std::string>());
+            p.AllAssets = j.value("allAssets", false);
             if (j.contains("fonts") && j["fonts"].is_object()) {
                 p.FontRegular = j["fonts"].value("regular", std::string());
                 p.FontBold = j["fonts"].value("bold", std::string());
@@ -61,6 +64,8 @@ namespace Engine {
         j["fullscreen"] = Fullscreen;
         j["vsync"] = VSync;
         j["exclude"] = Exclude;
+        if (!Include.empty()) j["include"] = Include;
+        if (AllAssets) j["allAssets"] = true;
         if (!FontRegular.empty() || !FontBold.empty()) j["fonts"] = { { "regular", FontRegular }, { "bold", FontBold } };
         std::ofstream out(fs::u8path(File()));
         if (!out) { if (error) *error = "can't write " + File(); return false; }
@@ -103,6 +108,11 @@ namespace Engine {
 
     bool Project::IsExcluded(const std::string& path) const {
         for (const auto& pattern : Exclude) if (Matches(path, pattern)) return true;
+        return false;
+    }
+
+    bool Project::IsIncluded(const std::string& path) const {
+        for (const auto& pattern : Include) if (Matches(path, pattern)) return true;
         return false;
     }
 

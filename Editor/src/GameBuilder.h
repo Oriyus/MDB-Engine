@@ -1,4 +1,5 @@
 #pragma once
+#include "AssetReferences.h"
 #include "Core/Project.h"
 
 #include <atomic>
@@ -11,7 +12,7 @@
 // Windows:
 //   1. compiles Game.exe in Release (cmake --build <build dir> --config Release --target Game), or, in a
 //      packaged editor (package_editor), copies the prebuilt Player/Game.exe next to MDBEditor.exe
-//   2. <output>/<title>/: <title>.exe, EngineAssets/, the project's Assets/ (without its "exclude" files)
+//   2. <output>/<title>/: <title>.exe, EngineAssets/, the project's used Assets/ (without its "exclude" files)
 //      and project.json, so the exe finds everything next to itself
 // Web (WebGL2 in a browser, Game/web):
 //   1. builds the web player (Tools/build_web.ps1: Emscripten into <source>/build-web), or, packaged, copies
@@ -20,13 +21,28 @@
 //      package: format in Game/web/shell.html) and Play.bat + serve.ps1 (a local web server: browsers don't run
 //      the game from file://). Upload the folder to a web host (itch.io: zip it, kind HTML) to share it.
 // An existing output folder is replaced only if it looks like an earlier build (project.json / game.pak).
+// Only the assets the game uses are shipped (AssetRefs::FindUsedAssets, plus project.json's "include"; "allAssets"
+// ships everything), minus "exclude". Check() works that out before building and looks for trouble.
 class GameBuilder {
 public:
     enum class Target { Windows, Web };
     ~GameBuilder();
 
-    // False if a build is already running
-    bool Start(const Engine::Project& project, const std::string& engineDir, const std::string& outputDir, Target target = Target::Windows);
+    // What a build would ship, and what is wrong first. Errors stop the build; warnings are worth reading.
+    struct Check {
+        std::vector<std::string> Errors, Warnings, Notes;
+        AssetRefs::UsedAssets Used;
+        std::vector<std::string> Ship;          // files under Assets to ship (relative, sorted)
+        std::vector<std::string> LeftOut;       // files under Assets that won't be (unused or excluded)
+        size_t Excluded = 0;                    // of LeftOut: by "exclude"
+        uintmax_t ShipBytes = 0, AllBytes = 0;
+        size_t AllFiles = 0;
+        bool Ok() const { return Errors.empty(); }
+    };
+    static Check CheckBuild(const Engine::Project& project, const std::string& engineDir, const std::string& outputDir, Target target);
+
+    // False if a build is already running. Ships check.Ship from the project's Assets.
+    bool Start(const Engine::Project& project, const std::string& engineDir, const std::string& outputDir, Target target, const Check& check);
 
     bool Running() const { return m_Running; }
     bool Done() const { return m_Done; }                 // finished (either way) since the last Start
@@ -45,8 +61,8 @@ public:
                          uintmax_t* bytes, std::string* error);
 
 private:
-    void Run(Engine::Project project, std::string engineDir, std::string outputDir);
-    void RunWeb(Engine::Project project, std::string engineDir, std::string outputDir);
+    void Run(Engine::Project project, std::string engineDir, std::string outputDir, std::vector<std::string> assets, size_t leftOut);
+    void RunWeb(Engine::Project project, std::string engineDir, std::string outputDir, std::vector<std::string> assets, size_t leftOut);
     void Add(const std::string& line);
     void Fail(const std::string& why);
 

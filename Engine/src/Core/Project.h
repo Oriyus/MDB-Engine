@@ -12,11 +12,14 @@ namespace Engine {
     //
     // project.json (every field optional):
     //   { "title": "My Game", "scene": "main.json", "width": 1280, "height": 720, "fullscreen": false,
-    //     "vsync": true, "exclude": ["Scripts/*_test.lua"],
+    //     "vsync": true, "exclude": ["Scripts/*_test.lua"], "include": ["Dialogues/*"], "allAssets": false,
     //     "fonts": { "regular": "Fonts/x-Regular.ttf", "bold": "Fonts/x-Bold.ttf" } }
     // "fonts": the game UI's two fonts (files under Assets; Runtime/GameUI LoadGameFonts), else the engine's own.
     // "scene" is the start scene (in Assets/Scenes). "exclude" lists files under Assets that Build Game
-    // leaves out ('*' matches anything, including '/').
+    // leaves out ('*' matches anything, including '/'). Build Game ships only the assets the game uses (found by
+    // following references from project.json and the files every game reads: Editor/src/AssetReferences
+    // FindUsedAssets); "include" lists files to ship anyway (assets a script finds by a name it builds at run time),
+    // and "allAssets": true ships everything under Assets.
     struct Project {
         std::string Root;                      // absolute, '/' separators, ending in '/'
         std::string Title = "MDB Game";
@@ -24,6 +27,8 @@ namespace Engine {
         uint32_t Width = 1280, Height = 720;
         bool Fullscreen = false, VSync = true;
         std::vector<std::string> Exclude;
+        std::vector<std::string> Include;      // shipped even if nothing seems to use them (same patterns)
+        bool AllAssets = false;                // ship every asset, used or not
         std::string FontRegular, FontBold;     // under Assets ("" = the engine's fonts)
 
         std::string AssetDir() const { return Root + "Assets/"; }
@@ -39,6 +44,7 @@ namespace Engine {
 
         // True if `path` (relative to Assets, '/' separators) matches any Exclude pattern
         bool IsExcluded(const std::string& path) const;
+        bool IsIncluded(const std::string& path) const;     // matches an Include pattern
         static bool Matches(const std::string& path, const std::string& pattern);
         // The folder as Root expects it: absolute, '/' separators, a trailing '/'
         static std::string Normalize(const std::string& folder);

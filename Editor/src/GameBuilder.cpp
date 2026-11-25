@@ -8,6 +8,13 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <set>
+
+#include <nlohmann/json.hpp>
+extern "C" {
+#include <lua.h>
+#include <lauxlib.h>
+}
 
 namespace fs = std::filesystem;
 
@@ -43,7 +50,88 @@ void GameBuilder::Fail(const std::string& why) {
     m_Running = false;
 }
 
-bool GameBuilder::Start(const Engine::Project& project, const std::string& engineDir, const std::string& outputDir, Target target) {
+GameBuilder::Check GameBuilder::CheckBuild(const Engine::Project& project, const std::string& engineDir, const std::string& outputDir, Target target) {
+    Check c;
+    std::error_code ec;
+    const std::string assetDir = project.AssetDir();
+
+    // The start scene
+    if (project.Scene.empty()) c.Errors.push_back("No start scene is set.");
+    else if (!fs::is_regular_file(fs::u8path(assetDir + "Scenes/" + project.Scene), ec))
+        c.Errors.push_back("The start scene Scenes/" + project.Scene + " doesn't exist.");
+    else if (project.IsExcluded("Scenes/" + project.Scene))
+        c.Errors.push_back("The start scene Scenes/" + project.Scene + " is left out by \"Leave out\".");
+
+    // The output folder: replaced only if it is an earlier build
+    const fs::path out = fs::u8path(Engine::Project::Normalize(outputDir) + FolderName(project.Title, target) + "/");
+    if (fs::exists(out, ec) && !fs::exists(out / (target == Target::Web ? "game.pak" : "project.json"), ec))
+        c.Errors.push_back(Engine::Project::PathString(out) + " exists and is not an earlier build: pick another output folder.");
+    if (Engine::Project::Normalize(outputDir).rfind(project.AssetDir(), 0) == 0)
+        c.Errors.push_back("The output folder is inside Assets: the build would ship itself next time.");
+
+    // What to ship
+    c.Used = AssetRefs::FindUsedAssets(project.Root, assetDir, engineDir, project.Include);
+    std::vector<std::string> all = c.Used.Files;
+    all.insert(all.end(), c.Used.Unused.begin(), c.Used.Unused.end());
+    std::sort(all.begin(), all.end());
+    c.AllFiles = all.size();
+    std::set<std::string> used(c.Used.Files.begin(), c.Used.Files.end());
+    std::vector<std::string> usedExcluded;
+    for (const std::string& rel : all) {
+        const uintmax_t size = fs::file_size(fs::u8path(assetDir + rel), ec);
+        const uintmax_t bytes = ec ? 0 : size;
+        c.AllBytes += bytes;
+        const bool wanted = project.AllAssets || used.count(rel);
+        if (wanted && project.IsExcluded(rel)) {
+            c.Excluded++;
+            c.LeftOut.push_back(rel);
+            if (used.count(rel)) usedExcluded.push_back(rel);
+            continue;
+        }
+        if (!wanted) { c.LeftOut.push_back(rel); continue; }
+        c.Ship.push_back(rel);
+        c.ShipBytes += bytes;
+    }
+    for (const std::string& rel : usedExcluded)
+        c.Warnings.push_back(rel + " is used (" + c.Used.Why[rel] + ") but left out by \"Leave out\".");
+
+    // References to files that aren't there
+    for (const auto& m : c.Used.Missing) {
+        const auto& u = m.Uses.front();
+        std::string line = u.File + ":" + std::to_string(u.Line) + " names " + m.Target + ", which doesn't exist";
+        if (m.Uses.size() > 1) line += " (and " + std::to_string(m.Uses.size() - 1) + " more uses)";
+        if (!m.Candidates.empty()) line += "; a file of that name: " + m.Candidates.front() + " (Assets > Check References... relinks)";
+        c.Warnings.push_back(line + ".");
+    }
+
+    // Files the game reads must parse
+    lua_State* L = luaL_newstate();
+    for (const std::string& rel : c.Ship) {
+        std::string ext = fs::u8path(rel).extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char ch) { return (char)std::tolower(ch); });
+        const bool json = ext == ".json" || ext == ".mat" || ext == ".shadergraph" || ext == ".gltf";
+        if (!json && ext != ".lua") continue;
+        std::ifstream in(fs::u8path(assetDir + rel), std::ios::binary);
+        const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        if (json) {
+            if (!nlohmann::json::accept(text)) c.Errors.push_back(rel + " is not valid JSON: the game can't read it.");
+        }
+        else if (L) {
+            if (luaL_loadbufferx(L, text.data(), text.size(), ("@" + rel).c_str(), "t") != LUA_OK) {
+                const char* msg = lua_tostring(L, -1);
+                c.Warnings.push_back(std::string("Script syntax error: ") + (msg ? msg : rel) + " (the script will be disabled in the game).");
+            }
+            lua_settop(L, 0);
+        }
+    }
+    if (L) lua_close(L);
+
+    if (project.AllAssets) c.Notes.push_back("\"Ship every asset\" is on: unused files are shipped too.");
+    c.Notes.insert(c.Notes.end(), c.Used.Notes.begin(), c.Used.Notes.end());
+    return c;
+}
+
+bool GameBuilder::Start(const Engine::Project& project, const std::string& engineDir, const std::string& outputDir, Target target, const Check& check) {
     if (m_Running) return false;
     if (m_Thread.joinable()) m_Thread.join();
     {
@@ -56,12 +144,13 @@ bool GameBuilder::Start(const Engine::Project& project, const std::string& engin
     m_Done = false;
     m_Succeeded = false;
     m_Running = true;
-    m_Thread = target == Target::Web ? std::thread(&GameBuilder::RunWeb, this, project, engineDir, outputDir)
-                                     : std::thread(&GameBuilder::Run, this, project, engineDir, outputDir);
+    const size_t leftOut = check.LeftOut.size();
+    m_Thread = target == Target::Web ? std::thread(&GameBuilder::RunWeb, this, project, engineDir, outputDir, check.Ship, leftOut)
+                                     : std::thread(&GameBuilder::Run, this, project, engineDir, outputDir, check.Ship, leftOut);
     return true;
 }
 
-void GameBuilder::Run(Engine::Project project, std::string engineDir, std::string outputDir) {
+void GameBuilder::Run(Engine::Project project, std::string engineDir, std::string outputDir, std::vector<std::string> assets, size_t leftOut) {
     auto fail = [this](const std::string& why) {
         Add("FAILED: " + why);
         LOG_ERROR("Build Game failed: {}", why);
@@ -108,33 +197,33 @@ void GameBuilder::Run(Engine::Project project, std::string engineDir, std::strin
     fs::copy_file(builtExe, out / fs::u8path(name + ".exe"), ec);
     if (ec) { fail("can't copy Game.exe: " + ec.message()); return; }
 
-    size_t files = 0, skipped = 0;
+    size_t files = 0;
     uintmax_t bytes = 0;
-    auto copyTree = [&](const fs::path& from, const fs::path& to, bool useExclude) -> bool {
-        for (auto it = fs::recursive_directory_iterator(from, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
-            if (!it->is_regular_file(ec)) continue;
-            const std::string rel = Engine::Project::PathString(fs::relative(it->path(), from, ec));
-            if (useExclude && project.IsExcluded(rel)) { skipped++; continue; }
-            const fs::path dest = to / fs::u8path(rel);
-            fs::create_directories(dest.parent_path(), ec);
-            fs::copy_file(it->path(), dest, fs::copy_options::overwrite_existing, ec);
-            if (ec) { fail("can't copy " + rel + ": " + ec.message()); return false; }
-            files++;
-            bytes += fs::file_size(it->path(), ec);
-        }
-        if (ec) { fail("can't read " + Engine::Project::PathString(from) + ": " + ec.message()); return false; }
+    auto copyOne = [&](const fs::path& from, const fs::path& dest, const std::string& rel) -> bool {
+        fs::create_directories(dest.parent_path(), ec);
+        fs::copy_file(from, dest, fs::copy_options::overwrite_existing, ec);
+        if (ec) { fail("can't copy " + rel + ": " + ec.message()); return false; }
+        files++;
+        bytes += fs::file_size(from, ec);
         return true;
     };
     Add("Copying the engine files (shaders, Lua libraries)");
-    if (!copyTree(fs::u8path(engineDir), out / "EngineAssets", false)) return;
-    Add("Copying the project's Assets");
-    if (!copyTree(fs::u8path(project.AssetDir()), out / "Assets", true)) return;
+    const fs::path engine = fs::u8path(engineDir);
+    for (auto it = fs::recursive_directory_iterator(engine, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
+        if (!it->is_regular_file(ec)) continue;
+        const std::string rel = Engine::Project::PathString(fs::relative(it->path(), engine, ec));
+        if (!copyOne(it->path(), out / "EngineAssets" / fs::u8path(rel), rel)) return;
+    }
+    if (ec) { fail("can't read " + engineDir + ": " + ec.message()); return; }
+    Add("Copying the " + std::to_string(assets.size()) + " assets the game uses");
+    for (const std::string& rel : assets)
+        if (!copyOne(fs::u8path(project.AssetDir() + rel), out / "Assets" / fs::u8path(rel), rel)) return;
     fs::copy_file(fs::u8path(project.File()), out / "project.json", ec);
     if (ec) { fail("can't copy project.json: " + ec.message()); return; }
 
     char size[64];
     std::snprintf(size, sizeof(size), "%.1f MB", double(bytes) / (1024.0 * 1024.0));
-    Add("Done: " + std::to_string(files) + " files, " + size + (skipped ? ", " + std::to_string(skipped) + " left out by \"exclude\"" : std::string()));
+    Add("Done: " + std::to_string(files) + " files, " + size + (leftOut ? ", " + std::to_string(leftOut) + " unused or excluded assets left out" : std::string()));
     Add("Ship the folder " + Engine::Project::PathString(out) + " (zip it). Players need the Microsoft Visual C++ Redistributable (x64), which most PCs have.");
     LOG_INFO("Game built in {}", Engine::Project::PathString(out));
     m_Succeeded = true;
@@ -179,7 +268,7 @@ bool GameBuilder::WritePak(const std::string& pakPath, const std::vector<std::pa
     return true;
 }
 
-void GameBuilder::RunWeb(Engine::Project project, std::string engineDir, std::string outputDir) {
+void GameBuilder::RunWeb(Engine::Project project, std::string engineDir, std::string outputDir, std::vector<std::string> assets, size_t leftOut) {
     (void)outputDir;
     std::error_code ec;
     // 1. The web player: a packaged editor ships it (Player/Web, with Play.bat and serve.ps1); an editor run from the
@@ -223,23 +312,18 @@ void GameBuilder::RunWeb(Engine::Project project, std::string engineDir, std::st
 
     // The files, as the Windows build lays them out next to its exe
     std::vector<std::pair<std::string, std::string>> files;
-    size_t skipped = 0;
-    auto collect = [&](const fs::path& from, const std::string& prefix, bool useExclude) -> bool {
+    {
+        const fs::path from = fs::u8path(engineDir);
         std::vector<fs::path> found;
         for (auto it = fs::recursive_directory_iterator(from, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec))
             if (it->is_regular_file(ec)) found.push_back(it->path());
-        if (ec) { Fail("can't read " + Engine::Project::PathString(from) + ": " + ec.message()); return false; }
+        if (ec) { Fail("can't read " + Engine::Project::PathString(from) + ": " + ec.message()); return; }
         std::sort(found.begin(), found.end());
-        for (const fs::path& p : found) {
-            const std::string rel = Engine::Project::PathString(fs::relative(p, from, ec));
-            if (useExclude && project.IsExcluded(rel)) { skipped++; continue; }
-            files.emplace_back(prefix + rel, Engine::Project::PathString(p));
-        }
-        return true;
-    };
-    Add("Packing the engine files and the project's Assets into game.pak");
-    if (!collect(fs::u8path(engineDir), "EngineAssets/", false)) return;
-    if (!collect(fs::u8path(project.AssetDir()), "Assets/", true)) return;
+        for (const fs::path& p : found)
+            files.emplace_back("EngineAssets/" + Engine::Project::PathString(fs::relative(p, from, ec)), Engine::Project::PathString(p));
+    }
+    Add("Packing the engine files and the " + std::to_string(assets.size()) + " assets the game uses into game.pak");
+    for (const std::string& rel : assets) files.emplace_back("Assets/" + rel, project.AssetDir() + rel);
     files.emplace_back("project.json", project.File());
     uintmax_t bytes = 0;
     std::string error;
@@ -271,7 +355,7 @@ void GameBuilder::RunWeb(Engine::Project project, std::string engineDir, std::st
 
     char size[64];
     std::snprintf(size, sizeof(size), "%.1f MB", double(bytes) / (1024.0 * 1024.0));
-    Add("Done: " + std::to_string(files.size()) + " files in game.pak, " + size + (skipped ? ", " + std::to_string(skipped) + " left out by \"exclude\"" : std::string()));
+    Add("Done: " + std::to_string(files.size()) + " files in game.pak, " + size + (leftOut ? ", " + std::to_string(leftOut) + " unused or excluded assets left out" : std::string()));
     Add("Play it with Play.bat in " + Engine::Project::PathString(out) + " (a small local web server: browsers don't run it from a file).");
     Add("To share it, upload the folder to a web host. itch.io: zip the folder, project kind HTML.");
     LOG_INFO("Web game built in {}", Engine::Project::PathString(out));

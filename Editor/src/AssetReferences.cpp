@@ -1,4 +1,5 @@
 #include "AssetReferences.h"
+#include "Core/Project.h"
 
 #include <algorithm>
 #include <cctype>
@@ -612,6 +613,202 @@ std::vector<Missing> FindMissing(const std::string& projectDir, const std::strin
         if (auto it = byName.find(Lower(NameOf(target))); it != byName.end()) m.Candidates = it->second;
         std::sort(m.Candidates.begin(), m.Candidates.end());
         out.push_back(std::move(m));
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------- what a game uses
+namespace {
+    bool LoadText(const fs::path& p, std::string rel, std::string assetRel, FileKind kind, TextFile& t) {
+        std::error_code ec;
+        if (fs::file_size(p, ec) > 64ull * 1024 * 1024 || ec) return false;
+        t.Rel = std::move(rel);
+        t.AssetRel = std::move(assetRel);
+        t.Kind = kind;
+        if (!ReadFile(p, t.Text)) return false;
+        if (kind == FileKind::Gltf && ExtOf(t.AssetRel) == ".glb") {         // a .glb: its JSON chunk
+            const std::string& s = t.Text;
+            auto u32 = [&](size_t at) { return (uint32_t)(unsigned char)s[at] | (uint32_t)(unsigned char)s[at + 1] << 8 |
+                                               (uint32_t)(unsigned char)s[at + 2] << 16 | (uint32_t)(unsigned char)s[at + 3] << 24; };
+            if (s.size() < 20 || s.compare(0, 4, "glTF") != 0 || u32(16) != 0x4E4F534Au) return false;
+            const size_t len = u32(12);
+            if (20 + len > s.size()) return false;
+            t.Text = s.substr(20, len);
+        }
+        t.LineStarts.assign(1, 0);
+        for (size_t i = 0; i < t.Text.size(); i++) if (t.Text[i] == '\n') t.LineStarts.push_back(i + 1);
+        return true;
+    }
+
+    bool IsModelExtension(const std::string& ext) {
+        return ext == ".glb" || ext == ".gltf" || ext == ".fbx" || ext == ".obj" || ext == ".dae" || ext == ".3ds" || ext == ".blend";
+    }
+    bool IsImageExtension(const std::string& ext) {
+        return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp" || ext == ".dds" || ext == ".hdr" || ext == ".tif" || ext == ".tiff";
+    }
+}
+
+UsedAssets FindUsedAssets(const std::string& projectDir, const std::string& assetDir, const std::string& engineDir,
+                          const std::vector<std::string>& include) {
+    UsedAssets out;
+    std::error_code ec;
+
+    // Every file under Assets: by path and by name (both in lower case: Windows paths ignore case)
+    std::vector<std::string> all;
+    std::unordered_map<std::string, std::string> byPath;                  // lower -> as on disk
+    std::unordered_map<std::string, std::vector<std::string>> byName;     // lower file name -> paths
+    std::set<std::string> folders;                                        // lower, no trailing '/'
+    const fs::path root = fs::u8path(assetDir);
+    for (auto it = fs::recursive_directory_iterator(root, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
+        const std::string rel = U8(fs::relative(it->path(), root, ec).generic_u8string());
+        if (it->is_directory(ec)) { folders.insert(Lower(rel)); continue; }
+        if (!it->is_regular_file(ec)) continue;
+        all.push_back(rel);
+        byPath[Lower(rel)] = rel;
+        byName[Lower(NameOf(rel))].push_back(rel);
+    }
+    std::sort(all.begin(), all.end());
+
+    std::set<std::string> used;
+    std::vector<std::string> queue;
+    auto add = [&](const std::string& path, const std::string& why) {
+        auto it = byPath.find(Lower(path));
+        if (it == byPath.end() || !used.insert(it->second).second) return false;
+        out.Why[it->second] = why;
+        queue.push_back(it->second);
+        return true;
+    };
+    auto addFolder = [&](const std::string& folder, const std::string& why) {
+        const std::string prefix = Lower(folder) + "/";
+        size_t n = 0;
+        for (const std::string& rel : all)
+            if (StartsWith(Lower(rel), prefix) && ExtOf(rel) != ".meta") n += add(rel, why) ? 1 : 0;
+        return n;
+    };
+
+    std::map<std::string, Missing> missing;
+    std::set<std::string> keptFolders;
+    auto scan = [&](const TextFile& f) {
+        auto where = [&](size_t pos) { return f.Rel + ":" + std::to_string(f.LineOf(pos)); };
+        // 1. References, as renames see them
+        for (const Token& tok : TokensOf(f)) {
+            if (tok.IsKey || tok.Escaped) continue;
+            if (f.Rel == "project.json" && (tok.Key == "exclude" || tok.Key == "include")) continue;   // patterns, not uses
+            const std::string value = f.Text.substr(tok.Begin, tok.End - tok.Begin);
+            if (auto ref = Interpret(f, tok, value)) {
+                if (byPath.count(Lower(ref->Target))) add(ref->Target, where(tok.Begin));
+                else if (ref->Strong && IsAssetExtension(ExtOf(ref->Target)) && !folders.count(Lower(ref->Target))) {
+                    Missing& m = missing[ref->Target];
+                    m.Target = ref->Target;
+                    Use u;
+                    u.File = f.Rel; u.Line = f.LineOf(tok.Begin); u.Text = value; u.Target = ref->Target;
+                    m.Uses.push_back(std::move(u));
+                }
+                continue;
+            }
+            if (f.Kind == FileKind::Lua && !value.empty() && value.size() < 256) {
+                // A folder a script builds names in ("Dialogues/" .. name .. ".json"): keep all of it
+                std::string folder = value;
+                while (!folder.empty() && folder.back() == '/') folder.pop_back();
+                if (value.back() == '/' && !folder.empty() && folders.count(Lower(folder)) && keptFolders.insert(Lower(folder)).second) {
+                    const size_t n = addFolder(folder, where(tok.Begin) + " (names built from the folder)");
+                    out.Notes.push_back("Kept all of " + folder + "/ (" + std::to_string(n) + (n == 1 ? " file" : " files") + " not found otherwise): " + where(tok.Begin) +
+                                        " builds names from it. List what is really needed under \"Always include\" if that is too much.");
+                }
+                // A bare name: a prefab (scene.spawn_prefab) or a dialogue (dialogue.open)
+                else if (value.find_first_of("./ ") == std::string::npos) {
+                    add("Prefabs/" + value + ".json", where(tok.Begin));
+                    add("Dialogues/" + value + ".json", where(tok.Begin));
+                }
+            }
+            // A scene entity named like a dialogue: npc.lua plays Dialogues/<name in lower case>.json
+            if (f.Kind == FileKind::Json && StartsWith(f.AssetRel, "Scenes/") && tok.Key == "name" && value.size() < 128)
+                add("Dialogues/" + Lower(value) + ".json", where(tok.Begin) + " (an entity of that name)");
+        }
+        // 2. Any word inside a string value that names an asset file (a path, or a bare file name: every file of that
+        //    name), like an entity called "Exit: cellar.json > Yard". Comments don't count (a Lua comment naming
+        //    another script pulled in a whole other game), nor project.json, whose other strings are patterns.
+        //    Files without strings (.mtl, .txt): every word.
+        if (f.Rel == "project.json") return;
+        const std::string& t = f.Text;
+        auto wordChar = [](unsigned char c) { return std::isalnum(c) || c == '_' || c == '-' || c == '.' || c == '/' || c >= 0x80; };
+        auto words = [&](size_t from, size_t to) {
+            for (size_t i = from; i < to;) {
+                if (!wordChar((unsigned char)t[i])) { i++; continue; }
+                size_t j = i;
+                while (j < to && wordChar((unsigned char)t[j])) j++;
+                std::string word = t.substr(i, j - i);
+                while (!word.empty() && (word.back() == '.' || word.back() == '/')) word.pop_back();
+                if (word.size() >= 3 && word.size() < 256 && word.find('.') != std::string::npos && !ExtOf(word).empty() &&
+                    !std::isdigit((unsigned char)ExtOf(word)[1])) {
+                    if (word.find('/') != std::string::npos) {
+                        const std::string n = Normalize(word);
+                        if (!n.empty()) add(n, where(i));
+                    }
+                    else if (auto it = byName.find(Lower(word)); it != byName.end())
+                        for (const std::string& rel : it->second) add(rel, where(i) + " (names " + NameOf(rel) + ")");
+                }
+                i = j;
+            }
+        };
+        if (f.Kind == FileKind::Plain) words(0, t.size());
+        else for (const Token& tok : TokensOf(f)) if (!tok.IsKey) words(tok.Begin, tok.End);
+    };
+
+    // The roots
+    {
+        TextFile project;
+        if (LoadText(fs::u8path(projectDir + "project.json"), "project.json", "", FileKind::Json, project)) scan(project);
+    }
+    {   // The engine's script libraries run in every game: what they name is used (the dialogue box's frame, dialogues)
+        std::vector<fs::path> libs;
+        for (auto it = fs::directory_iterator(fs::u8path(engineDir + "Scripts/Lib"), ec); !ec && it != fs::directory_iterator(); it.increment(ec))
+            if (it->is_regular_file(ec) && ExtOf(U8(it->path().filename().generic_u8string())) == ".lua") libs.push_back(it->path());
+        ec.clear();
+        std::sort(libs.begin(), libs.end());
+        for (const fs::path& p : libs) {
+            TextFile lib;
+            if (LoadText(p, "EngineAssets/Scripts/Lib/" + U8(p.filename().generic_u8string()), "", FileKind::Lua, lib)) scan(lib);
+        }
+    }
+    add("Data/database.json", "always read (the game database)");
+    add("Data/input.json", "always read (input actions)");
+    addFolder("Scripts/Lib", "always read (script libraries)");
+    for (const std::string& rel : all)
+        for (const std::string& pattern : include)
+            if (Engine::Project::Matches(rel, pattern)) { add(rel, "\"Always include\": " + pattern); break; }
+
+    // Follow every file reached
+    while (!queue.empty()) {
+        const std::string rel = queue.back();
+        queue.pop_back();
+        const std::string ext = ExtOf(rel), folder = FolderOf(rel), stem = StemOf(rel);
+        const std::string inFolder = folder.empty() ? std::string() : folder + "/";
+        if (IsModelExtension(ext)) {
+            add(inFolder + stem + ".clips.json", rel + " (its clip library)");
+            add(inFolder + "kit.json", rel + " (its kit)");
+            if (ext == ".obj") add(inFolder + stem + ".mtl", rel + " (its materials)");
+            if (ext == ".obj" || ext == ".fbx" || ext == ".dae" || ext == ".3ds" || ext == ".blend") {
+                // Formats whose texture names aren't read here: keep the images beside it
+                for (const std::string& other : all)
+                    if (FolderOf(other) == folder && IsImageExtension(ExtOf(other))) add(other, rel + " (an image beside it)");
+            }
+        }
+        auto kind = TextKind(ext);
+        if (ext == ".glb") kind = FileKind::Gltf;
+        if (!kind) continue;
+        TextFile f;
+        if (LoadText(fs::u8path(assetDir + rel), "Assets/" + rel, rel, *kind, f)) scan(f);
+    }
+
+    for (const std::string& rel : all) {
+        if (used.count(rel)) out.Files.push_back(rel);
+        else out.Unused.push_back(rel);
+    }
+    for (auto& [target, m] : missing) {
+        if (auto it = byName.find(Lower(NameOf(target))); it != byName.end()) m.Candidates = it->second;
+        std::sort(m.Candidates.begin(), m.Candidates.end());
+        out.Missing.push_back(std::move(m));
     }
     return out;
 }

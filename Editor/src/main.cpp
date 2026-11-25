@@ -377,8 +377,16 @@ public:
             LOG_INFO("Picked: '{}'", Platform::PickFolder("Test: pick a folder", Projects::Current().Root));
         if (auto out = EnvVar("MDB_BUILD_GAME"); !out.empty()) {   // File > Build Game into <out> (the editor waits for it on quit)
             // MDB_BUILD_WEB=1: the web build instead (Emscripten; see Tools/build_web.ps1)
+            // MDB_BUILD_CHECK=1: only the check before building (logged), no build
             if (EnvVar("MDB_BUILD_WEB") == "1") m_BuildTarget = GameBuilder::Target::Web;
-            m_Builder.Start(Projects::Current(), Projects::EngineDir(), out, m_BuildTarget);
+            m_BuildOutput = out;
+            RunBuildCheck();
+            LogBuildCheck(*m_BuildCheck);
+            if (EnvVar("MDB_BUILD_CHECK") == "1") { m_AskBuild = true; m_BuildCheckOnly = true; }   // shows its window too
+            else {
+                if (m_BuildCheck->Ok()) m_Builder.Start(Projects::Current(), Projects::EngineDir(), out, m_BuildTarget, *m_BuildCheck);
+                else LOG_ERROR("Build Game: not built, the check found errors");
+            }
             m_ShowBuildGame = true;
         }
         // Test hooks for the viewport: MDB_VIEW_MODE=wireframe|xray|solid|textured|rendered, MDB_SELECT=<entity name>
@@ -881,6 +889,153 @@ public:
             LOG_ERROR("Could not restart the editor for {}", m_SwitchProject);
     }
 
+    static std::vector<std::string> SplitLines(const std::string& text) {
+        std::vector<std::string> out;
+        size_t start = 0;
+        while (start <= text.size()) {
+            size_t end = text.find('\n', start);
+            if (end == std::string::npos) end = text.size();
+            std::string line = text.substr(start, end - start);
+            while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+            if (!line.empty()) out.push_back(line);
+            start = end + 1;
+        }
+        return out;
+    }
+
+    // The check before building (GameBuilder::CheckBuild), plus what only the editor knows: unsaved changes
+    void RunBuildCheck() {
+        const Engine::Project& project = Projects::Current();
+        if (m_BuildOutput.empty()) m_BuildOutput = project.Root + "Build";
+        const auto t0 = std::chrono::steady_clock::now();
+        m_BuildCheck = GameBuilder::CheckBuild(project, Projects::EngineDir(), m_BuildOutput, m_BuildTarget);
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        auto& w = m_BuildCheck->Warnings;
+        auto unsaved = [&](bool dirty, const char* what) {
+            if (dirty) w.insert(w.begin(), std::string("Unsaved changes in ") + what + ": the game uses the saved files. Save first to include them.");
+        };
+        unsaved(m_Dialogue.IsDirty(), "the Dialogue Editor");
+        unsaved(m_AnimGraph.IsDirty(), "the AnimGraph Editor");
+        unsaved(m_ShaderGraph.IsDirty(), "the Shader Graph Editor");
+        unsaved(m_MaterialEditor.IsDirty(), "the Material Editor");
+        unsaved(m_UIEditor.IsDirty(), "the UI Editor");
+        unsaved(m_Database.IsDirty(), "the Database");
+        unsaved(m_History.IsDirty(), "the scene");
+        m_BuildCheckOnly = false;
+        LOG_INFO("Build check: {} of {} assets used, {} error(s), {} warning(s) ({:.0f} ms)", m_BuildCheck->Ship.size(),
+                 m_BuildCheck->AllFiles, m_BuildCheck->Errors.size(), m_BuildCheck->Warnings.size(), ms);
+    }
+
+    static std::string MegaBytes(uintmax_t bytes) {
+        char s[32];
+        std::snprintf(s, sizeof(s), "%.1f MB", double(bytes) / (1024.0 * 1024.0));
+        return s;
+    }
+
+    void LogBuildCheck(const GameBuilder::Check& c) {
+        for (const auto& e : c.Errors) LOG_ERROR("Build check: {}", e);
+        for (const auto& e : c.Warnings) LOG_WARN("Build check: {}", e);
+        for (const auto& e : c.Notes) LOG_INFO("Build check: {}", e);
+        LOG_INFO("Build check: shipping {} files ({}) of {} ({})", c.Ship.size(), MegaBytes(c.ShipBytes), c.AllFiles, MegaBytes(c.AllBytes));
+        if (EnvVar("MDB_BUILD_CHECK_LIST") == "1") {     // test hook: every file and why it is in or out
+            for (const auto& f : c.Ship) {
+                auto it = c.Used.Why.find(f);
+                LOG_INFO("  ship {}  <- {}", f, it != c.Used.Why.end() ? it->second : std::string("all assets"));
+            }
+            for (const auto& f : c.LeftOut) LOG_INFO("  leave out {}", f);
+        }
+    }
+
+    // "Before building": errors (stop the build), warnings, notes, and the files going in and staying out
+    void DrawBuildCheckModal(Engine::Project& project) {
+        const char* title = "Check before building";
+        if (m_AskBuild && m_BuildCheck && !ImGui::IsPopupOpen(title)) ImGui::OpenPopup(title);
+        m_AskBuild = false;
+        ImGui::SetNextWindowSize(ImVec2(760, 540), ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        if (!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_NoSavedSettings)) return;
+        if (!m_BuildCheck) { ImGui::CloseCurrentPopup(); ImGui::EndPopup(); return; }
+        const GameBuilder::Check& c = *m_BuildCheck;
+
+        ImGui::Text("%s for %s: %zu of %zu asset files, %s of %s", project.Title.c_str(),
+                    m_BuildTarget == GameBuilder::Target::Web ? "the web" : "Windows", c.Ship.size(), c.AllFiles,
+                    MegaBytes(c.ShipBytes).c_str(), MegaBytes(c.AllBytes).c_str());
+        if (c.Errors.empty() && c.Warnings.empty()) ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.5f, 1.0f), "No problems found.");
+        else ImGui::Text("%zu error(s), %zu warning(s)", c.Errors.size(), c.Warnings.size());
+
+        const float footer = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
+        ImGui::BeginChild("##check", ImVec2(0, -footer), ImGuiChildFlags_Border);
+        auto lines = [](const std::vector<std::string>& v, const ImVec4& color, const char* tag) {
+            for (const auto& s : v) {
+                ImGui::PushStyleColor(ImGuiCol_Text, color);
+                ImGui::TextUnformatted(tag);
+                ImGui::PopStyleColor();
+                ImGui::SameLine();
+                ImGui::TextWrapped("%s", s.c_str());
+            }
+        };
+        lines(c.Errors, ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "Error  ");
+        lines(c.Warnings, ImVec4(1.0f, 0.8f, 0.35f, 1.0f), "Warning");
+        lines(c.Notes, ImVec4(0.6f, 0.75f, 1.0f, 1.0f), "Note   ");
+        ImGui::Spacing();
+        if (ImGui::CollapsingHeader(("Shipped (" + std::to_string(c.Ship.size()) + ")").c_str())) {
+            ImGuiListClipper clip;
+            clip.Begin((int)c.Ship.size());
+            while (clip.Step())
+                for (int i = clip.DisplayStart; i < clip.DisplayEnd; i++) {
+                    const std::string& f = c.Ship[(size_t)i];
+                    ImGui::TextUnformatted(f.c_str());
+                    if (auto it = c.Used.Why.find(f); it != c.Used.Why.end()) {
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("<- %s", it->second.c_str());
+                    }
+                }
+        }
+        if (ImGui::CollapsingHeader(("Left out (" + std::to_string(c.LeftOut.size()) + ")").c_str())) {
+            ImGui::TextDisabled("Nothing found uses these. If a script loads one by a name it builds, add it to \"Always include\".");
+            ImGuiListClipper clip;
+            clip.Begin((int)c.LeftOut.size());
+            while (clip.Step())
+                for (int i = clip.DisplayStart; i < clip.DisplayEnd; i++) {
+                    const std::string& f = c.LeftOut[(size_t)i];
+                    ImGui::PushID(i);
+                    if (ImGui::SmallButton("Include")) {
+                        project.Include.push_back(f);
+                        m_BuildInclude += (m_BuildInclude.empty() || m_BuildInclude.back() == '\n' ? "" : "\n") + f + "\n";
+                        std::string error;
+                        if (!project.Save(&error)) LOG_ERROR("{}", error);
+                        m_RecheckBuild = true;
+                    }
+                    ImGui::SameLine();
+                    ImGui::TextUnformatted(f.c_str());
+                    if (project.IsExcluded(f)) { ImGui::SameLine(); ImGui::TextDisabled("(Leave out)"); }
+                    ImGui::PopID();
+                }
+        }
+        ImGui::EndChild();
+
+        if (!m_BuildCheckOnly) {
+            ImGui::BeginDisabled(!c.Ok() || m_Builder.Running());
+            if (ImGui::Button(c.Warnings.empty() ? "Build" : "Build anyway", ImVec2(140, 0))) {
+                LogBuildCheck(c);
+                m_Builder.Start(project, Projects::EngineDir(), m_BuildOutput, m_BuildTarget, c);
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+        }
+        if (ImGui::Button("Check again")) m_RecheckBuild = true;
+        ImGui::SameLine();
+        if (ImGui::Button(m_BuildCheckOnly ? "Close" : "Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        if (m_RecheckBuild) {                 // after drawing: the check replaces what was drawn from
+            m_RecheckBuild = false;
+            const bool only = m_BuildCheckOnly;
+            RunBuildCheck();
+            m_BuildCheckOnly = only;
+        }
+    }
+
     // File > Build Game: the project's game settings (saved to project.json) and the build with its log
     void DrawBuildGameWindow() {
         if (!m_ShowBuildGame) return;
@@ -917,19 +1072,10 @@ public:
         std::snprintf(excludeBuf, sizeof(excludeBuf), "%s", m_BuildExclude.c_str());
         if (ImGui::InputTextMultiline("##exclude", excludeBuf, sizeof(excludeBuf), ImVec2(-1, 70))) {
             m_BuildExclude = excludeBuf;
-            project.Exclude.clear();
-            size_t start = 0;
-            while (start <= m_BuildExclude.size()) {
-                size_t end = m_BuildExclude.find('\n', start);
-                if (end == std::string::npos) end = m_BuildExclude.size();
-                std::string line = m_BuildExclude.substr(start, end - start);
-                while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
-                if (!line.empty()) project.Exclude.push_back(line);
-                start = end + 1;
-            }
+            project.Exclude = SplitLines(m_BuildExclude);
             changed = true;
         }
-        if (changed) { std::string error; if (!project.Save(&error)) LOG_ERROR("{}", error); }
+        if (changed) { std::string error; if (!project.Save(&error)) LOG_ERROR("{}", error); m_BuildCheck.reset(); }
 
         // Windows: an exe and its files. Web: a folder for a web host (WebGL2 in a browser; Game/web)
         int target = m_BuildTarget == GameBuilder::Target::Web ? 1 : 0;
@@ -947,13 +1093,38 @@ public:
         ImGui::TextDisabled("The game goes to %s", folder.c_str());
         ImGui::EndDisabled();
 
+        // Which assets go in: the used ones (followed from project.json and the files every game reads), plus patterns
+        changed = false;
+        bool onlyUsed = !project.AllAssets;
+        if (ImGui::Checkbox("Ship only the assets the game uses", &onlyUsed)) { project.AllAssets = !onlyUsed; changed = true; }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Follows references from project.json (the start scene, fonts), Data/database.json, Data/input.json and\n"
+                              "Scripts/Lib through scenes, prefabs, materials, scripts, models...: unused files stay out of the build.\n"
+                              "A script that builds a file name at run time can't be followed: list such files below.");
+        if (onlyUsed) {
+            ImGui::Text("Always include (files under Assets, one per line, * matches anything):");
+            char includeBuf[2048];
+            if (m_BuildInclude.empty() && !m_BuildIncludeLoaded) {
+                for (const auto& e : project.Include) m_BuildInclude += e + "\n";
+                m_BuildIncludeLoaded = true;
+            }
+            std::snprintf(includeBuf, sizeof(includeBuf), "%s", m_BuildInclude.c_str());
+            if (ImGui::InputTextMultiline("##include", includeBuf, sizeof(includeBuf), ImVec2(-1, 50))) {
+                m_BuildInclude = includeBuf;
+                project.Include = SplitLines(m_BuildInclude);
+                changed = true;
+            }
+        }
+        if (changed) { std::string error; if (!project.Save(&error)) LOG_ERROR("{}", error); m_BuildCheck.reset(); }
+
         ImGui::Spacing();
         ImGui::BeginDisabled(running);
-        if (ImGui::Button(running ? "Building..." : "Build", ImVec2(140, 0))) {
-            if (m_History.IsDirty()) LOG_WARN("The scene has unsaved changes: the game uses the saved file. Save first (Ctrl+S) to include them.");
-            m_Builder.Start(project, Projects::EngineDir(), m_BuildOutput, m_BuildTarget);
-        }
+        if (ImGui::Button(running ? "Building..." : "Build...", ImVec2(140, 0))) { RunBuildCheck(); m_AskBuild = true; }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Checks the project first and shows what will be shipped");
+        ImGui::SameLine();
+        if (ImGui::Button("Check only")) { RunBuildCheck(); m_AskBuild = true; m_BuildCheckOnly = true; }
         ImGui::EndDisabled();
+        DrawBuildCheckModal(project);
         if (m_Builder.Done() && m_Builder.Succeeded()) {
             ImGui::SameLine();
             if (ImGui::Button("Play it")) Platform::OpenWithSystem(m_Builder.ExePath());
@@ -5844,7 +6015,10 @@ private:
     std::string m_SwitchProject;                 // File > Open Project: restart with --project <this> when quitting
     GameBuilder m_Builder;                       // File > Build Game
     GameBuilder::Target m_BuildTarget = GameBuilder::Target::Windows;
-    bool m_ShowBuildGame = false, m_BuildExcludeLoaded = false;
+    bool m_ShowBuildGame = false, m_BuildExcludeLoaded = false, m_BuildIncludeLoaded = false;
+    std::optional<GameBuilder::Check> m_BuildCheck;   // the last check before building (its modal shows it)
+    bool m_AskBuild = false, m_BuildCheckOnly = false, m_RecheckBuild = false;
+    std::string m_BuildInclude;                       // "Always include", as typed
     std::string m_BuildOutput, m_BuildExclude;
     size_t m_BuildLogLines = 0;
 
