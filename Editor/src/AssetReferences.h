@@ -91,6 +91,10 @@ namespace AssetRefs {
         std::vector<std::string> Unused;              // every other file under Assets
         std::vector<Missing> Missing;
         std::vector<std::string> Notes;               // folders kept whole, ...
+        // The built-in sample model (geometry "model": EngineAssets/Models/BoomBox.glb) is used: a JSON "geometry"
+        // value or a Lua string "model". BuiltinModelWhy: where ("Assets/Scenes/scene.json:40").
+        bool BuiltinModel = false;
+        std::string BuiltinModelWhy;
     };
     // engineDir: EngineAssets/ (its Scripts/Lib runs in every game and may name project files)
     UsedAssets FindUsedAssets(const std::string& projectDir, const std::string& assetDir, const std::string& engineDir,

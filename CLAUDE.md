@@ -77,7 +77,7 @@ Editor/src/AssetBrowser.cpp   the Assets panel (browse, drag and drop, file oper
 Editor/src/AssetReferences.cpp the references between project files: rename / move plans, rewriting, uses, missing files
 Editor/src/Platform.cpp       Windows helpers (open with, Explorer, Recycle Bin, folder picker, restart, run a process)
 Editor/src/Projects.cpp       which project the editor opens, the recent-projects list
-Editor/src/GameBuilder.cpp    File > Build Game (compile Game.exe in Release, copy the game folder)
+Editor/src/GameBuilder.cpp    File > Build Game (compile Game.exe in Release, copy the game folder: used Assets, and EngineAssets minus Models/ unless geometry "model" is used, ShaderGraphs/ presets and editor.ini)
 Editor/src/TerrainEditor.cpp  the terrain brushes and Inspector > Terrain (sculpt, paint, scatter models, generate, auto paint, import), saving .terrain files
 Editor/src/DialogueEditor.cpp  the Dialogue Editor window (node graph for Assets/Dialogues/*.json)
 Editor/src/AnimGraphEditor.cpp the AnimGraph Editor window (state machines for Assets/AnimGraphs/*.json, live view while playing)

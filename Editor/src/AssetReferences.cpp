@@ -695,6 +695,12 @@ UsedAssets FindUsedAssets(const std::string& projectDir, const std::string& asse
             if (tok.IsKey || tok.Escaped) continue;
             if (f.Rel == "project.json" && (tok.Key == "exclude" || tok.Key == "include")) continue;   // patterns, not uses
             const std::string value = f.Text.substr(tok.Begin, tok.End - tok.Begin);
+            // The built-in sample model (ResourceLibrary "model"), which lives in EngineAssets/Models
+            if (value == "model" && !out.BuiltinModel &&
+                (f.Kind == FileKind::Lua || (f.Kind == FileKind::Json && tok.Key == "geometry"))) {
+                out.BuiltinModel = true;
+                out.BuiltinModelWhy = where(tok.Begin);
+            }
             if (auto ref = Interpret(f, tok, value)) {
                 if (byPath.count(Lower(ref->Target))) add(ref->Target, where(tok.Begin));
                 else if (ref->Strong && IsAssetExtension(ExtOf(ref->Target)) && !folders.count(Lower(ref->Target))) {

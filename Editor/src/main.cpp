@@ -937,12 +937,16 @@ public:
         for (const auto& e : c.Warnings) LOG_WARN("Build check: {}", e);
         for (const auto& e : c.Notes) LOG_INFO("Build check: {}", e);
         LOG_INFO("Build check: shipping {} files ({}) of {} ({})", c.Ship.size(), MegaBytes(c.ShipBytes), c.AllFiles, MegaBytes(c.AllBytes));
+        LOG_INFO("Build check: shipping {} engine files ({}), leaving out {} ({})", c.EngineShip.size(), MegaBytes(c.EngineBytes),
+                 c.EngineLeftOut.size(), MegaBytes(c.EngineLeftOutBytes));
         if (EnvVar("MDB_BUILD_CHECK_LIST") == "1") {     // test hook: every file and why it is in or out
             for (const auto& f : c.Ship) {
                 auto it = c.Used.Why.find(f);
                 LOG_INFO("  ship {}  <- {}", f, it != c.Used.Why.end() ? it->second : std::string("all assets"));
             }
             for (const auto& f : c.LeftOut) LOG_INFO("  leave out {}", f);
+            for (const auto& f : c.EngineShip) LOG_INFO("  ship EngineAssets/{}", f);
+            for (const auto& f : c.EngineLeftOut) LOG_INFO("  leave out EngineAssets/{}  ({})", f, c.EngineWhy.at(f));
         }
     }
 
@@ -960,6 +964,8 @@ public:
         ImGui::Text("%s for %s: %zu of %zu asset files, %s of %s", project.Title.c_str(),
                     m_BuildTarget == GameBuilder::Target::Web ? "the web" : "Windows", c.Ship.size(), c.AllFiles,
                     MegaBytes(c.ShipBytes).c_str(), MegaBytes(c.AllBytes).c_str());
+        ImGui::TextDisabled("Engine files: %zu, %s (%zu left out, %s)", c.EngineShip.size(), MegaBytes(c.EngineBytes).c_str(),
+                            c.EngineLeftOut.size(), MegaBytes(c.EngineLeftOutBytes).c_str());
         if (c.Errors.empty() && c.Warnings.empty()) ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.5f, 1.0f), "No problems found.");
         else ImGui::Text("%zu error(s), %zu warning(s)", c.Errors.size(), c.Warnings.size());
 
@@ -1011,6 +1017,17 @@ public:
                     if (project.IsExcluded(f)) { ImGui::SameLine(); ImGui::TextDisabled("(Leave out)"); }
                     ImGui::PopID();
                 }
+        }
+        if (ImGui::CollapsingHeader(("Engine files (" + std::to_string(c.EngineShip.size()) + " shipped, " +
+                                     std::to_string(c.EngineLeftOut.size()) + " left out)").c_str())) {
+            for (const auto& f : c.EngineLeftOut) {
+                ImGui::TextDisabled("left out");
+                ImGui::SameLine();
+                ImGui::TextUnformatted(("EngineAssets/" + f).c_str());
+                ImGui::SameLine();
+                ImGui::TextDisabled("(%s)", c.EngineWhy.at(f).c_str());
+            }
+            for (const auto& f : c.EngineShip) ImGui::TextUnformatted(("EngineAssets/" + f).c_str());
         }
         ImGui::EndChild();
 

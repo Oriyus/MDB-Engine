@@ -95,6 +95,34 @@ GameBuilder::Check GameBuilder::CheckBuild(const Engine::Project& project, const
     for (const std::string& rel : usedExcluded)
         c.Warnings.push_back(rel + " is used (" + c.Used.Why[rel] + ") but left out by \"Leave out\".");
 
+    // The engine's files: what the player reads (shaders, fonts, script libraries, anything new) always; the sample
+    // model (Models/) only if the game uses the built-in "model" geometry; the shader graph presets (ShaderGraphs/)
+    // never: the editor copies a preset into the project's Assets when one is used. "Ship every asset" ships all of
+    // them. Editor window layouts (editor.ini, imgui.ini) are never shipped.
+    {
+        const fs::path engine = fs::u8path(engineDir);
+        for (auto it = fs::recursive_directory_iterator(engine, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
+            if (!it->is_regular_file(ec)) continue;
+            const std::string rel = Engine::Project::PathString(fs::relative(it->path(), engine, ec));
+            const uintmax_t size = fs::file_size(it->path(), ec);
+            const uintmax_t bytes = ec ? 0 : size;
+            std::string why;
+            const std::string name = Engine::Project::PathString(it->path().filename());
+            if (name == "editor.ini" || name == "imgui.ini") why = "an editor window layout";
+            else if (!project.AllAssets) {
+                if (rel.rfind("ShaderGraphs/", 0) == 0) why = "the editor's shader graph presets";
+                else if (rel.rfind("Models/", 0) == 0 && !c.Used.BuiltinModel) why = "the built-in sample model (geometry \"model\"), not used";
+            }
+            if (why.empty()) { c.EngineShip.push_back(rel); c.EngineBytes += bytes; }
+            else { c.EngineLeftOut.push_back(rel); c.EngineWhy[rel] = why; c.EngineLeftOutBytes += bytes; }
+        }
+        if (ec) c.Errors.push_back("Can't read the engine's files in " + engineDir + ": " + ec.message());
+        ec.clear();
+        std::sort(c.EngineShip.begin(), c.EngineShip.end());
+        std::sort(c.EngineLeftOut.begin(), c.EngineLeftOut.end());
+        if (c.Used.BuiltinModel) c.Notes.push_back("Shipping the built-in sample model EngineAssets/Models/BoomBox.glb: " + c.Used.BuiltinModelWhy + " uses geometry \"model\".");
+    }
+
     // References to files that aren't there
     for (const auto& m : c.Used.Missing) {
         const auto& u = m.Uses.front();
@@ -145,12 +173,13 @@ bool GameBuilder::Start(const Engine::Project& project, const std::string& engin
     m_Succeeded = false;
     m_Running = true;
     const size_t leftOut = check.LeftOut.size();
-    m_Thread = target == Target::Web ? std::thread(&GameBuilder::RunWeb, this, project, engineDir, outputDir, check.Ship, leftOut)
-                                     : std::thread(&GameBuilder::Run, this, project, engineDir, outputDir, check.Ship, leftOut);
+    m_Thread = target == Target::Web ? std::thread(&GameBuilder::RunWeb, this, project, engineDir, outputDir, check.Ship, check.EngineShip, leftOut)
+                                     : std::thread(&GameBuilder::Run, this, project, engineDir, outputDir, check.Ship, check.EngineShip, leftOut);
     return true;
 }
 
-void GameBuilder::Run(Engine::Project project, std::string engineDir, std::string outputDir, std::vector<std::string> assets, size_t leftOut) {
+void GameBuilder::Run(Engine::Project project, std::string engineDir, std::string outputDir, std::vector<std::string> assets,
+                      std::vector<std::string> engineFiles, size_t leftOut) {
     auto fail = [this](const std::string& why) {
         Add("FAILED: " + why);
         LOG_ERROR("Build Game failed: {}", why);
@@ -207,14 +236,10 @@ void GameBuilder::Run(Engine::Project project, std::string engineDir, std::strin
         bytes += fs::file_size(from, ec);
         return true;
     };
-    Add("Copying the engine files (shaders, Lua libraries)");
+    Add("Copying the " + std::to_string(engineFiles.size()) + " engine files the game needs (shaders, fonts, Lua libraries)");
     const fs::path engine = fs::u8path(engineDir);
-    for (auto it = fs::recursive_directory_iterator(engine, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
-        if (!it->is_regular_file(ec)) continue;
-        const std::string rel = Engine::Project::PathString(fs::relative(it->path(), engine, ec));
-        if (!copyOne(it->path(), out / "EngineAssets" / fs::u8path(rel), rel)) return;
-    }
-    if (ec) { fail("can't read " + engineDir + ": " + ec.message()); return; }
+    for (const std::string& rel : engineFiles)
+        if (!copyOne(engine / fs::u8path(rel), out / "EngineAssets" / fs::u8path(rel), "EngineAssets/" + rel)) return;
     Add("Copying the " + std::to_string(assets.size()) + " assets the game uses");
     for (const std::string& rel : assets)
         if (!copyOne(fs::u8path(project.AssetDir() + rel), out / "Assets" / fs::u8path(rel), rel)) return;
@@ -268,7 +293,8 @@ bool GameBuilder::WritePak(const std::string& pakPath, const std::vector<std::pa
     return true;
 }
 
-void GameBuilder::RunWeb(Engine::Project project, std::string engineDir, std::string outputDir, std::vector<std::string> assets, size_t leftOut) {
+void GameBuilder::RunWeb(Engine::Project project, std::string engineDir, std::string outputDir, std::vector<std::string> assets,
+                         std::vector<std::string> engineFiles, size_t leftOut) {
     (void)outputDir;
     std::error_code ec;
     // 1. The web player: a packaged editor ships it (Player/Web, with Play.bat and serve.ps1); an editor run from the
@@ -312,16 +338,8 @@ void GameBuilder::RunWeb(Engine::Project project, std::string engineDir, std::st
 
     // The files, as the Windows build lays them out next to its exe
     std::vector<std::pair<std::string, std::string>> files;
-    {
-        const fs::path from = fs::u8path(engineDir);
-        std::vector<fs::path> found;
-        for (auto it = fs::recursive_directory_iterator(from, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec))
-            if (it->is_regular_file(ec)) found.push_back(it->path());
-        if (ec) { Fail("can't read " + Engine::Project::PathString(from) + ": " + ec.message()); return; }
-        std::sort(found.begin(), found.end());
-        for (const fs::path& p : found)
-            files.emplace_back("EngineAssets/" + Engine::Project::PathString(fs::relative(p, from, ec)), Engine::Project::PathString(p));
-    }
+    for (const std::string& rel : engineFiles)
+        files.emplace_back("EngineAssets/" + rel, Engine::Project::Normalize(engineDir) + rel);
     Add("Packing the engine files and the " + std::to_string(assets.size()) + " assets the game uses into game.pak");
     for (const std::string& rel : assets) files.emplace_back("Assets/" + rel, project.AssetDir() + rel);
     files.emplace_back("project.json", project.File());

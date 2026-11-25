@@ -3,6 +3,7 @@
 #include "Core/Project.h"
 
 #include <atomic>
+#include <map>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -12,7 +13,7 @@
 // Windows:
 //   1. compiles Game.exe in Release (cmake --build <build dir> --config Release --target Game), or, in a
 //      packaged editor (package_editor), copies the prebuilt Player/Game.exe next to MDBEditor.exe
-//   2. <output>/<title>/: <title>.exe, EngineAssets/, the project's used Assets/ (without its "exclude" files)
+//   2. <output>/<title>/: <title>.exe, the EngineAssets/ the game needs (Check::EngineShip), the project's used Assets/ (without its "exclude" files)
 //      and project.json, so the exe finds everything next to itself
 // Web (WebGL2 in a browser, Game/web):
 //   1. builds the web player (Tools/build_web.ps1: Emscripten into <source>/build-web), or, packaged, copies
@@ -37,6 +38,11 @@ public:
         size_t Excluded = 0;                    // of LeftOut: by "exclude"
         uintmax_t ShipBytes = 0, AllBytes = 0;
         size_t AllFiles = 0;
+        // EngineAssets: shaders, fonts and script libraries always; Models (the built-in sample model) only if the
+        // game uses it; ShaderGraphs (the editor's presets) never. Paths relative to EngineAssets, sorted.
+        std::vector<std::string> EngineShip, EngineLeftOut;
+        std::map<std::string, std::string> EngineWhy;   // left-out file -> why
+        uintmax_t EngineBytes = 0, EngineLeftOutBytes = 0;
         bool Ok() const { return Errors.empty(); }
     };
     static Check CheckBuild(const Engine::Project& project, const std::string& engineDir, const std::string& outputDir, Target target);
@@ -61,8 +67,10 @@ public:
                          uintmax_t* bytes, std::string* error);
 
 private:
-    void Run(Engine::Project project, std::string engineDir, std::string outputDir, std::vector<std::string> assets, size_t leftOut);
-    void RunWeb(Engine::Project project, std::string engineDir, std::string outputDir, std::vector<std::string> assets, size_t leftOut);
+    void Run(Engine::Project project, std::string engineDir, std::string outputDir, std::vector<std::string> assets,
+             std::vector<std::string> engineFiles, size_t leftOut);
+    void RunWeb(Engine::Project project, std::string engineDir, std::string outputDir, std::vector<std::string> assets,
+                std::vector<std::string> engineFiles, size_t leftOut);
     void Add(const std::string& line);
     void Fail(const std::string& why);
 
