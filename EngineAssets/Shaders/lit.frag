@@ -568,6 +568,7 @@ void main() {
     if (terrainNormals) N = PerturbNormal(Ng, v_WorldPos, v_TexCoord, terrainN);
 #ifdef MDB_GRAPH
     if (g.HasNormal) N = PerturbNormal(Ng, v_WorldPos, v_TexCoord, g.Normal);
+    if (g.HasWorldNormal) N = normalize(g.WorldNormal);     // a world-space normal (Triplanar Normal Map): used as it is
 #endif
 
     vec3 V = normalize(u_ViewPos - v_WorldPos);

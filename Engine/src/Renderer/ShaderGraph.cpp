@@ -127,7 +127,7 @@ namespace Engine {
             // Output
             Add(v, "Output", "Output", "The surface: what the material looks like. Unconnected inputs use their values. Vertex Offset moves the mesh's points (world space, metres): waves, wobble, wind.",
                 { P("BaseColor", 3, glm::vec4(0.8f)), P("Alpha", 1, One), P("Metallic", 1), P("Roughness", 1, Half),
-                  P("Specular", 1, One), P("Normal", 3, Up), P("Emission", 3), P("Vertex Offset", 3) }, {}, true);
+                  P("Specular", 1, One), P("Normal", 3, Up), P("World Normal", 3, Up), P("Emission", 3), P("Vertex Offset", 3) }, {}, true);
             // Input
             Add(v, "UV", "Input", "The mesh's texture coordinates (the material's UV scale and offset applied).", {}, { { P("UV", 2), "IN.UV" } });
             Add(v, "Position", "Input", "The point being drawn, in world space (metres).", {}, { { P("Position", 3), "IN.WorldPos" } });
@@ -152,6 +152,8 @@ namespace Engine {
                 { P("Texture", 5), P("UV", 2, glm::vec4(0.0f), uv), P("Strength", 1, One) }, { { P("Normal", 3), "" } }, true);
             Add(v, "Triplanar", "Texture", "Projects a texture from the three world axes: no UVs needed (rocks, cliffs).",
                 { P("Texture", 5), P("Scale", 1, Half), P("Sharpness", 1, glm::vec4(4.0f)) }, { { P("RGBA", 4), "" }, { P("RGB", 3), "" } }, true);
+            Add(v, "Triplanar Normal Map", "Texture", "A normal map projected from the three world axes (the same mapping as Triplanar) and blended into a world-space normal: plug it into the Output's World Normal. OpenGL style; use a linear texture.",
+                { P("Texture", 5), P("Scale", 1, Half), P("Sharpness", 1, glm::vec4(4.0f)), P("Strength", 1, One) }, { { P("Normal", 3), "" } }, true);
             Add(v, "Tiling And Offset", "UV", "UV x Tiling + Offset.", { P("UV", 2, glm::vec4(0.0f), uv), P("Tiling", 2, One), P("Offset", 2) },
                 { { P("UV", 2), "($0 * $1 + $2)" } });
             Add(v, "Panner", "UV", "Slides UVs over time (flowing water, scrolling lava).", { P("UV", 2, glm::vec4(0.0f), uv), P("Speed", 2, glm::vec4(0.1f, 0.0f, 0.0f, 0.0f)) },
@@ -345,6 +347,19 @@ vec4 sg_triplanar(sampler2D t, vec3 p, vec3 n, float scale, float sharp) {
     vec3 w = pow(abs(normalize(n)), vec3(sharp)); w /= (w.x + w.y + w.z + 1e-5);
     return texture(t, p.zy * scale) * w.x + texture(t, p.xz * scale) * w.y + texture(t, p.xy * scale) * w.z;
 }
+// A tangent-space normal map on sg_triplanar's three projections, each turned into world space and blended by the same
+// weights (whiteout blend): the projections' UV axes are world axes, so no tangents are needed. Returns world space.
+vec3 sg_triplanarNormal(sampler2D t, vec3 p, vec3 n, float scale, float sharp, float s) {
+    vec3 N = normalize(n);
+    vec3 w = pow(abs(N), vec3(sharp)); w /= (w.x + w.y + w.z + 1e-5);
+    vec3 tx = texture(t, p.zy * scale).xyz * 2.0 - 1.0; tx.xy *= s;
+    vec3 ty = texture(t, p.xz * scale).xyz * 2.0 - 1.0; ty.xy *= s;
+    vec3 tz = texture(t, p.xy * scale).xyz * 2.0 - 1.0; tz.xy *= s;
+    tx = vec3(tx.xy + N.zy, abs(tx.z) * N.x);
+    ty = vec3(ty.xy + N.xz, abs(ty.z) * N.y);
+    tz = vec3(tz.xy + N.xy, abs(tz.z) * N.z);
+    return normalize(tx.zyx * w.x + ty.xzy * w.y + tz.xyz * w.z);
+}
 )";
 
         std::string F(float f) {
@@ -514,9 +529,15 @@ vec4 sg_triplanar(sampler2D t, vec3 p, vec3 n, float scale, float sharp) {
                     out(u, dims);
                     return true;
                 }
-                if (t == "Sample Texture" || t == "Sample Normal Map" || t == "Triplanar") {
-                    const std::string tex = TextureInput(n, d.In[0], t == "Sample Normal Map");
+                if (t == "Sample Texture" || t == "Sample Normal Map" || t == "Triplanar" || t == "Triplanar Normal Map") {
+                    const std::string tex = TextureInput(n, d.In[0], t == "Sample Normal Map" || t == "Triplanar Normal Map");
                     if (tex.empty()) { for (size_t k = 0; k < d.Out.size(); k++) out(Literal(glm::vec4(0.0f), d.Out[k].Type), d.Out[k].Type); return false; }
+                    if (t == "Triplanar Normal Map") {
+                        const auto sc = Input(n, d.In[1]), sh = Input(n, d.In[2]), st = Input(n, d.In[3]);
+                        out("sg_triplanarNormal(" + tex + ", IN.WorldPos, IN.WorldNormal, " + Conv(sc.first, sc.second, 1) + ", " +
+                            Conv(sh.first, sh.second, 1) + ", " + Conv(st.first, st.second, 1) + ")", 3);
+                        return true;
+                    }
                     if (t == "Triplanar") {
                         const auto sc = Input(n, d.In[1]), sh = Input(n, d.In[2]);
                         out("sg_triplanar(" + tex + ", IN.WorldPos, IN.WorldNormal, " + Conv(sc.first, sc.second, 1) + ", " + Conv(sh.first, sh.second, 1) + ")", 4);
@@ -545,7 +566,8 @@ vec4 sg_triplanar(sampler2D t, vec3 p, vec3 n, float scale, float sharp) {
                 std::ostringstream c;
                 c << "// ---- shader graph (generated)\n"
                      "struct SGIn { vec2 UV; vec3 WorldPos; vec3 WorldNormal; vec3 ViewDir; float Time; vec2 ScreenUV; };\n"
-                     "struct SGOut { vec3 BaseColor; float Alpha; float Metallic; float Roughness; float Specular; vec3 Normal; bool HasNormal; vec3 Emission; };\n";
+                     "struct SGOut { vec3 BaseColor; float Alpha; float Metallic; float Roughness; float Specular; vec3 Normal; bool HasNormal; "
+                     "vec3 WorldNormal; bool HasWorldNormal; vec3 Emission; };\n";
                 for (size_t i = 0; i < R.Params.size(); i++) {
                     const SGParam& p = R.Params[i];
                     if (p.Type == "texture") c << "layout(binding = " << R.TextureUnits[i] << ") uniform sampler2D " << R.Uniforms[i] << ";\n";
@@ -574,10 +596,13 @@ vec4 sg_triplanar(sampler2D t, vec3 p, vec3 n, float scale, float sharp) {
                         if (pin.Name == "Vertex Offset") continue;
                         const auto in = Input(*output, pin);
                         if (in.second == 5) { Error(output->Id, pin.Name + " can't take a texture"); continue; }
-                        assign += "    o." + pin.Name + " = " + Conv(in.first, in.second, pin.Type) + ";\n";
+                        std::string field = pin.Name;                        // "World Normal" -> o.WorldNormal
+                        field.erase(std::remove(field.begin(), field.end(), ' '), field.end());
+                        assign += "    o." + field + " = " + Conv(in.first, in.second, pin.Type) + ";\n";
                     }
                     R.WritesAlpha = LinkInto(output->Id, "Alpha") != nullptr;
                     if (LinkInto(output->Id, "Normal")) assign += "    o.HasNormal = true;\n";
+                    if (LinkInto(output->Id, "World Normal")) assign += "    o.HasWorldNormal = true;\n";
                 }
                 R.Unlit = G.Unlit;
                 const std::string surface = Body.str();
@@ -596,7 +621,7 @@ vec4 sg_triplanar(sampler2D t, vec3 p, vec3 n, float scale, float sharp) {
 
                 const std::string head = Header();
                 R.Code = head + "SGOut GraphSurface(SGIn IN) {\n" + surface +
-                         "    SGOut o;\n    o.HasNormal = false;\n" + assign + "    return o;\n}\n";
+                         "    SGOut o;\n    o.HasNormal = false;\n    o.HasWorldNormal = false;\n" + assign + "    return o;\n}\n";
                 if (R.HasVertexOffset) R.VertexCode = head + "vec3 GraphVertexOffset(SGIn IN) {\n" + vertex + "}\n";
                 R.Ok = R.Errors.empty() && R.NodeErrors.empty();
             }
@@ -620,7 +645,7 @@ vec4 sg_triplanar(sampler2D t, vec3 p, vec3 n, float scale, float sharp) {
                     if (!seen.insert(id).second) return false;
                     const SGNode* n = G.Find(id);
                     if (!n) return false;
-                    static const std::set<std::string> kSpatial = { "Position", "Normal", "View Direction", "Fresnel", "Triplanar", "World UV" };
+                    static const std::set<std::string> kSpatial = { "Position", "Normal", "View Direction", "Fresnel", "Triplanar", "Triplanar Normal Map", "World UV" };
                     if (kSpatial.count(n->Type)) return true;
                     for (const SGLink& l : G.Links) if (l.ToNode == id && spatial(l.FromNode)) return true;
                     return false;

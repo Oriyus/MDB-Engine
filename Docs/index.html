@@ -434,7 +434,7 @@ material.set("Materials/glow.mat", "emissiveIntensity", 6)   -- for everything u
     <ul>
       <li><b>Input:</b> UV, Position, Normal, View Direction, Screen Position, Time, Float, Vector2/3/4, Color, Property, <b>Scene Depth</b> (see-through materials: metres from the surface to the solid scene behind it, for shore foam, shallow colour and soft edges; it reads 10000 in opaque materials, shadows, previews and the web build).</li>
       <li><b>Ripple Rings</b> (Procedural): rings spreading over water from where scripts start them with <code>scene.ripple(pos, strength)</code> (the newest 16 are kept, aged on the scene clock). Outputs a tangent-space Normal for a plane or cube top (like Waves) and a Height in metres; inputs Speed, Wavelength, Life and Strength.</li>
-      <li><b>Texture:</b> Sample Texture, Sample Normal Map, Triplanar.</li>
+      <li><b>Texture:</b> Sample Texture, Sample Normal Map, Triplanar, <b>Triplanar Normal Map</b> (a normal map on Triplanar's three world projections, blended into a <i>world-space</i> normal with a whiteout blend: no UVs or tangents needed, so greybox walls and floors get relief; inputs Scale, Sharpness, Strength; plug it into the Output's <b>World Normal</b>, which lighting uses as it is, instead of Normal, which is tangent space).</li>
       <li><b>UV:</b> Tiling And Offset, Panner, Rotate UV, World UV.</li>
       <li><b>Math:</b> Add, Subtract, Multiply, Divide, Power, Min/Max, Modulo, Step, One Minus, Negate, Absolute, Floor, Ceiling, Fraction, Square Root, Sine, Cosine, Saturate, Normalize, Clamp, Lerp, Smoothstep, Remap, Posterize, Length, Distance, Dot and Cross Product.</li>
       <li><b>Vector:</b> Split, Combine.</li>
