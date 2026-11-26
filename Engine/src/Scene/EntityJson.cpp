@@ -128,7 +128,9 @@ namespace Engine {
             if (p.Softness != ParticleEmitterComponent{}.Softness) j["particles"]["softness"] = p.Softness;
             if (p.FadeIn > 0.0f) j["particles"]["fadeIn"] = p.FadeIn;
             if (p.Sheet != glm::ivec2(1)) j["particles"]["sheet"] = { p.Sheet.x, p.Sheet.y };
-            if (p.SheetFps > 0.0f) j["particles"]["sheetFps"] = p.SheetFps;
+            // one number when every particle plays at the same pace, else [min, max]
+            if (p.SheetFps.x == p.SheetFps.y) { if (p.SheetFps.x > 0.0f) j["particles"]["sheetFps"] = p.SheetFps.x; }
+            else j["particles"]["sheetFps"] = p.SheetFps;
         }
         if (e.Has<FoliageComponent>()) {
             auto& f = e.Get<FoliageComponent>();
@@ -452,7 +454,11 @@ namespace Engine {
             p.FadeIn = std::max(jp.value("fadeIn", p.FadeIn), 0.0f);
             if (auto it = jp.find("sheet"); it != jp.end() && it->is_array() && it->size() == 2)
                 p.Sheet = glm::clamp(glm::ivec2((*it)[0].get<int>(), (*it)[1].get<int>()), glm::ivec2(1), glm::ivec2(16));
-            p.SheetFps = std::max(jp.value("sheetFps", p.SheetFps), 0.0f);
+            if (auto it = jp.find("sheetFps"); it != jp.end()) {         // a number, or [min, max]
+                if (it->is_number()) p.SheetFps = glm::vec2(it->get<float>());
+                else if (it->is_array() && it->size() == 2) p.SheetFps = it->get<glm::vec2>();
+                p.SheetFps = glm::max(p.SheetFps, glm::vec2(0.0f));
+            }
             p.WorldSpace = jp.value("worldSpace", p.WorldSpace);
             p.DestroyWhenDone = jp.value("destroyWhenDone", p.DestroyWhenDone);
             e.Add<ParticleEmitterComponent>(p);

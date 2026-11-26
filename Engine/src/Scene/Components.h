@@ -282,7 +282,8 @@ namespace Engine {
         float Age = 0.0f, Life = 1.0f;    // seconds
         float Size = 0.1f;                // size at birth (metres)
         float Rotation = 0.0f, Spin = 0.0f;   // radians, radians per second
-        float Frame = 0.0f;               // its sprite-sheet frame at birth (random; SheetFps plays on from it)
+        float Frame = 0.0f;               // its sprite-sheet frame at birth (random, with a random phase into it)
+        float FrameRate = 0.0f;           // its own frames per second (random within SheetFps)
     };
 
     // Emits camera-facing particles: fire, smoke, sparks, dust. Simulated in Edit mode too (a live
@@ -309,10 +310,10 @@ namespace Engine {
         glm::vec2 SpinSpeed{ 0.0f, 0.0f };   // degrees per second, random between (and a random start angle if non-zero)
         std::shared_ptr<Texture2D> Texture;  // optional; none = a soft round dot
         // The texture as a sprite sheet: Sheet.x columns by Sheet.y rows of frames (left to right, top row first).
-        // Each particle starts on a random frame; SheetFps > 0 plays on through the frames (flickering flames),
-        // 0 keeps its frame for life (varied shapes).
+        // Each particle starts on a random frame, part-way into it; SheetFps (frames a second, random between, per
+        // particle) plays on through the frames (flickering flames, each at its own pace); 0 keeps its frame for life.
         glm::ivec2 Sheet{ 1, 1 };
-        float SheetFps = 0.0f;
+        glm::vec2 SheetFps{ 0.0f, 0.0f };
         bool  Additive = false;           // add light (fire, sparks, magic) instead of covering (smoke, dust)
         // Soft particles: metres over which a particle fades out as it nears the surface behind it, so big smoke and
         // mist quads don't cut a hard line where they cross walls and floors (0 = off: hard edges)

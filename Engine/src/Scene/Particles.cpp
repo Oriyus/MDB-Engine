@@ -70,7 +70,8 @@ namespace Engine {
                 p.Rotation = spins ? Rand(0.0f, glm::two_pi<float>()) : 0.0f;
                 p.Spin = glm::radians(Rand(pe.SpinSpeed.x, pe.SpinSpeed.y));
                 const int frames = std::max(1, pe.Sheet.x) * std::max(1, pe.Sheet.y);
-                p.Frame = std::floor(Rand(0.0f, (float)frames - 0.001f));
+                p.Frame = Rand(0.0f, (float)frames - 0.001f);      // a random frame, and how far into it
+                p.FrameRate = std::max(0.0f, Rand(pe.SheetFps.x, pe.SheetFps.y));
                 pe.Particles.push_back(p);
             }
         }
@@ -142,7 +143,7 @@ namespace Engine {
                 }
                 inst.Color = glm::vec4(glm::mix(c0, c1, t), alpha);
                 const int frames = std::max(1, pe.Sheet.x) * std::max(1, pe.Sheet.y);
-                const float frame = std::fmod(std::floor(p.Frame + p.Age * std::max(pe.SheetFps, 0.0f)), (float)frames);
+                const float frame = std::fmod(std::floor(p.Frame + p.Age * p.FrameRate), (float)frames);
                 inst.Extra = glm::vec4(p.Rotation, frame, 0.0f, 0.0f);
                 d.Instances.push_back(inst);
             }

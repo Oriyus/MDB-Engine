@@ -5194,8 +5194,8 @@ private:
             ImGui::SetItemTooltip("Adds light (fire, sparks, magic). Off: covers what is behind (smoke, dust).");
             if (ImGui::DragInt2("Sheet", &pe.Sheet.x, 0.05f, 1, 16)) pe.Sheet = glm::clamp(pe.Sheet, glm::ivec2(1), glm::ivec2(16));
             ImGui::SetItemTooltip("The texture as a sprite sheet: columns x rows of frames (left to right, top row first).\nEach particle starts on a random frame.");
-            ImGui::DragFloat("Sheet fps", &pe.SheetFps, 0.1f, 0.0f, 60.0f, "%.1f");
-            ImGui::SetItemTooltip("Frames a second each particle plays on through the sheet (flickering flames). 0 = keeps its frame.");
+            if (ImGui::DragFloat2("Sheet fps", &pe.SheetFps.x, 0.1f, 0.0f, 60.0f, "%.1f")) pe.SheetFps = glm::max(pe.SheetFps, glm::vec2(0.0f));
+            ImGui::SetItemTooltip("Frames a second each particle plays on through the sheet, random between the two\n(flickering flames, each at its own pace). 0 = keeps its frame.");
             ImGui::DragFloat("Fade in", &pe.FadeIn, 0.01f, 0.0f, 30.0f, "%.2f s");
             ImGui::SetItemTooltip("Seconds a new particle takes to fade in from nothing, so slow mist and motes don't pop\ninto view. 0 = appears at once (sparks, fire).");
             ImGui::DragFloat("Softness", &pe.Softness, 0.01f, 0.0f, 10.0f, "%.2f m");
