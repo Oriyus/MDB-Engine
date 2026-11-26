@@ -22,11 +22,13 @@ namespace Engine {
         std::vector<ParticleInstance> Instances;   // alpha-blended ones already back to front
         const Texture2D* Texture = nullptr;        // none: a soft round dot
         bool Additive = false;
+        float Softness = 0.0f;                     // metres: fade near the scene behind (0 = hard edges)
         float Distance = 0.0f;                     // emitter to camera, for ordering emitters
     };
 
     // Draws camera-facing particle quads, one instanced call per emitter, after the see-through pass:
-    // depth tested but not written, premultiplied blending (additive or over).
+    // depth tested but not written, premultiplied blending (additive or over). Soft particles read a copy of the
+    // scene depth and fade where they near it (ParticleDraw::Softness).
     class ParticleRenderer {
     public:
         ParticleRenderer();
@@ -34,8 +36,9 @@ namespace Engine {
         ParticleRenderer(const ParticleRenderer&) = delete;
         ParticleRenderer& operator=(const ParticleRenderer&) = delete;
 
-        // draws: sorted here (farthest first). The HDR framebuffer must be bound.
-        void Render(std::vector<ParticleDraw>& draws, const Camera& camera, Shader& shader);
+        // draws: sorted here (farthest first). The HDR framebuffer must be bound. depthTex: a copy of the scene depth
+        // (not the attached one), or 0 to draw every particle with hard edges.
+        void Render(std::vector<ParticleDraw>& draws, const Camera& camera, Shader& shader, uint32_t depthTex = 0);
 
     private:
         uint32_t m_Buffer = 0, m_VAO = 0;

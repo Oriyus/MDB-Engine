@@ -5192,6 +5192,8 @@ private:
             ImGui::SetItemTooltip("Brightness: above 1 glows with bloom");
             ImGui::Checkbox("Additive", &pe.Additive);
             ImGui::SetItemTooltip("Adds light (fire, sparks, magic). Off: covers what is behind (smoke, dust).");
+            ImGui::DragFloat("Softness", &pe.Softness, 0.01f, 0.0f, 10.0f, "%.2f m");
+            ImGui::SetItemTooltip("Soft particles: fade out over this distance as they near a surface, so big smoke and mist\ndon't cut a hard line through walls and floors. 0 = hard edges.");
             {
                 const auto registry = m_Resources->Registry();
                 std::string current = pe.Texture ? registry.TextureName(pe.Texture) : "(soft dot)";

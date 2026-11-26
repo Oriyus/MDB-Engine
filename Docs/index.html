@@ -619,7 +619,7 @@ self.animator:set_ik(1, { type = "look", bone = "b_Head_05", target = player, ma
 
 <section class="doc" data-group="Engine" id="engine-particles">
 <h2>Particles</h2>
-<p>CPU-simulated billboard particles. An emitter has a rate, burst, spread cone, shape (point, box…), gravity scale, drag, size and colour over life, emission brightness and optional texture/additive blending. Presets: <b>Fire, Smoke, Sparks, Magic, Dust, Embers</b>. Emitters preview live in Edit mode.</p>
+<p>CPU-simulated billboard particles. An emitter has a rate, burst, spread cone, shape (point, box…), gravity scale, drag, size and colour over life, emission brightness and optional texture/additive blending. <b>Softness</b> (metres, default 0.3) makes them soft particles: each one fades out as it nears the surface behind it, so big smoke and mist quads don't cut a hard line through walls and floors (0 = hard edges). Presets: <b>Fire, Smoke, Sparks, Magic, Dust, Embers</b>. Emitters preview live in Edit mode.</p>
 <pre><code class="lua">self:add_particles("Fire")
 scene.spawn_particles(self.position, { preset = "Sparks", count = 40 })   -- one-shot, removes itself</code></pre>
 </section>
@@ -1466,6 +1466,7 @@ self:add_particles{ preset = "Smoke", rate = 10, additive = false, texture = "te
 local p = self.particles
 p.rate = 40; p.emitting = false; p:burst(25); p:clear(); p:preset("Magic")
 p.start_color = vec3(1, 0.8, 0.2); p.end_color = vec3(1, 0, 0)
+p.softness = 1.0                                  -- metres of fade where it meets surfaces (0 = hard edges)
 
 scene.spawn_particles(self.position, "Sparks")    -- one-shot effect, removes itself</code></pre>
 </section>

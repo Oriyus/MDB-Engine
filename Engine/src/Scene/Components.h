@@ -308,6 +308,9 @@ namespace Engine {
         glm::vec2 SpinSpeed{ 0.0f, 0.0f };   // degrees per second, random between (and a random start angle if non-zero)
         std::shared_ptr<Texture2D> Texture;  // optional; none = a soft round dot
         bool  Additive = false;           // add light (fire, sparks, magic) instead of covering (smoke, dust)
+        // Soft particles: metres over which a particle fades out as it nears the surface behind it, so big smoke and
+        // mist quads don't cut a hard line where they cross walls and floors (0 = off: hard edges)
+        float Softness = 0.3f;
         bool  WorldSpace = true;          // particles stay where they were emitted (else they move with the entity)
         bool  DestroyWhenDone = false;    // remove the entity once it stops emitting and its particles are gone
 

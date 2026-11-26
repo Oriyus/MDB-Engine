@@ -124,6 +124,8 @@ namespace Engine {
                 { "emission", p.Emission },{ "spinSpeed", p.SpinSpeed },
                 { "texture", res.TextureName ? res.TextureName(p.Texture) : std::string() },
                 { "additive", p.Additive },{ "worldSpace", p.WorldSpace },{ "destroyWhenDone", p.DestroyWhenDone } };
+            // Only when not the default, so existing emitters keep their JSON (no prefab overrides appear)
+            if (p.Softness != ParticleEmitterComponent{}.Softness) j["particles"]["softness"] = p.Softness;
         }
         if (e.Has<FoliageComponent>()) {
             auto& f = e.Get<FoliageComponent>();
@@ -443,6 +445,7 @@ namespace Engine {
             if (jp.contains("spinSpeed")) p.SpinSpeed = jp["spinSpeed"].get<glm::vec2>();
             if (res.FindTexture) p.Texture = res.FindTexture(jp.value("texture", std::string()));
             p.Additive = jp.value("additive", p.Additive);
+            p.Softness = std::max(jp.value("softness", p.Softness), 0.0f);
             p.WorldSpace = jp.value("worldSpace", p.WorldSpace);
             p.DestroyWhenDone = jp.value("destroyWhenDone", p.DestroyWhenDone);
             e.Add<ParticleEmitterComponent>(p);

@@ -120,6 +120,7 @@ namespace Engine {
             ParticleDraw d;
             d.Texture = pe.Texture.get();
             d.Additive = pe.Additive;
+            d.Softness = pe.Softness;
             d.Distance = glm::length(glm::vec3(world[3]) - camera.Position);
             d.Instances.reserve(pe.Particles.size());
 
@@ -170,6 +171,7 @@ namespace Engine {
     bool ApplyParticlePreset(ParticleEmitterComponent& pe, const std::string& name) {
         ParticleEmitterComponent p;              // the defaults, then the preset's changes
         p.Texture = pe.Texture;
+        p.Softness = pe.Softness;               // how it meets surfaces stays the emitter's own, not the preset's
         if (name == "Fire") {
             p.Rate = 70.0f; p.Lifetime = { 0.6f, 1.1f }; p.Speed = { 1.0f, 1.8f }; p.Spread = 10.0f;
             p.Shape = EmitShape::Sphere; p.ShapeSize = glm::vec3(0.18f);

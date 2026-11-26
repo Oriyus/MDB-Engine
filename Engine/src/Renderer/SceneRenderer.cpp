@@ -719,7 +719,11 @@ namespace Engine {
                                  I.HDR->GetWidth(), I.HDR->GetHeight(), VolFog);
             I.Gpu.Mark("volumetric fog");
             scene.GatherParticles(view, I.ParticleDraws);               // particles last: over glass and sky
-            I.Particles->Render(I.ParticleDraws, view, *I.ParticleShader);
+            {   // soft particles read the opaque scene's depth (copied once a frame, shared with decals and fog)
+                bool soft = false;
+                for (const ParticleDraw& d : I.ParticleDraws) soft = soft || (d.Softness > 0.0f && !d.Instances.empty());
+                I.Particles->Render(I.ParticleDraws, view, *I.ParticleShader, soft ? depth() : 0);
+            }
             I.Gpu.Mark("particles");
             if (scene.Fog.Enabled && ShowFog && scene.Fog.Width > 0 && rendered)   // fog of war over everything but the sky
                 I.DrawFog(scene.Fog, view, depth());

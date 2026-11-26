@@ -19,7 +19,7 @@ namespace Engine {
         glDeleteVertexArrays(1, &m_VAO);
     }
 
-    void ParticleRenderer::Render(std::vector<ParticleDraw>& draws, const Camera& camera, Shader& shader) {
+    void ParticleRenderer::Render(std::vector<ParticleDraw>& draws, const Camera& camera, Shader& shader, uint32_t depthTex) {
         draws.erase(std::remove_if(draws.begin(), draws.end(), [](const ParticleDraw& d) { return d.Instances.empty(); }), draws.end());
         if (draws.empty()) return;
         std::stable_sort(draws.begin(), draws.end(), [](const ParticleDraw& a, const ParticleDraw& b) { return a.Distance > b.Distance; });
@@ -31,6 +31,10 @@ namespace Engine {
         shader.SetVec3("u_CamRight", glm::vec3(glm::row(view, 0)));
         shader.SetVec3("u_CamUp", glm::vec3(glm::row(view, 1)));
         shader.SetInt("u_Texture", 0);
+        // soft particles: the scene depth on unit 1, and the projection to turn depths into distances along the view
+        shader.SetInt("u_Depth", 1);
+        shader.SetMat4("u_Projection", camera.GetProjection());
+        if (depthTex) glBindTextureUnit(1, depthTex);
 
         glEnable(GL_BLEND);
         glDepthMask(GL_FALSE);
@@ -48,6 +52,7 @@ namespace Engine {
             if (d.Additive) glBlendFunci(0, GL_ONE, GL_ONE);
             else glBlendFunci(0, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);   // premultiplied "over"
             shader.SetInt("u_UseTexture", d.Texture ? 1 : 0);
+            shader.SetFloat("u_Softness", depthTex ? d.Softness : 0.0f);
             if (d.Texture) d.Texture->Bind(0);
             glDrawArraysInstanced(GL_TRIANGLES, 0, 6, (GLsizei)d.Instances.size());
             RenderStats::DrawCalls++;
