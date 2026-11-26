@@ -127,6 +127,8 @@ namespace Engine {
             // Only when not the default, so existing emitters keep their JSON (no prefab overrides appear)
             if (p.Softness != ParticleEmitterComponent{}.Softness) j["particles"]["softness"] = p.Softness;
             if (p.FadeIn > 0.0f) j["particles"]["fadeIn"] = p.FadeIn;
+            if (p.Sheet != glm::ivec2(1)) j["particles"]["sheet"] = { p.Sheet.x, p.Sheet.y };
+            if (p.SheetFps > 0.0f) j["particles"]["sheetFps"] = p.SheetFps;
         }
         if (e.Has<FoliageComponent>()) {
             auto& f = e.Get<FoliageComponent>();
@@ -448,6 +450,9 @@ namespace Engine {
             p.Additive = jp.value("additive", p.Additive);
             p.Softness = std::max(jp.value("softness", p.Softness), 0.0f);
             p.FadeIn = std::max(jp.value("fadeIn", p.FadeIn), 0.0f);
+            if (auto it = jp.find("sheet"); it != jp.end() && it->is_array() && it->size() == 2)
+                p.Sheet = glm::clamp(glm::ivec2((*it)[0].get<int>(), (*it)[1].get<int>()), glm::ivec2(1), glm::ivec2(16));
+            p.SheetFps = std::max(jp.value("sheetFps", p.SheetFps), 0.0f);
             p.WorldSpace = jp.value("worldSpace", p.WorldSpace);
             p.DestroyWhenDone = jp.value("destroyWhenDone", p.DestroyWhenDone);
             e.Add<ParticleEmitterComponent>(p);

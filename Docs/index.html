@@ -432,7 +432,8 @@ material.set("Materials/glow.mat", "emissiveIntensity", 6)   -- for everything u
   <li><b>Params</b> are the values a graph exposes: float, vec2, vec3, vec4, color (sRGB in pickers, linear in the shader) and texture (with a <i>Data (linear)</i> switch for normal maps, roughness and masks). Each material using the graph sets its own in <code>"params"</code>, so one graph serves many materials. A variant's params are merged into its parent's one by one.</li>
   <li><b>Nodes</b>, about 60:
     <ul>
-      <li><b>Input:</b> UV, Position, Normal, View Direction, Screen Position, Time, Float, Vector2/3/4, Color, Property.</li>
+      <li><b>Input:</b> UV, Position, Normal, View Direction, Screen Position, Time, Float, Vector2/3/4, Color, Property, <b>Scene Depth</b> (see-through materials: metres from the surface to the solid scene behind it, for shore foam, shallow colour and soft edges; it reads 10000 in opaque materials, shadows, previews and the web build).</li>
+      <li><b>Ripple Rings</b> (Procedural): rings spreading over water from where scripts start them with <code>scene.ripple(pos, strength)</code> (the newest 16 are kept, aged on the scene clock). Outputs a tangent-space Normal for a plane or cube top (like Waves) and a Height in metres; inputs Speed, Wavelength, Life and Strength.</li>
       <li><b>Texture:</b> Sample Texture, Sample Normal Map, Triplanar.</li>
       <li><b>UV:</b> Tiling And Offset, Panner, Rotate UV, World UV.</li>
       <li><b>Math:</b> Add, Subtract, Multiply, Divide, Power, Min/Max, Modulo, Step, One Minus, Negate, Absolute, Floor, Ceiling, Fraction, Square Root, Sine, Cosine, Saturate, Normalize, Clamp, Lerp, Smoothstep, Remap, Posterize, Length, Distance, Dot and Cross Product.</li>
@@ -619,7 +620,7 @@ self.animator:set_ik(1, { type = "look", bone = "b_Head_05", target = player, ma
 
 <section class="doc" data-group="Engine" id="engine-particles">
 <h2>Particles</h2>
-<p>CPU-simulated billboard particles. An emitter has a rate, burst, spread cone, shape (point, box…), gravity scale, drag, size and colour over life, emission brightness and optional texture/additive blending. <b>Softness</b> (metres, default 0.3) makes them soft particles: each one fades out as it nears the surface behind it, so big smoke and mist quads don't cut a hard line through walls and floors (0 = hard edges). <b>Fade in</b> (seconds, default 0) eases each new particle in from nothing, so slow mist and motes don't pop into view. Presets: <b>Fire, Smoke, Sparks, Magic, Dust, Embers</b>. Emitters preview live in Edit mode.</p>
+<p>CPU-simulated billboard particles. An emitter has a rate, burst, spread cone, shape (point, box…), gravity scale, drag, size and colour over life, emission brightness and optional texture/additive blending. <b>Softness</b> (metres, default 0.3) makes them soft particles: each one fades out as it nears the surface behind it, so big smoke and mist quads don't cut a hard line through walls and floors (0 = hard edges). <b>Fade in</b> (seconds, default 0) eases each new particle in from nothing, so slow mist and motes don't pop into view. <b>Sheet</b> (columns x rows, default 1 x 1) treats the texture as a sprite sheet (frames left to right, top row first): each particle starts on a random frame, and <b>Sheet fps</b> above 0 plays on through the frames (flickering flames; 0 keeps the frame). In scene files: <code>"sheet": [2, 2], "sheetFps": 8</code>. Presets: <b>Fire, Smoke, Sparks, Magic, Dust, Embers</b>. Emitters preview live in Edit mode.</p>
 <pre><code class="lua">self:add_particles("Fire")
 scene.spawn_particles(self.position, { preset = "Sparks", count = 40 })   -- one-shot, removes itself</code></pre>
 </section>
@@ -1469,7 +1470,8 @@ p.start_color = vec3(1, 0.8, 0.2); p.end_color = vec3(1, 0, 0)
 p.softness = 1.0                                  -- metres of fade where it meets surfaces (0 = hard edges)
 p.fade_in = 2.0                                   -- seconds a new particle takes to fade in (0 = at once)
 
-scene.spawn_particles(self.position, "Sparks")    -- one-shot effect, removes itself</code></pre>
+scene.spawn_particles(self.position, "Sparks")    -- one-shot effect, removes itself
+scene.ripple(self.position, 1.0)                  -- a ring over water whose shader graph has a Ripple Rings node</code></pre>
 </section>
 
 <section class="doc" data-group="Scripting" id="script-foliage">

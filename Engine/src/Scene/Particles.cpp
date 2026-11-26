@@ -69,6 +69,8 @@ namespace Engine {
                 const bool spins = pe.SpinSpeed.x != 0.0f || pe.SpinSpeed.y != 0.0f;
                 p.Rotation = spins ? Rand(0.0f, glm::two_pi<float>()) : 0.0f;
                 p.Spin = glm::radians(Rand(pe.SpinSpeed.x, pe.SpinSpeed.y));
+                const int frames = std::max(1, pe.Sheet.x) * std::max(1, pe.Sheet.y);
+                p.Frame = std::floor(Rand(0.0f, (float)frames - 0.001f));
                 pe.Particles.push_back(p);
             }
         }
@@ -121,6 +123,7 @@ namespace Engine {
             d.Texture = pe.Texture.get();
             d.Additive = pe.Additive;
             d.Softness = pe.Softness;
+            d.Sheet = glm::max(pe.Sheet, glm::ivec2(1));
             d.Distance = glm::length(glm::vec3(world[3]) - camera.Position);
             d.Instances.reserve(pe.Particles.size());
 
@@ -138,7 +141,9 @@ namespace Engine {
                     alpha *= f * f * (3.0f - 2.0f * f);
                 }
                 inst.Color = glm::vec4(glm::mix(c0, c1, t), alpha);
-                inst.Extra = glm::vec4(p.Rotation, 0.0f, 0.0f, 0.0f);
+                const int frames = std::max(1, pe.Sheet.x) * std::max(1, pe.Sheet.y);
+                const float frame = std::fmod(std::floor(p.Frame + p.Age * std::max(pe.SheetFps, 0.0f)), (float)frames);
+                inst.Extra = glm::vec4(p.Rotation, frame, 0.0f, 0.0f);
                 d.Instances.push_back(inst);
             }
             // "Over" blending needs far particles first; adding light doesn't care about order
@@ -178,6 +183,8 @@ namespace Engine {
         p.Texture = pe.Texture;
         p.Softness = pe.Softness;               // how it meets surfaces stays the emitter's own, not the preset's
         p.FadeIn = pe.FadeIn;                   // and so does how it appears
+        p.Sheet = pe.Sheet;                     // the texture's layout goes with the texture
+        p.SheetFps = pe.SheetFps;
         if (name == "Fire") {
             p.Rate = 70.0f; p.Lifetime = { 0.6f, 1.1f }; p.Speed = { 1.0f, 1.8f }; p.Spread = 10.0f;
             p.Shape = EmitShape::Sphere; p.ShapeSize = glm::vec3(0.18f);

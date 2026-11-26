@@ -1031,6 +1031,10 @@ namespace Engine {
             return Wrap(e.GetHandle());
         });
         scene.set_function("time", [this]() { return Time; });
+        // A ripple ring spreading from pos over water whose shader graph has a Ripple Rings node (strength 1 = normal)
+        scene.set_function("ripple", [this](const glm::vec3& pos, sol::optional<float> strength) {
+            ActiveScene->AddRipple(pos, std::max(strength.value_or(1.0f), 0.0f));
+        });
         scene.set_function("real_time", [this]() { return RealTime; });
         scene.set_function("real_dt", [this]() { return RealDt; });
         scene.set_function("time_scale", [this](sol::optional<float> v) {

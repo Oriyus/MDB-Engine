@@ -712,7 +712,12 @@ namespace Engine {
             if (!scene.Decals.empty() && Mode != ViewMode::Solid)      // projected onto the opaque scene, under glass
                 I.Decals->Render(scene.Decals, view, depth(), I.HDR->GetWidth(), I.HDR->GetHeight(), *I.DecalShader);
             I.Gpu.Mark("decals");
-            { PROFILE_SCOPE("Transparent pass"); scene.Render(view, I.Draws->AreaLights ? *I.LitArea : *I.Lit, *I.Draws, shadows, env, Scene::RenderPass::Transparent); }   // glass etc. over the sky
+            {   // glass etc. over the sky; shader graphs there can read the opaque scene's depth (Scene Depth node)
+                PROFILE_SCOPE("Transparent pass");
+                if (!I.Draws->Transparent.empty()) { scene.SeeThroughDepth = depth(); scene.SeeThroughProjection = view.GetProjection(); }
+                scene.Render(view, I.Draws->AreaLights ? *I.LitArea : *I.Lit, *I.Draws, shadows, env, Scene::RenderPass::Transparent);
+                scene.SeeThroughDepth = 0;
+            }
             I.Gpu.Mark("see-through");
             if (VolFog.Enabled && rendered)                          // fog over the scene and the sky, under particles
                 I.FogPass->Render(scene, view, *I.VolFogMarch, *I.VolFogComposite, *I.Draws, &I.Shadows, I.Env.get(), depth(),

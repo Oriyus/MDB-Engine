@@ -358,5 +358,9 @@ namespace Engine {
         if (m_Pending) return;                // (set right before the draws that need them, after Bind)
         if (count > 0) glProgramUniformMatrix4fv(m_Program, GetUniformLocation(name), (GLsizei)count, GL_FALSE, glm::value_ptr(v[0]));
     }
+    void Shader::SetVec4Array(const std::string& name, const glm::vec4* v, uint32_t count) {
+        if (m_Pending) return;                // (set right before the draws that need them, after Bind)
+        if (count > 0) glProgramUniform4fv(m_Program, GetUniformLocation(name), (GLsizei)count, glm::value_ptr(v[0]));
+    }
 
 } // namespace Engine

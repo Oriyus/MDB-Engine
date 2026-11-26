@@ -105,6 +105,17 @@ namespace Engine {
         void Render(const Camera& camera, Shader& shader, const DrawList& list, const ShadowContext* shadows = nullptr,
             const Environment* env = nullptr, RenderPass pass = RenderPass::Opaque);
 
+        // A copy of the opaque scene's depth for shader graphs in the see-through pass (the Scene Depth node): set by
+        // the renderer around that pass (0 = none), with the camera's projection to turn it into distances
+        uint32_t SeeThroughDepth = 0;
+        glm::mat4 SeeThroughProjection{ 1.0f };
+
+        // Ripple rings on water (the shader graph's Ripple Rings node): the newest MaxRipples rings, each
+        // (x, z, birth on the WindTime clock, strength). Scripts add them (scene.ripple); shaders age them.
+        static constexpr int MaxRipples = 16;
+        std::vector<glm::vec4> Ripples;
+        void AddRipple(const glm::vec3& pos, float strength);
+
         float AmbientIntensity = 0.6f;     // strength of the environment light
         // The wind that sways Mesh Renderers with Wind > 0 (trees). Saved in the scene settings ("wind").
         // Grass fields have their own wind settings (FoliageComponent).

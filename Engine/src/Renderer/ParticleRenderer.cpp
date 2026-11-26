@@ -53,6 +53,7 @@ namespace Engine {
             else glBlendFunci(0, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);   // premultiplied "over"
             shader.SetInt("u_UseTexture", d.Texture ? 1 : 0);
             shader.SetFloat("u_Softness", depthTex ? d.Softness : 0.0f);
+            shader.SetVec2("u_Sheet", d.Texture ? glm::vec2(d.Sheet) : glm::vec2(1.0f));
             if (d.Texture) d.Texture->Bind(0);
             glDrawArraysInstanced(GL_TRIANGLES, 0, 6, (GLsizei)d.Instances.size());
             RenderStats::DrawCalls++;

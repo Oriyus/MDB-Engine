@@ -13,7 +13,7 @@ namespace Engine {
     struct ParticleInstance {
         glm::vec4 PositionSize{ 0.0f };   // xyz world position, w size (metres)
         glm::vec4 Color{ 1.0f };          // linear rgb (emission included), alpha
-        glm::vec4 Extra{ 0.0f };          // x rotation (radians)
+        glm::vec4 Extra{ 0.0f };          // x rotation (radians), y sprite-sheet frame
     };
     static_assert(sizeof(ParticleInstance) == 48, "must match particle.vert");
 
@@ -23,6 +23,7 @@ namespace Engine {
         const Texture2D* Texture = nullptr;        // none: a soft round dot
         bool Additive = false;
         float Softness = 0.0f;                     // metres: fade near the scene behind (0 = hard edges)
+        glm::ivec2 Sheet{ 1, 1 };                  // the texture's frames: columns, rows
         float Distance = 0.0f;                     // emitter to camera, for ordering emitters
     };
 

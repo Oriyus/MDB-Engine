@@ -399,6 +399,25 @@ vec3 EnvDir(vec3 d) {
 #ifdef MDB_GRAPH
 uniform float u_SceneWindTime;   // the scene clock (Time node)
 #endif
+#if defined(MDB_GRAPH) && !defined(MDB_WEB)
+// The Scene Depth node (shader graphs): metres from this surface to the opaque scene behind it, along the view.
+// Scene::DrawListBatches gives a copy of the scene depth (unit 8) to graphs in the see-through pass only; elsewhere
+// (u_HasSceneDepth 0) it reads deep. The web build leaves it out (a fragment shader gets 16 textures there).
+#define SG_SCENE_DEPTH_SOURCE
+uniform sampler2D u_SceneDepth;
+uniform mat4 u_SGProjection;
+uniform int u_HasSceneDepth;
+float SGViewDistance(float depth) {
+    float ndc = depth * 2.0 - 1.0;
+    if (u_SGProjection[3][3] > 0.5) return -(ndc - u_SGProjection[3][2]) / u_SGProjection[2][2];   // orthographic
+    return u_SGProjection[3][2] / (ndc + u_SGProjection[2][2]);
+}
+float SGSceneDepth() {
+    if (u_HasSceneDepth == 0) return 10000.0;
+    float behind = SGViewDistance(texelFetch(u_SceneDepth, ivec2(gl_FragCoord.xy), 0).r);
+    return max(behind - SGViewDistance(gl_FragCoord.z), 0.0);
+}
+#endif
 // @GRAPH_CODE
 
 // Grass shading the ground (FoliageRenderer::BindGroundShade, storage buffer binding 10): per grass field, a map over

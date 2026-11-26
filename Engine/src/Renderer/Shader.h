@@ -29,6 +29,7 @@ namespace Engine {
         void SetIVec4(const std::string& name, const glm::ivec4& value);
         void SetMat4(const std::string& name, const glm::mat4& value);
         void SetMat4Array(const std::string& name, const glm::mat4* values, uint32_t count);   // e.g. "u_Bones"
+        void SetVec4Array(const std::string& name, const glm::vec4* values, uint32_t count);   // e.g. "u_Ripples"
 
         // Don't warn about uniforms this program lacks (it is given a shared set, e.g. Scene::SetLightingUniforms)
         bool QuietMissing = false;

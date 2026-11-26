@@ -25,6 +25,7 @@ Particle FetchParticle(int i) { return u_Particles[i]; }
 uniform mat4 u_ViewProjection;
 uniform vec3 u_CamRight;
 uniform vec3 u_CamUp;
+uniform vec2 u_Sheet;          // the texture's frames: columns, rows (1, 1 = a single image)
 
 out vec2 v_UV;
 out vec4 v_Color;
@@ -37,7 +38,10 @@ void main() {
     float s = sin(p.Extra.x), co = cos(p.Extra.x);
     vec2 r = vec2(c.x * co - c.y * s, c.x * s + c.y * co) * (p.PositionSize.w * 0.5);
     vec3 world = p.PositionSize.xyz + u_CamRight * r.x + u_CamUp * r.y;
-    v_UV = c * 0.5 + 0.5;
+    // the particle's frame of the sheet (Extra.y): left to right, top row first (textures load bottom-up)
+    vec2 sheet = max(u_Sheet, vec2(1.0));
+    float col = mod(p.Extra.y, sheet.x), row = sheet.y - 1.0 - floor(p.Extra.y / sheet.x);
+    v_UV = (vec2(col, row) + c * 0.5 + 0.5) / sheet;
     v_Color = p.Color;
     gl_Position = u_ViewProjection * vec4(world, 1.0);
 }

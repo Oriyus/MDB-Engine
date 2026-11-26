@@ -2284,6 +2284,14 @@ namespace Engine {
         }
     }
 
+    void Scene::AddRipple(const glm::vec3& pos, float strength) {
+        // Rings older than any sensible life are let go; when full, the oldest gives way
+        Ripples.erase(std::remove_if(Ripples.begin(), Ripples.end(), [&](const glm::vec4& r) { return WindTime - r.z > 10.0f; }), Ripples.end());
+        if ((int)Ripples.size() >= MaxRipples)
+            Ripples.erase(std::min_element(Ripples.begin(), Ripples.end(), [](const glm::vec4& a, const glm::vec4& b) { return a.z < b.z; }));
+        Ripples.push_back(glm::vec4(pos.x, pos.z, WindTime, strength));
+    }
+
     void Scene::DrawListBatches(Shader& shader, const DrawList& list, RenderPass pass) {
         // Each batch: its textures and alpha settings, then one instanced call for all its objects
         list.Bind();
@@ -2303,6 +2311,19 @@ namespace Engine {
                     if (wanted)
                         if (Shader* g = graph->Program->Get(shader.GraphVariant)) {
                             shader.ReplayInto(*g);           // the lighting, camera and per-pass values the plain shader got
+                            // the Scene Depth node: the opaque scene's depth, in the see-through pass only
+                            const bool depthOn = pass == RenderPass::Transparent && SeeThroughDepth != 0;
+                            g->SetInt("u_HasSceneDepth", depthOn ? 1 : 0);
+                            if (depthOn) {
+                                g->SetInt("u_SceneDepth", 8);
+                                g->SetMat4("u_SGProjection", SeeThroughProjection);
+                                glBindTextureUnit(8, SeeThroughDepth);
+                            }
+                            // the Ripple Rings node: the rings scripts added (unused slots never start)
+                            glm::vec4 rings[MaxRipples];
+                            for (int k = 0; k < MaxRipples; k++)
+                                rings[k] = k < (int)Ripples.size() ? Ripples[k] : glm::vec4(0.0f, 0.0f, -1.0e9f, 0.0f);
+                            g->SetVec4Array("u_Ripples", rings, MaxRipples);
                             next = g;
                         }
                     if (next != cur) { next->Bind(); cur = next; terrain = nullptr; cur->SetInt("u_Terrain", 0); }

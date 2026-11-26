@@ -134,6 +134,8 @@ namespace Engine {
             Add(v, "Normal", "Input", "The surface's normal in world space (before any normal map).", {}, { { P("Normal", 3), "IN.WorldNormal" } });
             Add(v, "View Direction", "Input", "From the surface towards the camera, world space, length 1.", {}, { { P("Direction", 3), "IN.ViewDir" } });
             Add(v, "Screen Position", "Input", "Where the pixel is on the screen, 0..1.", {}, { { P("UV", 2), "IN.ScreenUV" } });
+            Add(v, "Scene Depth", "Input", "See-through materials: metres from this surface to the solid scene behind it (along the view). Small where water meets a wall or the bottom: shore foam, shallow colour, soft edges. Reads 10000 (deep) in opaque materials, shadows, previews and the web build.",
+                {}, { { P("Depth", 1), "sg_sceneDepth()" } });
             Add(v, "Time", "Input", "Seconds (the scene clock: it runs in the editor too).", {},
                 { { P("Time", 1), "IN.Time" }, { P("Sin", 1), "sin(IN.Time)" }, { P("Cos", 1), "cos(IN.Time)" } });
             Add(v, "Float", "Input", "A number.", {}, { { P("Value", 1), "" } }, true);
@@ -225,6 +227,11 @@ namespace Engine {
             Add(v, "Contrast", "Surface", "Spreads colours away from (or towards) mid grey.", { P("Color", 3, Half), P("Contrast", 1, One) },
                 { { P("Out", 3), "max(($0 - 0.18) * $1 + 0.18, 0.0)" } });
             Add(v, "Hue Shift", "Surface", "Turns the hue (0..1 = a full turn).", { P("Color", 3, One), P("Shift", 1) }, { { P("Out", 3), "sg_hue($0, $1)" } });
+            Add(v, "Ripple Rings", "Procedural", "Rings spreading over water from where scripts start them (scene.ripple(pos, strength)): wading, splashes. Normal is tangent space for a plane / cube top (+X, -Z), like Waves; Height in metres.",
+                { P("Position", 3, glm::vec4(0.0f), "IN.WorldPos"), P("Speed", 1, glm::vec4(0.8f)), P("Wavelength", 1, glm::vec4(0.3f)),
+                  P("Life", 1, glm::vec4(2.0f)), P("Strength", 1, glm::vec4(0.012f)) },
+                { { P("Normal", 3), "sg_wavesNormal(sg_ripples($0, IN.Time, $1, $2, $3, $4))" },
+                  { P("Height", 1), "sg_ripples($0, IN.Time, $1, $2, $3, $4).x" } });
             Add(v, "Normal Blend", "Surface", "Two tangent normals together (a detail map over a base one).", { P("A", 3, Up), P("B", 3, Up) },
                 { { P("Out", 3), "sg_normalBlend($0, $1)" } });
             Add(v, "Normal Strength", "Surface", "Flattens (below 1) or deepens a tangent normal.", { P("In", 3, Up), P("Strength", 1, One) },
@@ -303,6 +310,37 @@ vec3 sg_waves(vec2 p, vec2 dir, float len, float amp, float speed, float t) {
 }
 // Its normal in the tangent space of a plane / grid (u along +X, v along -Z)
 vec3 sg_wavesNormal(vec3 w) { return normalize(vec3(-w.y, w.z, 1.0)); }
+// The Ripple Rings node: rings scripts start (scene.ripple; Scene::Ripples): x, z, birth (scene clock), strength.
+// Each is a small wave packet moving out at `speed`, fading with age and thinning as it spreads.
+// Returns (height, dh/dx, dh/dz), metres per `amp` of strength.
+uniform vec4 u_Ripples[16];
+vec3 sg_ripples(vec3 p, float t, float speed, float wavelength, float life, float amp) {
+    vec3 r = vec3(0.0);
+    float k = 6.2831853 / max(wavelength, 0.01);
+    float w = max(wavelength, 0.01) * 0.9;
+    for (int i = 0; i < 16; i++) {
+        vec4 s = u_Ripples[i];
+        float age = t - s.z;
+        if (age < 0.0 || age > life || s.w <= 0.0) continue;
+        vec2 d2 = p.xz - s.xy;
+        float d = length(d2);
+        float x = d - speed * age;
+        if (abs(x) > 3.0 * w) continue;
+        float g = exp(-(x * x) / (w * w));
+        float f = 1.0 - age / life;
+        float a = amp * s.w * f * f / (1.0 + 1.5 * speed * age);
+        float ph = k * x;
+        float dh = a * g * (k * cos(ph) - 2.0 * x / (w * w) * sin(ph));
+        r += vec3(a * g * sin(ph), d > 1e-4 ? dh * d2 / d : vec2(0.0));
+    }
+    return r;
+}
+// The Scene Depth node: lit.frag supplies the real one (SG_SCENE_DEPTH_SOURCE, see-through pass); elsewhere it's deep
+#ifdef SG_SCENE_DEPTH_SOURCE
+float sg_sceneDepth() { return SGSceneDepth(); }
+#else
+float sg_sceneDepth() { return 10000.0; }
+#endif
 vec4 sg_triplanar(sampler2D t, vec3 p, vec3 n, float scale, float sharp) {
     vec3 w = pow(abs(normalize(n)), vec3(sharp)); w /= (w.x + w.y + w.z + 1e-5);
     return texture(t, p.zy * scale) * w.x + texture(t, p.xz * scale) * w.y + texture(t, p.xy * scale) * w.z;
