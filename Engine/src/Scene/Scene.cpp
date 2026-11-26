@@ -115,14 +115,39 @@ namespace Engine {
     glm::mat4 Scene::GetWorldMatrix(entt::entity e) {
         glm::mat4 m = m_Registry.get<TransformComponent>(e).GetMatrix();
         int guard = 0;                         // a corrupt file could hold a loop: don't hang on it
-        for (entt::entity p = GetParent(e); p != entt::null && guard < 256; p = GetParent(p), guard++)
-            m = m_Registry.get<TransformComponent>(p).GetMatrix() * m;
+        entt::entity c = e;
+        for (entt::entity p = GetParent(e); p != entt::null && guard < 256; c = p, p = GetParent(p), guard++)
+            m = m_Registry.get<TransformComponent>(p).GetMatrix() * SocketMatrix(c, p) * m;
         return m;
     }
 
     glm::mat4 Scene::GetParentWorldMatrix(entt::entity e) {
         const entt::entity p = GetParent(e);
-        return p == entt::null ? glm::mat4(1.0f) : GetWorldMatrix(p);
+        return p == entt::null ? glm::mat4(1.0f) : GetWorldMatrix(p) * SocketMatrix(e, p);
+    }
+
+    // A child on a bone (BoneSocketComponent): the bone's move from its rest pose, in the parent entity's space
+    glm::mat4 Scene::SocketMatrix(entt::entity child, entt::entity parent) {
+        auto* s = m_Registry.try_get<BoneSocketComponent>(child);
+        if (!s || s->Bone.empty()) return glm::mat4(1.0f);
+        const auto* an = m_Registry.try_get<AnimatorComponent>(parent);
+        const auto* mr = m_Registry.try_get<MeshRendererComponent>(parent);
+        const Model* model = mr ? dynamic_cast<const Model*>(mr->Geometry.get()) : nullptr;
+        if (!an || !model) return glm::mat4(1.0f);
+        if (s->For != model) {
+            s->For = model;
+            s->Node = model->FindNode(s->Bone);
+            if (s->Node >= 0) {
+                std::vector<Model::NodePose> restPose;
+                std::vector<glm::mat4> restGlobals;
+                model->SamplePose(-1, 0.0f, restPose);
+                model->PoseToGlobals(restPose, restGlobals);
+                s->RestInverse = s->Node < (int)restGlobals.size() ? glm::inverse(restGlobals[s->Node]) : glm::mat4(1.0f);
+            }
+        }
+        if (s->Node < 0 || s->Node >= (int)an->Globals.size()) return glm::mat4(1.0f);
+        const glm::mat4 moved = an->Globals[s->Node] * s->RestInverse;    // model space
+        return mr->LocalOffset == glm::mat4(1.0f) ? moved : mr->LocalOffset * moved * glm::inverse(mr->LocalOffset);
     }
 
     void Scene::Decompose(const glm::mat4& m, glm::vec3& position, glm::quat& rotation, glm::vec3& scale) {

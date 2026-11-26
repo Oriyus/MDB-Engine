@@ -75,6 +75,8 @@ namespace Engine {
 
         glm::mat4 GetWorldMatrix(entt::entity e);
         glm::mat4 GetParentWorldMatrix(entt::entity e);           // identity for a root
+        // A child on a bone of its parent's model (BoneSocketComponent): that bone's move from rest; else identity
+        glm::mat4 SocketMatrix(entt::entity child, entt::entity parent);
         void SetWorldMatrix(entt::entity e, const glm::mat4& world);   // sets the local transform to match
         void SetWorldPosition(entt::entity e, const glm::vec3& position);
         void SetWorldRotation(entt::entity e, const glm::quat& rotation);

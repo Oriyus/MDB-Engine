@@ -40,6 +40,17 @@ namespace Engine {
         uint64_t Parent = 0;
     };
 
+    // Rides a bone of the parent's animated model (a weapon in a hand, eyes in a head). The child's Transform stays
+    // relative to the parent entity as placed at the model's rest pose; the bone's move away from its rest pose is
+    // applied on top, so the child moves as if rigidly skinned to that bone. No animator or no such bone: the plain
+    // parent. Runtime-only (set from scripts: e.parent_bone); Node / For / RestInverse are a cache.
+    struct BoneSocketComponent {
+        std::string Bone;
+        int Node = -1;
+        const void* For = nullptr;          // the model the cache was made for
+        glm::mat4 RestInverse{ 1.0f };      // the bone's rest placement in model space, inverted
+    };
+
     // Position / Rotation / Scale are LOCAL: relative to the parent if there is one, else the world.
     // Scene::GetWorldMatrix gives the world placement.
     struct TransformComponent {

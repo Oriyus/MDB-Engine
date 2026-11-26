@@ -220,6 +220,7 @@ e.Add&lt;RigidBodyComponent&gt;().Type = BodyType::Static;</code></pre>
 <section class="doc" data-group="Engine" id="engine-hierarchy">
 <h2>Transforms &amp; hierarchy</h2>
 <p>A child stores its parent's ID (<code>ParentComponent</code>) and its transform is <b>local</b> to the parent. Everything spatial (rendering, physics, audio, cameras, the gizmo) works in world space.</p>
+<p><b>Riding a bone.</b> A child of an entity with an animated model can follow one of its bones: <code>e.parent_bone = "hand_R"</code> in Lua (<code>nil</code> or <code>""</code> clears it; <code>BoneSocketComponent</code>, runtime only). Place the child as it should sit at the model's <b>rest pose</b>; the bone's move away from its rest pose is applied on top, as if the child were rigidly skinned to that bone, so a weapon or eyes modelled in place need no re-pivoting. Without an animator or that bone it is a plain child.</p>
 <ul>
   <li><code>GetWorldMatrix</code>, <code>SetWorldMatrix / Position / Rotation</code>, <code>SetParent(child, parent, keepWorld)</code> (refuses loops), <code>GetChildren</code>.</li>
   <li>Destroying an entity destroys its children; duplicating copies the whole subtree with new IDs.</li>

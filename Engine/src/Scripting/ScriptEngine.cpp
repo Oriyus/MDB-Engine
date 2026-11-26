@@ -621,6 +621,27 @@ namespace Engine {
                     }
                     if (!e.Owner->SetParent(e.Handle, p, true)) throw std::runtime_error("that would make a loop of parents");
                 }),
+            // the bone of the parent's animated model this entity rides (nil / "": none). Its local transform stays
+            // what it is at the model's rest pose; the bone's move from rest carries it.
+            "parent_bone", sol::property(
+                [](const ScriptEntity& e) -> sol::optional<std::string> {
+                    e.Get<TransformComponent>();
+                    const auto* s = e.Owner->Registry().try_get<BoneSocketComponent>(e.Handle);
+                    if (!s || s->Bone.empty()) return sol::nullopt;
+                    return s->Bone;
+                },
+                [](const ScriptEntity& e, sol::object bone) {
+                    e.Get<TransformComponent>();
+                    auto& reg = e.Owner->Registry();
+                    if (!bone.valid() || bone.get_type() == sol::type::lua_nil || (bone.is<std::string>() && bone.as<std::string>().empty())) {
+                        reg.remove<BoneSocketComponent>(e.Handle);
+                        return;
+                    }
+                    if (!bone.is<std::string>()) throw std::runtime_error("parent_bone must be a bone name or nil");
+                    BoneSocketComponent s;
+                    s.Bone = bone.as<std::string>();
+                    reg.emplace_or_replace<BoneSocketComponent>(e.Handle, s);
+                }),
             "children", [this](const ScriptEntity& e) {
                 e.Get<TransformComponent>();
                 sol::table out = Lua->create_table();
