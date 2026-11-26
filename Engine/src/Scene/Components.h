@@ -311,6 +311,9 @@ namespace Engine {
         // Soft particles: metres over which a particle fades out as it nears the surface behind it, so big smoke and
         // mist quads don't cut a hard line where they cross walls and floors (0 = off: hard edges)
         float Softness = 0.3f;
+        // Seconds over which a new particle fades in from nothing (eased), so slow mist and motes don't pop into
+        // view (0 = appears at once, as sparks and fire should). Capped at the particle's lifetime.
+        float FadeIn = 0.0f;
         bool  WorldSpace = true;          // particles stay where they were emitted (else they move with the entity)
         bool  DestroyWhenDone = false;    // remove the entity once it stops emitting and its particles are gone
 

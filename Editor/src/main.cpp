@@ -5192,6 +5192,8 @@ private:
             ImGui::SetItemTooltip("Brightness: above 1 glows with bloom");
             ImGui::Checkbox("Additive", &pe.Additive);
             ImGui::SetItemTooltip("Adds light (fire, sparks, magic). Off: covers what is behind (smoke, dust).");
+            ImGui::DragFloat("Fade in", &pe.FadeIn, 0.01f, 0.0f, 30.0f, "%.2f s");
+            ImGui::SetItemTooltip("Seconds a new particle takes to fade in from nothing, so slow mist and motes don't pop\ninto view. 0 = appears at once (sparks, fire).");
             ImGui::DragFloat("Softness", &pe.Softness, 0.01f, 0.0f, 10.0f, "%.2f m");
             ImGui::SetItemTooltip("Soft particles: fade out over this distance as they near a surface, so big smoke and mist\ndon't cut a hard line through walls and floors. 0 = hard edges.");
             {

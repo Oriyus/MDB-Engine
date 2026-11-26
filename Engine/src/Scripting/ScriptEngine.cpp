@@ -1520,6 +1520,9 @@ namespace Engine {
             "rate", sol::property(
                 [](const ParticlesRef& p) { return p.E.Get<ParticleEmitterComponent>().Rate; },
                 [](const ParticlesRef& p, float v) { p.E.Get<ParticleEmitterComponent>().Rate = std::max(v, 0.0f); }),
+            "fade_in", sol::property(
+                [](const ParticlesRef& p) { return p.E.Get<ParticleEmitterComponent>().FadeIn; },
+                [](const ParticlesRef& p, float v) { p.E.Get<ParticleEmitterComponent>().FadeIn = std::max(v, 0.0f); }),
             "softness", sol::property(
                 [](const ParticlesRef& p) { return p.E.Get<ParticleEmitterComponent>().Softness; },
                 [](const ParticlesRef& p, float v) { p.E.Get<ParticleEmitterComponent>().Softness = std::max(v, 0.0f); }),

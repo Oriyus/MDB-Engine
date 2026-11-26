@@ -132,7 +132,12 @@ namespace Engine {
                 const glm::vec3 pos = pe.WorldSpace ? p.Position : glm::vec3(world * glm::vec4(p.Position, 1.0f));
                 ParticleInstance inst;
                 inst.PositionSize = glm::vec4(pos, p.Size * glm::mix(1.0f, pe.EndSize, t));
-                inst.Color = glm::vec4(glm::mix(c0, c1, t), glm::mix(pe.StartColor.a, pe.EndColor.a, t));
+                float alpha = glm::mix(pe.StartColor.a, pe.EndColor.a, t);
+                if (pe.FadeIn > 0.0f) {                       // ease in from nothing over the first FadeIn seconds
+                    const float f = std::clamp(p.Age / std::min(pe.FadeIn, p.Life), 0.0f, 1.0f);
+                    alpha *= f * f * (3.0f - 2.0f * f);
+                }
+                inst.Color = glm::vec4(glm::mix(c0, c1, t), alpha);
                 inst.Extra = glm::vec4(p.Rotation, 0.0f, 0.0f, 0.0f);
                 d.Instances.push_back(inst);
             }
@@ -172,6 +177,7 @@ namespace Engine {
         ParticleEmitterComponent p;              // the defaults, then the preset's changes
         p.Texture = pe.Texture;
         p.Softness = pe.Softness;               // how it meets surfaces stays the emitter's own, not the preset's
+        p.FadeIn = pe.FadeIn;                   // and so does how it appears
         if (name == "Fire") {
             p.Rate = 70.0f; p.Lifetime = { 0.6f, 1.1f }; p.Speed = { 1.0f, 1.8f }; p.Spread = 10.0f;
             p.Shape = EmitShape::Sphere; p.ShapeSize = glm::vec3(0.18f);
